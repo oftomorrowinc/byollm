@@ -1,0 +1,12 @@
+node_modules/
+dist/
+build/
+.next/
+coverage/
+*.tsbuildinfo
+.env
+.env.local
+.DS_Store
+byollm.config.json
+*.log
+.git/_stale_locks/

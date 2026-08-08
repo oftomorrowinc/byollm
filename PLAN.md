@@ -43,11 +43,15 @@ marketplace/pooling of compute (never — it breaks the trust model
 and the provider-terms posture). Windows daemon polish (macOS/Linux
 first).
 
-## Identity (pending checks)
+## Identity
 
-npm `byollm` (the real identity — check first), GitHub org `byollm`,
-domains: `byo-llm.com` (available — buy as insurance), check
-`byollm.dev`; parked `byollm.com` acquirable later if warranted.
+**npm org `byollm`: secured (2026-08-08).** Packages publish as
+`@byollm/protocol`, `@byollm/daemon`, `@byollm/server`. Still to
+claim: the **bare `byollm` package** (separate from the org — it is
+what makes `npx byollm connect …` work unprefixed; placeholder-publish
+it if free), the `byollm` GitHub org, `byo-llm.com` (available — buy
+as insurance), and a check on `byollm.dev`. Parked `byollm.com`
+acquirable later if warranted.
 
 ## Relationship to the other repos
 

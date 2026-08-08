@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>BYOLLM — Bring Your Own LLM</title>
+<meta name="description" content="Let your app's users run its AI on their own models and subscriptions — their Ollama box, their MLX machine, their claude CLI — through a tiny daemon they run and control.">
+<style>
+  :root{
+    --bg:#0a0b0d; --surface:#111318; --surface-2:#161922; --line:#232733;
+    --ink:#e8eaf0; --muted:#9aa2b1; --faint:#5b6473;
+    --accent:#4ade80; --accent-dim:#1f3d2c; --warn:#f5a524; --code:#c8d0e0;
+    --radius:14px;
+  }
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  body{
+    margin:0; background:var(--bg); color:var(--ink);
+    font:16px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,sans-serif;
+    -webkit-font-smoothing:antialiased;
+  }
+  a{color:var(--accent); text-decoration:none}
+  a:hover{text-decoration:underline}
+  code,pre,.mono{font-family:"SF Mono",ui-monospace,"JetBrains Mono",Menlo,Consolas,monospace}
+  .wrap{max-width:1080px; margin:0 auto; padding:0 24px}
+  .band{border-top:1px solid var(--line)}
+
+  /* nav */
+  nav{position:sticky; top:0; z-index:10; backdrop-filter:blur(12px);
+      background:rgba(10,11,13,.72); border-bottom:1px solid var(--line)}
+  nav .wrap{display:flex; align-items:center; gap:28px; height:60px}
+  .brand{font-weight:700; letter-spacing:.04em; display:flex; align-items:center; gap:9px}
+  .brand .dot{width:9px;height:9px;border-radius:50%;background:var(--accent);
+    box-shadow:0 0 12px var(--accent)}
+  nav .links{margin-left:auto; display:flex; gap:24px; font-size:14px; color:var(--muted)}
+  nav .links a{color:var(--muted)}
+  nav .links a:hover{color:var(--ink); text-decoration:none}
+
+  /* hero */
+  .hero{padding:96px 0 72px; text-align:center; position:relative; overflow:hidden}
+  .hero::before{content:""; position:absolute; inset:-40% 0 auto 0; height:520px;
+    background:radial-gradient(60% 60% at 50% 0%, rgba(74,222,128,.10), transparent 70%);
+    pointer-events:none}
+  .kicker{display:inline-block; font-size:12.5px; letter-spacing:.14em; text-transform:uppercase;
+    color:var(--accent); border:1px solid var(--accent-dim); background:rgba(74,222,128,.05);
+    padding:5px 12px; border-radius:100px; margin-bottom:22px}
+  h1{font-size:clamp(40px,7vw,72px); line-height:1.03; margin:0 0 20px; letter-spacing:-.02em; font-weight:800}
+  h1 .g{background:linear-gradient(120deg,#4ade80,#7dd3fc); -webkit-background-clip:text;
+    background-clip:text; color:transparent}
+  .sub{font-size:clamp(17px,2.4vw,21px); color:var(--muted); max-width:640px; margin:0 auto 34px}
+  .cmd{display:inline-flex; align-items:center; gap:14px; background:var(--surface);
+    border:1px solid var(--line); border-radius:12px; padding:14px 18px; margin:0 auto;
+    font-size:15px; box-shadow:0 8px 40px rgba(0,0,0,.4)}
+  .cmd .p{color:var(--faint)} .cmd .c{color:var(--code)}
+  .cmd .cp{margin-left:6px; color:var(--faint); cursor:pointer; border:0; background:none; font-size:13px}
+  .cta{display:flex; gap:14px; justify-content:center; margin-top:34px; flex-wrap:wrap}
+  .btn{padding:12px 22px; border-radius:10px; font-weight:600; font-size:15px; border:1px solid var(--line)}
+  .btn.pri{background:var(--accent); color:#062012; border-color:var(--accent)}
+  .btn.pri:hover{text-decoration:none; filter:brightness(1.08)}
+  .btn.sec{color:var(--ink); background:var(--surface)}
+  .btn.sec:hover{text-decoration:none; border-color:var(--faint)}
+
+  /* section */
+  section{padding:76px 0}
+  .eyebrow{font-size:13px; letter-spacing:.12em; text-transform:uppercase; color:var(--accent); margin:0 0 12px}
+  h2{font-size:clamp(28px,4vw,40px); margin:0 0 16px; letter-spacing:-.015em; font-weight:800}
+  .lead{color:var(--muted); font-size:18px; max-width:680px; margin:0 0 40px}
+
+  /* diagram */
+  .flow{background:var(--surface); border:1px solid var(--line); border-radius:var(--radius);
+    padding:34px; font-size:13.5px}
+  .flow pre{margin:0; color:var(--muted); overflow-x:auto; line-height:1.7}
+  .flow pre b{color:var(--accent); font-weight:600}
+  .flow pre .u{color:#7dd3fc}
+
+  /* cards */
+  .grid{display:grid; gap:18px}
+  .g3{grid-template-columns:repeat(3,1fr)}
+  .g2{grid-template-columns:repeat(2,1fr)}
+  @media(max-width:820px){.g3,.g2{grid-template-columns:1fr}}
+  .card{background:var(--surface); border:1px solid var(--line); border-radius:var(--radius); padding:24px}
+  .card h3{margin:0 0 8px; font-size:17px}
+  .card p{margin:0; color:var(--muted); font-size:14.5px}
+  .card .ic{width:34px;height:34px;border-radius:9px;background:var(--surface-2);
+    border:1px solid var(--line); display:flex; align-items:center; justify-content:center;
+    margin-bottom:14px; font-size:17px}
+
+  /* code block */
+  pre.block{background:var(--surface); border:1px solid var(--line); border-radius:12px;
+    padding:20px 22px; overflow-x:auto; font-size:13.5px; color:var(--code); line-height:1.65}
+  pre.block .k{color:#c792ea} pre.block .s{color:#a5d6a7} pre.block .c{color:var(--faint)}
+  pre.block .f{color:#82aaff}
+
+  /* audience table */
+  table{width:100%; border-collapse:collapse; font-size:14.5px}
+  th,td{text-align:left; padding:14px 16px; border-bottom:1px solid var(--line); vertical-align:top}
+  th{color:var(--faint); font-weight:600; font-size:12.5px; letter-spacing:.06em; text-transform:uppercase}
+  td .tag{font-family:inherit; font-size:12px; padding:2px 8px; border-radius:6px; border:1px solid var(--line)}
+  .tag.self{color:var(--accent); border-color:var(--accent-dim); background:rgba(74,222,128,.06)}
+  .tag.lock{color:var(--warn); border-color:#4a3a1a; background:rgba(245,165,36,.06)}
+
+  /* steps */
+  .steps{display:grid; gap:14px}
+  .step{display:flex; gap:16px; align-items:flex-start; background:var(--surface);
+    border:1px solid var(--line); border-radius:12px; padding:18px 20px}
+  .step .n{flex:none; width:28px;height:28px;border-radius:8px; background:var(--accent-dim);
+    color:var(--accent); display:flex;align-items:center;justify-content:center; font-weight:700; font-size:14px}
+  .step h4{margin:0 0 4px; font-size:15px}
+  .step p{margin:0; color:var(--muted); font-size:14px}
+  .step code{color:var(--code); background:var(--surface-2); padding:1px 6px; border-radius:5px; font-size:13px}
+
+  footer{padding:48px 0; color:var(--faint); font-size:14px}
+  footer .wrap{display:flex; justify-content:space-between; gap:20px; flex-wrap:wrap}
+
+  .note{font-size:13.5px; color:var(--faint); margin-top:14px}
+  .hl{color:var(--ink)}
+</style>
+</head>
+<body>
+
+<nav><div class="wrap">
+  <span class="brand"><span class="dot"></span>BYOLLM</span>
+  <span class="links">
+    <a href="#how">How it works</a>
+    <a href="#dev">For developers</a>
+    <a href="#sharing">Sharing</a>
+    <a href="#security">Security</a>
+    <a href="https://github.com/oftomorrowinc/byollm">GitHub</a>
+  </span>
+</div></nav>
+
+<header class="hero"><div class="wrap">
+  <span class="kicker">Bring Your Own LLM</span>
+  <h1>Your users' AI,<br>on <span class="g">their own machines</span>.</h1>
+  <p class="sub">Let your app run its LLM jobs on your users' own models and subscriptions — their Ollama box, their MLX machine, their <span class="mono">claude</span> CLI — through a tiny daemon they run and control. No keys leave their computer. No tunnels. No inbound ports.</p>
+  <div class="cmd mono">
+    <span class="p">$</span><span class="c">npx byollm connect https://your-app.com</span>
+    <button class="cp" onclick="navigator.clipboard&&navigator.clipboard.writeText('npx byollm connect https://your-app.com')">copy</button>
+  </div>
+  <div class="cta">
+    <a class="btn pri" href="#dev">Integrate your app</a>
+    <a class="btn sec" href="https://github.com/oftomorrowinc/byollm">Read the source</a>
+  </div>
+  <p class="note">Open source · MIT · built by Of Tomorrow</p>
+</div></header>
+
+<section id="how" class="band"><div class="wrap">
+  <p class="eyebrow">The shape</p>
+  <h2>Compute comes to the app, outbound.</h2>
+  <p class="lead">Your web app stays hosted. The user runs a daemon that connects <span class="hl">out</span> to your backend, claims <span class="hl">only their own jobs</span>, and runs them on whatever model they've got. There's nothing to open on their network — and jobs are typed data, never code.</p>
+  <div class="flow"><pre>
+   your web app  <b>──enqueue──▶</b>  your backend  <span class="c">(@byollm/server)</span>
+                                      │
+                                      │   your job queue — Supabase, Postgres, memory…
+                                      ▼
+   <span class="u">user's machine</span>  <b>──outbound poll──▶</b>  claim ─▶ run locally ─▶ result
+     <span class="c">(@byollm/daemon)</span>                              │
+                                          Ollama · MLX · claude CLI
+  </pre></div>
+</div></section>
+
+<section id="dev" class="band"><div class="wrap">
+  <p class="eyebrow">For developers</p>
+  <h2>A three-line integration.</h2>
+  <p class="lead">Mount one route, point it at a store, and enqueue. You never see the user's model or credentials — you get a result back.</p>
+  <div class="grid g2">
+    <pre class="block"><span class="c">// app/api/byollm/[...route]/route.ts</span>
+<span class="k">import</span> { createHandler } <span class="k">from</span> <span class="s">"@byollm/server"</span>;
+<span class="k">import</span> { supabaseStore } <span class="k">from</span> <span class="s">"@byollm/server/supabase"</span>;
+
+<span class="k">export const</span> { GET, POST } =
+  <span class="f">createHandler</span>({ store: <span class="f">supabaseStore</span>(env) });</pre>
+    <pre class="block"><span class="c">// enqueue from anywhere in your app</span>
+<span class="k">const</span> job = <span class="k">await</span> <span class="f">enqueue</span>(store, {
+  kind: <span class="s">"llm.generate"</span>,
+  audience: <span class="s">"self"</span>,      <span class="c">// their machine only</span>
+  owner: userId,
+  payload: { prompt },
+});
+
+<span class="k">const</span> { text } = <span class="k">await</span> job.<span class="f">result</span>();</pre>
+  </div>
+  <p class="note">A server is <span class="hl">byollm-compatible</span> when the conformance kit passes against it. That's the whole versioning story — no framework version to chase.</p>
+</div></section>
+
+<section id="users" class="band"><div class="wrap">
+  <p class="eyebrow">For users</p>
+  <h2>One command. Your models. Your rules.</h2>
+  <div class="steps">
+    <div class="step"><span class="n">1</span><div><h4>Connect</h4><p><code>npx byollm connect https://the-app.com</code> — opens your browser to pair with one click. Nothing to configure on your network.</p></div></div>
+    <div class="step"><span class="n">2</span><div><h4>Route your models</h4><p>Map job kinds to whatever you've got installed: <code>"llm.generate": "ollama:qwen3-14b"</code>. The daemon only advertises models that are actually there and healthy.</p></div></div>
+    <div class="step"><span class="n">3</span><div><h4>Stay in control</h4><p><code>byollm log</code> shows every prompt that ever ran on your machine. <code>byollm pause</code> stops it. The daemon is your meter — that's the point.</p></div></div>
+  </div>
+</div></section>
+
+<section id="sharing" class="band"><div class="wrap">
+  <p class="eyebrow">The audience model</p>
+  <h2>Share your GPU — safely, and only if you want to.</h2>
+  <p class="lead">Every job carries an <span class="hl">audience</span> and every backend an <span class="hl">offer scope</span>. A job runs on a machine only when both agree. The line that never moves: subscription accounts run one person's work, period.</p>
+  <table>
+    <thead><tr><th>Backend</th><th>Can offer</th><th>Why</th></tr></thead>
+    <tbody>
+      <tr>
+        <td><b>Ollama · MLX · llama.cpp</b><br><span class="mono" style="color:var(--faint);font-size:13px">open models</span></td>
+        <td><span class="tag self">self</span> → <span class="tag self">named</span> → <span class="tag self">public</span></td>
+        <td>Donated compute for open models — the folding@home posture. Lend your machine to friends or the whole community. No provider terms in play.</td>
+      </tr>
+      <tr>
+        <td><b>claude CLI</b> &amp; other<br><span class="mono" style="color:var(--faint);font-size:13px">subscription accounts</span></td>
+        <td><span class="tag lock">self · locked</span></td>
+        <td>One account runs one person's work. Enforced by the protocol, not a setting — your subscription is never part of shared compute.</td>
+      </tr>
+    </tbody>
+  </table>
+</div></section>
+
+<section id="security" class="band"><div class="wrap">
+  <p class="eyebrow">Security</p>
+  <h2>Breakout isn't detected. It's impossible.</h2>
+  <p class="lead">The daemon runs prompts on the owner's machine, so every payload is treated as hostile input. The design makes escape structurally impossible rather than trying to spot it.</p>
+  <div class="grid g2">
+    <div class="card"><div class="ic">⌘</div><h3>No command line, ever</h3><p>Prompts reach models via <span class="mono">spawn</span> with a fixed argv and stdin. Shell metacharacters, <span class="mono">--flags</span>, <span class="mono">$(…)</span> are just characters the model reads — there's no code path where a payload becomes a command.</p></div>
+    <div class="card"><div class="ic">⚙</div><h3>Config is local-only</h3><p>Model, backend, and flags come from the owner's config. A job can never name a model, a path, a URL, or a flag. Unknown job kind is refused, not guessed.</p></div>
+    <div class="card"><div class="ic">▣</div><h3>Sandboxed children</h3><p>Backends spawn with a stripped environment, an empty scratch directory, no inherited file descriptors, and hard timeout and output caps. A job can't wedge or OOM the machine.</p></div>
+    <div class="card"><div class="ic">✓</div><h3>An adversarial gate</h3><p>A named corpus of command-injection, argv-injection, path-traversal and exfiltration payloads runs as a blocking CI check. Every backend ships its own hostile-payload suite before it can be added.</p></div>
+  </div>
+  <p class="note">We're precise about the boundary: BYOLLM makes <span class="hl">breakout</span> impossible; <span class="hl">prompt injection</span> — steering the model's words — is the model's problem, bounded here because the model has no tools and the output is inert. We don't promise more than we can keep.</p>
+</div></section>
+
+<section class="band"><div class="wrap">
+  <p class="eyebrow">Packages</p>
+  <h2>Four small pieces.</h2>
+  <div class="grid g2">
+    <div class="card"><h3 class="mono">@byollm/protocol</h3><p>The wire contract — types, schemas, and the normative spec. Five endpoints, lease semantics, typed job kinds.</p></div>
+    <div class="card"><h3 class="mono">@byollm/daemon</h3><p>What users run. Pluggable backends, model routing, and the append-only trust log.</p></div>
+    <div class="card"><h3 class="mono">@byollm/server</h3><p>Drop-in handlers plus a first-party Supabase adapter for your backend.</p></div>
+    <div class="card"><h3 class="mono">@byollm/conformance</h3><p>The compatibility contract. Certify any server implementation with one command.</p></div>
+  </div>
+</div></section>
+
+<footer class="band"><div class="wrap">
+  <span>© 2026 Of Tomorrow, Inc. · MIT licensed</span>
+  <span><a href="https://github.com/oftomorrowinc/byollm">GitHub</a> · <a href="https://www.npmjs.com/org/byollm">npm</a></span>
+</div></footer>
+
+</body>
+</html>

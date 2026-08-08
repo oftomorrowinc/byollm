@@ -49,8 +49,10 @@ first).
 `@byollm/protocol`, `@byollm/daemon`, `@byollm/server`. Still to
 claim: the **bare `byollm` package** (separate from the org — it is
 what makes `npx byollm connect …` work unprefixed; placeholder-publish
-it if free), the `byollm` GitHub org, `byo-llm.com` (available — buy
-as insurance), and a check on `byollm.dev`. Parked `byollm.com`
+it if free), `byo-llm.com` (available — buy as insurance), and a
+check on `byollm.dev`. Repo home: **`oftomorrowinc/byollm`** (decided
+2026-08-08) — the npm scope is the dev-facing identity; no separate
+GitHub org needed. Parked `byollm.com`
 acquirable later if warranted.
 
 ## Relationship to the other repos

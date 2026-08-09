@@ -37,3 +37,40 @@ Kit green against in-memory and Supabase servers in CI; a demo app
 docs show the three-file integration (mount handler, add store,
 enqueue); framework's runner module can consume the Supabase adapter
 without patching it.
+
+---
+
+## Rev 1 — CC review adjudication (2026-08-08)
+
+**Return-trip results are untrusted input (review #2).** 004 models
+payload-as-hostile-input in one direction; the mirror is unmodeled. A
+`named`/`public` job's result is **attacker-controlled text** — the
+volunteer's machine (or a compromised one) can return anything, and
+the app will render it as its own AI's output. `@byollm/server` MUST
+mark non-`self` results as untrusted at the delivery seam: a result's
+provenance (`self` vs `named` vs `public`, which runner) travels with
+it, and the enqueue/delivery API surfaces it so apps never silently
+treat volunteer output as first-party. Docs state it at the enqueue
+example, loudly. (This is abuse *by* the volunteer; 004 §4's rate
+limits are abuse *of* the volunteer — both now covered.)
+
+**No-runner delivery + TTL (review #4).** The server owns job
+lifecycle: unclaimed jobs expire at a configurable TTL; the
+server→app delivery is an explicit channel (webhook, Realtime
+subscription, or poll — adapter's choice), never an implied
+in-request promise. The Supabase adapter ships Realtime delivery +
+a `noRunnerAvailable` query. The README's `await job.result()` is
+sugar over that channel with a timeout and a `noRunnerAvailable`
+rejection — not a bare promise.
+
+**Dependency claim-gating (review #6).** The `JobStore` claim query
+excludes jobs whose `dependsOn` set isn't all `ok`. One predicate;
+tested in the conformance kit (a two-job chain with different
+audiences completes in order across two daemons).
+
+**Conformance additions.** The kit now also asserts: cancel via
+heartbeat aborts a running job; a `named` job is refused by a daemon
+whose *local* allowlist doesn't admit the owner (not merely
+server-side); dependency ordering; TTL expiry surfaces
+`noRunnerAvailable`; non-self result provenance is preserved to the
+delivery seam.

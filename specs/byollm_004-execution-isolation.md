@@ -96,3 +96,35 @@ boundary of the guarantee; a third-party backend cannot be added
 without adding its adversarial rows (enforced by a coverage check
 that every registered backend has a corresponding hostile-payload
 suite).
+
+---
+
+## Rev 1 — CC review adjudication (2026-08-08)
+
+**Backend taxonomy (review #5) changes what §2 applies to.**
+- **HTTP-class** backends (OpenAI-compatible servers: Ollama,
+  `mlx_lm.server`, llama.cpp, vLLM) **spawn nothing** — §2's argv/
+  stdin/env/sandbox requirements are N/A by construction. Their
+  threat surface is SSRF-shaped: the base URL is **owner-config
+  only** (a job can never set or redirect it), requests go only to
+  the configured URL, and the daemon refuses base URLs that resolve
+  to metadata endpoints / link-local ranges. This is the safest
+  class and should be preferred where a model offers an HTTP server.
+- **process-class** backends (`claude` CLI; `mlx_lm.lora` for
+  `train.*`) are where all of §2 (fixed argv, stdin, stripped env,
+  scratch cwd, no inherited FDs, caps) is mandatory.
+Each backend declares its class; the adversarial suite (§5) runs the
+process-class corpus against process backends and an SSRF/base-URL
+corpus against HTTP backends.
+
+**Ingress-log retention (review #7).** §4 (community jobs) gains a
+retention default: prompts from `named`/`public` jobs are kept in
+full for a short window (default 7 days) then reduced to hash + job
+id — a volunteer must not indefinitely retain strangers' content.
+`self` jobs retain per the owner's preference (default: keep).
+Retention is configurable; the default is stated in the daemon UI.
+
+**Return-trip pointer.** The result of a non-`self` job is untrusted
+*to the app* — modeled in 003 Rev 1. Noted here so the threat model
+is symmetric in one place: 004 protects the volunteer's machine from
+the payload; 003 protects the app from the volunteer's result.

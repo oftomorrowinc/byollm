@@ -112,7 +112,7 @@ Want to lend your GPU to the open-source community, or let your friends' jobs ru
 
 The daemon runs prompts on the owner's machine, so **every payload is treated as hostile input**. Breakout is made *structurally impossible*, not merely detected:
 
-- Prompts reach models via `spawn` with a **fixed argv and stdin** — payload text can never become a command line. Shell metacharacters, `--flags`, `$(…)` are just characters the model reads.
+- Payload text can **never become a command line**. HTTP-class backends (Ollama, MLX server, vLLM) receive it as a request body; process-class backends (`claude` CLI) receive it on **stdin with a fixed argv**. Shell metacharacters, `--flags`, `$(…)` are just characters the model reads.
 - Model, backend, and flags come from the **owner's local config only** — a job can never name a model, path, URL, or flag.
 - Backends spawn with a stripped environment, an empty scratch dir, no inherited file descriptors, and hard timeout/output caps.
 - The daemon exposes **no tools, no retrieval, no MCP** to the model. Output is inert bytes — never eval'd, never written to a payload-named path.

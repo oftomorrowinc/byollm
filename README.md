@@ -62,10 +62,12 @@ const job = await enqueue(store, {
   payload: { prompt: "Summarize this transcript:\n\n" + transcript },
 });
 
-const { text } = await job.result();   // resolves when the user's daemon finishes
+// resolves via your delivery channel (webhook / Realtime / poll),
+// with a timeout and a noRunnerAvailable path — never a bare await
+const { text } = await job.result({ onNoRunner: promptUserToConnect });
 ```
 
-That's the whole integration: **one route, one store, one `enqueue`.**
+That's the whole integration: **one route, one store, one `enqueue`.** If no daemon is online, you get a `noRunnerAvailable` signal (fall back to a hosted model, or prompt the user to connect) — never a promise that hangs forever.
 
 ### For users
 

@@ -38,3 +38,28 @@ completed job in under five minutes against the reference server;
 kill -9 mid-job loses nothing (lease reclaim proven in tests);
 subscription backend refuses a `named` job in a test; ingress log
 shows every prompt; coverage and lint gates green.
+
+---
+
+## Rev 1 — CC review adjudication (2026-08-08)
+
+- **HTTP-class backend is v1's primary (review #5).** A single
+  `openai-http` backend covers Ollama, `mlx_lm.server`, llama.cpp
+  server and vLLM — config is `{ backend: "openai-http", baseUrl,
+  model }`. No spawn; base URL is owner-config only and validated
+  against SSRF ranges. This is what makes **MLX inference available
+  in v1** so Press can prove the whole path. `claude` CLI is the one
+  process-class backend at v1; `mlx_lm.lora` training is a later
+  process-class `train.*` kind.
+- **Local `named` allowlist (review #1).** The daemon owns a file of
+  `(server origin, user-id)` pairs and checks `named` jobs against it
+  itself — `byollm allow <server> <user>`, `byollm allow --list`,
+  `byollm revoke …`. One place to see everyone who can use this
+  machine, across every app it's paired to. A `named` job whose owner
+  isn't locally allowed is refused regardless of server assertion.
+- **Cancel (review #3).** Heartbeat response may carry
+  `cancel:[jobId]`; the daemon aborts those backends' in-flight calls
+  (HTTP abort / process kill) and reports `canceled`.
+- **Ingress retention (review #7).** `named`/`public` prompts kept
+  full for 7 days (configurable) then hash-only; `self` kept per
+  owner default. Surfaced in `byollm status`.

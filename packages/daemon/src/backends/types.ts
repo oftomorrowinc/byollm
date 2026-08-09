@@ -1,0 +1,90 @@
+import type { BackendClass, BackendId } from "@byollm/protocol";
+
+/**
+ * The text of one model call, already composed by the daemon.
+ *
+ * Note what a backend receives: a string and a model name. It gets no access
+ * to the job, the payload object, or anything that could carry routing. By
+ * the time execution reaches here, the payload has been reduced to the only
+ * thing byollm_004 §1 permits a job to cause — text sent to a model.
+ */
+export interface BackendRequest {
+  /** The composed prompt text. */
+  readonly prompt: string;
+  /** The model, from owner config only ({@link MUSTS.NO_PAYLOAD_ROUTING}). */
+  readonly model: string;
+  /** Hard wall-clock ceiling. */
+  readonly timeoutMs: number;
+  /** Hard output ceiling; output past this truncates and fails the job. */
+  readonly maxOutputBytes: number;
+  /** Aborts the in-flight call — how cancel and revocation take effect. */
+  readonly signal: AbortSignal;
+}
+
+export type BackendResult =
+  | { readonly ok: true; readonly text: string; readonly durationMs: number }
+  | {
+      readonly ok: false;
+      readonly code: BackendErrorCode;
+      readonly message: string;
+      readonly retryable: boolean;
+      readonly durationMs: number;
+    };
+
+/**
+ * Why a backend call failed.
+ *
+ * Distinct codes because byollm_002 requires that different truths never
+ * share a message: an owner whose model server is down needs a different
+ * sentence from one whose job hit its timeout.
+ */
+export type BackendErrorCode =
+  | "backend-unreachable"
+  | "backend-error"
+  | "model-not-found"
+  | "timeout"
+  | "output-too-large"
+  | "canceled"
+  | "unauthorized";
+
+/** Whether a backend is usable right now, and with which models. */
+export interface BackendHealth {
+  readonly healthy: boolean;
+  /** Models the backend reports; empty when it could not be reached. */
+  readonly models: readonly string[];
+  /** Why it is unhealthy — shown verbatim in `byollm status`. */
+  readonly detail?: string;
+}
+
+/**
+ * A way of reaching a model.
+ *
+ * Implementations are registered in {@link BACKENDS} and must ship
+ * adversarial-suite rows before they can be added — the coverage check in the
+ * adversarial suite enforces that, so a new backend cannot arrive without its
+ * hostile-payload corpus.
+ */
+export interface Backend {
+  readonly id: BackendId;
+  readonly class: BackendClass;
+
+  /**
+   * Can this backend serve work right now, and with what?
+   *
+   * The capability matrix is config ∩ *this*
+   * ({@link MUSTS.CAPABILITY_IS_DETECTED}) — a configured but unreachable
+   * backend must never be advertised.
+   */
+  health(): Promise<BackendHealth>;
+
+  /** Run one model call. The only thing a job is permitted to cause. */
+  execute(request: BackendRequest): Promise<BackendResult>;
+}
+
+/** Everything a backend instance needs from the owner's config. */
+export interface BackendInit {
+  /** HTTP-class only. Already validated by {@link checkBaseUrl}. */
+  readonly baseUrl?: string | undefined;
+  /** Name of the env var holding an API key, if the server needs one. */
+  readonly apiKeyEnv?: string | undefined;
+}

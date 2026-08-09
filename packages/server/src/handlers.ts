@@ -1,0 +1,420 @@
+import {
+  ClaimRequest,
+  type ClaimRequest as ClaimRequestType,
+  type HeartbeatRequest as HeartbeatRequestType,
+  type ReleaseRequest as ReleaseRequestType,
+  type ResultRequest as ResultRequestType,
+  ERROR_STATUS,
+  HeartbeatRequest,
+  PairRequest,
+  PROTOCOL_VERSION,
+  ReleaseRequest,
+  ResultRequest,
+  provenanceFor,
+  type ClaimResponse,
+  type Endpoint,
+  type HeartbeatResponse,
+  type PairPollResponse,
+  type PairStartResponse,
+  type ReleaseResponse,
+  type ResultResponse,
+  type WireErrorCode,
+} from "@byollm/protocol";
+import { generateDeviceCode, generateUserCode, hashSecret } from "./ids.js";
+import type { RunnerRecord } from "./records.js";
+import type { ByollmStore } from "./store.js";
+
+/** Everything a mount needs to serve the protocol. */
+export interface HandlerConfig {
+  readonly store: ByollmStore;
+  /**
+   * Absolute URL of the page where a user approves a pairing. The device code
+   * is *not* appended — the user types the short code into the app's own
+   * authenticated page, which is what keeps pairing interactive.
+   */
+  readonly verificationUrl: string;
+  /** How long a lease lasts. Default 60s — six heartbeats of headroom. */
+  readonly leaseMs?: number;
+  /** How long an unapproved pairing code lives. Default 10 minutes. */
+  readonly pairingTtlMs?: number;
+  /** How often a daemon may poll for pairing approval. Default 2s. */
+  readonly pollIntervalMs?: number;
+  /** Injectable clock, so tests can move time without sleeping. */
+  readonly now?: () => number;
+}
+
+const DEFAULTS = {
+  leaseMs: 60_000,
+  pairingTtlMs: 10 * 60_000,
+  pollIntervalMs: 2_000,
+} as const;
+
+/** A handled protocol call: a status and a JSON body. */
+export interface HandlerResult {
+  readonly status: number;
+  readonly body: unknown;
+  /** Set for `rate-limited` and `server-error`. */
+  readonly retryAfterSeconds?: number;
+}
+
+function fail(
+  error: WireErrorCode,
+  message: string,
+  retryAfterSeconds?: number,
+): HandlerResult {
+  return {
+    status: ERROR_STATUS[error],
+    body: {
+      error,
+      message,
+      ...(retryAfterSeconds === undefined
+        ? {}
+        : { retryAfter: retryAfterSeconds }),
+    },
+    ...(retryAfterSeconds === undefined ? {} : { retryAfterSeconds }),
+  };
+}
+
+function ok(body: unknown): HandlerResult {
+  return { status: 200, body };
+}
+
+/**
+ * The five protocol endpoints, over any {@link ByollmStore}.
+ *
+ * Transport-free on purpose: a mount adapts `Request`/`Response` (or Express,
+ * or whatever) onto {@link ByollmHandlers.handle}, and everything the
+ * protocol actually specifies lives here where the conformance kit can reach
+ * it without an HTTP server in the way.
+ */
+export class ByollmHandlers {
+  readonly #store: ByollmStore;
+  readonly #verificationUrl: string;
+  readonly #leaseMs: number;
+  readonly #pairingTtlMs: number;
+  readonly #pollIntervalMs: number;
+  readonly #now: () => number;
+
+  constructor(config: HandlerConfig) {
+    this.#store = config.store;
+    this.#verificationUrl = config.verificationUrl;
+    this.#leaseMs = config.leaseMs ?? DEFAULTS.leaseMs;
+    this.#pairingTtlMs = config.pairingTtlMs ?? DEFAULTS.pairingTtlMs;
+    this.#pollIntervalMs = config.pollIntervalMs ?? DEFAULTS.pollIntervalMs;
+    this.#now = config.now ?? Date.now;
+  }
+
+  /**
+   * Dispatch one protocol call.
+   *
+   * @param endpoint - which of the five, already routed from the path
+   * @param body - the parsed JSON request body, untrusted
+   * @param bearer - the `Authorization: Bearer` value, if any
+   */
+  async handle(
+    endpoint: Endpoint,
+    body: unknown,
+    bearer: string | undefined,
+  ): Promise<HandlerResult> {
+    switch (endpoint) {
+      case "pair":
+        return this.#pair(body);
+      case "claim":
+        return this.#authed(bearer, body, ClaimRequest, this.#claim.bind(this));
+      case "heartbeat":
+        // Heartbeat is the channel revocation travels on, so a revoked runner
+        // must reach the handler and be told `revoked: true` rather than be
+        // bounced with a 403 it would treat as a transport problem
+        // ({@link MUSTS.REVOCATION_HONORED}).
+        return this.#authed(
+          bearer,
+          body,
+          HeartbeatRequest,
+          this.#heartbeat.bind(this),
+          { allowRevoked: true },
+        );
+      case "result":
+        return this.#authed(
+          bearer,
+          body,
+          ResultRequest,
+          this.#result.bind(this),
+        );
+      case "release":
+        return this.#authed(
+          bearer,
+          body,
+          ReleaseRequest,
+          this.#release.bind(this),
+        );
+    }
+  }
+
+  /**
+   * Shared preamble for the four authenticated endpoints: resolve the bearer
+   * token to a runner, reject a revoked one, and parse the body.
+   *
+   * The token→runner lookup happens before schema validation so a stranger
+   * probing the endpoint learns nothing about the wire format.
+   */
+  async #authed<T>(
+    bearer: string | undefined,
+    body: unknown,
+    schema: { safeParse: (v: unknown) => { success: boolean; data?: T } },
+    run: (request: T, runner: RunnerRecord) => Promise<HandlerResult>,
+    options: { allowRevoked?: boolean } = {},
+  ): Promise<HandlerResult> {
+    if (bearer === undefined || bearer.length === 0) {
+      return fail("unauthorized", "a runner token is required");
+    }
+    const runner = await this.#store.getRunnerByTokenHash(hashSecret(bearer));
+    if (!runner) {
+      return fail("unauthorized", "this runner token is not recognised");
+    }
+    if (runner.revokedAt !== null && options.allowRevoked !== true) {
+      // A distinct truth from "unauthorized": the daemon should stop and say
+      // so, not retry or re-pair silently.
+      return fail("revoked", "this runner has been revoked by its owner");
+    }
+
+    const parsed = schema.safeParse(body);
+    if (!parsed.success || parsed.data === undefined) {
+      return fail("bad-request", "request body failed schema validation");
+    }
+    return run(parsed.data, runner);
+  }
+
+  // -- 1. pair --------------------------------------------------------------
+
+  async #pair(body: unknown): Promise<HandlerResult> {
+    const parsed = PairRequest.safeParse(body);
+    if (!parsed.success) {
+      return fail("bad-request", "pair request failed schema validation");
+    }
+    const request = parsed.data;
+    const now = this.#now();
+
+    if (request.action === "start") {
+      const deviceCode = generateDeviceCode();
+      const userCode = generateUserCode();
+      const expiresAt = now + this.#pairingTtlMs;
+
+      await this.#store.createPairing({
+        deviceCodeHash: hashSecret(deviceCode),
+        userCode,
+        state: "pending",
+        owner: null,
+        runnerId: null,
+        runnerTokenOnce: null,
+        label: request.daemon.label,
+        platform: request.daemon.platform,
+        daemonVersion: request.daemon.version,
+        capabilities: request.capabilities,
+        expiresAt,
+        createdAt: now,
+      });
+
+      const response: PairStartResponse = {
+        deviceCode,
+        userCode,
+        verificationUrl: this.#verificationUrl,
+        expiresAt,
+        pollIntervalMs: this.#pollIntervalMs,
+      };
+      return ok(response);
+    }
+
+    // action === "poll"
+    const pairing = await this.#store.getPairingByDeviceCodeHash(
+      hashSecret(request.deviceCode),
+    );
+    if (!pairing) {
+      return fail("not-found", "unknown device code");
+    }
+    if (pairing.state === "denied") {
+      return ok({ status: "denied" } satisfies PairPollResponse);
+    }
+    // Expiry is checked before approval state so a code approved after it
+    // lapsed is still dead ({@link MUSTS.PAIR_CODE_EXPIRES}).
+    if (pairing.expiresAt <= now && pairing.state === "pending") {
+      return ok({ status: "expired" } satisfies PairPollResponse);
+    }
+    if (
+      pairing.state === "approved" &&
+      pairing.runnerTokenOnce !== null &&
+      pairing.runnerId !== null &&
+      pairing.owner !== null
+    ) {
+      const response: PairPollResponse = {
+        status: "approved",
+        runnerToken: pairing.runnerTokenOnce,
+        runnerId: pairing.runnerId,
+        owner: pairing.owner,
+      };
+      // Delivered exactly once — a replayed device code gets nothing.
+      await this.#store.consumePairingToken(pairing.deviceCodeHash);
+      return ok(response);
+    }
+    if (pairing.state === "approved") {
+      return fail("not-found", "this pairing has already been collected");
+    }
+    return ok({ status: "pending" } satisfies PairPollResponse);
+  }
+
+  // -- 2. claim -------------------------------------------------------------
+
+  async #claim(
+    request: ClaimRequestType,
+    runner: RunnerRecord,
+  ): Promise<HandlerResult> {
+    if (request.runnerId !== runner.id) {
+      return fail("unauthorized", "runner id does not match the bearer token");
+    }
+    const now = this.#now();
+
+    // Capabilities from *this* request, never the stored matrix — a daemon
+    // that just lost a backend must not be handed work for it
+    // ({@link MUSTS.CLAIM_REQUIRES_CAPABILITY}).
+    const jobs = await this.#store.claim({
+      runnerId: runner.id,
+      runnerOwner: runner.owner,
+      capabilities: request.capabilities,
+      max: request.max,
+      leaseMs: this.#leaseMs,
+      now,
+    });
+
+    const response: ClaimResponse = {
+      jobs: jobs.map((job) => ({
+        id: job.id,
+        kind: job.kind,
+        payload: job.payload,
+        audience: job.audience,
+        owner: job.owner,
+        ...(job.audienceAllow === undefined
+          ? {}
+          : { audienceAllow: [...job.audienceAllow] }),
+        lease: job.lease ?? {
+          runnerId: runner.id,
+          expiresAt: now + this.#leaseMs,
+        },
+      })),
+      leaseMs: this.#leaseMs,
+    };
+    return ok(response);
+  }
+
+  // -- 3. heartbeat ---------------------------------------------------------
+
+  async #heartbeat(
+    request: HeartbeatRequestType,
+    runner: RunnerRecord,
+  ): Promise<HandlerResult> {
+    if (request.runnerId !== runner.id) {
+      return fail("unauthorized", "runner id does not match the bearer token");
+    }
+    const now = this.#now();
+    const revoked = runner.revokedAt !== null;
+
+    if (revoked) {
+      // Nothing is renewed for a revoked runner: every job it holds is
+      // reported lost so it abandons the queue rather than finishing it.
+      const held = await this.#store.listClaimedBy(runner.id);
+      const response: HeartbeatResponse = {
+        revoked: true,
+        cancel: [],
+        leases: [],
+        lost: held.map((job) => job.id),
+        serverTime: now,
+      };
+      return ok(response);
+    }
+
+    await this.#store.touchRunner({
+      runnerId: runner.id,
+      capabilities: request.capabilities,
+      daemonVersion: request.daemonVersion,
+      paused: request.paused,
+      now,
+    });
+
+    const { renewed, lost } = await this.#store.renewLeases({
+      runnerId: runner.id,
+      jobIds: request.activeJobIds,
+      leaseMs: this.#leaseMs,
+      now,
+    });
+
+    const cancel = await this.#store.listCancelRequests(runner.id);
+
+    const response: HeartbeatResponse = {
+      revoked: false,
+      cancel,
+      leases: renewed.map((r) => ({ jobId: r.jobId, expiresAt: r.expiresAt })),
+      lost: [...lost],
+      serverTime: now,
+    };
+    return ok(response);
+  }
+
+  // -- 4. result ------------------------------------------------------------
+
+  async #result(
+    request: ResultRequestType,
+    runner: RunnerRecord,
+  ): Promise<HandlerResult> {
+    if (request.runnerId !== runner.id) {
+      return fail("unauthorized", "runner id does not match the bearer token");
+    }
+    const now = this.#now();
+    const job = await this.#store.get(request.jobId);
+    if (!job) return fail("not-found", "unknown job");
+
+    // Provenance is built here, from the job's audience and the authenticated
+    // runner — never from anything the daemon asserted
+    // ({@link MUSTS.RESULT_PROVENANCE}).
+    const provenance = provenanceFor({
+      audience: job.audience,
+      runnerId: runner.id,
+      runnerOwner: runner.owner,
+      backendClass: request.backendClass,
+      model: request.model,
+    });
+
+    const { accepted, job: updated } = await this.#store.complete({
+      jobId: request.jobId,
+      runnerId: runner.id,
+      outcome: request.outcome,
+      provenance,
+      now,
+    });
+
+    const response: ResultResponse = {
+      accepted,
+      state: updated?.state ?? job.state,
+    };
+    return ok(response);
+  }
+
+  // -- 5. release -----------------------------------------------------------
+
+  async #release(
+    request: ReleaseRequestType,
+    runner: RunnerRecord,
+  ): Promise<HandlerResult> {
+    if (request.runnerId !== runner.id) {
+      return fail("unauthorized", "runner id does not match the bearer token");
+    }
+    const released = await this.#store.release({
+      runnerId: runner.id,
+      jobIds: request.jobIds,
+      reason: request.reason,
+      now: this.#now(),
+    });
+    const response: ReleaseResponse = { released };
+    return ok(response);
+  }
+}
+
+/** The protocol version this build speaks. */
+export const SERVED_PROTOCOL_VERSION = PROTOCOL_VERSION;

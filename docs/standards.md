@@ -7,13 +7,15 @@ vigilance:
 - **TypeScript strict** everywhere; no `any` without a commented
   reason. Public API surfaces carry TSDoc; docs are generated, not
   hand-drifted.
-- **Tests first-class**: vitest; coverage gate ≥90% lines/branches on `server`, ≥85% on
-  `daemon`. For `@byollm/protocol` (types + schemas) the **conformance
+- **Tests first-class**: vitest; coverage gate ≥90% lines/branches on
+  `server`, ≥85% on `daemon` (process-spawning code earns a small
+  allowance). For `@byollm/protocol` (types + schemas) the **conformance
   kit is the real gate**, not a line-coverage number that is trivially
   met or gamed — keep schema unit tests, let conformance carry the
-  guarantee (process-spawning code
-  earns a small allowance); the **conformance kit runs in CI** with a
-  real daemon against the reference server on every PR.
+  guarantee. The **conformance kit runs in CI** with a real daemon
+  against the reference server on every PR, and again against the
+  Supabase adapter via `supabase start`. The **adversarial corpus**
+  (byollm_004 §5) is a separate blocking gate.
 - **Lint/format**: eslint (typescript-eslint strict) + prettier,
   zero-warning CI. `knip` for dead code and unused deps; duplication
   checked (jscpd) — extraction beats repetition, but only into the

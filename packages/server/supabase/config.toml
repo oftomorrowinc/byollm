@@ -1,0 +1,38 @@
+# Minimal Supabase project config, used by `supabase start` in CI to certify
+# the adapter against a real Postgres. Ports are non-default so a developer's
+# own local Supabase can run alongside it.
+project_id = "byollm"
+
+[api]
+enabled = true
+port = 54421
+schemas = ["public"]
+extra_search_path = ["public", "extensions"]
+max_rows = 1000
+
+[db]
+port = 54422
+shadow_port = 54420
+major_version = 17
+
+[realtime]
+enabled = true
+
+[studio]
+enabled = false
+
+[auth]
+enabled = true
+site_url = "http://127.0.0.1:3000"
+
+[analytics]
+enabled = false
+
+[storage]
+enabled = false
+
+[edge_runtime]
+enabled = false
+
+[inbucket]
+enabled = false

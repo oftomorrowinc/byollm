@@ -1,0 +1,57 @@
+{
+  "name": "@byollm/server",
+  "version": "0.0.0",
+  "description": "Framework-agnostic BYOLLM protocol handlers, a reference in-memory store, a Next.js mount, and a Supabase adapter.",
+  "license": "MIT",
+  "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/oftomorrowinc/byollm.git",
+    "directory": "packages/server"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./next": {
+      "types": "./dist/next.d.ts",
+      "import": "./dist/next.js"
+    },
+    "./supabase": {
+      "types": "./dist/supabase/index.d.ts",
+      "import": "./dist/supabase/index.js"
+    }
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist",
+    "supabase/migrations",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=22.12"
+  },
+  "scripts": {
+    "build": "tsup",
+    "clean": "rm -rf dist .tsbuild"
+  },
+  "dependencies": {
+    "@byollm/protocol": "workspace:*"
+  },
+  "peerDependencies": {
+    "@supabase/supabase-js": "^2.58.0"
+  },
+  "peerDependenciesMeta": {
+    "@supabase/supabase-js": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@supabase/supabase-js": "^2.112.2"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

@@ -1,0 +1,38 @@
+{
+  "name": "byollm-monorepo",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@10.33.2",
+  "engines": {
+    "node": ">=22.12"
+  },
+  "scripts": {
+    "build": "pnpm -r --filter \"./packages/*\" run build",
+    "typecheck": "tsc --build --pretty",
+    "lint": "eslint . --max-warnings 0",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "test": "vitest run",
+    "test:coverage": "vitest run --coverage",
+    "conformance": "pnpm --filter @byollm/conformance run certify:reference",
+    "adversarial": "vitest run --project adversarial",
+    "knip": "knip",
+    "dupes": "jscpd packages --config .jscpd.json",
+    "verify": "pnpm run format:check && pnpm run lint && pnpm run build && pnpm run typecheck && pnpm run test:coverage && pnpm run knip"
+  },
+  "devDependencies": {
+    "@changesets/cli": "^2.31.1",
+    "@eslint/js": "^10.0.1",
+    "@types/node": "^26.2.0",
+    "@vitest/coverage-v8": "^4.1.10",
+    "eslint": "^10.8.1",
+    "eslint-config-prettier": "^10.1.8",
+    "jscpd": "^5.0.14",
+    "knip": "^6.32.0",
+    "prettier": "^3.9.6",
+    "tsup": "^8.5.1",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.66.0",
+    "vitest": "^4.1.10"
+  }
+}

@@ -1,0 +1,14 @@
+{
+  "name": "@byollm/example-demo",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "A runnable end-to-end demo: a web page enqueues a job, a real daemon runs it, the page renders the result.",
+  "scripts": {
+    "start": "node --experimental-strip-types src/server.ts",
+    "check": "node --experimental-strip-types src/check.ts"
+  },
+  "dependencies": {
+    "@byollm/server": "workspace:*"
+  }
+}

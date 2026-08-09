@@ -79,22 +79,28 @@ byollm status                                # what's connected, what's running
 Point it at your models:
 
 ```jsonc
-// byollm.config.json
+// ~/.byollm/config.json
 {
   "backends": {
-    "ollama":  { "scope": "self" },                 // or "named" / "public" for open models
-    "claude":  { "scope": "self" }                  // subscription CLIs are locked to "self"
+    // One HTTP backend covers Ollama, MLX, llama.cpp and vLLM — they all speak
+    // OpenAI-compatible /v1/chat/completions. Configure as many as you run.
+    "local":  { "backend": "openai-http", "baseUrl": "http://127.0.0.1:11434/v1",
+                "offer": "self" },                  // or "named" / "public" for open models
+    "mlx":    { "backend": "openai-http", "baseUrl": "http://127.0.0.1:8080/v1" },
+    "claude": { "backend": "claude-cli" }           // subscription CLIs are locked to "self"
   },
   "routes": {
-    "llm.generate": "ollama:qwen3-14b",
-    "llm.chat":     "claude:cli"
+    "llm.generate": { "backend": "local",  "model": "gemma3:12b" },
+    "llm.chat":     { "backend": "claude", "model": "claude-opus-5" }
   }
 }
 ```
 
 ```bash
+byollm backends       # what's installed, healthy, and actually advertised
 byollm log            # every prompt that ran here, ever
 byollm pause          # stop claiming work
+byollm allow --list   # everyone who can use this machine (empty by default)
 ```
 
 ## The audience model — sharing, safely
@@ -108,13 +114,15 @@ Every job carries an **audience** and every backend an **offer scope**. A job ru
 
 Want to lend your GPU to the open-source community, or let your friends' jobs run overnight on your machine? Flip an open backend to `public` or `named`. Your subscription is never part of that.
 
+`named` is enforced by **your** daemon, not by the app: it keeps a local allowlist of `(app, user)` pairs — `byollm allow <app-url> <user-id>` — and refuses anything not on it, whatever the server claims. The list starts empty, so a fresh daemon runs your work and nobody else's until you say otherwise.
+
 ## Security
 
 The daemon runs prompts on the owner's machine, so **every payload is treated as hostile input**. Breakout is made *structurally impossible*, not merely detected:
 
 - Payload text can **never become a command line**. HTTP-class backends (Ollama, MLX server, vLLM) receive it as a request body; process-class backends (`claude` CLI) receive it on **stdin with a fixed argv**. Shell metacharacters, `--flags`, `$(…)` are just characters the model reads.
 - Model, backend, and flags come from the **owner's local config only** — a job can never name a model, path, URL, or flag.
-- Backends spawn with a stripped environment, an empty scratch dir, no inherited file descriptors, and hard timeout/output caps.
+- Process-class backends spawn with a stripped environment (no `ANTHROPIC_API_KEY`), an empty scratch dir, no inherited file descriptors, and hard timeout/output caps. HTTP-class backends spawn nothing at all.
 - The daemon exposes **no tools, no retrieval, no MCP** to the model. Output is inert bytes — never eval'd, never written to a payload-named path.
 
 A named **adversarial test corpus** (command injection, argv injection, path traversal, env exfiltration, oversized/unicode payloads) runs as a blocking CI gate, and every backend must ship its own hostile-payload suite before it can be added. See [`docs/security.md`](docs/security.md).
@@ -134,11 +142,11 @@ A server is **byollm-compatible** when the conformance kit passes against it. Th
 
 ## Status
 
-Pre-release, built in the open. The protocol is at v0 and the audience model is settled; the daemon ships `self`-only first with `named`/`public` as a fast follow. Not yet published to npm — watch this repo.
+Pre-release, built in the open. The protocol is at v0 and the audience model is settled. The daemon ships the full audience matrix with an **empty allowlist by default**, so it behaves as `self`-only until you widen it deliberately. Backends at v1: `openai-http` (Ollama, MLX, llama.cpp, vLLM) and `claude-cli`. Not yet published to npm — watch this repo.
 
 ## Contributing
 
-The bar is CI-enforced, not review-vigilance: strict TypeScript, ≥90% coverage on the protocol and server, zero-warning lint, no dead code, and docs whose examples execute in CI so they can't rot. See [`docs/standards.md`](docs/standards.md) and the specs in [`specs/`](specs).
+The bar is CI-enforced, not review-vigilance: strict TypeScript, ≥90% coverage on the server and ≥85% on the daemon, zero-warning lint, no dead code, and the conformance kit green against both the reference server and Supabase on every PR. `@byollm/protocol` is gated by the conformance kit rather than a line-coverage number, which on a types-and-schemas package is trivially met or gamed. The adversarial corpus is a separate blocking gate, and the demo in [`examples/`](examples) runs in CI so it can't rot. See [`docs/standards.md`](docs/standards.md) and the specs in [`specs/`](specs).
 
 ## License
 

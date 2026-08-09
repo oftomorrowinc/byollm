@@ -1,0 +1,273 @@
+# BYOLLM — threat model and security contract
+
+**Premise: every job payload is hostile input.** A server the daemon paired
+with — or an attacker who reached that server, or another user whose `public`
+job we claimed — is untrusted from the daemon's seat. The daemon runs prompts
+on the owner's machine, so it MUST be incapable of turning a prompt into code
+execution, tool use, file access, or network calls beyond the model call
+itself.
+
+This document states what is guaranteed, what is not, and where the operating
+system stops us from going further. Everything claimed here has a test id; the
+suite runs on every PR and its failure blocks publish.
+
+---
+
+## 1. The two threats, kept apart
+
+These are constantly conflated, and conflating them is how a product ends up
+promising something it cannot deliver.
+
+**Breakout** — payload text escaping the model call into the machine. This is
+made _structurally impossible_, not detected. §3 is how.
+
+**Prompt injection** — payload text manipulating what the model _says_. No
+daemon can prevent this, and BYOLLM does not claim to. What it does is bound
+the consequences: the model has no tools, no retrieval and no MCP, and its
+output is inert bytes that travel back over the protocol and into a log.
+
+> **The guarantee, in one sentence:** your machine runs one model call and
+> nothing else; what the model _says_ is between you and the app that sent it.
+
+An app that feeds a BYOLLM result into a privileged downstream step has
+re-created the risk on its own side. See §6.
+
+---
+
+## 2. What a job can cause
+
+A claimed job of kind `llm.generate` or `llm.chat` results in **exactly one
+action**: text sent to the configured model backend, text returned.
+
+Nothing in the payload may influence anything else — not the model, not the
+backend, not the base URL, not flags, not the filesystem, not the environment.
+The payload is data handed to a model, never configuration and never a
+command.
+
+This starts at the wire schema. There is no field on a job for a model, a
+path, a URL, an argument or an environment variable, and payload objects are
+`strict()`, so an unknown key is a parse failure rather than something
+silently ignored deeper in.
+
+```ts
+GeneratePayload.safeParse({ prompt: "hi", model: "gpt-4" }).success; // false
+```
+
+Test ids: `NO_PAYLOAD_ROUTING`, `KIND_NO_CODE`, `KIND_TYPED_ONLY`.
+
+---
+
+## 3. Backend classes
+
+The two classes have genuinely different threat surfaces, so they get
+different treatment rather than one blurred description of both.
+
+### 3.1 HTTP-class — `openai-http`
+
+Any OpenAI-compatible server: Ollama, `mlx_lm.server`, llama.cpp server, vLLM.
+One backend, N owner-configured base URLs.
+
+**It spawns nothing.** The argv, stdin, environment and sandbox requirements
+below are not applicable _by construction_ rather than by discipline. The
+prompt travels as a JSON string field in a request body; there is no command
+line for it to escape into because there is no command line.
+
+What remains is the destination:
+
+- the base URL comes from owner config and **nowhere else** — no payload field
+  can set it, redirect it, or append to it;
+- the request path is a hardcoded literal, and the computed URL is re-checked
+  against the configured origin;
+- redirects are **refused** (`redirect: "error"`), so a permitted base URL
+  cannot become a forbidden one in flight;
+- the response body is read through a cap, so a hostile or simply broken local
+  model cannot exhaust memory.
+
+**On SSRF filtering, honestly.** The spec calls this surface "SSRF-shaped".
+The shape matters: since the base URL has no attacker-controlled input channel
+at all, what remains is an owner who misconfigures their own machine. So the
+check deliberately **allows loopback and private LAN addresses** —
+`http://127.0.0.1:11434` is Ollama's default and the entire point of the
+product — and refuses only cloud-metadata and link-local addresses, where a
+misconfiguration on a cloud VM would hand out instance credentials. A filter
+that broke the primary path in exchange for no real protection would be
+theatre, and we would rather say so than ship it and claim credit.
+
+Test id: `HTTP_BASE_URL_SAFE`.
+
+### 3.2 Process-class — `claude-cli`
+
+Spawns a binary. Every requirement below is mandatory here.
+
+- **Fixed argv.** The argument vector is a frozen literal. There is no builder
+  that appends to it and no mechanism to pass job-supplied arguments. The
+  adversarial suite asserts that every hostile payload produces byte-identical
+  argv.
+- **Prompt on stdin.** Always. Never as an argument, never through `sh -c`.
+  `shell: false`, so the argv array reaches `execvp` verbatim and
+  metacharacters in it are just bytes.
+- **No shell-invoking APIs.** `exec`, `execSync` and `spawnSync` are banned by
+  an eslint rule, not only by convention.
+- **No tools.** `--tools ""` is the CLI's own switch for disabling every
+  built-in tool, plus `--strict-mcp-config` with an empty `--mcp-config` so no
+  MCP server is available and none is inherited from the user's own settings.
+- **Stripped environment.** An allowlist of `PATH`, `HOME`, `LANG`, `LC_ALL`,
+  `TZ`, `TMPDIR`, plus `CI=1`. Everything else is dropped, so a prompt that
+  says "read your environment" finds nothing worth having.
+  `ANTHROPIC_API_KEY` is deliberately absent, so billing cannot silently move
+  from the subscription to a metered key.
+- **Scratch `cwd`.** A fresh empty directory per job, removed afterwards.
+  Never the daemon's directory, never the user's home, never anything a
+  payload named.
+- **No inherited descriptors** beyond the three std streams.
+- **Hard ceilings.** A wall-clock timeout and an output-size cap. The child is
+  sent `SIGTERM`, then `SIGKILL` two seconds later if it has not exited — the
+  escalation is gated on the process having actually exited, not on "a signal
+  was sent", so a child that ignores `SIGTERM` cannot outlive its budget.
+
+Test ids: `NO_SHELL_INTERPOLATION`, `STRIPPED_CHILD_ENV`.
+
+### 3.3 What we cannot drop, and say so
+
+**`HOME` is present in the child environment.** The `claude` CLI reads its
+subscription credentials from the user's own config directory, so removing
+`HOME` would remove the authentication this backend exists to use. The honest
+consequence: the child process can reach the filesystem its user can reach.
+What prevents it doing anything with that is **having no tools**, not the
+environment. If that trade is not acceptable to you, do not configure a
+process-class backend — the HTTP-class one spawns nothing at all.
+
+**macOS injects `__CF_USER_TEXT_ENCODING`** into every child regardless of the
+environment we pass, at a layer below anything a process controls. It carries
+a uid and a locale, no secret. It is named in the adversarial suite's
+assertion rather than filtered out of it, so the test says what is actually
+true.
+
+**No OS-level sandbox yet.** There is no seatbelt profile, no seccomp filter,
+no namespace. The isolation described above is process-level. Adding an
+OS-level layer where the platform allows is worth doing and is not done; this
+document will say so until it is.
+
+---
+
+## 4. Output is inert
+
+Returned text is treated as bytes. It is never evaluated, never written to a
+path a payload named, and never interpolated into a shell.
+
+When it reaches a terminal — through `byollm log` or `byollm status` — control
+characters are replaced first, because text that can move the cursor or set
+colours can forge output. The **stored** bytes stay verbatim, so the log
+remains an honest record of what arrived; only the display is sanitised.
+
+Log lines are JSON, so a payload containing newlines cannot forge a second
+entry.
+
+Test id: `OUTPUT_INERT`.
+
+---
+
+## 5. Community jobs get extra teeth
+
+Everything above is the floor for all jobs. For jobs whose owner is not the
+daemon's owner:
+
+- **Per-source rate limits and a daily cap**, owner-configured, persisted
+  across restarts so restarting the daemon does not reset a stranger's quota.
+- **A tighter resource budget** — wall clock, output bytes, payload size —
+  applied on top of the global ceilings.
+- **The ingress log records the job's owner**, so the machine's owner can see
+  who they have been working for.
+- **Retention**: a `named`/`public` prompt is kept in full for 7 days by
+  default, then reduced to its hash. A volunteer must not indefinitely retain
+  strangers' content. The hash and the metadata stay, so the owner can still
+  prove what ran.
+
+Widening who may use a machine requires an explicit interactive confirmation
+that names what it means in plain language, and is refused outright when stdin
+is not a TTY — consent is never inferred from a script.
+
+Test id: `COMMUNITY_BUDGETS`.
+
+---
+
+## 6. The return trip is untrusted too
+
+§1–5 protect the volunteer's machine from the app's payload. This section is
+the mirror: it protects the app from the volunteer's result.
+
+A `named`/`public` result is **attacker-controlled text**. The volunteer's
+machine, or a compromised one, can return anything, and an app would otherwise
+render it as its own AI's output.
+
+Every result carries provenance to the delivery seam:
+
+```ts
+{
+  (audience, runnerId, runnerOwner, backendClass, model, untrusted);
+}
+```
+
+`untrusted` is **derived** from the audience (`audience !== "self"`), never
+supplied, so no caller can mark volunteer output as first-party.
+
+**If you are an app developer**, a result with `untrusted: true` must not be
+rendered as trusted HTML, fed to a privileged downstream step, or presented to
+a reader as your own AI's answer without disclosing where it came from. There
+is no redundancy or verification of community results in v0 — that is a
+documented limitation, not an oversight.
+
+Test id: `RESULT_PROVENANCE`.
+
+---
+
+## 7. Identity and trust boundaries
+
+- A runner token is bound to **exactly one user**, learned from that user's own
+  authenticated session during device-code pairing. A daemon can never assert
+  who it is.
+- Owner ids are **server-namespace-local**. `alice` on one app is not `alice`
+  on another, which is why the daemon's `named` allowlist is keyed by
+  **(server origin, user id)**.
+- A `named` job is admitted only by the daemon's **own local allowlist**. A
+  server's assertion that a runner is allowed is never sufficient — honouring
+  it would mean obeying the server rather than enforcing against it.
+- The allowlist is **empty by default**, so a fresh daemon is effectively
+  self-only until its owner deliberately widens it.
+- Tokens are stored as SHA-256 on the server and in a `0600` file on the
+  daemon. The daemon's whole state directory is readable and deletable by its
+  owner, by design.
+- Revocation is one-way and takes effect at the next heartbeat at the latest.
+
+---
+
+## 8. The adversarial corpus
+
+A named corpus of hostile payloads runs as a **blocking CI gate**. Each row
+asserts "reached the model verbatim, changed nothing else."
+
+Process-class families: shell metacharacters and command substitution; argv
+injection (`--dangerously-skip-permissions`, `--mcp-config`, `--allowedTools
+Bash`, `-p` lookalikes, `--` smuggling); path traversal and `file://`/`@file`
+tricks; environment exfiltration; unicode (RTL override, zero-width,
+homoglyph) and control characters; oversized payloads.
+
+HTTP-class families: absolute URLs and metadata hostnames in the payload; path
+traversal; CRLF header injection; JSON breakout; control characters; oversized
+payloads.
+
+Plus ceilings: output cap, wall-clock timeout, cancellation mid-flight,
+redirect refusal.
+
+**A new backend cannot ship without its rows.** A coverage check asserts that
+every registered backend declares a corpus and that the corpus is non-empty,
+so adding a backend to the registry without hostile-payload coverage fails the
+build.
+
+---
+
+## 9. Reporting a vulnerability
+
+Open a security advisory on `github.com/oftomorrowinc/byollm` rather than a
+public issue. Pre-release, there is no formal SLA; the honest expectation is
+best effort.

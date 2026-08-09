@@ -1,0 +1,13 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": "src",
+    "outDir": ".tsbuild",
+    "tsBuildInfoFile": ".tsbuild/.tsbuildinfo",
+    // The demo runs straight from source via Node's type stripping, so it is
+    // typechecked but never emitted.
+    "noEmit": false
+  },
+  "include": ["src/**/*.ts"],
+  "references": [{ "path": "../../packages/server" }]
+}

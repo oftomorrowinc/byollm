@@ -1,0 +1,14 @@
+{
+  "threshold": 3,
+  "reporters": ["consoleFull"],
+  "absolute": true,
+  "gitignore": true,
+  "ignore": [
+    "**/node_modules/**",
+    "**/dist/**",
+    "**/coverage/**",
+    "**/*.test.ts",
+    "**/*.d.ts"
+  ],
+  "format": ["typescript"]
+}

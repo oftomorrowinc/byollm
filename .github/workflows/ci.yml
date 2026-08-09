@@ -1,0 +1,92 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: "22.12"
+
+jobs:
+  quality:
+    name: Lint, types, unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run format:check
+      - run: pnpm run lint
+      # Build first: packages resolve each other through their published
+      # `dist` types, so a cold checkout has nothing to typecheck against.
+      - run: pnpm run build
+      - run: pnpm run typecheck
+      - run: pnpm run test:coverage
+      - run: pnpm run knip
+      - run: pnpm run dupes
+      # docs/standards.md: every example executes in CI so docs cannot rot.
+      - run: pnpm --filter @byollm/example-demo run check
+
+  adversarial:
+    name: Adversarial corpus (blocking security gate)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run build
+      # byollm_004 §5: the hostile-payload corpus. Its failure blocks publish.
+      # Includes the coverage check that every registered backend has rows.
+      - run: pnpm run adversarial
+
+  conformance-reference:
+    name: Conformance — reference server
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run build
+      - run: pnpm run conformance
+
+  conformance-supabase:
+    name: Conformance — Supabase adapter
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run build
+      - uses: supabase/setup-cli@v1
+        with:
+          version: latest
+      - name: Start Supabase
+        working-directory: packages/server
+        run: supabase start
+      - name: Certify Supabase adapter
+        run: pnpm --filter @byollm/conformance run certify:supabase
+      - name: Stop Supabase
+        if: always()
+        working-directory: packages/server
+        run: supabase stop --no-backup

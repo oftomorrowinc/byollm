@@ -1,0 +1,14 @@
+dist
+coverage
+node_modules
+.next
+pnpm-lock.yaml
+site/index.html
+packages/server/supabase/migrations
+# Hand-authored prose, wrapped deliberately. Prettier dedents continued code
+# spans and rewrites emphasis markers, which changes how these render.
+specs
+PLAN.md
+README.md
+packages/*/README.md
+docs

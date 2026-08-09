@@ -1,0 +1,11 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": "src",
+    // `tsc --build` is the typechecker; `tsup` produces the published dist.
+    // Separate outputs so the two never race over the same directory.
+    "outDir": ".tsbuild",
+    "tsBuildInfoFile": ".tsbuild/.tsbuildinfo"
+  },
+  "include": ["src/**/*.ts"]
+}

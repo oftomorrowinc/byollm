@@ -1,0 +1,14 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    // The adversarial probes are `.mjs` executables spawned as real binaries;
+    // `allowJs` puts them inside the project so they are linted like the rest.
+    "allowJs": true,
+    "checkJs": false,
+    "rootDir": ".",
+    "outDir": ".tsbuild",
+    "tsBuildInfoFile": ".tsbuild/.tsbuildinfo"
+  },
+  "include": ["src/**/*.ts", "test/**/*.ts", "test/**/*.mjs"],
+  "references": [{ "path": "../protocol" }, { "path": "../server" }]
+}

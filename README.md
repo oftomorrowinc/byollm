@@ -1,10 +1,10 @@
 > [!WARNING]
 > **Alpha — under active development. Don't use this yet.**
 >
-> Published under the `alpha` tag only — there is deliberately no `latest`,
-> so `npm install byollm` does not resolve at all. Use `byollm@alpha` if you
-> want to poke at it. The protocol is v0 and **will** change without a
-> deprecation path,
+> Install it as `byollm@alpha`, deliberately. npm forces a `latest` tag onto a
+> package's first publish and will not let it be removed, so the alpha is also
+> `latest` for now — it is marked deprecated so every install says so out
+> loud. The protocol is v0 and **will** change without a deprecation path,
 > the packages have never run outside their own test suite, and nothing here
 > has production miles. Read it, take the ideas, tell us what's wrong — but
 > don't put it in front of your users.
@@ -153,7 +153,7 @@ A server is **byollm-compatible** when the conformance kit passes against it. Th
 
 ## Status
 
-**Alpha, built in the open.** Published under the `alpha` tag only — `latest` is deliberately empty, so nobody installs this by accident.
+**Alpha, built in the open.** `byollm` and `@byollm/protocol` are published at `0.1.0-alpha.0` — install them as `byollm@alpha`. Both are marked deprecated so a bare `npm install byollm` warns loudly: npm assigns `latest` on a first publish and refuses to let it be removed, so a warning is the strongest honest guard there is. `@byollm/server` and `@byollm/conformance` are not published yet.
 
 The protocol is at v0 and the audience model is settled, but v0 means what it says: it will change without a deprecation path. The daemon ships the full audience matrix with an **empty allowlist by default**, so it behaves as `self`-only until you widen it deliberately. Backends at v1: `openai-http` (Ollama, MLX, llama.cpp, vLLM) and `claude-cli`.
 

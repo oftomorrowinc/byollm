@@ -4,7 +4,7 @@
  * ```bash
  * pnpm --filter @byollm/example-demo start
  * # then, in another terminal, with Ollama running:
- * BYOLLM_HOME=/tmp/byollm-demo npx byollm connect http://127.0.0.1:8787
+ * BYOLLM_HOME=/tmp/byollm-demo npx byollm@alpha connect http://127.0.0.1:8787
  * ```
  *
  * It serves three things: the protocol endpoints a daemon talks to, a pairing
@@ -115,7 +115,7 @@ async function route(request: Request): Promise<Response> {
     return html(
       `<h1>Connect a machine</h1>
        <p>Signed in as <b>${escapeHtml(user)}</b>.</p>
-       <p>Run <code>npx byollm connect ${ORIGIN}</code> and enter the code it shows.</p>
+       <p>Run <code>npx byollm@alpha connect ${ORIGIN}</code> and enter the code it shows.</p>
        ${
          info === null
            ? ""
@@ -177,7 +177,7 @@ async function route(request: Request): Promise<Response> {
       return html(
         `<h1>No runner</h1>
          <p class="warn">${escapeHtml(error instanceof Error ? error.message : "unknown error")}</p>
-         <p>Start one: <code>npx byollm connect ${ORIGIN}</code>,
+         <p>Start one: <code>npx byollm@alpha connect ${ORIGIN}</code>,
          then <a href="/pair">approve it</a>.</p>`,
       );
     }
@@ -231,7 +231,7 @@ server.listen(PORT, "127.0.0.1", () => {
   process.stdout.write(
     `\nBYOLLM demo on ${ORIGIN}\n\n` +
       `  1. open ${ORIGIN}\n` +
-      `  2. npx byollm connect ${ORIGIN}\n` +
+      `  2. npx byollm@alpha connect ${ORIGIN}\n` +
       `  3. approve the code at ${ORIGIN}/pair\n\n`,
   );
 });

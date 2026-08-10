@@ -1,8 +1,10 @@
 > [!WARNING]
 > **Alpha — under active development. Don't use this yet.**
 >
-> Published under the `alpha` tag only, so `npm install byollm` will not pick
-> it up. The protocol is v0 and **will** change without a deprecation path,
+> Published under the `alpha` tag only — there is deliberately no `latest`,
+> so `npm install byollm` does not resolve at all. Use `byollm@alpha` if you
+> want to poke at it. The protocol is v0 and **will** change without a
+> deprecation path,
 > the packages have never run outside their own test suite, and nothing here
 > has production miles. Read it, take the ideas, tell us what's wrong — but
 > don't put it in front of your users.
@@ -81,7 +83,7 @@ That's the whole integration: **one route, one store, one `enqueue`.** If no dae
 ### For users
 
 ```bash
-npx byollm connect https://your-app.com     # opens a browser to pair — one click
+npx byollm@alpha connect https://your-app.com   # opens a browser to pair — one click
 byollm status                                # what's connected, what's running
 ```
 

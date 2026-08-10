@@ -50,3 +50,30 @@ excuses — the security posture depends on naming these out loud.
 3. `byollm_005` — site build-out + generated docs.
 4. Future: OS sandbox for process-class; streaming lane (v2);
    `train.*` job kinds.
+
+## Finding from the first integration (Press, 2026-08-08)
+
+Press's fact-checker verification calls the model with WebSearch —
+which byollm_004 §2 forbids ("no tools, functions, retrieval, or
+MCP"), ~96% of that app's calls. The ban is **correct and essential
+for `named`/`public`** (tools + untrusted payload + someone else's
+machine = breakout/exfiltration). But for **`self` jobs on the
+owner's own box, the ban is overbroad** — it's identical to the user
+running the tool-enabled CLI themselves, which they already do; no
+new risk surface exists.
+
+Two consequences:
+
+1. **Billing-lane principle (adopt in the framework doc):** whether
+   an app needs tools/web is what sorts it into a lane. Tool-free →
+   BYOLLM (user's subscription + box). Needs-web/tools → metered API
+   (the app pays). An app doesn't "fail" to be a BYOLLM app; the tool
+   requirement just names its lane.
+2. **Future byollm capability (not v1):** a `self`-only,
+   explicitly-owner-opted, **per-kind declared toolset** — a job kind
+   may request a named set of tools, runnable only when audience is
+   `self` AND the daemon owner enabled that toolset for that kind.
+   `named`/`public` stay tool-free forever. This would let a
+   fact-checker-style app run on the daemon without a metered key,
+   without weakening the community-compute guarantee. Needs its own
+   threat review before it ships.

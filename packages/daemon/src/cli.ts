@@ -1,4 +1,3 @@
-#!/usr/bin/env node
 import { mkdir, rm, stat, writeFile } from "node:fs/promises";
 import { hostname, userInfo } from "node:os";
 import { createInterface } from "node:readline/promises";
@@ -711,10 +710,4 @@ export async function main(argv: readonly string[]): Promise<ExitCode> {
     );
     return 1;
   }
-}
-
-// `import.meta.main` is true only when this file is the entry point, so the
-// tests can import the commands without the process exiting under them.
-if (import.meta.main) {
-  process.exitCode = await main(process.argv.slice(2));
 }

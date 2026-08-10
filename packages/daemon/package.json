@@ -1,16 +1,11 @@
 {
-  "name": "@byollm/daemon",
-  "version": "0.0.0",
-  "description": "The BYOLLM daemon \u2014 run your app's LLM jobs on your own models. npx byollm connect <app>",
+  "name": "byollm",
+  "version": "0.1.0-alpha.0",
+  "description": "Bring Your Own LLM \u2014 run an app's LLM jobs on your own models. ALPHA: under active development, not for production use.",
   "license": "MIT",
   "type": "module",
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/oftomorrowinc/byollm.git",
-    "directory": "packages/daemon"
-  },
   "bin": {
-    "byollm": "./dist/cli.js"
+    "byollm": "./dist/bin.js"
   },
   "exports": {
     ".": {
@@ -29,7 +24,8 @@
   },
   "scripts": {
     "build": "tsup",
-    "clean": "rm -rf dist .tsbuild"
+    "clean": "rm -rf dist .tsbuild",
+    "smoke": "node scripts/smoke.mjs"
   },
   "dependencies": {
     "@byollm/protocol": "workspace:*",
@@ -38,7 +34,14 @@
   "publishConfig": {
     "access": "public"
   },
-  "devDependencies": {
-    "@byollm/server": "workspace:*"
-  }
+  "homepage": "https://byo-llm.com",
+  "keywords": [
+    "llm",
+    "ollama",
+    "mlx",
+    "local-llm",
+    "byollm",
+    "daemon",
+    "runner"
+  ]
 }

@@ -1,10 +1,10 @@
-# `@byollm/daemon`
+# `byollm`
 
 What end users run. Connects **outbound** to an app you trust, claims only the
 jobs you have agreed to run, and executes them on your own models.
 
 ```bash
-npx byollm connect https://your-app.com
+npx byollm@alpha connect https://your-app.com
 ```
 
 There is nothing to open on your network. The daemon never listens.
@@ -21,7 +21,7 @@ ollama pull gemma3:12b
 Then:
 
 ```bash
-npx byollm connect https://your-app.com
+npx byollm@alpha connect https://your-app.com
 ```
 
 ```

@@ -5,11 +5,14 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ByollmApp, MemoryStore, createFetchHandler } from "@byollm/server";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { runCli, type CliIo } from "./cli.js";
-import { daemonPaths, type DaemonPaths } from "./paths.js";
+import { daemonPaths, runCli, type CliIo, type DaemonPaths } from "byollm";
 
 /**
  * `npx byollm connect …` against a real HTTP server, end to end.
+ *
+ * It lives in the conformance package because it exercises the daemon and the
+ * server together — which is what this package is for — and because that lets
+ * the `byollm` package ship without depending on the server it talks to.
  *
  * byollm_002's "Done when" is a stranger going from `connect` to a completed
  * job in under five minutes. This is that path, minus the stranger: a real

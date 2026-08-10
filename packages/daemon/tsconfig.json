@@ -9,6 +9,11 @@
     "outDir": ".tsbuild",
     "tsBuildInfoFile": ".tsbuild/.tsbuildinfo"
   },
-  "include": ["src/**/*.ts", "test/**/*.ts", "test/**/*.mjs"],
-  "references": [{ "path": "../protocol" }, { "path": "../server" }]
+  "include": [
+    "src/**/*.ts",
+    "test/**/*.ts",
+    "test/**/*.mjs",
+    "scripts/**/*.mjs"
+  ],
+  "references": [{ "path": "../protocol" }]
 }

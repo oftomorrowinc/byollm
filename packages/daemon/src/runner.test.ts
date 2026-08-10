@@ -32,15 +32,19 @@ class SpyBackend implements Backend {
   async execute(request: BackendRequest): Promise<BackendResult> {
     this.seen.push(request.prompt);
     if (this.hang) {
-      await new Promise<void>((resolve) => {
-        request.signal.addEventListener(
-          "abort",
-          () => {
-            resolve();
-          },
-          { once: true },
-        );
-      });
+      // `aborted` first: a signal that has already fired never calls a
+      // listener added afterwards. The real backends check the same way.
+      if (!request.signal.aborted) {
+        await new Promise<void>((resolve) => {
+          request.signal.addEventListener(
+            "abort",
+            () => {
+              resolve();
+            },
+            { once: true },
+          );
+        });
+      }
       return {
         ok: false,
         code: "canceled",
@@ -284,7 +288,9 @@ describe("runJob [INGRESS_LOGGED_BEFORE_EXECUTION]", () => {
     const { runner } = await makeRunner();
     backend.hang = true;
     const running = runner.runJob(job());
-    await new Promise((resolve) => setTimeout(resolve, 10));
+    // Wait for the backend to actually hold it, rather than guessing with a
+    // sleep — the race this used to lose is the bug it is meant to catch.
+    while (backend.seen.length === 0) await new Promise(setImmediate);
     runner.cancelJob("job_1");
     expect(await running).toEqual({ outcome: "canceled" });
   });
@@ -293,7 +299,7 @@ describe("runJob [INGRESS_LOGGED_BEFORE_EXECUTION]", () => {
     const { runner } = await makeRunner();
     backend.hang = true;
     const running = runner.runJob(job());
-    await new Promise((resolve) => setTimeout(resolve, 10));
+    while (backend.seen.length === 0) await new Promise(setImmediate);
     runner.cancelAll();
     expect(await running).toEqual({ outcome: "canceled" });
   });

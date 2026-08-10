@@ -1,4 +1,4 @@
-import { chmod, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -35,15 +35,19 @@ class HangingBackend implements Backend {
     return Promise.resolve({ healthy: true, models: ["m"] });
   }
   async execute(request: BackendRequest): Promise<BackendResult> {
-    await new Promise<void>((resolve) => {
-      request.signal.addEventListener(
-        "abort",
-        () => {
-          resolve();
-        },
-        { once: true },
-      );
-    });
+    // `aborted` first: a signal that has already fired never calls a listener
+    // added afterwards. The real backends check the same way.
+    if (!request.signal.aborted) {
+      await new Promise<void>((resolve) => {
+        request.signal.addEventListener(
+          "abort",
+          () => {
+            resolve();
+          },
+          { once: true },
+        );
+      });
+    }
     return {
       ok: false,
       code: "canceled",
@@ -350,6 +354,42 @@ describe("claude-cli — a child that fails", () => {
     );
     await chmod(script, 0o755);
     expect((await new ClaudeCliBackend(script).health()).healthy).toBe(true);
+  });
+});
+
+describe("a signal that has already fired [CANCEL_HONORED]", () => {
+  it("does not spawn a child for a job cancelled before it started", async () => {
+    // The bug this pins: `addEventListener("abort")` never fires for a signal
+    // that has already aborted, so a job cancelled between the claim and the
+    // spawn would have started anyway and run to completion.
+    const script = join(dir, "marker.mjs");
+    const marker = join(dir, "it-ran");
+    await writeFile(
+      script,
+      [
+        "#!/usr/bin/env node",
+        "import { writeFileSync } from 'node:fs';",
+        'if (process.argv.includes("--version")) { process.stdout.write("x\\n"); process.exit(0); }',
+        `writeFileSync(${JSON.stringify(marker)}, "ran");`,
+      ].join("\n"),
+    );
+    await chmod(script, 0o755);
+
+    const controller = new AbortController();
+    controller.abort();
+
+    const result = await new ClaudeCliBackend(script).execute({
+      prompt: "hi",
+      model: "m",
+      timeoutMs: 10_000,
+      maxOutputBytes: 4096,
+      signal: controller.signal,
+    });
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.code).toBe("canceled");
+    // The child must never have run at all.
+    await expect(readFile(marker, "utf8")).rejects.toThrow();
   });
 });
 

@@ -161,6 +161,22 @@ export class ClaudeCliBackend implements Backend {
     started: number,
   ): Promise<BackendResult> {
     return new Promise<BackendResult>((resolve) => {
+      // Check before spawning, not only via the listener below: a job
+      // cancelled between the claim and this line arrives with its signal
+      // already aborted, and `addEventListener("abort")` never fires for a
+      // signal that has already fired. Without this the child would spawn and
+      // run to completion after the owner had already said stop.
+      if (request.signal.aborted) {
+        resolve({
+          ok: false,
+          code: "canceled",
+          message: "the job was canceled before it started",
+          retryable: false,
+          durationMs: Date.now() - started,
+        });
+        return;
+      }
+
       const child = spawn(this.#binary, claudeArgv(request.model), {
         cwd: scratch,
         env: childEnv(),

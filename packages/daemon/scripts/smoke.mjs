@@ -1,0 +1,86 @@
+#!/usr/bin/env node
+/**
+ * Runs the **built binary** as a binary.
+ *
+ * Everything else drives `runCli` in-process, which is exactly how a bug
+ * shipped once already: exporting the CLI from the library entry let the
+ * bundler hoist its implementation into a shared chunk, leaving `dist/bin.js`
+ * a pure re-export that produced no output at all. No unit test could see
+ * that, because no unit test ran the artifact users actually execute.
+ */
+import { execFile } from "node:child_process";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { fileURLToPath } from "node:url";
+import { join } from "node:path";
+
+const BIN = fileURLToPath(new URL("../dist/bin.js", import.meta.url));
+const home = await mkdtemp(join(tmpdir(), "byollm-smoke-"));
+
+let failures = 0;
+
+function run(args) {
+  return new Promise((resolve) => {
+    execFile(
+      process.execPath,
+      [BIN, ...args],
+      { env: { ...process.env, BYOLLM_HOME: home }, timeout: 30_000 },
+      (error, stdout, stderr) => {
+        resolve({ code: error?.code ?? 0, stdout, stderr });
+      },
+    );
+  });
+}
+
+async function check(name, args, assertion) {
+  const result = await run(args);
+  const ok = assertion(result);
+  process.stdout.write(`  ${ok ? "✓" : "✗"} ${name}\n`);
+  if (!ok) {
+    failures += 1;
+    process.stdout.write(
+      `      exit=${result.code}\n      stdout=${JSON.stringify(result.stdout.slice(0, 200))}\n` +
+        `      stderr=${JSON.stringify(result.stderr.slice(0, 200))}\n`,
+    );
+  }
+}
+
+process.stdout.write("\nbyollm binary smoke test\n");
+
+try {
+  await check(
+    "--version prints the package version",
+    ["--version"],
+    (r) =>
+      r.stdout.trim() === process.env.npm_package_version ||
+      /^\d+\.\d+\.\d+/.test(r.stdout.trim()),
+  );
+  await check("--help prints usage", ["--help"], (r) =>
+    r.stdout.includes("byollm connect"),
+  );
+  await check("status runs against an empty home", ["status"], (r) =>
+    r.stdout.includes("paired apps"),
+  );
+  await check(
+    "allow --list says nobody, rather than nothing",
+    ["allow", "--list"],
+    (r) => r.stdout.includes("Nobody but you"),
+  );
+  await check("log says nothing has run, rather than nothing", ["log"], (r) =>
+    r.stdout.includes("nothing has run"),
+  );
+  await check(
+    "an unknown command exits 2 with usage",
+    ["frobnicate"],
+    (r) => r.code === 2 && r.stderr.includes("unknown command"),
+  );
+} finally {
+  await rm(home, { recursive: true, force: true });
+}
+
+process.stdout.write(
+  failures === 0
+    ? "\n  the binary works\n\n"
+    : `\n  ${failures} smoke check(s) failed\n\n`,
+);
+process.exit(failures === 0 ? 0 : 1);

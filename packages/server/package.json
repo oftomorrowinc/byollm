@@ -1,14 +1,9 @@
 {
   "name": "@byollm/server",
-  "version": "0.0.0",
+  "version": "0.1.0-alpha.0",
   "description": "Framework-agnostic BYOLLM protocol handlers, a reference in-memory store, a Next.js mount, and a Supabase adapter.",
   "license": "MIT",
   "type": "module",
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/oftomorrowinc/byollm.git",
-    "directory": "packages/server"
-  },
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
@@ -53,5 +48,7 @@
   },
   "publishConfig": {
     "access": "public"
-  }
+  },
+  "private": true,
+  "//": "private: held back from the alpha. Remove this line (and `private`) to publish; the package is otherwise ready."
 }

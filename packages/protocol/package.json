@@ -1,14 +1,9 @@
 {
   "name": "@byollm/protocol",
-  "version": "0.0.0",
-  "description": "The BYOLLM wire contract — types, zod schemas, and the audience matching rules that both the daemon and server enforce.",
+  "version": "0.1.0-alpha.0",
+  "description": "The BYOLLM wire contract \u2014 types, zod schemas, and the audience rules both the daemon and server enforce. ALPHA: under active development.",
   "license": "MIT",
   "type": "module",
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/oftomorrowinc/byollm.git",
-    "directory": "packages/protocol"
-  },
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
@@ -33,5 +28,6 @@
   },
   "publishConfig": {
     "access": "public"
-  }
+  },
+  "homepage": "https://byo-llm.com"
 }

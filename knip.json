@@ -14,7 +14,7 @@
       "project": ["src/**/*.ts"]
     },
     "packages/daemon": {
-      "entry": [],
+      "entry": ["src/bin.ts"],
       "project": ["src/**/*.ts", "test/**/*.ts"]
     },
     "packages/conformance": {

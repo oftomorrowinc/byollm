@@ -25,10 +25,14 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm run format:check
-      - run: pnpm run lint
       # Build first: packages resolve each other through their published
-      # `dist` types, so a cold checkout has nothing to typecheck against.
+      # `dist` types, so both linting and typechecking need them to exist and
+      # to be current. Linting a stale `dist` reports `any` for real types.
       - run: pnpm run build
+      # Run the built binary as a binary. Everything else drives the CLI
+      # in-process, which is how a no-output `dist/bin.js` shipped once.
+      - run: pnpm run smoke
+      - run: pnpm run lint
       - run: pnpm run typecheck
       - run: pnpm run test:coverage
       - run: pnpm run knip

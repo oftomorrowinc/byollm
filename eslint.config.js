@@ -75,7 +75,10 @@ export default tseslint.config(
     // The adversarial probes are standalone Node executables spawned as real
     // binaries, not modules the project imports. They get Node globals and no
     // type-aware rules, because there is no project graph to type them from.
-    files: ["packages/daemon/test/adversarial/*.mjs"],
+    files: [
+      "packages/daemon/test/adversarial/*.mjs",
+      "packages/daemon/scripts/*.mjs",
+    ],
     // The spread comes first: it carries its own `languageOptions`, and
     // spreading it after ours would silently discard the globals below.
     ...tseslint.configs.disableTypeChecked,
@@ -84,6 +87,7 @@ export default tseslint.config(
         process: "readonly",
         setInterval: "readonly",
         console: "readonly",
+        URL: "readonly",
       },
     },
   },

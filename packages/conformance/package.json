@@ -1,14 +1,9 @@
 {
   "name": "@byollm/conformance",
-  "version": "0.0.0",
+  "version": "0.1.0-alpha.0",
   "description": "The BYOLLM compatibility contract \u2014 drive a real daemon against any server and assert every protocol MUST.",
   "license": "MIT",
   "type": "module",
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/oftomorrowinc/byollm.git",
-    "directory": "packages/conformance"
-  },
   "bin": {
     "byollm-certify": "./dist/cli.js"
   },
@@ -35,8 +30,8 @@
     "certify:supabase": "node --experimental-strip-types targets/supabase.ts"
   },
   "dependencies": {
-    "@byollm/daemon": "workspace:*",
-    "@byollm/protocol": "workspace:*"
+    "@byollm/protocol": "workspace:*",
+    "byollm": "workspace:*"
   },
   "devDependencies": {
     "@byollm/server": "workspace:*",
@@ -44,5 +39,7 @@
   },
   "publishConfig": {
     "access": "public"
-  }
+  },
+  "private": true,
+  "//": "private: held back from the alpha. Remove this line (and `private`) to publish; the package is otherwise ready."
 }

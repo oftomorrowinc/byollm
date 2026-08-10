@@ -13,7 +13,7 @@ const sourceAliases = {
   "@byollm/server": fileURLToPath(
     new URL("./packages/server/src/index.ts", import.meta.url),
   ),
-  "@byollm/daemon": fileURLToPath(
+  byollm: fileURLToPath(
     new URL("./packages/daemon/src/index.ts", import.meta.url),
   ),
 };

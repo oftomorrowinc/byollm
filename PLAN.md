@@ -45,15 +45,25 @@ first).
 
 ## Identity
 
-**npm org `byollm`: secured (2026-08-08).** Packages publish as
-`@byollm/protocol`, `@byollm/daemon`, `@byollm/server`. Still to
-claim: the **bare `byollm` package** (separate from the org — it is
-what makes `npx byollm connect …` work unprefixed; placeholder-publish
-it if free), `byo-llm.com` (available — buy as insurance), and a
-check on `byollm.dev`. Repo home: **`oftomorrowinc/byollm`** (decided
-2026-08-08) — the npm scope is the dev-facing identity; no separate
-GitHub org needed. Parked `byollm.com`
-acquirable later if warranted.
+**npm org `byollm`: secured (2026-08-08).** Naming resolved at first
+publish (2026-08-10): the daemon **is** the bare package `byollm`,
+rather than `@byollm/daemon` plus a placeholder — a placeholder has no
+bin, so it could never have made `npx byollm connect …` work.
+Libraries stay scoped: `@byollm/protocol`, `@byollm/server`,
+`@byollm/conformance`.
+
+**Published 2026-08-10 under the `alpha` tag only**, with `latest`
+left empty on purpose: `byollm` and `@byollm/protocol` at
+0.1.0-alpha.0. `@byollm/server` and `@byollm/conformance` are marked
+`private` until they have miles — delete that line to ship them.
+
+Still to claim: `byo-llm.com` (available — buy as insurance) and a
+check on `byollm.dev`. Still to do: **make the repo public** — it is
+private today, so both packages ship with no `repository` field rather
+than advertising a link that 404s. Repo home:
+**`oftomorrowinc/byollm`** (decided 2026-08-08) — the npm scope is the
+dev-facing identity; no separate GitHub org needed. Parked
+`byollm.com` acquirable later if warranted.
 
 ## Relationship to the other repos
 

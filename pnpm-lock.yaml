@@ -56,12 +56,12 @@ importers:
 
   packages/conformance:
     dependencies:
-      '@byollm/daemon':
-        specifier: workspace:*
-        version: link:../daemon
       '@byollm/protocol':
         specifier: workspace:*
         version: link:../protocol
+      byollm:
+        specifier: workspace:*
+        version: link:../daemon
     devDependencies:
       '@byollm/server':
         specifier: workspace:*
@@ -78,10 +78,6 @@ importers:
       zod:
         specifier: ^4.4.3
         version: 4.4.3
-    devDependencies:
-      '@byollm/server':
-        specifier: workspace:*
-        version: link:../server
 
   packages/protocol:
     dependencies:

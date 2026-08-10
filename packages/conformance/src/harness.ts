@@ -15,7 +15,7 @@ import {
   type BackendRequest,
   type BackendResult,
   type LoadedConfig,
-} from "@byollm/daemon";
+} from "byollm";
 import type { ConformanceTarget } from "./target.js";
 
 /**
@@ -43,19 +43,23 @@ export class EchoBackend implements Backend {
     const started = Date.now();
 
     if (this.hangMs > 0) {
-      const hung = await new Promise<"done" | "aborted">((resolve) => {
-        const timer = setTimeout(() => {
-          resolve("done");
-        }, this.hangMs);
-        request.signal.addEventListener(
-          "abort",
-          () => {
-            clearTimeout(timer);
-            resolve("aborted");
-          },
-          { once: true },
-        );
-      });
+      // `aborted` first: a signal that has already fired never calls a
+      // listener added afterwards. The real backends check the same way.
+      const hung = request.signal.aborted
+        ? "aborted"
+        : await new Promise<"done" | "aborted">((resolve) => {
+            const timer = setTimeout(() => {
+              resolve("done");
+            }, this.hangMs);
+            request.signal.addEventListener(
+              "abort",
+              () => {
+                clearTimeout(timer);
+                resolve("aborted");
+              },
+              { once: true },
+            );
+          });
       if (hung === "aborted") {
         return {
           ok: false,

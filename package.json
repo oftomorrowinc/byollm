@@ -18,7 +18,8 @@
     "adversarial": "vitest run --project adversarial",
     "knip": "knip",
     "dupes": "jscpd packages --config .jscpd.json",
-    "verify": "pnpm run format:check && pnpm run lint && pnpm run build && pnpm run typecheck && pnpm run test:coverage && pnpm run knip"
+    "verify": "pnpm run format:check && pnpm run build && pnpm run smoke && pnpm run lint && pnpm run typecheck && pnpm run test:coverage && pnpm run knip",
+    "smoke": "pnpm --filter byollm run smoke"
   },
   "devDependencies": {
     "@changesets/cli": "^2.31.1",

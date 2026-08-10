@@ -40,7 +40,7 @@ Two audiences, one design:
                                           │  jobs table (yours: Supabase, Postgres, memory…)
                                           ▼
    user's machine  ──outbound poll──▶  claim ─▶ run on local model ─▶ result
-     (@byollm/daemon)                                    │
+     (byollm)                                          │
                                                    Ollama · MLX · claude CLI
 ```
 
@@ -143,7 +143,7 @@ We're precise about the boundary: BYOLLM makes **breakout** impossible; **prompt
 | Package | What it is |
 |---|---|
 | [`@byollm/protocol`](packages/protocol) | The wire contract — types, schemas, the normative spec. |
-| [`@byollm/daemon`](packages/daemon) | What users run (`npx byollm`). Backends, routing, the trust log. |
+| [`byollm`](packages/daemon) | What users run (`npx byollm@alpha`). Backends, routing, the trust log. |
 | [`@byollm/server`](packages/server) | Drop-in handlers + a Supabase adapter for your backend. |
 | [`@byollm/conformance`](packages/conformance) | The compatibility contract — certify any server with one command. |
 

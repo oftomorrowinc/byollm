@@ -1,12 +1,21 @@
+> [!WARNING]
+> **Alpha — under active development. Don't use this yet.**
+>
+> Published under the `alpha` tag only, so `npm install byollm` will not pick
+> it up. The protocol is v0 and **will** change without a deprecation path,
+> the packages have never run outside their own test suite, and nothing here
+> has production miles. Read it, take the ideas, tell us what's wrong — but
+> don't put it in front of your users.
+
 <div align="center">
 
 # BYOLLM
 
 **Bring Your Own LLM.** Let your app's users run its AI on *their* models and *their* subscriptions — their Ollama box, their MLX machine, their `claude` CLI — through a tiny daemon they run and control.
 
-`npx byollm connect https://your-app.com`
+`npx byollm@alpha connect https://your-app.com`
 
-[![npm](https://img.shields.io/badge/npm-%40byollm-cb3837)](https://www.npmjs.com/org/byollm) · [![license](https://img.shields.io/badge/license-MIT-blue)](#license) · [![status](https://img.shields.io/badge/status-pre--release-orange)](#status)
+[![npm](https://img.shields.io/badge/npm-%40byollm-cb3837)](https://www.npmjs.com/org/byollm) · [![license](https://img.shields.io/badge/license-MIT-blue)](#license) · [![status](https://img.shields.io/badge/status-alpha-orange)](#status)
 
 </div>
 
@@ -142,7 +151,11 @@ A server is **byollm-compatible** when the conformance kit passes against it. Th
 
 ## Status
 
-Pre-release, built in the open. The protocol is at v0 and the audience model is settled. The daemon ships the full audience matrix with an **empty allowlist by default**, so it behaves as `self`-only until you widen it deliberately. Backends at v1: `openai-http` (Ollama, MLX, llama.cpp, vLLM) and `claude-cli`. Not yet published to npm — watch this repo.
+**Alpha, built in the open.** Published under the `alpha` tag only — `latest` is deliberately empty, so nobody installs this by accident.
+
+The protocol is at v0 and the audience model is settled, but v0 means what it says: it will change without a deprecation path. The daemon ships the full audience matrix with an **empty allowlist by default**, so it behaves as `self`-only until you widen it deliberately. Backends at v1: `openai-http` (Ollama, MLX, llama.cpp, vLLM) and `claude-cli`.
+
+What exists: 421 tests, an adversarial corpus wired as a blocking CI gate, and a conformance kit green against both the in-memory reference and real Postgres. What does not exist: a single production mile. Wait for `latest`.
 
 ## Contributing
 

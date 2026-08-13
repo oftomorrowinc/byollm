@@ -15,30 +15,49 @@ possible only after the repo went public.
 
 ## One-time setup
 
-Do this once per package, on npmjs.com. All four need it:
-`@byollm/protocol`, `@byollm/server`, `byollm`, `@byollm/conformance`.
+Authorize the workflow once per package. Use the CLI — it is exact, it is
+reviewable in a diff, and it does not depend on finding a page:
 
-1. Open the package → **Settings** → **Trusted Publisher**.
-2. Choose **GitHub Actions** and fill in exactly:
+```bash
+for pkg in "@byollm/protocol" "@byollm/server" byollm "@byollm/conformance"; do
+  npm trust github "$pkg" \
+    --file release.yml \
+    --repo oftomorrowinc/byollm \
+    --allow-publish -y
+done
 
-   | Field | Value |
-   |---|---|
-   | Organization or user | `oftomorrowinc` |
-   | Repository | `byollm` |
-   | Workflow filename | `release.yml` |
-   | Environment | *(leave empty)* |
+# Check what you did:
+npm trust list byollm
+```
 
-3. Save.
+Add `--dry-run` to see exactly what each call would set without changing
+anything; it prints the package, workflow file, repo and permissions back to
+you. Each real call is an account write, so expect a passkey prompt per
+package.
 
-**Every field is case-sensitive and matched exactly.** A mismatch is not
-reported when you save it — only when a publish fails, with `ENEEDAUTH`, which
-reads like an auth problem rather than a typo. If a release fails that way, check
-the workflow filename first; it is the usual culprit, and it must include the
+`--allow-publish` only. `npm stage publish` is a separate action this project
+does not use, and authorizing an action nobody calls is free blast radius.
+
+The same thing exists in the web UI at **npmjs.com → your package → Settings →
+Trusted Publisher**, but the Settings tab only renders for a logged-in
+maintainer and is easy to miss; the CLI is the reliable route.
+
+**What this trades.** After this, anyone who can push to this repo's release
+workflow can publish these packages — repository write access becomes publish
+access. That is usually the better bargain, because a repo's write access is
+easier to audit and revoke than a token that has been copied somewhere. But it
+is a real change in who can publish, and it is worth knowing rather than
+discovering.
+
+**Names are matched exactly and case-sensitively.** A mismatch is not reported
+when you set it — only when a publish fails, with `ENEEDAUTH`, which reads like
+an auth problem rather than a typo. If a release fails that way, check the
+workflow filename first; it is the usual culprit, and it must include the
 `.yml`.
 
-The package's `repository.url` must also match the GitHub repo. It already
-does for all four — but it did not while the repo was private, when those
-fields were stripped, so it is worth re-checking if manifests are ever edited.
+The package's `repository.url` must also match the GitHub repo. It already does
+for all four — but it did not while the repo was private, when those fields were
+stripped, so re-check if manifests are ever edited.
 
 ## Cutting a release
 

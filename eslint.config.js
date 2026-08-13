@@ -78,11 +78,15 @@ export default tseslint.config(
     files: [
       "packages/daemon/test/adversarial/*.mjs",
       "packages/daemon/scripts/*.mjs",
+      "scripts/*.mjs",
     ],
-    // The spread comes first: it carries its own `languageOptions`, and
-    // spreading it after ours would silently discard the globals below.
     ...tseslint.configs.disableTypeChecked,
     languageOptions: {
+      // Merge, do not replace: `disableTypeChecked` puts its own parserOptions
+      // in `languageOptions`, and overwriting the whole key silently turns
+      // type-checking back on — which then fails on any file outside a
+      // tsconfig, as these standalone scripts are.
+      ...tseslint.configs.disableTypeChecked.languageOptions,
       globals: {
         process: "readonly",
         setInterval: "readonly",

@@ -5,6 +5,19 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>BYOLLM — Bring Your Own LLM</title>
 <meta name="description" content="Let your app's users run its AI on their own models and subscriptions — their Ollama box, their MLX machine, their claude CLI — through a tiny daemon they run and control.">
+<link rel="canonical" href="https://byo-llm.com/">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://byo-llm.com/">
+<meta property="og:title" content="BYOLLM — Bring Your Own LLM">
+<meta property="og:description" content="Let your app's users run its AI on their own models and subscriptions, through a tiny outbound daemon they run and control. Alpha.">
+<meta property="og:image" content="https://byo-llm.com/og.svg">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="BYOLLM — Bring Your Own LLM">
+<meta name="twitter:description" content="Your users' AI, on their own machines. Outbound-only daemon, typed jobs, no keys leaving the box. Alpha.">
+<meta name="twitter:image" content="https://byo-llm.com/og.svg">
+<!-- The green dot from the nav, as the tab icon. Inline so the page stays
+     dependency-free and openable straight from the filesystem. -->
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='9' fill='%234ade80'/%3E%3C/svg%3E">
 <style>
   :root{
     --bg:#0a0b0d; --surface:#111318; --surface-2:#161922; --line:#232733;
@@ -14,6 +27,10 @@
   }
   *{box-sizing:border-box}
   html{scroll-behavior:smooth}
+  @media(prefers-reduced-motion:reduce){
+    html{scroll-behavior:auto}
+    *{animation:none!important; transition:none!important}
+  }
   body{
     margin:0; background:var(--bg); color:var(--ink);
     font:16px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,sans-serif;
@@ -109,6 +126,13 @@
   .step p{margin:0; color:var(--muted); font-size:14px}
   .step code{color:var(--code); background:var(--surface-2); padding:1px 6px; border-radius:5px; font-size:13px}
 
+  /* alpha banner */
+  .alpha{background:rgba(245,165,36,.08); border-bottom:1px solid #4a3a1a;
+    color:var(--warn); font-size:14px; text-align:center}
+  .alpha .wrap{padding:11px 24px}
+  .alpha b{color:#ffc75c}
+  .alpha a{color:var(--warn); text-decoration:underline}
+
   footer{padding:48px 0; color:var(--faint); font-size:14px}
   footer .wrap{display:flex; justify-content:space-between; gap:20px; flex-wrap:wrap}
 
@@ -117,6 +141,12 @@
 </style>
 </head>
 <body>
+
+<div class="alpha"><div class="wrap">
+  <b>Alpha (0.1.0-alpha.1) — under active development. Don't use this in production yet.</b>
+  The protocol is v0 and will change without a deprecation path. Nothing here has production miles.
+  <a href="https://github.com/oftomorrowinc/byollm#status">What that means →</a>
+</div></div>
 
 <nav><div class="wrap">
   <span class="brand"><span class="dot"></span>BYOLLM</span>
@@ -135,7 +165,7 @@
   <p class="sub">Let your app run its LLM jobs on your users' own models and subscriptions — their Ollama box, their MLX machine, their <span class="mono">claude</span> CLI — through a tiny daemon they run and control. No keys leave their computer. No tunnels. No inbound ports.</p>
   <div class="cmd mono">
     <span class="p">$</span><span class="c">npx byollm@alpha connect https://your-app.com</span>
-    <button class="cp" onclick="navigator.clipboard&&navigator.clipboard.writeText('npx byollm@alpha connect https://your-app.com')">copy</button>
+    <button class="cp" id="cp" aria-label="Copy the connect command">copy</button>
   </div>
   <div class="cta">
     <a class="btn pri" href="#dev">Integrate your app</a>
@@ -154,7 +184,7 @@
                                       │   your job queue — Supabase, Postgres, memory…
                                       ▼
    <span class="u">user's machine</span>  <b>──outbound poll──▶</b>  claim ─▶ run locally ─▶ result
-     <span class="c">(@byollm/daemon)</span>                              │
+     <span class="c">(byollm)</span>                                    │
                                           Ollama · MLX · claude CLI
   </pre></div>
 </div></section>
@@ -165,20 +195,24 @@
   <p class="lead">Mount one route, point it at a store, and enqueue. You never see the user's model or credentials — you get a result back.</p>
   <div class="grid g2">
     <pre class="block"><span class="c">// app/api/byollm/[...route]/route.ts</span>
-<span class="k">import</span> { createHandler } <span class="k">from</span> <span class="s">"@byollm/server"</span>;
-<span class="k">import</span> { supabaseStore } <span class="k">from</span> <span class="s">"@byollm/server/supabase"</span>;
+<span class="k">import</span> { createHandler } <span class="k">from</span> <span class="s">"@byollm/server/next"</span>;
+<span class="k">import</span> { store } <span class="k">from</span> <span class="s">"@/lib/byollm"</span>;
 
-<span class="k">export const</span> { GET, POST } =
-  <span class="f">createHandler</span>({ store: <span class="f">supabaseStore</span>(env) });</pre>
+<span class="k">export const</span> { POST } = <span class="f">createHandler</span>({
+  store,
+  verificationUrl: <span class="s">"https://your-app.com/settings/runners"</span>,
+});</pre>
     <pre class="block"><span class="c">// enqueue from anywhere in your app</span>
-<span class="k">const</span> job = <span class="k">await</span> <span class="f">enqueue</span>(store, {
+<span class="k">const</span> job = <span class="k">await</span> app.<span class="f">enqueue</span>({
   kind: <span class="s">"llm.generate"</span>,
   audience: <span class="s">"self"</span>,      <span class="c">// their machine only</span>
   owner: userId,
   payload: { prompt },
 });
 
-<span class="k">const</span> { text } = <span class="k">await</span> job.<span class="f">result</span>();</pre>
+<span class="k">const</span> { outcome } = <span class="k">await</span> job.<span class="f">result</span>({
+  onNoRunner: promptUserToConnect,  <span class="c">// never hangs</span>
+});</pre>
   </div>
   <p class="note">A server is <span class="hl">byollm-compatible</span> when the conformance kit passes against it. That's the whole versioning story — no framework version to chase.</p>
 </div></section>
@@ -188,7 +222,7 @@
   <h2>One command. Your models. Your rules.</h2>
   <div class="steps">
     <div class="step"><span class="n">1</span><div><h4>Connect</h4><p><code>npx byollm@alpha connect https://the-app.com</code> — opens your browser to pair with one click. Nothing to configure on your network.</p></div></div>
-    <div class="step"><span class="n">2</span><div><h4>Route your models</h4><p>Map job kinds to whatever you've got installed: <code>"llm.generate": "ollama:qwen3-14b"</code>. The daemon only advertises models that are actually there and healthy.</p></div></div>
+    <div class="step"><span class="n">2</span><div><h4>Route your models</h4><p>Map job kinds to whatever you've got installed: <code>"llm.generate": { "backend": "local", "model": "gemma3:12b" }</code>. The daemon only advertises models that are actually there and healthy.</p></div></div>
     <div class="step"><span class="n">3</span><div><h4>Stay in control</h4><p><code>byollm log</code> shows every prompt that ever ran on your machine. <code>byollm pause</code> stops it. The daemon is your meter — that's the point.</p></div></div>
   </div>
 </div></section>
@@ -221,7 +255,7 @@
   <div class="grid g2">
     <div class="card"><div class="ic">⌘</div><h3>No command line, ever</h3><p>HTTP backends receive the prompt as a request body; process backends (the <span class="mono">claude</span> CLI) receive it on stdin with a fixed argv. Either way, <span class="mono">--flags</span>, <span class="mono">$(…)</span> and shell metacharacters are just characters the model reads — no code path turns a payload into a command.</p></div>
     <div class="card"><div class="ic">⚙</div><h3>Config is local-only</h3><p>Model, backend, and flags come from the owner's config. A job can never name a model, a path, a URL, or a flag. Unknown job kind is refused, not guessed.</p></div>
-    <div class="card"><div class="ic">▣</div><h3>Sandboxed children</h3><p>Backends spawn with a stripped environment, an empty scratch directory, no inherited file descriptors, and hard timeout and output caps. A job can't wedge or OOM the machine.</p></div>
+    <div class="card"><div class="ic">▣</div><h3>Sandboxed children</h3><p>Process backends spawn with a stripped environment (no API key), an empty scratch directory, no inherited file descriptors, and hard timeout and output caps. HTTP backends spawn nothing at all. Either way a job can't wedge or OOM the machine.</p></div>
     <div class="card"><div class="ic">✓</div><h3>An adversarial gate</h3><p>A named corpus of command-injection, argv-injection, path-traversal and exfiltration payloads runs as a blocking CI check. Every backend ships its own hostile-payload suite before it can be added.</p></div>
   </div>
   <p class="note">We're precise about the boundary: BYOLLM makes <span class="hl">breakout</span> impossible; <span class="hl">prompt injection</span> — steering the model's words — is the model's problem, bounded here because the model has no tools and the output is inert. We don't promise more than we can keep.</p>
@@ -231,17 +265,33 @@
   <p class="eyebrow">Packages</p>
   <h2>Four small pieces.</h2>
   <div class="grid g2">
-    <div class="card"><h3 class="mono">@byollm/protocol</h3><p>The wire contract — types, schemas, and the normative spec. Five endpoints, lease semantics, typed job kinds.</p></div>
-    <div class="card"><h3 class="mono">@byollm/daemon</h3><p>What users run. Pluggable backends, model routing, and the append-only trust log.</p></div>
-    <div class="card"><h3 class="mono">@byollm/server</h3><p>Drop-in handlers plus a first-party Supabase adapter for your backend.</p></div>
-    <div class="card"><h3 class="mono">@byollm/conformance</h3><p>The compatibility contract. Certify any server implementation with one command.</p></div>
+    <div class="card"><h3 class="mono"><a href="https://www.npmjs.com/package/@byollm/protocol">@byollm/protocol</a></h3><p>The wire contract — types, schemas, and the normative spec. Five endpoints, lease semantics, typed job kinds.</p></div>
+    <div class="card"><h3 class="mono"><a href="https://www.npmjs.com/package/byollm">byollm</a></h3><p>What users run. Pluggable backends, model routing, and the append-only trust log.</p></div>
+    <div class="card"><h3 class="mono"><a href="https://www.npmjs.com/package/@byollm/server">@byollm/server</a></h3><p>Drop-in handlers plus a first-party Supabase adapter for your backend.</p></div>
+    <div class="card"><h3 class="mono"><a href="https://www.npmjs.com/package/@byollm/conformance">@byollm/conformance</a></h3><p>The compatibility contract. Certify any server implementation with one command.</p></div>
   </div>
 </div></section>
 
 <footer class="band"><div class="wrap">
   <span>© 2026 Of Tomorrow, Inc. · MIT licensed</span>
-  <span><a href="https://github.com/oftomorrowinc/byollm">GitHub</a> · <a href="https://www.npmjs.com/org/byollm">npm</a></span>
+  <span><a href="https://github.com/oftomorrowinc/byollm">GitHub</a> · <a href="https://www.npmjs.com/package/byollm">npm</a></span>
 </div></footer>
+
+<script>
+  // Copy, and say so — a button that does nothing visible reads as broken.
+  (function () {
+    var b = document.getElementById("cp");
+    if (!b || !navigator.clipboard) { if (b) b.hidden = true; return; }
+    b.addEventListener("click", function () {
+      navigator.clipboard
+        .writeText("npx byollm@alpha connect https://your-app.com")
+        .then(function () {
+          b.textContent = "copied";
+          setTimeout(function () { b.textContent = "copy"; }, 1600);
+        });
+    });
+  })();
+</script>
 
 </body>
 </html>

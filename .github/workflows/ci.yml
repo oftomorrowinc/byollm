@@ -32,6 +32,8 @@ jobs:
       # Run the built binary as a binary. Everything else drives the CLI
       # in-process, which is how a no-output `dist/bin.js` shipped once.
       - run: pnpm run smoke
+      # The landing page makes claims about the API. Check them.
+      - run: pnpm run check:site
       - run: pnpm run lint
       - run: pnpm run typecheck
       - run: pnpm run test:coverage

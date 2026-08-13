@@ -151,6 +151,16 @@ done
 The run summary prints these commands with the version filled in, so you can
 copy them from there.
 
+**Expect the last package to read stale.** The registry's read path is
+eventually consistent behind a CDN, so checking tags immediately after setting
+them tends to show the package you wrote last still on the old version. It is
+lag, not a failed write. Re-read after a few seconds, or go straight to the
+registry to skip npm's own cache:
+
+```bash
+curl -s "https://registry.npmjs.org/-/package/@byollm%2Fconformance/dist-tags"
+```
+
 Two things deliberately *not* done about it. The workflow does not attempt the
 retag and report a failure — a step that always fails teaches everyone to
 ignore it, which is worse than not having it. And it does not carry a granular

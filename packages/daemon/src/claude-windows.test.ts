@@ -25,16 +25,29 @@ describe("resolveClaudeLaunch", () => {
     });
   });
 
-  it("leaves an explicit path alone on Windows", () => {
-    // The adversarial suite substitutes a probe binary by path. If that were
-    // rewritten, the suite would stop testing what it believes it tests.
+  it("leaves a real executable alone on Windows", () => {
     const probe = "C:\\probe\\fake-claude.exe";
     expect(resolveClaudeLaunch(probe, "win32", {})).toEqual({
       command: probe,
       prefixArgs: [],
     });
-    expect(resolveClaudeLaunch("./probe.js", "win32", {})).toEqual({
-      command: "./probe.js",
+  });
+
+  it("runs a .js probe under Node on Windows", () => {
+    // The adversarial suite writes a `#!/usr/bin/env node` script and relies on
+    // the shebang. Windows has no shebang, so the script must be handed to Node
+    // explicitly — this is what lets that suite run on Windows at all.
+    expect(resolveClaudeLaunch("C:\\t\\probe.js", "win32", {})).toEqual({
+      command: process.execPath,
+      prefixArgs: ["C:\\t\\probe.js"],
+    });
+  });
+
+  it("leaves a .js probe alone off Windows, where the shebang works", () => {
+    // Mac and Linux must be untouched: the script is executable there, and
+    // rewriting the command would change what the suite is testing.
+    expect(resolveClaudeLaunch("/tmp/probe.js", "darwin", {})).toEqual({
+      command: "/tmp/probe.js",
       prefixArgs: [],
     });
   });

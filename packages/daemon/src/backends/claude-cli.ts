@@ -189,9 +189,17 @@ export function resolveClaudeLaunch(
 ): ClaudeLaunch {
   if (platform !== "win32") return { command: binary, prefixArgs: [] };
 
-  // An explicit path or a real executable needs no help — and the adversarial
-  // suite substitutes exactly that, so it must keep working untouched.
-  if (/[\\/]/.test(binary) || /\.(exe|com)$/i.test(binary)) {
+  // A JavaScript entry point runs under this Node, wherever it came from. On
+  // Unix a `#!/usr/bin/env node` script is executable and spawns directly;
+  // Windows has no shebang, so the same file has to be handed to Node
+  // explicitly. The adversarial suite's probe is exactly such a script, which
+  // is why that suite could not run on Windows at all.
+  if (/\.[cm]?js$/i.test(binary)) {
+    return { command: process.execPath, prefixArgs: [binary] };
+  }
+
+  // A real executable needs no help.
+  if (/[\\/]/.test(binary) || /\.(exe|com|bat|cmd)$/i.test(binary)) {
     return { command: binary, prefixArgs: [] };
   }
 

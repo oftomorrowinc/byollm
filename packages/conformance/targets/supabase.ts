@@ -37,6 +37,12 @@ const ORIGIN = "https://supabase.byollm.test";
 /** Short, because a real Postgres clock cannot be faked forward. */
 const LEASE_MS = 2_000;
 const TTL_MS = 1_500;
+/**
+ * Short for the same reason as the two above: with no fakeable clock, an
+ * expiry check waits for real. The product default is ten minutes, which is
+ * right for a human reading a code off a screen and wrong for a suite.
+ */
+const PAIRING_TTL_MS = 2_000;
 
 if (SERVICE_KEY === "") {
   process.stderr.write(
@@ -95,6 +101,7 @@ const handler = createFetchHandler({
   store,
   verificationUrl: `${ORIGIN}/settings/runners`,
   leaseMs: LEASE_MS,
+  pairingTtlMs: PAIRING_TTL_MS,
 });
 
 const target: ConformanceTarget = {

@@ -375,6 +375,18 @@ export function sleep(ms: number): Promise<void> {
  * Move the target's clock forward, faking it if the target can and genuinely
  * waiting if it cannot.
  */
+/**
+ * Longest real sleep a check may ask of a target that cannot fake time.
+ *
+ * A target with no `advanceTime` waits for real, so a check written against
+ * the reference server's fake clock can silently become a ten-minute hang
+ * somewhere else — which is exactly what `C020_PAIR_CODE_EXPIRES` did on the
+ * Supabase target, whose pairing TTL was still the ten-minute product
+ * default. Failing fast with the number in the message turns "CI is stuck"
+ * into "configure a shorter TTL on this target".
+ */
+const MAX_REAL_WAIT_MS = 30_000;
+
 export async function advance(
   target: ConformanceTarget,
   ms: number,
@@ -382,6 +394,13 @@ export async function advance(
   if (target.advanceTime) {
     await target.advanceTime(ms);
   } else {
+    if (ms > MAX_REAL_WAIT_MS) {
+      throw new Error(
+        `this check needs to advance ${String(Math.round(ms / 1000))}s and ` +
+          `"${target.name}" cannot fake time, so it would sleep for real. ` +
+          `Configure a shorter TTL on the target, or give it advanceTime().`,
+      );
+    }
     await sleep(ms);
   }
   await target.sweep();

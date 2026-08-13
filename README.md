@@ -1,5 +1,5 @@
 > [!WARNING]
-> **Alpha — under active development. Don't use this yet.**
+> **Alpha 0.1.0 — under active development. Don't use this yet.**
 >
 > Install it as `byollm@alpha`, deliberately. npm forces a `latest` tag onto a
 > package's first publish and will not let it be removed, so the alpha is also

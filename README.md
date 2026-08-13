@@ -1,5 +1,5 @@
 > [!WARNING]
-> **Alpha (`0.1.0-alpha.1`) — under active development. Don't use this yet.**
+> **Alpha (`0.1.0-alpha.2`) — under active development. Don't use this yet.**
 >
 > Install it as `byollm@alpha`, deliberately. npm forces a `latest` tag onto a
 > package's first publish and will not let it be removed, so a bare install
@@ -57,17 +57,26 @@ Mount the handler, point it at a store, and enqueue.
 
 ```ts
 // app/api/byollm/[...route]/route.ts
-import { createHandler } from "@byollm/server";
-import { supabaseStore } from "@byollm/server/supabase";
+import { createHandler } from "@byollm/server/next";
+import { store } from "@/lib/byollm";
 
-export const { GET, POST } = createHandler({ store: supabaseStore(env) });
+export const { POST } = createHandler({
+  store,
+  verificationUrl: "https://your-app.com/settings/runners",
+});
+```
+
+```ts
+// lib/byollm.ts
+import { ByollmApp, MemoryStore } from "@byollm/server";
+
+export const store = new MemoryStore();
+export const app = new ByollmApp({ store });
 ```
 
 ```ts
 // anywhere in your app
-import { enqueue } from "@byollm/server";
-
-const job = await enqueue(store, {
+const job = await app.enqueue({
   kind: "llm.generate",
   audience: "self",            // this user's machine only
   owner: userId,
@@ -76,7 +85,7 @@ const job = await enqueue(store, {
 
 // resolves via your delivery channel (webhook / Realtime / poll),
 // with a timeout and a noRunnerAvailable path — never a bare await
-const { text } = await job.result({ onNoRunner: promptUserToConnect });
+const { outcome } = await job.result({ onNoRunner: promptUserToConnect });
 ```
 
 That's the whole integration: **one route, one store, one `enqueue`.** If no daemon is online, you get a `noRunnerAvailable` signal (fall back to a hosted model, or prompt the user to connect) — never a promise that hangs forever.

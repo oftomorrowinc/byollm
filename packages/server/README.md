@@ -1,5 +1,5 @@
 > [!WARNING]
-> **Alpha (`0.1.0-alpha.1`) — under active development. Don't use this yet.**
+> **Alpha (`0.1.0-alpha.2`) — under active development. Don't use this yet.**
 >
 > Install it deliberately: `npm install @byollm/server@alpha`.
 >

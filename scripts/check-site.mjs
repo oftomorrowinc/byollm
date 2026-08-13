@@ -113,17 +113,74 @@ check(
 );
 
 // 7. Self-contained: byollm_005 requires it open from a file and deploy to any
-//    static host with zero build, so nothing may be fetched from a CDN.
-const remote = [...html.matchAll(/(?:src|href)="(https?:\/\/[^"]+)"/g)]
-  .map((m) => m[1])
-  .filter(
-    (u) => !/^https?:\/\/(github\.com|www\.npmjs\.com|byo-llm\.com)/.test(u),
+//    static host with zero build, so nothing may be *fetched* from a CDN.
+//    Only loading attributes count — an outbound <a href> is a link, not a
+//    dependency, and treating the two alike flagged every honest link.
+const loads = [
+  ...html.matchAll(/<script[^>]+src="(https?:\/\/[^"]+)"/g),
+  // Only <link> rels that actually fetch. `canonical` is metadata: it names
+  // the page's own address and loads nothing.
+  ...html.matchAll(
+    /<link[^>]+rel="(?:stylesheet|preload|prefetch|icon|manifest)"[^>]*href="(https?:\/\/[^"]+)"/g,
+  ),
+  ...html.matchAll(/<img[^>]+src="(https?:\/\/[^"]+)"/g),
+].map((m) => m[1]);
+check("fetches nothing from the network", loads.length === 0, loads.join(", "));
+
+// 8. target="_blank" without rel="noopener" hands the opener to the
+//    destination. Cheap to get wrong, cheap to assert.
+const blanks = [...html.matchAll(/<a\s[^>]*target="_blank"[^>]*>/g)].map(
+  (m) => m[0],
+);
+const unsafe = blanks.filter((a) => !/rel="[^"]*noopener/.test(a));
+check(
+  "every target=_blank sets rel=noopener",
+  unsafe.length === 0,
+  unsafe.join(" "),
+);
+
+// ---------------------------------------------------------------------------
+// The same rot, in the READMEs.
+//
+// The landing page and the root README carried identical broken samples, and
+// only the page was ever checked — so the README kept importing a symbol from
+// the wrong entry point and calling a function that does not exist, for a
+// week, on the front page of a public repo. Same assertions, same reasons.
+// ---------------------------------------------------------------------------
+process.stdout.write("\nreadmes\n");
+
+const READMES = [
+  "README.md",
+  "packages/protocol/README.md",
+  "packages/daemon/README.md",
+  "packages/server/README.md",
+  "packages/conformance/README.md",
+];
+
+for (const rel of READMES) {
+  const text = await readFile(new URL(rel, root), "utf8");
+  const name = rel.replace("/README.md", "").replace("README.md", "root");
+
+  for (const dead of RENAMED) {
+    check(`${name}: no ${dead}`, !text.includes(dead));
+  }
+  for (const [snippet, why] of WRONG_IMPORTS) {
+    check(`${name}: no \`${snippet}\``, !text.includes(snippet), why);
+  }
+  check(
+    `${name}: names the shipped version`,
+    text.includes(manifest.version),
+    "the alpha banner names a different version than package.json",
   );
-check("loads no external assets", remote.length === 0, remote.join(", "));
+  check(
+    `${name}: every npx invocation pins @alpha`,
+    !/npx byollm(?!@alpha)(?!-certify)/.test(text),
+  );
+}
 
 process.stdout.write(
   failures === 0
-    ? "\n  the page matches what we ship\n\n"
-    : `\n  ${failures} landing-page check(s) failed\n\n`,
+    ? "\n  the page and the readmes match what we ship\n\n"
+    : `\n  ${failures} docs check(s) failed\n\n`,
 );
 process.exit(failures === 0 ? 0 : 1);

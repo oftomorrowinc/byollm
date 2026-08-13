@@ -1,5 +1,5 @@
 > [!WARNING]
-> **Alpha (`0.1.0-alpha.2`) — under active development. Don't use this yet.**
+> **Alpha (`0.1.0-alpha.3`) — under active development. Don't use this yet.**
 >
 > Install it deliberately: `npm install @byollm/protocol@alpha`.
 >
@@ -12,6 +12,10 @@
 > bare install resolves here too. This notice is the only guard — deliberately
 > not an npm deprecation, which would read as *abandoned* rather than *early*.
 > Ask for `@alpha` explicitly so your lockfile records that you meant to.
+>
+> **`alpha.3` is a breaking change.** `BackendDescriptor.account` is gone —
+> read `cost` (`free` / `metered` / `subscription`) instead. Four new MUSTs
+> come with it; see `byollm_007`.
 
 # `@byollm/protocol`
 

@@ -139,6 +139,62 @@ check(
   unsafe.join(" "),
 );
 
+// 9. The providers table must list every provider we actually ship.
+//
+//    The page was written when the registry held seventeen entries and stated
+//    the number in a heading. Adding `anthropic` made every one of those
+//    claims wrong at once — the count, the table, and the promise that this
+//    is the directory. A page that undercounts is worse than one that never
+//    listed them: a reader concludes their provider is unsupported and goes
+//    elsewhere.
+//
+//    Each row carries `data-provider="<registry id>"`, so this compares ids
+//    to ids. Matching on the visible label instead would mean guessing that
+//    "Google Gemini (your API key)" and a cell reading "Gemini" are the same
+//    thing — a guess that fails open, which is the direction that lets a
+//    provider quietly go missing.
+const { BACKEND_IDS } = await import(
+  new URL("packages/protocol/dist/index.js", root)
+);
+// `openai-http` is the escape hatch, described in prose below the table
+// rather than listed as a row — it is a way to reach a provider, not one.
+const shipped = BACKEND_IDS.filter((id) => id !== "openai-http");
+const providerSection = html.slice(
+  html.indexOf('id="providers"'),
+  html.indexOf("</section>", html.indexOf('id="providers"')),
+);
+const listed = new Set(
+  [...providerSection.matchAll(/data-provider="([\w-]+)"/g)].map((m) => m[1]),
+);
+const missing = shipped.filter((id) => !listed.has(id));
+check(
+  "the providers table lists every provider in the registry",
+  missing.length === 0,
+  `missing: ${missing.join(", ")}`,
+);
+// And nothing invented: a row for a provider we do not ship is a promise the
+// daemon cannot keep.
+const invented = [...listed].filter((id) => !BACKEND_IDS.includes(id));
+check(
+  "the providers table invents nothing",
+  invented.length === 0,
+  `not in the registry: ${invented.join(", ")}`,
+);
+
+const NUMBERS = {
+  16: "Sixteen",
+  17: "Seventeen",
+  18: "Eighteen",
+  19: "Nineteen",
+  20: "Twenty",
+};
+const claimed = /<h2>(\w+) providers\./.exec(providerSection)?.[1];
+check(
+  `the page's provider count says ${NUMBERS[BACKEND_IDS.length] ?? String(BACKEND_IDS.length)}`,
+  claimed === NUMBERS[BACKEND_IDS.length],
+  `page says "${claimed ?? "nothing"}", registry has ${String(BACKEND_IDS.length)}`,
+);
+
 // ---------------------------------------------------------------------------
 // The same rot, in the READMEs.
 //

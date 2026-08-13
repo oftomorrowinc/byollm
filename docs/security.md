@@ -191,6 +191,30 @@ backend and call it free, because the claim is checked against where the
 request actually goes. An unparseable base URL is treated as metered: guessing
 "free" wrong costs money, guessing "metered" wrong costs a config line.
 
+**What the locality inference does not see.** The derivation reads the base
+URL's host, and that is all it can read. A proxy listening on `127.0.0.1` and
+forwarding to a paid API is `free` by this rule, and nothing downstream will
+contradict it — the daemon sees a loopback address and has no way to learn
+what is on the other side of it. Stating the limit plainly: **the inference
+classifies the address, not the destination.**
+
+We are not treating that as a hole to close, and it is worth being exact about
+why. Standing up a relay is a deliberate act by the machine's owner, against
+their own account, on their own hardware. The threat model here is a *hostile
+job* reaching a backend it should not — not an owner circumventing a rule that
+exists to protect them. An owner who wants to donate their credit balance can
+already do it in one line by acknowledging the spend; the relay is a harder
+path to the same place they were always permitted to go.
+
+What the rule does prevent is the accident, which is the failure that actually
+happens: `openai-http` pointed at a remote paid endpoint and offered `public`
+without anyone deciding to spend money. That case is caught, and it is caught
+by construction rather than by noticing.
+
+So read the guarantee as scoped: cost cannot be *declared* free, and a plainly
+remote endpoint cannot be *mistaken* for free. It does not, and cannot, mean
+that anything the daemon calls `free` is provably unbilled.
+
 **The ceiling is counted, not just declared.** A shared metered backend must
 carry a daily cap, and the daemon keeps a local ledger of estimated spend
 against it. The estimate is deliberately crude and generous — providers do not

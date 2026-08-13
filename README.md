@@ -1,5 +1,5 @@
 > [!WARNING]
-> **Alpha (`0.1.0-alpha.2`) — under active development. Don't use this yet.**
+> **Alpha (`0.1.0-alpha.3`) — under active development. Don't use this yet.**
 >
 > Install it as `byollm@alpha`, deliberately. npm forces a `latest` tag onto a
 > package's first publish and will not let it be removed, so a bare install
@@ -9,6 +9,14 @@
 > the packages have never run outside their own test suite, and nothing here
 > has production miles. Read it, take the ideas, tell us what's wrong — but
 > don't put it in front of your users.
+>
+> **`alpha.3` is a breaking change.** `BackendDescriptor.account` is gone;
+> read `cost` instead (`free` / `metered` / `subscription`). A config naming
+> `openai-http` with a **remote** base URL and an offer scope wider than
+> `self` is now narrowed to `self` until the owner acknowledges the spend and
+> sets a daily ceiling — that narrowing is the bug being fixed, and
+> `byollm status` says so in words rather than doing it silently. Local base
+> URLs are unaffected. See [byollm_007](specs/byollm_007-cost-class-and-providers.md).
 
 <div align="center">
 
@@ -132,10 +140,14 @@ Every job carries an **audience** and every backend an **offer scope**. A job ru
 | Backend | Cost | Can offer | Why |
 |---|---|---|---|
 | **Ollama, MLX, llama.cpp, vLLM, LM Studio** | `free` | `self` → `named` (friends) → `public` (anyone) | Local compute. Costs electricity, not money — the folding@home posture. |
-| **OpenAI, Gemini, Grok, Groq, OpenRouter…** | `metered` | `self` by default; wider only with an explicit spend acknowledgment **and** a daily ceiling | Your API key, your money, per token. Sharing it is legitimate and ruinous by accident. |
+| **Anthropic, OpenAI, Gemini, Grok, Groq, OpenRouter…** | `metered` | `self` by default; wider only with an explicit spend acknowledgment **and** a daily ceiling | Your API key, your money, per token. Sharing it is legitimate and ruinous by accident. |
 | **claude CLI & other subscription accounts** | `subscription` | `self` **only, enforced** | One account runs one person's work. A protocol MUST, not a setting. |
 
-Cost class comes from the protocol registry and is **not yours to declare**. Point the generic `openai-http` backend at a remote endpoint and it is `metered` no matter what you call it — "free" is derived from *where the request goes*, not from the config. That is the one rule that makes the rest enforceable.
+Cost class comes from the protocol registry and is **not yours to declare**. Point the generic `openai-http` backend at a remote endpoint and it is `metered` no matter what you call it — "free" is derived from the address the request is sent to, not from the config. That is the one rule that makes the rest enforceable.
+
+Note the pair: `anthropic` and `claude-cli` reach one vendor in two different cost classes. A platform key bills per token; a Claude plan covers one person's work. The axis asks who pays and under what terms, not which company answers.
+
+The derivation reads the address, not the destination — a localhost proxy forwarding to a paid API classes as `free`, and nothing downstream can see through it. That is a deliberate act by the machine's owner against their own account, and it is [outside the threat model](docs/security.md#4a-cost-class--whose-money-and-whose-terms); what the rule prevents is the *accident*.
 
 Want to lend your GPU to the open-source community, or let your friends' jobs run overnight on your machine? `byollm offer <backend> public` flips an open backend over. Your subscription is never part of that.
 

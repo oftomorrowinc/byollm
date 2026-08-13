@@ -73,8 +73,11 @@ reason the adversarial corpus still covers all of them.
 **Free (local):** `ollama`, `mlx`, `llamacpp`, `vllm`, `lmstudio`,
 `jan`, `localai`
 
-**Metered (remote):** `openai`, `gemini`, `grok`, `groq`, `openrouter`,
-`together`, `deepseek`, `mistral`
+**Metered (remote):** `anthropic`, `openai`, `gemini`, `grok`, `groq`,
+`openrouter`, `together`, `deepseek`, `mistral`
+
+`anthropic` and `claude-cli` reach one vendor in two cost classes. The
+axis asks who pays and under what terms, not which company.
 
 **Generic:** `openai-http` — any OpenAI-compatible endpoint, cost
 inferred per §2. The escape hatch for anything not listed.

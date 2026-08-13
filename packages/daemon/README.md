@@ -1,5 +1,5 @@
 > [!WARNING]
-> **Alpha (`0.1.0-alpha.2`) — under active development. Don't use this yet.**
+> **Alpha (`0.1.0-alpha.3`) — under active development. Don't use this yet.**
 >
 > Install it deliberately: `npx byollm@alpha`, or `npm install byollm@alpha`.
 >
@@ -12,6 +12,12 @@
 > bare install resolves here too. This notice is the only guard — deliberately
 > not an npm deprecation, which would read as *abandoned* rather than *early*.
 > Ask for `@alpha` explicitly so your lockfile records that you meant to.
+>
+> **`alpha.3` is a breaking change.** A config naming `openai-http` with a
+> remote base URL and an offer scope wider than `self` is narrowed to `self`
+> until you acknowledge the spend and set a daily ceiling:
+> `byollm offer <backend> public --cap <cents>`. Local base URLs are
+> unaffected. `byollm backends` shows the cost class per route.
 
 # `byollm`
 

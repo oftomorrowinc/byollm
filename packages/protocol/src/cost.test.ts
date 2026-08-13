@@ -59,10 +59,23 @@ describe("the provider registry", () => {
     for (const id of ["ollama", "mlx", "llamacpp", "vllm", "lmstudio"]) {
       expect(backendDescriptor(id as never).cost).toBe("free");
     }
-    for (const id of ["openai", "gemini", "grok", "groq", "openrouter"]) {
+    for (const id of [
+      "anthropic",
+      "openai",
+      "gemini",
+      "grok",
+      "groq",
+      "openrouter",
+    ]) {
       expect(backendDescriptor(id as never).cost).toBe("metered");
     }
     expect(backendDescriptor("claude-cli").cost).toBe("subscription");
+
+    // One vendor, two cost classes — the axis is about who pays and under
+    // what terms, not about which company is on the other end.
+    expect(backendDescriptor("anthropic").cost).not.toBe(
+      backendDescriptor("claude-cli").cost,
+    );
   });
 
   it("routes every HTTP provider through the one audited transport", () => {

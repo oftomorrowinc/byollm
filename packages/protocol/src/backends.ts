@@ -136,6 +136,21 @@ export const BACKENDS = Object.freeze({
   }),
 
   // -- metered: the owner's money, per token -------------------------------
+  /**
+   * Note the pair: `anthropic` and {@link BACKENDS."claude-cli"} reach the
+   * same vendor and land in different cost classes. That is not an
+   * inconsistency — it is the axis working. One bills a key per token, the
+   * other runs under a personal plan whose terms cover one person's work. Who
+   * pays and under what terms is the question; which company is not.
+   */
+  anthropic: backend({
+    id: "anthropic",
+    label: "Anthropic (your API key)",
+    class: "http",
+    cost: "metered",
+    adversarialCorpus: "http",
+    defaultBaseUrl: "https://api.anthropic.com/v1",
+  }),
   openai: backend({
     id: "openai",
     label: "OpenAI (your API key)",
@@ -254,8 +269,16 @@ export function backendDescriptor(id: BackendId): BackendDescriptor {
  * Loopback and the private ranges only. This is the rule that makes
  * {@link MUSTS.REMOTE_IS_NEVER_FREE} enforceable rather than a promise: an
  * owner cannot reach a paid API through the generic backend and call it free,
- * because "free" is derived from where the request goes, not from what the
- * config claims.
+ * because "free" is derived from the address, not from what the config claims.
+ *
+ * **What this cannot see.** The address is all it reads. A proxy on
+ * `127.0.0.1` forwarding to a paid API classes as `free` and nothing
+ * downstream will contradict it. That is deliberate: standing up a relay is
+ * an act by the machine's owner against their own account, and the threat
+ * model here is a hostile *job*, not an owner routing around a rule that
+ * exists to protect them. What this catches is the accident — a remote paid
+ * endpoint offered `public` because nobody thought about the bill. See
+ * `docs/security.md` §4a.
  */
 export function isLocalHost(hostname: string): boolean {
   const host = hostname.toLowerCase().replace(/^\[|\]$/g, "");

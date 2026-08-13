@@ -33,27 +33,29 @@ excuses — the security posture depends on naming these out loud.
   the role boundary. HTTP-class backends (OpenAI-compatible body)
   **preserve the system role** properly. Apps that need strict system
   fidelity should prefer an HTTP-class backend for that kind, or
-  accept the fold on claude CLI. (Relevant to Press: the Claude
+  accept the fold on claude CLI. (Relevant to the first consumer: the
+  Claude
   polish pass should confirm folded-system output is acceptable, or
   route that kind to an HTTP model.)
 
 ## Next, roughly ordered
 
 1. Claim `byollm` unscoped (above).
-2. **First production integration = Press** (its spec 034): the three
+2. **First production integration** (a publishing suite, its spec 034):
+   the three
    local apps go hosted and consume `@byollm/server`'s Supabase
    adapter. MLX *inference* is HTTP-class via `mlx_lm.server`, so v1
    is sufficient to prove the whole path (generation on your box as
-   `named`, Claude review on Lis's as `self`, chained via
+   `named`, Claude review on a colleague's as `self`, chained via
    `dependsOn`). MLX *training* (`train.*`, process-class
    `mlx_lm.lora`) is a later kind.
 3. `byollm_005` — site build-out + generated docs.
 4. Future: OS sandbox for process-class; streaming lane (v2);
    `train.*` job kinds.
 
-## Finding from the first integration (Press, 2026-08-08)
+## Finding from the first integration (2026-08-08)
 
-Press's fact-checker verification calls the model with WebSearch —
+That suite's fact-checker verification calls the model with WebSearch —
 which byollm_004 §2 forbids ("no tools, functions, retrieval, or
 MCP"), ~96% of that app's calls. The ban is **correct and essential
 for `named`/`public`** (tools + untrusted payload + someone else's

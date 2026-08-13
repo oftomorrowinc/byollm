@@ -6,7 +6,7 @@ their *own* models and subscriptions — their Ollama box, their MLX
 machine, their claude CLI — via an outbound daemon they run and
 control. Extracted from the of-tomorrow-framework runner design
 (its spec 032); built here as a standalone product so every suite
-(press, customer discovery, others, and third-party developers) can
+(our own suites, and third-party developers) can
 adopt it instead of building bespoke.
 
 ## Shape: one monorepo, three packages, one protocol
@@ -57,18 +57,18 @@ left empty on purpose: `byollm` and `@byollm/protocol` at
 0.1.0-alpha.0. `@byollm/server` and `@byollm/conformance` are marked
 `private` until they have miles — delete that line to ship them.
 
-Still to claim: `byo-llm.com` (available — buy as insurance) and a
-check on `byollm.dev`. Still to do: **make the repo public** — it is
+Still to claim: the remaining domains. Still to do: **make the repo public** — it is
 private today, so both packages ship with no `repository` field rather
 than advertising a link that 404s. Repo home:
 **`oftomorrowinc/byollm`** (decided 2026-08-08) — the npm scope is the
 dev-facing identity; no separate GitHub org needed. Parked
-`byollm.com` acquirable later if warranted.
+the remaining names acquirable later if warranted.
 
 ## Relationship to the other repos
 
 - of-tomorrow-framework: gains a thin **runner module** = daemon docs
-  + the Supabase server adapter. Press never builds its 032 bespoke.
+  + the Supabase server adapter. No suite builds its own bespoke
+  runner.
 - Customer Discovery: not in v1 (hosted API); future option for
   trainee-side local models.
 - Specs here: `byollm_NNN`, committed immediately, app folder is the
@@ -80,4 +80,4 @@ dev-facing identity; no separate GitHub org needed. Parked
    generic server handler + conformance kit.
 2. First integration: a framework test suite talks to a real daemon.
 3. claude-CLI backend + the trust UI polish.
-4. Production miles under press before any public announcement.
+4. Production miles under a real suite before any public announcement.

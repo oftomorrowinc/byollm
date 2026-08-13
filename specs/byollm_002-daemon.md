@@ -7,7 +7,7 @@
 
 - **Backends v1**: Ollama first (health check, model list), claude
   CLI second (auth check; ANTHROPIC_API_KEY stripped from child env
-  so billing can't silently move — port the press wrapper's
+  so billing can't silently move — port our existing wrapper's
   discipline and its thinking-field-is-an-error rule for models that
   emit reasoning preambles).
 - **Routing**: `byollm.config.json` maps job kinds → backend+model
@@ -48,7 +48,8 @@ shows every prompt; coverage and lint gates green.
   server and vLLM — config is `{ backend: "openai-http", baseUrl,
   model }`. No spawn; base URL is owner-config only and validated
   against SSRF ranges. This is what makes **MLX inference available
-  in v1** so Press can prove the whole path. `claude` CLI is the one
+  in v1** so the first consumer can prove the whole path. `claude` CLI
+  is the one
   process-class backend at v1; `mlx_lm.lora` training is a later
   process-class `train.*` kind.
 - **Local `named` allowlist (review #1).** The daemon owns a file of

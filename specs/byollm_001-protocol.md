@@ -81,7 +81,8 @@ classes, because their threat surface differs:
   vLLM. **One backend, N base URLs in config.** No process spawn, so
   it sidesteps most of 004 §2 by construction. This collapses four
   planned backends into one and means **MLX *inference* ships in v1**
-  — which is what lets Press be the proving ground.
+  — which is what lets the first production suite be the proving
+  ground.
 - **process-class** — spawns a binary: `claude` CLI, and later
   `mlx_lm.lora` for `train.*` kinds. 004 §2's spawn hardening applies
   here.
@@ -103,7 +104,8 @@ gets demoted to a documented server-side convenience — but v1 holds
 the line.)
 
 **C. Job-level cancel (from review #3).** Revocation was daemon-level
-only; Press already has per-job cancel + AbortSignal and must not
+only; the first consumer already has per-job cancel + AbortSignal
+and must not
 regress. The heartbeat response — which already carries revocation —
 now also carries `cancel: [jobId]`. The daemon aborts those jobs'
 in-flight backend calls at the next heartbeat. Cheap field, added in
@@ -121,9 +123,9 @@ The server→app delivery path is explicit (webhook/subscription/poll),
 not an implied in-request `await` — see 003.
 
 **E. Job dependencies (from review #6).** Real integrations are
-multi-job: one Press beat = an MLX-inference job (`named`, your box)
-+ a Claude review job (`self`, Lis's box, because the subscription
-self-lock correctly forbids her work on your account). Add an
+multi-job: one publishing beat = an MLX-inference job (`named`, your
+box) + a Claude review job (`self`, a colleague's box, because the
+subscription self-lock correctly forbids their work on your account). Add an
 optional `dependsOn: [jobId]` to a job; the **server keeps a job
 un-claimable until its dependencies are `ok`**. This is one field and
 one claim-gating rule — not a DAG engine. Per-job audience routing is

@@ -1,9 +1,8 @@
 # byollm_006 — Streaming deltas (stub — requirement from the first real consumer)
 
-**Status: stub — queued by lean-customer-discovery (CD), the first
-production consumer (`~/Github/lean-customer-discovery`, consuming
-`@byollm/server` + the `byollm` daemon). Not scheduled; recorded so the
-requirement survives with its numbers attached.**
+**Status: stub — queued by the first production consumer, an app
+consuming `@byollm/server` + the `byollm` daemon. Not scheduled;
+recorded so the requirement survives with its numbers attached.**
 
 ## The requirement, as discovered
 
@@ -44,7 +43,7 @@ capability at first.
 
 ## Why this is recorded here
 
-Same relationship the of-tomorrow framework has with CD: the payload
+Same relationship the framework has with its consumers: the payload
 gains capabilities when a real consumer surfaces the requirement with
 numbers, not on speculation. CD is that consumer; these are the
 numbers.

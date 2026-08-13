@@ -454,6 +454,37 @@ $$;
 -- Grants — REVOKE from PUBLIC, GRANT deliberately (the house rule)
 -- ---------------------------------------------------------------------------
 
+-- Table privileges, granted deliberately rather than inherited.
+--
+-- Supabase images have historically granted blanket privileges on new public
+-- tables to anon/authenticated/service_role, and relying on that is how this
+-- migration passed on one CLI version and failed with "permission denied" on a
+-- newer one. RLS decides *which rows*; these decide *which operations* — both
+-- are required, and neither is a substitute for the other.
+--
+-- Revoke first, then grant. Supabase images ship `ALTER DEFAULT PRIVILEGES`
+-- that hand `anon` and `authenticated` ALL privileges on every new public
+-- table — verified on a fresh database, where `anon` arrived holding
+-- INSERT/UPDATE/DELETE on all four of these. RLS still refuses every row, so
+-- nothing was exposed, but "we grant anon nothing" is only true if we take
+-- away what the image already gave. Revoking makes this file authoritative
+-- instead of dependent on whichever image happens to be running.
+revoke all on byollm_jobs, byollm_runners, byollm_pairings, byollm_job_cancels
+  from anon, authenticated;
+
+-- `anon` is deliberately granted nothing back: no part of this schema is
+-- reachable without a session.
+grant select, insert on byollm_jobs to authenticated;
+grant select, update, delete on byollm_runners to authenticated;
+grant select on byollm_pairings to authenticated;
+grant select, insert on byollm_job_cancels to authenticated;
+
+-- The protocol handler authenticates runners with their own bearer tokens,
+-- which are not Supabase sessions, so it runs as the service role.
+grant select, insert, update, delete
+  on byollm_jobs, byollm_runners, byollm_pairings, byollm_job_cancels
+  to service_role;
+
 revoke all on function byollm_claim_jobs(uuid, jsonb, integer, integer) from public;
 revoke all on function byollm_audience_admits(byollm_jobs, uuid, uuid, jsonb) from public;
 revoke all on function byollm_expire_due() from public;

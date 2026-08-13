@@ -84,7 +84,11 @@ jobs:
       - run: pnpm run build
       - uses: supabase/setup-cli@v1
         with:
-          version: latest
+          # Pinned, not `latest`. A floating CLI means CI and a developer's
+          # machine can run different Postgres images with different default
+          # privileges — which is exactly how a migration passed locally and
+          # failed here. Bump deliberately.
+          version: 2.114.0
       - name: Start Supabase and export its credentials
         working-directory: packages/server
         run: |

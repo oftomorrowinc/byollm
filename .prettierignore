@@ -2,6 +2,10 @@ dist
 coverage
 node_modules
 .next
+# Tool-generated and gitignored. CI never sees these, so checking them
+# locally makes `verify` disagree with the build for no reason.
+**/.vercel
+**/.env*
 pnpm-lock.yaml
 site/index.html
 packages/server/supabase/migrations

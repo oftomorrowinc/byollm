@@ -19,8 +19,11 @@ into a deployable site, and stand up real docs.
   capability the code doesn't ship (the security section's
   breakout-vs-injection boundary is load-bearing marketing *and*
   true — do not soften it).
-- Deploy target: `byo-llm.com` (static). A `getbyollm.com` redirect
-  points at it.
+- Deploy target: `byo-llm.com` (static), on Vercel — **live 2026-08-12**
+  from the `byo-llm-www` project, apex CNAME through Cloudflare
+  (DNS-only; proxying Vercel redirect-loops). `getbyollm.com` was
+  considered and dropped — one canonical name, no redirect to keep
+  alive.
 
 ## 2. Docs
 
@@ -55,8 +58,7 @@ Blog/changelog site (later), i18n, interactive playground (a
 
 ## Done when
 
-`site/` deploys to `byo-llm.com` as static files with the redirect
-live; docs build from source with every example passing in CI;
+`site/` deploys to `byo-llm.com` as static files; docs build from source with every example passing in CI;
 protocol + type reference are generated, not hand-written; Lighthouse
 ≥95; nothing on either surface claims a capability the shipped code
 lacks.

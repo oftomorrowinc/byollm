@@ -153,6 +153,7 @@
   <span class="links">
     <a href="#how">How it works</a>
     <a href="#dev">For developers</a>
+    <a href="#providers">Providers</a>
     <a href="#sharing">Sharing</a>
     <a href="#security">Security</a>
     <a href="https://github.com/oftomorrowinc/byollm">GitHub</a>
@@ -225,6 +226,37 @@
     <div class="step"><span class="n">2</span><div><h4>Route your models</h4><p>Map job kinds to whatever you've got installed: <code>"llm.generate": { "backend": "local", "model": "gemma3:12b" }</code>. The daemon only advertises models that are actually there and healthy.</p></div></div>
     <div class="step"><span class="n">3</span><div><h4>Stay in control</h4><p><code>byollm log</code> shows every prompt that ever ran on your machine. <code>byollm pause</code> stops it. The daemon is your meter — that's the point.</p></div></div>
   </div>
+</div></section>
+
+<section id="providers" class="band"><div class="wrap">
+  <p class="eyebrow">Providers</p>
+  <h2>Seventeen providers. Three ways to bring your own.</h2>
+  <p class="lead">A <span class="hl">provider</span> is where a request goes; a <span class="hl">model</span> is which weights answer it. Providers are registry entries over one audited transport — adding one is a single line — and every one arrives with a cost class your config can't override.</p>
+  <table>
+    <thead><tr><th>Provider</th><th>What it is</th><th>Cost</th></tr></thead>
+    <tbody>
+      <tr><td colspan="3"><b>Your hardware</b> — local compute, costs electricity · shareable up to <span class="tag self">public</span></td></tr>
+      <tr><td><b>Ollama</b></td><td>The easiest way to run models locally</td><td><span class="tag self">free</span></td></tr>
+      <tr><td><b>MLX</b></td><td>Apple-silicon native, via <span class="mono">mlx_lm.server</span></td><td><span class="tag self">free</span></td></tr>
+      <tr><td><b>llama.cpp</b></td><td>The C++ engine behind much of local AI</td><td><span class="tag self">free</span></td></tr>
+      <tr><td><b>vLLM</b></td><td>Production-grade GPU serving</td><td><span class="tag self">free</span></td></tr>
+      <tr><td><b>LM Studio</b></td><td>Local models with a desktop app</td><td><span class="tag self">free</span></td></tr>
+      <tr><td><b>Jan</b></td><td>Open-source desktop runner</td><td><span class="tag self">free</span></td></tr>
+      <tr><td><b>LocalAI</b></td><td>Self-hosted OpenAI-compatible server</td><td><span class="tag self">free</span></td></tr>
+      <tr><td colspan="3"><b>Your API key</b> — per-token billing on your account · shareable with an acknowledgment and a daily ceiling</td></tr>
+      <tr><td><b>OpenAI</b></td><td>GPT models on your platform key</td><td><span class="tag lock">metered</span></td></tr>
+      <tr><td><b>Gemini</b></td><td>Google's models on your API key</td><td><span class="tag lock">metered</span></td></tr>
+      <tr><td><b>Grok</b></td><td>xAI's models on your API key</td><td><span class="tag lock">metered</span></td></tr>
+      <tr><td><b>Groq</b></td><td>Open models served fast on custom silicon</td><td><span class="tag lock">metered</span></td></tr>
+      <tr><td><b>OpenRouter</b></td><td>One key, many providers</td><td><span class="tag lock">metered</span></td></tr>
+      <tr><td><b>Together</b></td><td>Open-model cloud</td><td><span class="tag lock">metered</span></td></tr>
+      <tr><td><b>DeepSeek</b></td><td>DeepSeek's models on your API key</td><td><span class="tag lock">metered</span></td></tr>
+      <tr><td><b>Mistral</b></td><td>Mistral's models on your API key</td><td><span class="tag lock">metered</span></td></tr>
+      <tr><td colspan="3"><b>Your subscription</b> — a personal plan · never shared, enforced by the protocol</td></tr>
+      <tr><td><b>claude CLI</b></td><td>Your Claude plan, on your machine, yours alone</td><td><span class="tag lock">subscription</span></td></tr>
+    </tbody>
+  </table>
+  <p class="note">Not listed? <span class="mono">openai-http</span> reaches anything OpenAI-compatible — its cost class is detected from where it points, and <span class="hl">remote is never free</span>.</p>
 </div></section>
 
 <section id="sharing" class="band"><div class="wrap">

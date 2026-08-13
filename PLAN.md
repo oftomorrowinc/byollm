@@ -57,9 +57,9 @@ left empty on purpose: `byollm` and `@byollm/protocol` at
 0.1.0-alpha.0. `@byollm/server` and `@byollm/conformance` are marked
 `private` until they have miles — delete that line to ship them.
 
-Still to claim: the remaining domains. Still to do: **make the repo public** — it is
-private today, so both packages ship with no `repository` field rather
-than advertising a link that 404s. Repo home:
+Still to claim: the remaining domains. **Repo made public 2026-08-12**, and
+the packages carry a `repository` field again — they shipped without one
+while it was private rather than advertising a link that 404s. Repo home:
 **`oftomorrowinc/byollm`** (decided 2026-08-08) — the npm scope is the
 dev-facing identity; no separate GitHub org needed. Parked
 the remaining names acquirable later if warranted.

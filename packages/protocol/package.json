@@ -29,5 +29,13 @@
   "publishConfig": {
     "access": "public"
   },
-  "homepage": "https://byo-llm.com"
+  "homepage": "https://byo-llm.com",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/oftomorrowinc/byollm.git",
+    "directory": "packages/protocol"
+  },
+  "bugs": {
+    "url": "https://github.com/oftomorrowinc/byollm/issues"
+  }
 }

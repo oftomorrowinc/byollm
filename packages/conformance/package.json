@@ -39,5 +39,13 @@
   },
   "publishConfig": {
     "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/oftomorrowinc/byollm.git",
+    "directory": "packages/conformance"
+  },
+  "bugs": {
+    "url": "https://github.com/oftomorrowinc/byollm/issues"
   }
 }

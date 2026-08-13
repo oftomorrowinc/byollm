@@ -43,5 +43,13 @@
     "byollm",
     "daemon",
     "runner"
-  ]
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/oftomorrowinc/byollm.git",
+    "directory": "packages/daemon"
+  },
+  "bugs": {
+    "url": "https://github.com/oftomorrowinc/byollm/issues"
+  }
 }

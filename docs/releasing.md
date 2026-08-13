@@ -124,18 +124,39 @@ Each guard is a mistake that would otherwise happen silently:
   the version string: `-alpha.` → `alpha`, `-beta.` → `beta`, any other
   prerelease → `next`, and only a clean version → `latest`.
 
-## The `latest` retag
+## The `latest` retag — the one manual step
 
 npm forces `latest` onto a package's first publish and will not let it be
 removed, so a bare `npm install byollm` resolves *somewhere* no matter what we
 do. We point it at the newest alpha, so a bare install gets the version whose
 README carries the current warning rather than one silently older.
 
-Whether OIDC authorizes `npm dist-tag` is undocumented — a trusted publisher
-authorizes *publish* actions, and this is a different write. So the workflow
-attempts it, is allowed to fail, and prints the manual commands in the run
-summary if it does. Whichever way the first real release goes, update this
-paragraph to say so rather than leaving the next person to rediscover it.
+**OIDC does not cover this, and the workflow does not try.** Settled in the
+0.1.0-alpha.3 release: `npm publish` exchanged the OIDC credential correctly,
+and `npm dist-tag` in the very same job fell through to the placeholder
+`NODE_AUTH_TOKEN` that `setup-node` writes and died with `E401`. A trusted
+publisher authorizes *publishing*; a retag is a different write, and nothing
+authorizes it.
+
+So after a prerelease, run this locally. It is a write per package, so expect
+a passkey prompt each time:
+
+```bash
+V=0.1.0-alpha.4   # whatever you just released
+for n in "@byollm/protocol" "@byollm/server" byollm "@byollm/conformance"; do
+  npm dist-tag add "$n@$V" latest
+done
+```
+
+The run summary prints these commands with the version filled in, so you can
+copy them from there.
+
+Two things deliberately *not* done about it. The workflow does not attempt the
+retag and report a failure — a step that always fails teaches everyone to
+ignore it, which is worse than not having it. And it does not carry a granular
+token in a GitHub secret to make the retag work, because a long-lived
+publish-capable credential in CI gives back exactly the property trusted
+publishing was adopted for.
 
 ## If you must publish by hand
 

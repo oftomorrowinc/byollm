@@ -194,50 +194,46 @@ jobs:
           done
 
       # ---------------------------------------------------------------------
-      # The `latest` retag.
+      # The `latest` retag — deliberately NOT attempted here.
       #
       # npm forces `latest` onto a first publish and will not let it be
       # removed, so a bare `npm install byollm` resolves somewhere regardless.
-      # Pointing it at the newest alpha means a bare install gets the version
+      # We keep it pointed at the newest alpha so that install gets the version
       # whose README carries the current warning, not one silently older.
       #
-      # Whether OIDC covers `dist-tag` is undocumented — trusted publishers
-      # authorize publish actions, and this is a different write. So it is
-      # allowed to fail, loudly, with the manual command printed. The first
-      # real run settles the question one way or the other.
+      # But OIDC does not cover it. Settled empirically in the 0.1.0-alpha.3
+      # release: `npm publish` exchanges the OIDC credential correctly, and
+      # `npm dist-tag` in the same job fell straight through to the placeholder
+      # NODE_AUTH_TOKEN that setup-node writes, and died with E401. A trusted
+      # publisher authorizes publishing; a retag is a different write.
+      #
+      # So the workflow prints the commands rather than running a call that
+      # cannot succeed. A step that always fails teaches everyone to ignore it,
+      # which is worse than not having it.
       # ---------------------------------------------------------------------
-      - name: Point `latest` at this prerelease
-        if: ${{ !inputs.dry_run && steps.version.outputs.npm_tag != 'latest' }}
-        continue-on-error: true
-        id: retag
-        run: |
-          set -euo pipefail
-          for name in "@byollm/protocol" "@byollm/server" "byollm" "@byollm/conformance"; do
-            npm dist-tag add "$name@${{ steps.version.outputs.version }}" latest
-          done
-
       - name: Report
         if: ${{ !inputs.dry_run }}
         run: |
           V="${{ steps.version.outputs.version }}"
+          TAG="${{ steps.version.outputs.npm_tag }}"
           {
-            echo "## Published \`$V\` under \`${{ steps.version.outputs.npm_tag }}\`"
-            echo ""
-            if [ "${{ steps.retag.outcome }}" = "failure" ]; then
-              echo "⚠️ The \`latest\` retag failed — OIDC does not cover \`dist-tag\`."
-              echo "Run this locally to finish (each is a write, so expect a"
-              echo "passkey prompt per package):"
-              echo ""
-              echo '```'
-              for n in "@byollm/protocol" "@byollm/server" "byollm" "@byollm/conformance"; do
-                echo "npm dist-tag add $n@$V latest"
-              done
-              echo '```'
-            else
-              echo "\`latest\` now points at \`$V\`."
-            fi
+            echo "## Published \`$V\` under \`$TAG\`"
             echo ""
             for n in "@byollm/protocol" "@byollm/server" "byollm" "@byollm/conformance"; do
               echo "- https://www.npmjs.com/package/$n/v/$V"
             done
+            if [ "$TAG" != "latest" ]; then
+              echo ""
+              echo "### One manual step left"
+              echo ""
+              echo "\`latest\` still points at the previous release. OIDC does not"
+              echo "cover \`npm dist-tag\`, so this cannot run here — see"
+              echo "docs/releasing.md. Run locally (a passkey prompt per package):"
+              echo ""
+              echo '```bash'
+              for n in "@byollm/protocol" "@byollm/server" "byollm" "@byollm/conformance"; do
+                echo "npm dist-tag add $n@$V latest"
+              done
+              echo '```'
+            fi
           } >> "$GITHUB_STEP_SUMMARY"

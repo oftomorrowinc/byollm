@@ -146,12 +146,24 @@ jobs:
       - name: Publish (dry run)
         if: inputs.dry_run
         run: |
-          echo "Dry run — nothing published. Tarballs that would have gone out:"
-          ls -1 dist-tarballs
+          set -euo pipefail
+          V="${{ steps.version.outputs.version }}"
+          # Run the real command with --dry-run, rather than just listing what
+          # would go out. The first version of this only printed filenames,
+          # and so sailed past a publish command npm could not even parse —
+          # a rehearsal that does not invoke the thing proves the least
+          # interesting part.
+          for pkg in protocol server daemon conformance; do
+            NAME="$(node -p "require('./packages/$pkg/package.json').name")"
+            FILE="./dist-tarballs/$(printf '%s' "$NAME" | sed 's|^@||; s|/|-|')-$V.tgz"
+            echo "==> would publish $NAME from $FILE"
+            npm publish "$FILE" --tag "${{ steps.version.outputs.npm_tag }}" --access public --dry-run
+          done
           echo ""
-          echo "Note: a dry run cannot exercise OIDC auth, so it proves the"
-          echo "build and the guards, not the npmjs.com trusted-publisher"
-          echo "configuration. The first real run is what tests that."
+          echo "Nothing was published. Note that --dry-run does not exercise"
+          echo "OIDC auth, so this proves the build, the guards and the"
+          echo "publish invocation — not the npmjs.com trusted-publisher"
+          echo "configuration. Only a real run tests that."
 
       - name: Publish
         if: ${{ !inputs.dry_run }}
@@ -167,7 +179,12 @@ jobs:
           # both match any glob loose enough to catch the first.
           for pkg in protocol server daemon conformance; do
             NAME="$(node -p "require('./packages/$pkg/package.json').name")"
-            FILE="dist-tarballs/$(printf '%s' "$NAME" | sed 's|^@||; s|/|-|')-$V.tgz"
+            # The `./` is load-bearing. `npm publish <spec>` resolves a bare
+            # `a/b` as the GitHub shorthand `github:a/b`, so a relative path
+            # sends npm off to clone `dist-tarballs/byollm-protocol-….tgz` as
+            # a repository — which is exactly what it tried, with EALLOWGIT.
+            # A leading `./` is what marks it as a file.
+            FILE="./dist-tarballs/$(printf '%s' "$NAME" | sed 's|^@||; s|/|-|')-$V.tgz"
             if [ ! -f "$FILE" ]; then
               echo "::error::expected tarball $FILE for $NAME, which pnpm pack did not produce"
               exit 1

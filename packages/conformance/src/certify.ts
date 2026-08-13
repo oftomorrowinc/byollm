@@ -1,4 +1,9 @@
-import { MUSTS, MUST_IDS, type MustId } from "@byollm/protocol";
+import {
+  MUSTS,
+  MUST_IDS,
+  mustsVerifiedBy,
+  type MustId,
+} from "@byollm/protocol";
 import { CHECKS, type Check } from "./checks.js";
 import type { ConformanceTarget } from "./target.js";
 
@@ -75,11 +80,39 @@ export async function certify(
   };
 }
 
-/** MUSTs with no check asserting them. */
+/**
+ * `conformance`-kind MUSTs with no check asserting them.
+ *
+ * This counts only the MUSTs the kit is *able* to assert. It used to count
+ * all of them, which made a permanent structural fact — the kit certifies a
+ * server, and a third of the MUSTs are properties of a daemon — look like a
+ * backlog of ten missing tests. A number that can never reach zero gets
+ * ignored, and a number that is ignored is not a check.
+ *
+ * This one should be zero, and CI keeps it there.
+ */
 export function uncoveredMusts(checks: readonly Check[] = CHECKS): MustId[] {
   const covered = new Set(checks.flatMap((check) => check.musts));
-  return MUST_IDS.filter((id) => !covered.has(id));
+  return mustsVerifiedBy("conformance").filter((id) => !covered.has(id));
 }
+
+/**
+ * MUSTs a check claims but which are not verifiable by conformance.
+ *
+ * The opposite error, and the one that would quietly overstate what a
+ * certification means: a check asserting an `operator`-kind MUST would put
+ * "verified" next to something no third party can check from outside.
+ */
+export function miscoveredMusts(checks: readonly Check[] = CHECKS): MustId[] {
+  return [...new Set(checks.flatMap((check) => check.musts))]
+    .filter((id) => MUSTS[id].verifiedBy !== "conformance")
+    .sort();
+}
+
+const VERIFICATION_NOTE =
+  "(`adversarial` = proved by the reference daemon's own suites; " +
+  "`construction` = true by code shape; `operator` = a deployment claim, " +
+  "verifiable only by audit or source. None is asserted by this run.)";
 
 /** A human-readable report. */
 export function formatReport(report: CertificationReport): string {
@@ -107,10 +140,27 @@ export function formatReport(report: CertificationReport): string {
 
   if (report.uncoveredMusts.length > 0) {
     lines.push("");
-    lines.push("  MUSTs with no check yet (the kit is honest about its gaps):");
+    lines.push("  MUSTs this kit can assert but does not yet:");
     for (const id of report.uncoveredMusts) {
       lines.push(`    - ${id}: ${MUSTS[id].statement}`);
     }
+  }
+
+  // Say what this run did *not* cover, and why — so "it passes conformance"
+  // is never read as "every MUST is satisfied". A certification that hides
+  // its own scope is worth less than one that states it.
+  const elsewhere = MUST_IDS.filter(
+    (id) => MUSTS[id].verifiedBy !== "conformance",
+  );
+  if (elsewhere.length > 0) {
+    lines.push("");
+    lines.push("  Verified elsewhere, not by this kit:");
+    for (const kind of ["adversarial", "construction", "operator"] as const) {
+      const ids = elsewhere.filter((id) => MUSTS[id].verifiedBy === kind);
+      if (ids.length === 0) continue;
+      lines.push(`    ${kind}: ${ids.join(", ")}`);
+    }
+    lines.push(`    ${VERIFICATION_NOTE}`);
   }
   return `${lines.join("\n")}\n`;
 }

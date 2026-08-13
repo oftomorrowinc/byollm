@@ -1,4 +1,5 @@
 import {
+  KindedPayload,
   backendDescriptor,
   matchAudience,
   type DeliveredResult,
@@ -145,7 +146,34 @@ export class ByollmApp {
    * the app is obliged to disclose that to whoever reads it.
    */
   async enqueue(input: EnqueueInput): Promise<JobHandle> {
-    const record = await this.#store.create(input, this.#now());
+    // Validate the payload against its kind before anything stores it.
+    //
+    // The schemas are `.strict()`, so this drops a payload carrying fields
+    // the kind does not define — `command`, `argv`, `model`, `baseUrl`. Types
+    // do not survive a JSON boundary, and an app assembling a payload from
+    // user input is the ordinary case, so "the caller is typed" is not a
+    // check ({@link MUSTS.KIND_NO_CODE}, {@link MUSTS.NO_PAYLOAD_ROUTING}).
+    //
+    // Refusing here rather than relying on the daemon is deliberate. The
+    // daemon does re-validate and would reject this — but it parses a whole
+    // claim response at once, so one malformed job would fail the batch it
+    // arrived in and stall unrelated work. Rejecting at enqueue puts the
+    // error where the app can act on it.
+    const parsed = KindedPayload.safeParse({
+      kind: input.kind,
+      payload: input.payload,
+    });
+    if (!parsed.success) {
+      const detail = parsed.error.issues
+        .map((issue) => `${issue.path.join(".") || "(root)"}: ${issue.message}`)
+        .join("; ");
+      throw new Error(`invalid ${input.kind} payload — ${detail}`);
+    }
+
+    const record = await this.#store.create(
+      { ...input, payload: parsed.data.payload },
+      this.#now(),
+    );
     return {
       id: record.id,
       record,

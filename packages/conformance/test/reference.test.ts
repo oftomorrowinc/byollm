@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { CHECKS, certify, uncoveredMusts } from "../src/index.js";
+import {
+  CHECKS,
+  certify,
+  miscoveredMusts,
+  uncoveredMusts,
+} from "../src/index.js";
+import { MUSTS, MUST_IDS } from "@byollm/protocol";
 import { referenceTarget } from "./reference-target.js";
 
 /**
@@ -21,12 +27,29 @@ describe("conformance — reference server", () => {
 });
 
 describe("the kit is honest about its own coverage", () => {
-  it("reports which MUSTs no check asserts", () => {
-    // Not asserted to be empty: some MUSTs are daemon-internal and proven by
-    // the adversarial suite instead. What matters is that the gap is visible
-    // in the report rather than implied away.
-    const uncovered = uncoveredMusts();
-    expect(Array.isArray(uncovered)).toBe(true);
+  it("asserts every MUST it is able to assert", () => {
+    // This used to check only that the result was an array, which is a thing
+    // that cannot fail. It could not do better while the count mixed in
+    // MUSTs the kit is structurally unable to test — a number that can never
+    // reach zero gets ignored. Now that each MUST declares how it is
+    // verified, this counts only `conformance`-kind gaps, and that number
+    // must be zero.
+    expect(uncoveredMusts()).toEqual([]);
+  });
+
+  it("never claims a MUST that conformance cannot verify", () => {
+    // The opposite failure, and the quieter one: a check listing an
+    // `operator`-kind MUST would put "verified" beside something no third
+    // party can check from outside. That is how "byollm-compatible" comes to
+    // cover claims the kit never touched.
+    expect(miscoveredMusts()).toEqual([]);
+  });
+
+  it("gives every MUST a verification kind", () => {
+    const KINDS = ["conformance", "adversarial", "construction", "operator"];
+    for (const id of MUST_IDS) {
+      expect(KINDS, id).toContain(MUSTS[id].verifiedBy);
+    }
   });
 
   it("gives every check a unique id and at least one MUST", () => {

@@ -1,6 +1,8 @@
 # byollm_011 — Conformance completeness, and what kind of thing a MUST is
 
-**Status: proposed 2026-08-13.**
+**Status: implemented 2026-08-13**, except the §4 exclusion (MUSTs that
+byollm_009 introduces) and the backlog of mutation verification for
+`C001`–`C016`, tracked in `packages/conformance/MUTATIONS.md`.
 
 Ten of thirty-two MUSTs have no conformance check. The kit reports
 them honestly on every run — `uncoveredMusts()` exists precisely so a
@@ -122,6 +124,30 @@ answer that is not somebody's memory.
 Coverage of MUSTs that byollm_009 introduces. Those land with that
 spec and its own checks; this one is about the debt already on the
 books and the taxonomy 009 will need to exist first.
+
+## What landed, and one thing it caught
+
+Four checks written and mutation-verified: `C019_CLAIM_ATOMIC`,
+`C020_PAIR_CODE_EXPIRES`, `C021_CAPABILITY_IS_DETECTED`,
+`C022_KIND_NO_CODE`. Every MUST carries a `verifiedBy` kind;
+`uncoveredMusts()` counts only `conformance`-kind gaps and CI asserts
+it is empty; `formatReport` lists what was verified elsewhere and says
+plainly that this run did not assert it.
+
+`C022` found a real gap on its first run: the server stored and
+delivered payload keys the kind does not define — `command`, `argv`,
+`model`, `baseUrl`. Nothing executed, because the daemon re-validates
+against a strict schema and the argv is fixed. But the daemon parses a
+whole claim response at once, so one malformed job would have failed
+the batch it arrived in and stalled unrelated work. `enqueue` now
+validates against `KindedPayload`, which puts the error where the app
+can act on it.
+
+The `miscoveredMusts()` guard — no check may claim a MUST conformance
+cannot verify — caught its own author within minutes of existing:
+`C022` listed `NO_PAYLOAD_ROUTING`, which it does not establish. It
+proves the wire-shape half; the argv proof belongs to the adversarial
+suite. The claim was dropped rather than the classification loosened.
 
 ## Done when
 

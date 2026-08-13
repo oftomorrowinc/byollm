@@ -75,9 +75,11 @@ export {
 export {
   MUST_IDS,
   MUSTS,
+  mustsVerifiedBy,
   type Must,
   type MustEnforcer,
   type MustId,
+  type MustVerification,
 } from "./musts.js";
 
 export {

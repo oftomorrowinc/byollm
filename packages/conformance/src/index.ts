@@ -27,6 +27,7 @@ export { CHECKS, type Check } from "./checks.js";
 export {
   certify,
   formatReport,
+  miscoveredMusts,
   uncoveredMusts,
   type CertificationReport,
   type CheckResult,

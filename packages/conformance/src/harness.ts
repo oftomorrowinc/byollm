@@ -1,7 +1,11 @@
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { Capability } from "@byollm/protocol";
+import {
+  PROTOCOL_VERSION,
+  type Capability,
+  type ClaimedJob,
+} from "@byollm/protocol";
 import {
   Allowlist,
   Budgets,
@@ -34,9 +38,13 @@ export class EchoBackend implements Backend {
   readonly seen: string[] = [];
   /** Set to make the next call hang, for lease and cancel checks. */
   hangMs = 0;
+  /** Set false to simulate the model not being installed or not running. */
+  healthy = true;
+  /** What the backend reports it can serve. Empty means "does not enumerate". */
+  models: string[] = ["echo-model"];
 
   health(): Promise<{ healthy: boolean; models: string[] }> {
-    return Promise.resolve({ healthy: true, models: ["echo-model"] });
+    return Promise.resolve({ healthy: this.healthy, models: this.models });
   }
 
   async execute(request: BackendRequest): Promise<BackendResult> {
@@ -86,6 +94,8 @@ export interface HarnessDaemon {
   readonly allowlist: Allowlist;
   readonly runnerId: string;
   readonly owner: string;
+  /** The runner token, for checks that drive the protocol wire directly. */
+  readonly token: string;
   readonly home: string;
   readonly ingress: IngressLog;
   /** The owner's spend ledger, so a check can drive it past its ceiling. */
@@ -304,6 +314,7 @@ export async function pairDaemon(
     allowlist,
     runnerId: result.pairing.runnerId,
     owner: result.pairing.owner,
+    token: result.pairing.token,
     home,
     ingress,
     spend,
@@ -374,4 +385,41 @@ export async function advance(
     await sleep(ms);
   }
   await target.sweep();
+}
+
+/**
+ * Claim one job over the protocol wire, bypassing the runner.
+ *
+ * `runner.tick()` claims and *runs*, which is what most checks want. This is
+ * for the ones that need to inspect the claim response itself — what the
+ * server hands a daemon is a protocol surface in its own right, and the
+ * daemon's own handling of it can mask what arrived.
+ */
+export async function claimOne(
+  target: ConformanceTarget,
+  daemon: HarnessDaemon,
+): Promise<ClaimedJob> {
+  const capabilities = await daemon.runner.detectCapabilities();
+  const response = await target.fetch(
+    new Request(`${target.origin}/byollm/claim`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${daemon.token}`,
+      },
+      body: JSON.stringify({
+        protocolVersion: PROTOCOL_VERSION,
+        runnerId: daemon.runnerId,
+        capabilities,
+        max: 1,
+      }),
+    }),
+  );
+  if (response.status !== 200) {
+    throw new Error(`claim answered ${String(response.status)}`);
+  }
+  const body = (await response.json()) as { jobs: ClaimedJob[] };
+  const job = body.jobs[0];
+  if (!job) throw new Error("claim returned no jobs");
+  return job;
 }

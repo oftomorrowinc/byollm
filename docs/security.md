@@ -167,6 +167,38 @@ Test id: `OUTPUT_INERT`.
 
 ---
 
+## 4a. Cost class — whose money, and whose terms
+
+byollm_007 splits what used to be one field into three, because "not a
+subscription" and "free to share" are different claims:
+
+| `cost` | Constraint | Offer scope |
+|---|---|---|
+| `free` | Electricity | Widens freely |
+| `metered` | The owner's money, per token | `self` unless acknowledged, **and** capped |
+| `subscription` | A provider's terms | `self`, always |
+
+The bug this closed: `openai-http` was classed "open" while also accepting an
+API key, so an owner could point it at a paid endpoint, offer it `public`, and
+donate their credit balance. The community budgets capped job *count*, not
+spend, so nothing noticed.
+
+**The enforceable part.** Cost is not configurable. For named providers it
+comes from the protocol registry; for the generic HTTP backend it is derived
+from the base URL — loopback and RFC1918 are `free`, everything else is
+`metered`. An owner therefore cannot reach a paid API through the generic
+backend and call it free, because the claim is checked against where the
+request actually goes. An unparseable base URL is treated as metered: guessing
+"free" wrong costs money, guessing "metered" wrong costs a config line.
+
+**The ceiling is counted, not just declared.** A shared metered backend must
+carry a daily cap, and the daemon keeps a local ledger of estimated spend
+against it. The estimate is deliberately crude and generous — providers do not
+return a price, so it is token-count × an owner-supplied rate. It will not
+match an invoice. It does not need to: it is a brake, and a defensible
+over-estimate stops a runaway, which is what the owner actually wants. A
+backend with no ceiling reads as *reached*, not as unlimited.
+
 ## 5. Community jobs get extra teeth
 
 Everything above is the floor for all jobs. For jobs whose owner is not the

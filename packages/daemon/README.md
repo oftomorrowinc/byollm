@@ -103,6 +103,7 @@ Off by default. A fresh daemon runs your work and nobody else's.
 ```bash
 byollm allow https://your-app.com alice   # asks you to confirm, in plain words
 byollm allow --list                       # everyone who can use this machine
+byollm offer openai public --cap 250      # share a paid backend, with a ceiling
 byollm disallow https://your-app.com alice
 ```
 

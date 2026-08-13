@@ -131,3 +131,140 @@ describe("resolveConfig — a broken route is dropped, not fatal", () => {
     expect(problems).toHaveLength(1);
   });
 });
+
+describe("byollm_007 — cost class and providers", () => {
+  const route = (backend: string) => ({
+    routes: { "llm.generate": { backend, model: "m" } },
+  });
+
+  it("resolves a named provider's default base URL, so an id and a key suffice", () => {
+    const { routes, problems } = resolveConfig(
+      DaemonConfig.parse({
+        backends: { gpt: { backend: "openai", apiKeyEnv: "OPENAI_API_KEY" } },
+        ...route("gpt"),
+      }),
+    );
+    expect(problems).toEqual([]);
+    expect(routes[0]?.baseUrl).toBe("https://api.openai.com/v1");
+    expect(routes[0]?.cost).toBe("metered");
+  });
+
+  it("narrows a metered backend to self, and says why in words", () => {
+    // The bug byollm_007 closes: a paid key offered publicly by accident.
+    const { routes, problems } = resolveConfig(
+      DaemonConfig.parse({
+        backends: {
+          gpt: { backend: "openai", apiKeyEnv: "K", offer: "public" },
+        },
+        ...route("gpt"),
+      }),
+    );
+    expect(routes[0]?.offerScope).toBe("self");
+    expect(problems[0]?.message).toContain("bills you per token");
+    expect(problems[0]?.message).toContain("byollm offer");
+  });
+
+  it("refuses to share a metered backend without a ceiling", () => {
+    const { routes, problems } = resolveConfig(
+      DaemonConfig.parse({
+        backends: {
+          gpt: {
+            backend: "openai",
+            apiKeyEnv: "K",
+            offer: "public",
+            spend: { acknowledged: true },
+          },
+        },
+        ...route("gpt"),
+      }),
+    );
+    // Refused outright rather than given an unlimited ceiling.
+    expect(routes).toHaveLength(0);
+    expect(problems[0]?.message).toContain("dailyCapCents");
+  });
+
+  it("shares a metered backend once acknowledged with a ceiling", () => {
+    const { routes, problems } = resolveConfig(
+      DaemonConfig.parse({
+        backends: {
+          gpt: {
+            backend: "openai",
+            apiKeyEnv: "K",
+            offer: "named",
+            spend: { acknowledged: true, dailyCapCents: 500 },
+          },
+        },
+        ...route("gpt"),
+      }),
+    );
+    expect(problems).toEqual([]);
+    expect(routes[0]?.offerScope).toBe("named");
+    expect(routes[0]?.spendDailyCapCents).toBe(500);
+  });
+
+  it("cannot be told a remote endpoint is free [REMOTE_IS_NEVER_FREE]", () => {
+    // Reaching a paid API through the generic backend must not escape the
+    // metered rules. There is no `cost` field to set, and the base URL decides.
+    const { routes, problems } = resolveConfig(
+      DaemonConfig.parse({
+        backends: {
+          sneaky: {
+            backend: "openai-http",
+            baseUrl: "https://api.openai.com/v1",
+            apiKeyEnv: "K",
+            offer: "public",
+          },
+        },
+        ...route("sneaky"),
+      }),
+    );
+    expect(routes[0]?.cost).toBe("metered");
+    expect(routes[0]?.offerScope).toBe("self");
+    expect(problems[0]?.message).toContain("per token");
+  });
+
+  it("leaves a local generic backend free and shareable", () => {
+    const { routes, problems } = resolveConfig(
+      DaemonConfig.parse({
+        backends: {
+          local: {
+            backend: "openai-http",
+            baseUrl: "http://127.0.0.1:11434/v1",
+            offer: "public",
+          },
+        },
+        ...route("local"),
+      }),
+    );
+    expect(problems).toEqual([]);
+    expect(routes[0]?.cost).toBe("free");
+    expect(routes[0]?.offerScope).toBe("public");
+  });
+
+  it("refuses a config that tries to declare its own cost", () => {
+    // COST_NOT_CONFIGURABLE: there is no such field, and `.strict()` means
+    // inventing one is a parse failure rather than something ignored.
+    expect(
+      DaemonConfig.safeParse({
+        backends: { gpt: { backend: "openai", cost: "free" } },
+        ...route("gpt"),
+      }).success,
+    ).toBe(false);
+  });
+
+  it("still locks a subscription backend, consent or not", () => {
+    const { routes } = resolveConfig(
+      DaemonConfig.parse({
+        backends: {
+          claude: {
+            backend: "claude-cli",
+            offer: "public",
+            spend: { acknowledged: true, dailyCapCents: 10_000 },
+          },
+        },
+        ...route("claude"),
+      }),
+    );
+    expect(routes[0]?.offerScope).toBe("self");
+  });
+});

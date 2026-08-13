@@ -228,7 +228,18 @@ export class ByollmApp {
         {
           owner: runner.owner,
           offerScope: capability.offerScope,
-          account: backendDescriptor(capability.backendId).account,
+          // A generic backend's cost depends on its base URL, which the
+          // server never sees; assume the expensive reading (byollm_007 §4).
+          cost: backendDescriptor(capability.backendId).cost ?? "metered",
+          // Consent is the daemon's to hold, and it has already applied it:
+          // the offer scope arriving here is the *effective* one, so a
+          // metered backend nobody agreed to share advertises `self` and is
+          // refused by the scope rule above. Re-deriving consent from
+          // `false` here would instead refuse every backend an owner
+          // deliberately shared, because the server has no way to learn they
+          // did — the signal would be wrong in the direction that breaks
+          // working setups.
+          spend: { acknowledged: true },
           // Same conservative assumption the claim path makes: the server
           // cannot see a remote daemon's local allowlist (protocol §4.2).
           locallyAllows: () => true,

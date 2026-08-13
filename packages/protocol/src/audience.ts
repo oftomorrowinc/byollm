@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { type BackendAccount } from "./backends.js";
+import { type BackendCost } from "./backends.js";
 
 /**
  * Who may run a job, declared by the app that enqueued it.
@@ -44,6 +44,10 @@ export const MatchRefusal = z.enum([
   "offer-scope-too-narrow",
   /** The matched backend is subscription-class, which is locked to `self`. */
   "subscription-self-lock",
+  /** The backend spends the owner's money and they have not agreed to share it. */
+  "metered-no-spend-consent",
+  /** The backend is shared but has spent its ceiling for now. */
+  "metered-ceiling-reached",
 ]);
 export type MatchRefusal = z.infer<typeof MatchRefusal>;
 
@@ -56,20 +60,38 @@ const ALLOWED: MatchResult = Object.freeze({ ok: true as const });
 const refuse = (refusal: MatchRefusal): MatchResult =>
   Object.freeze({ ok: false as const, refusal });
 
+/** What the owner has agreed to spend on other people's work, if anything. */
+export interface SpendConsent {
+  /** The owner explicitly acknowledged that sharing this backend costs money. */
+  readonly acknowledged: boolean;
+  /** Their ceiling. Absent means no ceiling was set, which is not consent. */
+  readonly ceilingReached?: boolean;
+}
+
 /**
  * The effective offer scope of a backend.
  *
- * A subscription-class backend is locked to `self` regardless of what config
- * requests ({@link MUSTS.SUBSCRIPTION_SELF_LOCK}). This is a protocol MUST,
- * not a setting: the lock is applied here, at the one place both the daemon's
- * config loader and its matcher call, so there is no code path that observes
- * a widened subscription scope.
+ * Three rules, applied at the one place both the daemon's config loader and
+ * its matcher call, so no code path can observe a scope wider than the cost
+ * class allows:
+ *
+ * - `subscription` is locked to `self` regardless of config
+ *   ({@link MUSTS.SUBSCRIPTION_SELF_LOCK}) — someone else's terms.
+ * - `metered` narrows to `self` unless the owner has explicitly acknowledged
+ *   the spend ({@link MUSTS.METERED_DEFAULTS_SELF}) — their money.
+ * - `free` passes through — their electricity.
+ *
+ * Note the asymmetry: subscription can never be widened, metered can be
+ * widened deliberately. Conflating those was byollm_007's bug.
  */
 export function effectiveOfferScope(
   configured: OfferScope,
-  account: BackendAccount,
+  cost: BackendCost,
+  spend?: SpendConsent,
 ): OfferScope {
-  return account === "subscription" ? "self" : configured;
+  if (cost === "subscription") return "self";
+  if (cost === "metered" && spend?.acknowledged !== true) return "self";
+  return configured;
 }
 
 /** The job-side facts a match needs. */
@@ -92,8 +114,10 @@ export interface MatchDaemon {
   readonly owner: string;
   /** Effective scope of the backend that would run the job. */
   readonly offerScope: OfferScope;
-  /** Account class of that backend. */
-  readonly account: BackendAccount;
+  /** Who pays for that backend's tokens. */
+  readonly cost: BackendCost;
+  /** What the owner agreed to spend on others, for a `metered` backend. */
+  readonly spend?: SpendConsent | undefined;
   /**
    * Does this daemon's *local* allowlist admit the given owner for the server
    * origin the job came from? Supplied as a predicate so the protocol package
@@ -123,7 +147,7 @@ export interface MatchDaemon {
  *   {
  *     owner: "bob",
  *     offerScope: "named",
- *     account: "open",
+ *     cost: "free",
  *     locallyAllows: (o) => o === "alice",
  *   },
  * );
@@ -149,15 +173,29 @@ export function matchAudience(job: MatchJob, daemon: MatchDaemon): MatchResult {
   // --- Side 2: does the backend's offer scope admit the job's owner? -----
   // The lock is re-applied rather than trusted: a caller that passed a
   // widened scope for a subscription backend gets a refusal, not obedience.
-  const scope = effectiveOfferScope(daemon.offerScope, daemon.account);
+  const scope = effectiveOfferScope(
+    daemon.offerScope,
+    daemon.cost,
+    daemon.spend,
+  );
 
   if (sameOwner) {
     // A daemon always runs its own owner's work, at any scope.
     return ALLOWED;
   }
 
-  if (daemon.account === "subscription") {
+  // Order matters for the message, not the outcome: all three refuse, and a
+  // volunteer debugging their setup needs to know which truth applies.
+  if (daemon.cost === "subscription") {
     return refuse("subscription-self-lock");
+  }
+  if (daemon.cost === "metered") {
+    if (daemon.spend?.acknowledged !== true) {
+      return refuse("metered-no-spend-consent");
+    }
+    if (daemon.spend.ceilingReached === true) {
+      return refuse("metered-ceiling-reached");
+    }
   }
 
   switch (scope) {
@@ -192,4 +230,8 @@ export const REFUSAL_MESSAGES: Readonly<Record<MatchRefusal, string>> =
       "this backend is offered to its owner only (byollm offer <backend> named|public to widen)",
     "subscription-self-lock":
       "subscription-backed models run their owner's work only — this is a protocol rule, not a setting",
+    "metered-no-spend-consent":
+      "this backend bills its owner per token, and they have not agreed to spend it on other people's work",
+    "metered-ceiling-reached":
+      "this backend is shared but has reached the spend ceiling its owner set",
   });

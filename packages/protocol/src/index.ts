@@ -23,6 +23,7 @@ export {
   OfferScope,
   REFUSAL_MESSAGES,
   type MatchDaemon,
+  type SpendConsent,
   type MatchJob,
   type MatchResult,
 } from "./audience.js";
@@ -30,11 +31,13 @@ export {
 export {
   BACKEND_IDS,
   BACKENDS,
-  BackendAccount,
   BackendClass,
+  BackendCost,
   BackendIdSchema,
   backendDescriptor,
   isBackendId,
+  isLocalHost,
+  resolveCost,
   type BackendDescriptor,
   type BackendId,
 } from "./backends.js";

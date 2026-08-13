@@ -72,6 +72,8 @@ export {
 
 export { daemonPaths, defaultRoot, type DaemonPaths } from "./paths.js";
 
+export { SpendLedger, estimateCents } from "./spend.js";
+
 export { Pairings, type Pairing } from "./pairings.js";
 
 export {

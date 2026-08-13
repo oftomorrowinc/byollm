@@ -17,7 +17,10 @@ const OTHER = "bob";
 function daemon(
   scope: OfferScope,
   opts: {
-    account?: "open" | "subscription";
+    cost?: "free" | "metered" | "subscription";
+    /** Only meaningful for a metered backend. */
+    spendAcknowledged?: boolean;
+    ceilingReached?: boolean;
     allows?: readonly string[];
     owner?: string;
   } = {},
@@ -26,21 +29,53 @@ function daemon(
   return {
     owner: opts.owner ?? OTHER,
     offerScope: scope,
-    account: opts.account ?? ("open" as const),
+    cost: opts.cost ?? ("free" as const),
+    spend: {
+      acknowledged: opts.spendAcknowledged ?? false,
+      ceilingReached: opts.ceilingReached ?? false,
+    },
     locallyAllows: (o: string) => allows.includes(o),
   };
 }
 
 describe("effectiveOfferScope", () => {
-  it("passes an open backend's configured scope through", () => {
+  it("passes a free backend's configured scope through", () => {
     for (const scope of OFFER_SCOPES) {
-      expect(effectiveOfferScope(scope, "open")).toBe(scope);
+      expect(effectiveOfferScope(scope, "free")).toBe(scope);
     }
   });
 
   it("locks a subscription backend to self whatever config says", () => {
     for (const scope of OFFER_SCOPES) {
       expect(effectiveOfferScope(scope, "subscription")).toBe("self");
+    }
+  });
+
+  it("narrows a metered backend to self until the owner agrees to spend", () => {
+    // byollm_007: the bug this closes is a paid API key offered `public` by
+    // accident. Silence is not consent.
+    for (const scope of OFFER_SCOPES) {
+      expect(effectiveOfferScope(scope, "metered")).toBe("self");
+      expect(
+        effectiveOfferScope(scope, "metered", { acknowledged: false }),
+      ).toBe("self");
+    }
+  });
+
+  it("honours a metered backend once the owner has agreed", () => {
+    for (const scope of OFFER_SCOPES) {
+      expect(
+        effectiveOfferScope(scope, "metered", { acknowledged: true }),
+      ).toBe(scope);
+    }
+  });
+
+  it("never lets consent widen a subscription backend", () => {
+    // Someone else's terms are not the owner's to waive.
+    for (const scope of OFFER_SCOPES) {
+      expect(
+        effectiveOfferScope(scope, "subscription", { acknowledged: true }),
+      ).toBe("self");
     }
   });
 });
@@ -141,7 +176,7 @@ describe("matchAudience — the subscription self-lock", () => {
     for (const scope of OFFER_SCOPES) {
       const result = matchAudience(
         { owner: OWNER, audience: "public" },
-        daemon(scope, { account: "subscription", allows: [OWNER] }),
+        daemon(scope, { cost: "subscription", allows: [OWNER] }),
       );
       expect(result, `scope=${scope}`).toEqual({
         ok: false,
@@ -153,7 +188,7 @@ describe("matchAudience — the subscription self-lock", () => {
   it("still runs the owner's own work on a subscription backend", () => {
     const result = matchAudience(
       { owner: OWNER, audience: "self" },
-      daemon("self", { account: "subscription", owner: OWNER }),
+      daemon("self", { cost: "subscription", owner: OWNER }),
     );
     expect(result.ok).toBe(true);
   });

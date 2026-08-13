@@ -122,18 +122,37 @@ byollm backends       # what's installed, healthy, and actually advertised
 byollm log            # every prompt that ran here, ever
 byollm pause          # stop claiming work
 byollm allow --list   # everyone who can use this machine (empty by default)
+byollm offer <backend> public --cap 250   # share a paid backend, deliberately
 ```
 
 ## The audience model — sharing, safely
 
 Every job carries an **audience** and every backend an **offer scope**. A job runs on a machine only when both agree.
 
-| Backend | Can offer | Why |
-|---|---|---|
-| **Ollama, MLX, llama.cpp** (open models) | `self` → `named` (friends) → `public` (anyone) | Donated compute for open models — the folding@home posture. No provider terms in play. |
-| **claude CLI & other subscription accounts** | `self` **only, enforced** | One account runs one person's work. This is a protocol MUST, not a setting. |
+| Backend | Cost | Can offer | Why |
+|---|---|---|---|
+| **Ollama, MLX, llama.cpp, vLLM, LM Studio** | `free` | `self` → `named` (friends) → `public` (anyone) | Local compute. Costs electricity, not money — the folding@home posture. |
+| **OpenAI, Gemini, Grok, Groq, OpenRouter…** | `metered` | `self` by default; wider only with an explicit spend acknowledgment **and** a daily ceiling | Your API key, your money, per token. Sharing it is legitimate and ruinous by accident. |
+| **claude CLI & other subscription accounts** | `subscription` | `self` **only, enforced** | One account runs one person's work. A protocol MUST, not a setting. |
 
-Want to lend your GPU to the open-source community, or let your friends' jobs run overnight on your machine? Flip an open backend to `public` or `named`. Your subscription is never part of that.
+Cost class comes from the protocol registry and is **not yours to declare**. Point the generic `openai-http` backend at a remote endpoint and it is `metered` no matter what you call it — "free" is derived from *where the request goes*, not from the config. That is the one rule that makes the rest enforceable.
+
+Want to lend your GPU to the open-source community, or let your friends' jobs run overnight on your machine? `byollm offer <backend> public` flips an open backend over. Your subscription is never part of that.
+
+Widening a **paid** backend is the one path that asks first, and the question names the money rather than asking whether you are sure:
+
+```bash
+$ byollm offer openai public --cap 250
+
+This lets other people's jobs run on OpenAI (your API key), which bills
+your account per token. You would be paying for their work, up to
+$2.50 a day, every day, until you change it.
+Spending stops at that ceiling and resumes the next day.
+
+Offer openai to anyone? [y/N]
+```
+
+Sharing a metered backend without a ceiling is refused outright — an unlimited one is not something anyone means on purpose. Narrowing back to `self` withdraws the consent too, so widening again has to be agreed to again.
 
 `named` is enforced by **your** daemon, not by the app: it keeps a local allowlist of `(app, user)` pairs — `byollm allow <app-url> <user-id>` — and refuses anything not on it, whatever the server claims. The list starts empty, so a fresh daemon runs your work and nobody else's until you say otherwise.
 

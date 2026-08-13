@@ -1,6 +1,5 @@
 import {
   REFUSAL_MESSAGES,
-  backendDescriptor,
   matchAudience,
   payloadTextLength,
   type Capability,
@@ -14,6 +13,7 @@ import { ClientError, type ProtocolClient } from "./client.js";
 import { composePrompt } from "./compose.js";
 import type { LoadedConfig, ResolvedRoute } from "./config.js";
 import type { IngressLog } from "./ingress.js";
+import { estimateCents, type SpendLedger } from "./spend.js";
 
 /** What the daemon is currently doing, for `byollm status`. */
 export interface RunnerStatus {
@@ -38,6 +38,8 @@ export interface RunnerOptions {
   readonly loaded: LoadedConfig;
   readonly allowlist: Allowlist;
   readonly budgets: Budgets;
+  /** Tracks money spent on other people's work, for metered backends. */
+  readonly spend: SpendLedger;
   readonly ingress: IngressLog;
   /** Heartbeat cadence before jitter. */
   readonly heartbeatMs?: number;
@@ -170,6 +172,22 @@ export class Runner {
     return backend;
   }
 
+  /**
+   * Has this route spent the owner's daily ceiling on other people's work?
+   *
+   * Only meaningful for `metered` routes; `free` and `subscription` never
+   * reach here in a way that matters, because the matcher refuses them for
+   * other reasons first ({@link MUSTS.METERED_REQUIRES_CEILING}).
+   */
+  #spendCeilingReached(route: ResolvedRoute): boolean {
+    if (route.cost !== "metered") return false;
+    return this.#options.spend.hasReachedCeiling(
+      route.backendKey,
+      route.spendDailyCapCents,
+      this.#now(),
+    );
+  }
+
   #routeFor(kind: string): ResolvedRoute | undefined {
     return this.#options.loaded.routes.find((route) => route.kind === kind);
   }
@@ -201,7 +219,11 @@ export class Runner {
       {
         owner: this.#options.owner,
         offerScope: route.offerScope,
-        account: backendDescriptor(route.backendId).account,
+        cost: route.cost,
+        spend: {
+          acknowledged: route.spendAcknowledged,
+          ceilingReached: this.#spendCeilingReached(route),
+        },
         // The daemon's own list — the whole point of Rev 1 §B.
         locallyAllows: this.#options.allowlist.predicateFor(
           this.#options.client.origin,
@@ -306,6 +328,21 @@ export class Runner {
         outputChars: result.ok ? result.text.length : 0,
         ...(result.ok ? {} : { detail: result.message }),
       });
+
+      // Community work on a metered backend spends the owner's money, so it
+      // goes on the ledger the ceiling is checked against. Own work is not
+      // counted: their machine, their key, their call.
+      if (community && route.cost === "metered") {
+        await this.#options.spend.record(
+          route.backendKey,
+          estimateCents(
+            prompt.length,
+            result.ok ? result.text.length : 0,
+            route.spendCentsPerMillionTokens,
+          ),
+          this.#now(),
+        );
+      }
 
       this.#completed += 1;
       this.#options.onEvent?.({

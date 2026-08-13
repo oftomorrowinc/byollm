@@ -14,6 +14,7 @@ import { ProtocolClient } from "./client.js";
 import { composePrompt } from "./compose.js";
 import { DaemonConfig, resolveConfig } from "./config.js";
 import { IngressLog } from "./ingress.js";
+import { SpendLedger } from "./spend.js";
 import { Runner } from "./runner.js";
 
 /** A backend that records what it was asked to run. */
@@ -100,6 +101,8 @@ async function makeRunner(
 
   const budgets = new Budgets(join(dir, "b.json"), loaded.config.community);
   await budgets.load(Date.now());
+  const spend = new SpendLedger(join(dir, "spend.json"));
+  await spend.load(Date.now());
   const ingress = new IngressLog({
     path: join(dir, "ingress.log"),
     communityPromptDays: 7,
@@ -114,6 +117,7 @@ async function makeRunner(
     loaded,
     allowlist,
     budgets,
+    spend,
     ingress,
     backendFactory: () => backend,
   });

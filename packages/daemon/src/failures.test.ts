@@ -14,6 +14,7 @@ import { ClientError, ProtocolClient } from "./client.js";
 import { connect } from "./connect.js";
 import { DaemonConfig, resolveConfig } from "./config.js";
 import { IngressLog } from "./ingress.js";
+import { SpendLedger } from "./spend.js";
 import { Runner } from "./runner.js";
 
 /**
@@ -82,6 +83,8 @@ async function makeRunner(fetchImpl: typeof fetch, backend: Backend) {
   await allowlist.load();
   const budgets = new Budgets(join(dir, "b.json"), loaded.config.community);
   await budgets.load(Date.now());
+  const spend = new SpendLedger(join(dir, "spend.json"));
+  await spend.load(Date.now());
 
   return new Runner({
     client: new ProtocolClient({
@@ -95,6 +98,7 @@ async function makeRunner(fetchImpl: typeof fetch, backend: Backend) {
     loaded,
     allowlist,
     budgets,
+    spend,
     ingress: new IngressLog({
       path: join(dir, "ingress.log"),
       communityPromptDays: 7,

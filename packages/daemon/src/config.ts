@@ -5,6 +5,8 @@ import {
   OfferScope,
   backendDescriptor,
   effectiveOfferScope,
+  resolveCost,
+  type BackendCost,
   type BackendId,
 } from "@byollm/protocol";
 import { z } from "zod";
@@ -34,6 +36,33 @@ export const BackendConfig = z
      * value — a key does not belong in a config file the owner may share.
      */
     apiKeyEnv: z.string().optional(),
+    /**
+     * Required before a `metered` backend may be offered past `self`
+     * ({@link MUSTS.METERED_DEFAULTS_SELF}). There is deliberately no `cost`
+     * field: a provider's cost class comes from the protocol registry and is
+     * not the owner's to declare ({@link MUSTS.COST_NOT_CONFIGURABLE}).
+     */
+    spend: z
+      .object({
+        /** Set by `byollm offer`, which states the consequence in words. */
+        acknowledged: z.boolean().default(false),
+        /**
+         * Ceiling on community spend, in whole cents, per day. A widened
+         * metered backend without one is refused
+         * ({@link MUSTS.METERED_REQUIRES_CEILING}) — "unlimited" is not a
+         * thing an owner can mean by accident.
+         */
+        dailyCapCents: z.number().int().positive().optional(),
+        /**
+         * What this provider charges, for the ceiling estimate. Providers do
+         * not return a price, so the owner supplies one; the default is
+         * deliberately high so an unset rate trips the brake early rather
+         * than late.
+         */
+        centsPerMillionTokens: z.number().positive().default(1500),
+      })
+      .strict()
+      .optional(),
   })
   .strict();
 export type BackendConfig = z.infer<typeof BackendConfig>;
@@ -127,8 +156,14 @@ export interface ResolvedRoute {
   readonly backendId: BackendId;
   readonly backendClass: "http" | "process";
   readonly model: string;
-  /** After the subscription lock is applied — never the raw configured value. */
+  /** Who pays for this route's tokens. From the registry, never from config. */
+  readonly cost: BackendCost;
+  /** After the cost rules are applied — never the raw configured value. */
   readonly offerScope: z.infer<typeof OfferScope>;
+  /** The owner's spend consent, for a `metered` route. */
+  readonly spendAcknowledged: boolean;
+  readonly spendDailyCapCents: number | undefined;
+  readonly spendCentsPerMillionTokens: number;
   readonly baseUrl: string | undefined;
   readonly apiKeyEnv: string | undefined;
 }
@@ -218,15 +253,19 @@ export function resolveConfig(config: DaemonConfig): LoadedConfig {
 
     const descriptor = backendDescriptor(backend.backend);
 
+    // A named provider supplies its own address; the generic backend and any
+    // override still have to be given one.
+    const baseUrl = backend.baseUrl ?? descriptor.defaultBaseUrl;
+
     if (descriptor.class === "http") {
-      if (backend.baseUrl === undefined) {
+      if (baseUrl === undefined) {
         problems.push({
           where: `backends.${route.backend}`,
           message: "an HTTP-class backend needs a baseUrl",
         });
         continue;
       }
-      const check = checkBaseUrl(backend.baseUrl);
+      const check = checkBaseUrl(baseUrl);
       if (!check.ok) {
         problems.push({
           where: `backends.${route.backend}.baseUrl`,
@@ -236,14 +275,45 @@ export function resolveConfig(config: DaemonConfig): LoadedConfig {
       }
     }
 
+    // Cost comes from the registry, or from where the request goes — never
+    // from config ({@link MUSTS.COST_NOT_CONFIGURABLE},
+    // {@link MUSTS.REMOTE_IS_NEVER_FREE}).
+    const cost = resolveCost(backend.backend, baseUrl);
+    const acknowledged = backend.spend?.acknowledged === true;
+    const capCents = backend.spend?.dailyCapCents;
+
+    // A widened metered backend without a ceiling is refused rather than
+    // silently given an unlimited one ({@link MUSTS.METERED_REQUIRES_CEILING}).
+    const widened = backend.offer !== "self";
+    if (
+      cost === "metered" &&
+      widened &&
+      acknowledged &&
+      capCents === undefined
+    ) {
+      problems.push({
+        where: `backends.${route.backend}.spend`,
+        message:
+          "sharing a metered backend needs spend.dailyCapCents — an " +
+          "unlimited ceiling is not something anyone means on purpose",
+      });
+      continue;
+    }
+
     const configured = backend.offer;
-    const offerScope = effectiveOfferScope(configured, descriptor.account);
+    const offerScope = effectiveOfferScope(configured, cost, {
+      acknowledged: acknowledged && capCents !== undefined,
+    });
     if (offerScope !== configured) {
       problems.push({
         where: `backends.${route.backend}.offer`,
         message:
-          `"${configured}" was ignored: ${descriptor.label} runs on your own ` +
-          `subscription, so it is locked to your work only`,
+          cost === "subscription"
+            ? `"${configured}" was ignored: ${descriptor.label} runs on your ` +
+              `own subscription, so it is locked to your work only`
+            : `"${configured}" was narrowed to "self": ${descriptor.label} ` +
+              `bills you per token. \`byollm offer ${route.backend} ` +
+              `${configured}\` to share it deliberately, with a ceiling`,
       });
     }
 
@@ -253,8 +323,12 @@ export function resolveConfig(config: DaemonConfig): LoadedConfig {
       backendId: backend.backend,
       backendClass: descriptor.class,
       model: route.model,
+      cost,
       offerScope,
-      baseUrl: backend.baseUrl,
+      spendAcknowledged: acknowledged,
+      spendDailyCapCents: capCents,
+      spendCentsPerMillionTokens: backend.spend?.centsPerMillionTokens ?? 1500,
+      baseUrl,
       apiKeyEnv: backend.apiKeyEnv,
     });
   }

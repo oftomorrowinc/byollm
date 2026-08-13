@@ -15,9 +15,9 @@ CD's call surface runs live voice conversations (ElevenLabs transport).
 Its persona turns have a hard latency budget: **ElevenLabs begins
 retrying around ~4s**, and a subscription backend's first byte alone
 measured **~2.3s** (`claude -p`, warm, no queue hop). The protocol
-today is request/response — `llm.chat` / `llm.generate` / `llm.exec`
-return whole results, so **first token and last token are the same
-moment**. A live persona turn through the daemon therefore lands at the
+today is request/response — `llm.chat` and `llm.generate` (the only
+two kinds v1 defines) return whole results, so **first token and last
+token are the same moment**. A live persona turn through the daemon therefore lands at the
 edge of the budget or past it. This was a deliberate v1 scope choice,
 not an oversight: the alpha's hard part was the MUSTs, the audience
 model, and breakout-impossible-by-construction, and a delta channel
@@ -41,10 +41,15 @@ incremental chunks against the job id, preserving: outbound-only (no
 tunnel), `deadlineAt` semantics per-chunk or per-turn,
 fixed-argv/stdin-only execution, and the audience rules unchanged
 (subscription backends still hard-locked to `self`). Streaming must not
-weaken any MUST. Whether process-class backends (claude CLI) can
-stream at all vs only HTTP-class (ollama/openai-http) is an open
-question the design must answer honestly — it may be an HTTP-class-only
-capability at first.
+weaken any MUST.
+
+**Open question closed (2026-08-13):** process-class backends *can*
+stream — `claude -p --output-format stream-json` is in the shipped CLI.
+So this need not be HTTP-class-only, and the design should not assume
+it is. The remaining hard part is the server→app leg: the polling
+delivery channel cannot carry deltas by construction, so each store
+adapter needs a real push path (Supabase Realtime can; the in-memory
+reference would need SSE). That, not the daemon, is where the work is.
 
 ## Why this is recorded here
 

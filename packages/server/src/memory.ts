@@ -152,9 +152,16 @@ export class MemoryStore implements ByollmStore {
       {
         owner: args.runnerOwner,
         offerScope: capability.offerScope,
-        // From the registry, not a local guess — the subscription self-lock
-        // must mean the same thing on both sides of the wire.
-        account: backendDescriptor(capability.backendId).account,
+        // From the registry, not a local guess — the cost rules must mean the
+        // same thing on both sides of the wire. The server cannot see a
+        // remote daemon's base URL, so a generic backend with no declared
+        // cost is treated as metered: the expensive side, and the daemon
+        // refuses anyway if it disagrees (byollm_007 §2).
+        cost: backendDescriptor(capability.backendId).cost ?? "metered",
+        // Nor can it see the owner's spend consent. It offers; the daemon is
+        // the enforcing side and releases with `refused` if its own rules say
+        // no — the same shape as the `named` allowlist.
+        spend: { acknowledged: true },
         // The server cannot see a remote daemon's local allowlist and must
         // not pretend to (protocol §4.2). It admits the job here; the daemon
         // is the enforcing side and releases with `refused` if its own list

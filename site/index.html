@@ -230,17 +230,25 @@
 <section id="sharing" class="band"><div class="wrap">
   <p class="eyebrow">The audience model</p>
   <h2>Share your GPU — safely, and only if you want to.</h2>
-  <p class="lead">Every job carries an <span class="hl">audience</span> and every backend an <span class="hl">offer scope</span>. A job runs on a machine only when both agree. The line that never moves: subscription accounts run one person's work, period.</p>
+  <p class="lead">Every job carries an <span class="hl">audience</span> and every backend an <span class="hl">offer scope</span>. A job runs on a machine only when both agree. Cost class comes from the protocol, not your config — point a backend at a remote endpoint and it is metered whatever you call it, because "free" is derived from where the request goes.</p>
   <table>
-    <thead><tr><th>Backend</th><th>Can offer</th><th>Why</th></tr></thead>
+    <thead><tr><th>Backend</th><th>Cost</th><th>Can offer</th><th>Why</th></tr></thead>
     <tbody>
       <tr>
-        <td><b>Ollama · MLX · llama.cpp</b><br><span class="mono" style="color:var(--faint);font-size:13px">open models</span></td>
+        <td><b>Ollama · MLX · llama.cpp · vLLM · LM Studio</b><br><span class="mono" style="color:var(--faint);font-size:13px">local models</span></td>
+        <td><span class="tag self">free</span></td>
         <td><span class="tag self">self</span> → <span class="tag self">named</span> → <span class="tag self">public</span></td>
-        <td>Donated compute for open models — the folding@home posture. Lend your machine to friends or the whole community. No provider terms in play.</td>
+        <td>Local compute. Costs electricity, not money — the folding@home posture. Lend your machine to friends or the whole community.</td>
+      </tr>
+      <tr>
+        <td><b>OpenAI · Gemini · Grok · Groq · OpenRouter</b><br><span class="mono" style="color:var(--faint);font-size:13px">your API key</span></td>
+        <td><span class="tag lock">metered</span></td>
+        <td><span class="tag lock">self</span> unless you say otherwise</td>
+        <td>Your money, per token. Sharing is legitimate — and ruinous by accident — so widening needs an explicit acknowledgment <em>and</em> a daily ceiling the daemon enforces.</td>
       </tr>
       <tr>
         <td><b>claude CLI</b> &amp; other<br><span class="mono" style="color:var(--faint);font-size:13px">subscription accounts</span></td>
+        <td><span class="tag lock">subscription</span></td>
         <td><span class="tag lock">self · locked</span></td>
         <td>One account runs one person's work. Enforced by the protocol, not a setting — your subscription is never part of shared compute.</td>
       </tr>

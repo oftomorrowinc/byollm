@@ -6,6 +6,7 @@ import {
   Allowlist,
   Budgets,
   IngressLog,
+  SpendLedger,
   ProtocolClient,
   Runner,
   connect,
@@ -87,6 +88,10 @@ export interface HarnessDaemon {
   readonly owner: string;
   readonly home: string;
   readonly ingress: IngressLog;
+  /** The owner's spend ledger, so a check can drive it past its ceiling. */
+  readonly spend: SpendLedger;
+  /** The resolved config — the effective offer scope lives here. */
+  readonly loaded: LoadedConfig;
   /** Stop cleanly: cancel in-flight work and clean up. */
   dispose(): Promise<void>;
   /**
@@ -104,17 +109,40 @@ export interface HarnessDaemon {
 function daemonConfig(options: {
   offer: "self" | "named" | "public";
   subscription: boolean;
+  metered?: MeteredOptions;
 }): LoadedConfig {
-  const backendId = options.subscription ? "claude-cli" : "openai-http";
+  const metered = options.metered;
+  const backendId = metered
+    ? (metered.provider ?? "openai")
+    : options.subscription
+      ? "claude-cli"
+      : "openai-http";
+  // A named provider carries its own address; only the generic backend and a
+  // deliberate override need one written down. Note that a base URL never
+  // changes a named provider's cost — that is the point of the checks that
+  // use this ({@link MUSTS.COST_NOT_CONFIGURABLE}).
+  const baseUrl = metered
+    ? metered.baseUrl
+    : options.subscription
+      ? undefined
+      : "http://127.0.0.1:11434/v1";
   return resolveConfig(
     DaemonConfig.parse({
       backends: {
         primary: {
           backend: backendId,
-          ...(options.subscription
-            ? {}
-            : { baseUrl: "http://127.0.0.1:11434/v1" }),
+          ...(baseUrl === undefined ? {} : { baseUrl }),
           offer: options.offer,
+          ...(metered === undefined
+            ? {}
+            : {
+                spend: {
+                  acknowledged: metered.acknowledged ?? false,
+                  ...(metered.dailyCapCents === undefined
+                    ? {}
+                    : { dailyCapCents: metered.dailyCapCents }),
+                },
+              }),
         },
       },
       routes: {
@@ -133,6 +161,25 @@ function daemonConfig(options: {
  * pairing exchange, with the shipped allowlist and budget checks. Only the
  * model at the far end is substituted.
  */
+/**
+ * A paid backend, and what the owner said about spending on it — byollm_007.
+ *
+ * The kit needs this because "who pays" is visible on the wire: a daemon
+ * advertises the *effective* offer scope, so a metered backend nobody
+ * consented to share shows up to the server as `self` and the server is
+ * obliged to act on that.
+ */
+export interface MeteredOptions {
+  /**
+   * `openai` takes its cost from the registry; `openai-http` has it inferred
+   * from {@link MeteredOptions.baseUrl}.
+   */
+  readonly provider?: "openai" | "openai-http";
+  readonly baseUrl?: string;
+  readonly acknowledged?: boolean;
+  readonly dailyCapCents?: number;
+}
+
 export async function pairDaemon(
   target: ConformanceTarget,
   options: {
@@ -141,12 +188,15 @@ export async function pairDaemon(
     offer?: "self" | "named" | "public";
     /** Use the subscription-class backend, to exercise the self-lock. */
     subscription?: boolean;
+    /** Use a paid backend, to exercise the cost rules. */
+    metered?: MeteredOptions;
   },
 ): Promise<HarnessDaemon> {
   const home = await mkdtemp(join(tmpdir(), "byollm-conformance-"));
   const loaded = daemonConfig({
     offer: options.offer ?? "self",
     subscription: options.subscription ?? false,
+    ...(options.metered === undefined ? {} : { metered: options.metered }),
   });
 
   const allowlist = new Allowlist(join(home, "allow.json"));
@@ -156,6 +206,8 @@ export async function pairDaemon(
     loaded.config.community,
   );
   await budgets.load(Date.now());
+  const spend = new SpendLedger(join(home, "spend.json"));
+  await spend.load(Date.now());
   const ingress = new IngressLog({
     path: join(home, "ingress.log"),
     communityPromptDays: 7,
@@ -241,6 +293,7 @@ export async function pairDaemon(
     loaded,
     allowlist,
     budgets,
+    spend,
     ingress,
     backendFactory: () => backend,
   });
@@ -253,6 +306,8 @@ export async function pairDaemon(
     owner: result.pairing.owner,
     home,
     ingress,
+    spend,
+    loaded,
     dispose: async () => {
       runner.cancelAll();
       // Wait for cancelled jobs to finish unwinding before removing the

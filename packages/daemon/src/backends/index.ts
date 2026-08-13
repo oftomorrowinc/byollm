@@ -1,4 +1,8 @@
-import { BACKEND_IDS, type BackendId } from "@byollm/protocol";
+import {
+  BACKEND_IDS,
+  backendDescriptor,
+  type BackendId,
+} from "@byollm/protocol";
 import { ClaudeCliBackend } from "./claude-cli.js";
 import { OpenAiHttpBackend } from "./openai-http.js";
 import type { Backend, BackendInit } from "./types.js";
@@ -12,12 +16,14 @@ import type { Backend, BackendInit } from "./types.js";
  * suite's coverage check.
  */
 export function createBackend(id: BackendId, init: BackendInit): Backend {
-  switch (id) {
-    case "openai-http":
-      return new OpenAiHttpBackend(init);
-    case "claude-cli":
-      return new ClaudeCliBackend();
+  // Providers are registry entries, not implementations (byollm_007 §3):
+  // every HTTP-class id speaks OpenAI-compatible /v1/chat/completions, so they
+  // all share one transport and one adversarial corpus. Adding a provider is a
+  // line in the registry, not a new class to review.
+  if (backendDescriptor(id).class === "process") {
+    return new ClaudeCliBackend();
   }
+  return new OpenAiHttpBackend(init);
 }
 
 /** Every backend the daemon can construct. */

@@ -698,4 +698,169 @@ export const CHECKS: readonly Check[] = [
       }
     },
   },
+
+  {
+    id: "C017_METERED_DEFAULTS_SELF",
+    title:
+      "a paid backend is not shared until its owner says so, with a ceiling",
+    musts: ["METERED_DEFAULTS_SELF", "COST_NOT_CONFIGURABLE"],
+    async run(target: ConformanceTarget): Promise<void> {
+      // Bob asks for `public` on a metered provider and says nothing about
+      // spending. The ask is not honoured: what reaches the server is `self`,
+      // and the server must act on what it was told.
+      const bob = await pairDaemon(target, {
+        owner: "bob",
+        offer: "public",
+        // Pointed at localhost — which changes nothing, because a named
+        // provider's cost comes from the registry, not from an address
+        // ({@link MUSTS.COST_NOT_CONFIGURABLE}).
+        metered: { provider: "openai", baseUrl: "http://127.0.0.1:11434/v1" },
+      });
+      try {
+        assert(
+          bob.loaded.routes.every((route) => route.offerScope === "self"),
+          "a metered backend was advertised beyond its owner without consent",
+        );
+        assert(
+          bob.loaded.routes.every((route) => route.cost === "metered"),
+          "a metered provider was read as free because of its base URL",
+        );
+
+        await bob.allowlist.add(
+          { origin: target.origin, owner: await ownerIdFor(target, "alice") },
+          Date.now(),
+        );
+
+        const job = await target.enqueue({
+          kind: "llm.generate",
+          payload: prompt("spend someone else's money"),
+          owner: "alice",
+          audience: "public",
+        });
+
+        await bob.runner.tick();
+        await sleep(80);
+        const state = await target.job(job.id);
+        assert(
+          state?.state !== "ok",
+          "a stranger's job ran on a paid backend nobody agreed to share",
+        );
+        assert(
+          bob.backend.seen.length === 0,
+          "a stranger's prompt reached a paid backend",
+        );
+
+        // And the server says so up front, rather than promising a runner
+        // that would refuse ({@link MUSTS.NO_RUNNER_SIGNAL}).
+        const availability = await target.runnerAvailability({
+          kind: "llm.generate",
+          owner: "alice",
+          audience: "public",
+        });
+        assert(
+          !availability.available,
+          "the server offered a runner that will not take the work",
+        );
+
+        // Bob's own work still runs. Narrowing is not disabling.
+        const own = await target.enqueue({
+          kind: "llm.generate",
+          payload: prompt("my own work"),
+          owner: "bob",
+          audience: "self",
+        });
+        await bob.runner.tick();
+        await waitFor(async () => (await target.job(own.id))?.state === "ok", {
+          what: "the owner's own metered job to run",
+        });
+      } finally {
+        await bob.dispose();
+      }
+    },
+  },
+
+  {
+    id: "C018_METERED_CEILING",
+    title: "a shared paid backend runs others' work, and stops at its ceiling",
+    musts: ["METERED_REQUIRES_CEILING", "REMOTE_IS_NEVER_FREE"],
+    async run(target: ConformanceTarget): Promise<void> {
+      // This time Bob means it: consent, and a number.
+      const bob = await pairDaemon(target, {
+        owner: "bob",
+        offer: "public",
+        metered: {
+          // The generic backend pointed at a remote address. No registry entry
+          // says what this costs; it is metered because of where it goes
+          // ({@link MUSTS.REMOTE_IS_NEVER_FREE}).
+          provider: "openai-http",
+          baseUrl: "https://models.example.com/v1",
+          acknowledged: true,
+          dailyCapCents: 500,
+        },
+      });
+      try {
+        assert(
+          bob.loaded.routes.every((route) => route.cost === "metered"),
+          "a remote backend was treated as free",
+        );
+        assert(
+          bob.loaded.routes.every((route) => route.offerScope === "public"),
+          "a deliberately shared metered backend was narrowed anyway",
+        );
+
+        await bob.allowlist.add(
+          { origin: target.origin, owner: await ownerIdFor(target, "alice") },
+          Date.now(),
+        );
+
+        const first = await target.enqueue({
+          kind: "llm.generate",
+          payload: prompt("work bob agreed to pay for"),
+          owner: "alice",
+          audience: "public",
+        });
+        await bob.runner.tick();
+        await waitFor(
+          async () => (await target.job(first.id))?.state === "ok",
+          { what: "a consented metered job to run" },
+        );
+
+        // Now spend the day's ceiling.
+        await bob.spend.record("primary", 900, Date.now());
+
+        const second = await target.enqueue({
+          kind: "llm.generate",
+          payload: prompt("work past the ceiling"),
+          owner: "alice",
+          audience: "public",
+        });
+        const seenBefore = bob.backend.seen.length;
+        await bob.runner.tick();
+        await sleep(80);
+        const state = await target.job(second.id);
+        assert(
+          state?.state !== "ok",
+          "a paid backend kept working past the ceiling its owner set",
+        );
+        assert(
+          bob.backend.seen.length === seenBefore,
+          "a prompt reached a paid backend that had spent its ceiling",
+        );
+
+        // The ceiling governs other people's work, not the owner's own.
+        const own = await target.enqueue({
+          kind: "llm.generate",
+          payload: prompt("my own work, my own key"),
+          owner: "bob",
+          audience: "self",
+        });
+        await bob.runner.tick();
+        await waitFor(async () => (await target.job(own.id))?.state === "ok", {
+          what: "the owner's own job to run past the community ceiling",
+        });
+      } finally {
+        await bob.dispose();
+      }
+    },
+  },
 ];

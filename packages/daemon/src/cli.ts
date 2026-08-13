@@ -1,13 +1,16 @@
-import { mkdir, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { hostname, userInfo } from "node:os";
+import { dirname } from "node:path";
 import { createInterface } from "node:readline/promises";
+import { backendDescriptor, resolveCost } from "@byollm/protocol";
 import { Allowlist, normalizeOrigin } from "./allowlist.js";
 import { Budgets } from "./budgets.js";
 import { ClientError, ProtocolClient } from "./client.js";
-import { loadConfig } from "./config.js";
+import { DaemonConfig, loadConfig } from "./config.js";
 import { connect } from "./connect.js";
 import { IngressLog, stripControlChars } from "./ingress.js";
 import { Pairings } from "./pairings.js";
+import { SpendLedger } from "./spend.js";
 import { daemonPaths, type DaemonPaths } from "./paths.js";
 import { Runner, type RunnerEvent } from "./runner.js";
 import { DAEMON_VERSION } from "./index.js";
@@ -22,6 +25,7 @@ const USAGE = `byollm — run an app's LLM jobs on your own models.
   byollm resume               start claiming again
   byollm allow <url> <user>   let someone else's jobs run here (named audience)
   byollm allow --list         who can currently use this machine
+  byollm offer <backend> <scope>  who a backend is offered to (self|named|public)
   byollm disallow <url> <user>
   byollm forget <url>         drop a pairing
   byollm backends             what is installed, healthy, and advertised
@@ -100,6 +104,8 @@ export async function runCli(
       return commandAllow(paths, rest, io);
     case "disallow":
       return commandDisallow(paths, rest, io);
+    case "offer":
+      return commandOffer(paths, rest, io);
     case "forget":
       return commandForget(paths, rest, io);
     case "backends":
@@ -125,7 +131,7 @@ async function commandConnect(
   }
 
   const origin = normalizeOrigin(target);
-  const { loaded, ingress, allowlist, budgets } = await context(paths);
+  const { loaded, ingress, allowlist, budgets, spend } = await context(paths);
 
   for (const problem of loaded.problems) {
     io.err(`config: ${problem.where}: ${problem.message}\n`);
@@ -140,6 +146,7 @@ async function commandConnect(
     loaded,
     allowlist,
     budgets,
+    spend,
     ingress,
   });
 
@@ -225,7 +232,7 @@ async function runLoop(
   io: CliIo,
   signal?: AbortSignal,
 ): Promise<ExitCode> {
-  const { loaded, ingress, allowlist, budgets } = await context(paths);
+  const { loaded, ingress, allowlist, budgets, spend } = await context(paths);
   const pairings = new Pairings(paths.pairings);
   await pairings.load();
 
@@ -253,6 +260,7 @@ async function runLoop(
       loaded,
       allowlist,
       budgets,
+      spend,
       ingress,
       onEvent: (event) => {
         report(origin, event, io);
@@ -326,7 +334,7 @@ function report(origin: string, event: RunnerEvent, io: CliIo): void {
 // -- status ------------------------------------------------------------------
 
 async function commandStatus(paths: DaemonPaths, io: CliIo): Promise<ExitCode> {
-  const { loaded, ingress, allowlist, budgets } = await context(paths);
+  const { loaded, ingress, allowlist, budgets, spend } = await context(paths);
   const pairings = new Pairings(paths.pairings);
   await pairings.load();
 
@@ -370,6 +378,21 @@ async function commandStatus(paths: DaemonPaths, io: CliIo): Promise<ExitCode> {
       `  ${entry.owner} on ${entry.origin}` +
         `${entry.note === undefined ? "" : ` (${stripControlChars(entry.note)})`}\n`,
     );
+  }
+
+  const spentToday = spend.summary(now);
+  const metered = loaded.routes.filter((r) => r.cost === "metered");
+  if (metered.length > 0) {
+    io.out("\nmetered backends — your money\n");
+    for (const route of metered) {
+      const spent = spentToday[route.backendKey] ?? 0;
+      io.out(
+        route.spendAcknowledged
+          ? `  ${route.backendKey}: ${spent.toFixed(1)}c spent today of ` +
+              `${String(route.spendDailyCapCents ?? 0)}c\n`
+          : `  ${route.backendKey}: not shared — your work only\n`,
+      );
+    }
   }
 
   const usage = budgets.usage(now);
@@ -554,6 +577,158 @@ async function commandAllow(
   return 0;
 }
 
+// -- offer -------------------------------------------------------------------
+
+/**
+ * Change who a backend is offered to.
+ *
+ * This exists because `resolveConfig` tells an owner to run it. A message that
+ * names a command nobody wrote is worse than no message: it reads as though
+ * the software has an answer when it does not.
+ *
+ * Widening a metered backend is the one path here that can cost real money, so
+ * it is the one path that asks — and the question names the money rather than
+ * asking whether the owner is "sure"
+ * ({@link MUSTS.METERED_DEFAULTS_SELF}, {@link MUSTS.METERED_REQUIRES_CEILING}).
+ */
+async function commandOffer(
+  paths: DaemonPaths,
+  args: readonly string[],
+  io: CliIo,
+): Promise<ExitCode> {
+  const [backendKey, scope, ...rest] = args;
+  if (backendKey === undefined || scope === undefined) {
+    io.err(
+      "usage: byollm offer <backend> <self|named|public> [--cap <cents>]\n",
+    );
+    return 2;
+  }
+  if (scope !== "self" && scope !== "named" && scope !== "public") {
+    io.err(`"${scope}" is not an offer scope — use self, named, or public\n`);
+    return 2;
+  }
+
+  const capIndex = rest.indexOf("--cap");
+  let capCents: number | undefined;
+  if (capIndex !== -1) {
+    const raw = rest[capIndex + 1];
+    const parsed = Number(raw);
+    if (raw === undefined || !Number.isFinite(parsed) || parsed <= 0) {
+      io.err("--cap takes a number of cents per day, greater than zero\n");
+      return 2;
+    }
+    capCents = Math.round(parsed);
+  }
+
+  let raw: string;
+  try {
+    raw = await readFile(paths.config, "utf8");
+  } catch {
+    io.err(
+      `no config at ${paths.config} — nothing to offer yet.\n` +
+        "Write one, or run `byollm connect <url>` first.\n",
+    );
+    return 1;
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    io.err(`${paths.config} is not valid JSON — fix it by hand first\n`);
+    return 1;
+  }
+  const result = DaemonConfig.safeParse(parsed);
+  if (!result.success) {
+    io.err(`${paths.config} is not a valid byollm config — fix it first\n`);
+    return 1;
+  }
+
+  const backend = result.data.backends[backendKey];
+  if (!backend) {
+    const known = Object.keys(result.data.backends);
+    io.err(
+      `no backend named "${backendKey}" in ${paths.config}\n` +
+        (known.length > 0 ? `configured: ${known.join(", ")}\n` : ""),
+    );
+    return 2;
+  }
+
+  const descriptor = backendDescriptor(backend.backend);
+  const baseUrl = backend.baseUrl ?? descriptor.defaultBaseUrl;
+  const cost = resolveCost(backend.backend, baseUrl);
+  const widening = scope !== "self";
+
+  // A subscription backend cannot be offered at all, so say that instead of
+  // writing a setting that would be silently ignored on the next load.
+  if (cost === "subscription" && widening) {
+    io.err(
+      `${descriptor.label} runs on your own subscription, whose terms cover\n` +
+        "your work and nobody else's. It cannot be offered to other people.\n",
+    );
+    return 1;
+  }
+
+  if (cost === "metered" && widening) {
+    const cap = capCents ?? backend.spend?.dailyCapCents;
+    if (cap === undefined) {
+      io.err(
+        `${descriptor.label} bills you per token, so sharing it needs a daily\n` +
+          "ceiling. Add one: `byollm offer " +
+          `${backendKey} ${scope} --cap <cents>\`\n`,
+      );
+      return 2;
+    }
+
+    const dollars = (cap / 100).toFixed(2);
+    const confirmed = await io.confirm(
+      `\nThis lets other people's jobs run on ${descriptor.label}, which bills\n` +
+        `your account per token. You would be paying for their work, up to\n` +
+        `$${dollars} a day, every day, until you change it.\n` +
+        `Spending stops at that ceiling and resumes the next day.\n\n` +
+        `Offer ${backendKey} to ${scope === "public" ? "anyone" : "people you have allowed"}?`,
+    );
+    if (!confirmed) {
+      io.out("nothing changed\n");
+      return 0;
+    }
+
+    result.data.backends[backendKey] = {
+      ...backend,
+      offer: scope,
+      spend: {
+        centsPerMillionTokens: backend.spend?.centsPerMillionTokens ?? 1500,
+        ...backend.spend,
+        acknowledged: true,
+        dailyCapCents: cap,
+      },
+    };
+  } else {
+    result.data.backends[backendKey] = {
+      ...backend,
+      offer: scope,
+      // Narrowing back to `self` withdraws the consent too, so a later
+      // widening has to be agreed to again rather than inherited.
+      ...(cost === "metered" && !widening && backend.spend !== undefined
+        ? { spend: { ...backend.spend, acknowledged: false } }
+        : {}),
+    };
+  }
+
+  await mkdir(dirname(paths.config), { recursive: true });
+  await writeFile(paths.config, `${JSON.stringify(result.data, null, 2)}\n`);
+
+  const written = result.data.backends[backendKey].spend?.dailyCapCents;
+  io.out(
+    `${backendKey} is now offered to ${scope}` +
+      (written === undefined || !widening
+        ? ""
+        : `, capped at ${String(written)}c a day`) +
+      "\n",
+  );
+  return 0;
+}
+
 async function commandDisallow(
   paths: DaemonPaths,
   args: readonly string[],
@@ -605,7 +780,7 @@ async function commandBackends(
   paths: DaemonPaths,
   io: CliIo,
 ): Promise<ExitCode> {
-  const { loaded, ingress, allowlist, budgets } = await context(paths);
+  const { loaded, ingress, allowlist, budgets, spend } = await context(paths);
   const runner = new Runner({
     client: new ProtocolClient({ origin: "https://unused.invalid" }),
     runnerId: "local",
@@ -614,6 +789,7 @@ async function commandBackends(
     loaded,
     allowlist,
     budgets,
+    spend,
     ingress,
   });
 
@@ -623,10 +799,19 @@ async function commandBackends(
   io.out("configured routes\n");
   for (const route of loaded.routes) {
     const ok = advertisedKinds.has(route.kind);
+    const pays =
+      route.cost === "free"
+        ? "free (your electricity)"
+        : route.cost === "subscription"
+          ? "your subscription — locked to your work"
+          : route.spendAcknowledged
+            ? `metered — shared, cap ${String(route.spendDailyCapCents ?? 0)}c/day`
+            : "metered — your money, not shared";
     io.out(
       `  ${ok ? "✓" : "✗"} ${route.kind.padEnd(14)} ` +
         `${route.backendId}:${route.model}` +
-        `${route.baseUrl === undefined ? "" : ` @ ${route.baseUrl}`}\n`,
+        `${route.baseUrl === undefined ? "" : ` @ ${route.baseUrl}`}\n` +
+        `      ${pays}\n`,
     );
   }
   for (const problem of loaded.problems) {
@@ -648,6 +833,7 @@ async function context(paths: DaemonPaths): Promise<{
   ingress: IngressLog;
   allowlist: Allowlist;
   budgets: Budgets;
+  spend: SpendLedger;
 }> {
   const loaded = await loadConfig(paths.config);
   const ingress = new IngressLog({
@@ -659,7 +845,9 @@ async function context(paths: DaemonPaths): Promise<{
   await allowlist.load();
   const budgets = new Budgets(paths.budgets, loaded.config.community);
   await budgets.load(Date.now());
-  return { loaded, ingress, allowlist, budgets };
+  const spend = new SpendLedger(paths.spend);
+  await spend.load(Date.now());
+  return { loaded, ingress, allowlist, budgets, spend };
 }
 
 /**

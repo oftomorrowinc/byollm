@@ -143,6 +143,39 @@ export const MUSTS = Object.freeze({
     enforcedBy: "daemon",
     source: "byollm_001 §The audience model",
   }),
+  METERED_DEFAULTS_SELF: must({
+    id: "METERED_DEFAULTS_SELF",
+    statement:
+      "A metered backend's effective offer scope MUST be 'self' unless the " +
+      "owner has explicitly acknowledged spending money on others' work.",
+    enforcedBy: "daemon",
+    source: "byollm_007 §4",
+  }),
+  METERED_REQUIRES_CEILING: must({
+    id: "METERED_REQUIRES_CEILING",
+    statement:
+      "A widened metered backend MUST carry a spend ceiling, and the daemon " +
+      "MUST refuse community work once it is reached.",
+    enforcedBy: "daemon",
+    source: "byollm_007 §4",
+  }),
+  COST_NOT_CONFIGURABLE: must({
+    id: "COST_NOT_CONFIGURABLE",
+    statement:
+      "A built-in provider's cost class MUST NOT be overridable by " +
+      "configuration.",
+    enforcedBy: "daemon",
+    source: "byollm_007 §2",
+  }),
+  REMOTE_IS_NEVER_FREE: must({
+    id: "REMOTE_IS_NEVER_FREE",
+    statement:
+      "A generic HTTP backend whose base URL is not loopback or private MUST " +
+      "be treated as metered.",
+    enforcedBy: "daemon",
+    source: "byollm_007 §2",
+  }),
+
   NAMED_LOCAL_ALLOWLIST: must({
     id: "NAMED_LOCAL_ALLOWLIST",
     statement:

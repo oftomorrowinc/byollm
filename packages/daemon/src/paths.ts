@@ -20,6 +20,8 @@ export interface DaemonPaths {
   readonly ingressLog: string;
   /** Community-job counters, for rate limits and the daily cap. */
   readonly budgets: string;
+  /** Estimated money spent running other people's work on metered backends. */
+  readonly spend: string;
   /** Set while the owner has the daemon paused. */
   readonly pauseFlag: string;
   /**
@@ -38,6 +40,7 @@ export function daemonPaths(root = defaultRoot()): DaemonPaths {
     allowlist: join(root, "allow.json"),
     ingressLog: join(root, "ingress.log"),
     budgets: join(root, "budgets.json"),
+    spend: join(root, "spend.json"),
     pauseFlag: join(root, "paused"),
     scratch: join(root, "scratch"),
   };

@@ -48,7 +48,5 @@
   },
   "publishConfig": {
     "access": "public"
-  },
-  "private": true,
-  "//": "private: held back from the alpha. Remove this line (and `private`) to publish; the package is otherwise ready."
+  }
 }

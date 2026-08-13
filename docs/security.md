@@ -107,15 +107,23 @@ Spawns a binary. Every requirement below is mandatory here.
   `shell: false`, so the argv array reaches `execvp` verbatim and
   metacharacters in it are just bytes.
 - **No shell-invoking APIs.** `exec`, `execSync` and `spawnSync` are banned by
-  an eslint rule, not only by convention.
+  an eslint rule, not only by convention. This holds on Windows too, where it
+  costs something: npm installs `claude` as a `.cmd` shim, and Node refuses to
+  spawn one without a shell. `shell: true` would have fixed that in a
+  character and breached `NO_SHELL_INTERPOLATION`, so instead the shim is
+  resolved to the JavaScript it would have run and that script is executed
+  under the Node binary already running the daemon. The script path is an
+  argument to Node, never to the CLI, so the fixed argv above is byte-identical
+  on every platform.
 - **No tools.** `--tools ""` is the CLI's own switch for disabling every
   built-in tool, plus `--strict-mcp-config` with an empty `--mcp-config` so no
   MCP server is available and none is inherited from the user's own settings.
 - **Stripped environment.** An allowlist of `PATH`, `HOME`, `LANG`, `LC_ALL`,
-  `TZ`, `TMPDIR`, plus `CI=1`. Everything else is dropped, so a prompt that
-  says "read your environment" finds nothing worth having.
-  `ANTHROPIC_API_KEY` is deliberately absent, so billing cannot silently move
-  from the subscription to a metered key.
+  `TZ`, `TMPDIR`, plus `CI=1` — and on Windows only, eight more (§3.3).
+  Everything else is dropped, so a prompt that says "read your environment"
+  finds nothing worth having. `ANTHROPIC_API_KEY` is deliberately absent on
+  every platform, so billing cannot silently move from the subscription to a
+  metered key.
 - **Scratch `cwd`.** A fresh empty directory per job, removed afterwards.
   Never the daemon's directory, never the user's home, never anything a
   payload named.
@@ -136,6 +144,32 @@ consequence: the child process can reach the filesystem its user can reach.
 What prevents it doing anything with that is **having no tools**, not the
 environment. If that trade is not acceptable to you, do not configure a
 process-class backend — the HTTP-class one spawns nothing at all.
+
+**Windows needs eight more variables, for the same reason.** `HOME` does not
+name the user's profile there, so the allowlist also carries `USERPROFILE`,
+`APPDATA`, `LOCALAPPDATA`, `TEMP`, `TMP`, `SystemRoot`, `windir` and `PATHEXT`.
+The first three are the Windows spelling of the `HOME` compromise above — the
+CLI reads its subscription credentials from the user profile. `TEMP`/`TMP` are
+the platform's `TMPDIR`. `SystemRoot` and `windir` are how Windows resolves
+core DLLs, including the socket stack; without them a child fails in ways that
+look nothing like a missing variable. `PATHEXT` is how Windows resolves an
+extensionless command name at all.
+
+None of the eight is a secret — they are paths and an extension list — and the
+consequence is the one already stated for `HOME`: the child can reach the
+filesystem its user can reach, and what stops it acting on that is having no
+tools. The widening applies on Windows only; on every other platform the
+allowlist is exactly the seven above.
+
+**The adversarial suite does not yet cover this.** Its environment assertion is
+a hand-written copy of the Unix allowlist, so on Windows the widened set trips
+it — 33 failures, and the same run shows Windows injecting further variables
+(`HOMEDRIVE` among them) that are on neither list. Rewriting the assertion to
+match what was observed is how a security test quietly stops testing anything,
+so it has been left failing until someone decides what Windows adds
+unavoidably and whether that is acceptable inside a §2 isolation claim. Until
+then, **the process-class isolation claim is verified on Linux and macOS and
+unverified on Windows** — CI runs `ubuntu-latest` only.
 
 **macOS injects `__CF_USER_TEXT_ENCODING`** into every child regardless of the
 environment we pass, at a layer below anything a process controls. It carries

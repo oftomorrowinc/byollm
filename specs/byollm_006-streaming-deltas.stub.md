@@ -1,8 +1,13 @@
 # byollm_006 — Streaming deltas (stub — requirement from the first real consumer)
 
-**Status: stub — queued by the first production consumer, an app
-consuming `@byollm/server` + the `byollm` daemon. Not scheduled;
-recorded so the requirement survives with its numbers attached.**
+**Status: stub, deprioritized (2026-08-12).** The first production
+consumer is now an internal publishing suite's local-jobs lane —
+async jobs (`llm.chat` / `llm.generate`) that the request/response
+protocol serves today, so nothing currently drives streaming. The
+voice product that surfaced this requirement deferred its byollm
+integration entirely (its end users won't run daemons); its latency
+numbers below are retained because they are what any future
+live-voice consumer will hit. Revisit when one exists.**
 
 ## The requirement, as discovered
 

@@ -1,0 +1,56 @@
+# byollm_006 — Streaming deltas (stub — requirement from the first real consumer)
+
+**Status: stub — queued by lean-customer-discovery (CD), the first
+production consumer (`~/Github/lean-customer-discovery`, consuming
+`@byollm/server` + the `byollm` daemon). Not scheduled; recorded so the
+requirement survives with its numbers attached.**
+
+## The requirement, as discovered
+
+CD's call surface runs live voice conversations (ElevenLabs transport).
+Its persona turns have a hard latency budget: **ElevenLabs begins
+retrying around ~4s**, and a subscription backend's first byte alone
+measured **~2.3s** (`claude -p`, warm, no queue hop). The protocol
+today is request/response — `llm.chat` / `llm.generate` / `llm.exec`
+return whole results, so **first token and last token are the same
+moment**. A live persona turn through the daemon therefore lands at the
+edge of the budget or past it. This was a deliberate v1 scope choice,
+not an oversight: the alpha's hard part was the MUSTs, the audience
+model, and breakout-impossible-by-construction, and a delta channel
+complicates all three.
+
+## What CD does meanwhile (no protocol change needed)
+
+- **Async inference first**: scoring, debriefs, puzzle grading, idea
+  generation — real cost, no latency budget. This is the clean first
+  dogfood and exercises the whole loop (job → daemon → backend →
+  result → ledger).
+- Live turns stay on the app's metered path, or may try the `ollama`
+  backend with a small local model, whose first byte may clear the
+  budget without deltas.
+
+## Shape of the eventual answer (sketch, not design)
+
+A streaming job kind (e.g. `llm.chat.stream`) with a delta channel —
+likely the daemon holding its existing outbound connection and posting
+incremental chunks against the job id, preserving: outbound-only (no
+tunnel), `deadlineAt` semantics per-chunk or per-turn,
+fixed-argv/stdin-only execution, and the audience rules unchanged
+(subscription backends still hard-locked to `self`). Streaming must not
+weaken any MUST. Whether process-class backends (claude CLI) can
+stream at all vs only HTTP-class (ollama/openai-http) is an open
+question the design must answer honestly — it may be an HTTP-class-only
+capability at first.
+
+## Why this is recorded here
+
+Same relationship the of-tomorrow framework has with CD: the payload
+gains capabilities when a real consumer surfaces the requirement with
+numbers, not on speculation. CD is that consumer; these are the
+numbers.
+
+## Done when (when designed + built)
+
+A live CD persona turn streams through the daemon inside the voice
+budget on at least one backend class, with all protocol MUSTs intact
+and conformance extended to cover the streaming kind.

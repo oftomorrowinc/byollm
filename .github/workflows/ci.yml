@@ -85,9 +85,21 @@ jobs:
       - uses: supabase/setup-cli@v1
         with:
           version: latest
-      - name: Start Supabase
+      - name: Start Supabase and export its credentials
         working-directory: packages/server
-        run: supabase start
+        run: |
+          supabase start
+          # The certify script needs the local stack's URL and service-role
+          # key, and exits 2 without them — which is how this job silently
+          # failed from the day it was added. These are the ephemeral keys
+          # `supabase start` mints for a throwaway container, not secrets,
+          # but they are masked so they never surface in a log.
+          eval "$(supabase status -o env | sed 's/^/export /')"
+          echo "::add-mask::$SERVICE_ROLE_KEY"
+          {
+            echo "SUPABASE_URL=$API_URL"
+            echo "SUPABASE_SERVICE_ROLE_KEY=$SERVICE_ROLE_KEY"
+          } >> "$GITHUB_ENV"
       - name: Certify Supabase adapter
         run: pnpm --filter @byollm/conformance run certify:supabase
       - name: Stop Supabase

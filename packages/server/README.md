@@ -1,15 +1,17 @@
 > [!WARNING]
-> **Alpha 0.1.0 — under active development. Don't use this yet.**
+> **Alpha (`0.1.0-alpha.1`) — under active development. Don't use this yet.**
 >
-> > Install it deliberately: `npm install @byollm/server@alpha`.
+> Install it deliberately: `npm install @byollm/server@alpha`.
+>
 > The protocol is v0 and **will** change without a deprecation path, this has
 > never run outside its own test suite, and nothing here has production miles.
 > Read it, take the ideas, tell us what's wrong — but don't put it in front of
 > your users.
 >
-> npm assigns `latest` on a first publish and won't let it be removed, so the
-> alpha is also `latest`; the version is marked deprecated so every install
-> says so out loud.
+> npm assigns `latest` on a first publish and won't let it be removed, so a
+> bare install resolves here too. This notice is the only guard — deliberately
+> not an npm deprecation, which would read as *abandoned* rather than *early*.
+> Ask for `@alpha` explicitly so your lockfile records that you meant to.
 
 # `@byollm/server`
 

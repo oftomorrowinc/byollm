@@ -1,10 +1,11 @@
 > [!WARNING]
-> **Alpha 0.1.0 — under active development. Don't use this yet.**
+> **Alpha (`0.1.0-alpha.1`) — under active development. Don't use this yet.**
 >
 > Install it as `byollm@alpha`, deliberately. npm forces a `latest` tag onto a
-> package's first publish and will not let it be removed, so the alpha is also
-> `latest` for now — it is marked deprecated so every install says so out
-> loud. The protocol is v0 and **will** change without a deprecation path,
+> package's first publish and will not let it be removed, so a bare install
+> resolves here too — this notice is the only guard, and that is on purpose:
+> an npm deprecation would read as *abandoned* rather than *early*. The
+> protocol is v0 and **will** change without a deprecation path,
 > the packages have never run outside their own test suite, and nothing here
 > has production miles. Read it, take the ideas, tell us what's wrong — but
 > don't put it in front of your users.
@@ -153,7 +154,7 @@ A server is **byollm-compatible** when the conformance kit passes against it. Th
 
 ## Status
 
-**Alpha, built in the open.** `byollm` and `@byollm/protocol` are published at `0.1.0-alpha.0` — install them as `byollm@alpha`. Both are marked deprecated so a bare `npm install byollm` warns loudly: npm assigns `latest` on a first publish and refuses to let it be removed, so a warning is the strongest honest guard there is. `@byollm/server` and `@byollm/conformance` are not published yet.
+**Alpha, built in the open.** All four packages are published — `byollm`, `@byollm/protocol`, `@byollm/server` and `@byollm/conformance` — and you should ask for `@alpha` explicitly. npm assigns `latest` on a first publish and refuses to let it be removed, so a bare `npm install byollm` resolves here too; the warning at the top of this file is the guard, deliberately rather than an npm deprecation, which would say *abandoned* when the truth is *early*.
 
 The protocol is at v0 and the audience model is settled, but v0 means what it says: it will change without a deprecation path. The daemon ships the full audience matrix with an **empty allowlist by default**, so it behaves as `self`-only until you widen it deliberately. Backends at v1: `openai-http` (Ollama, MLX, llama.cpp, vLLM) and `claude-cli`.
 

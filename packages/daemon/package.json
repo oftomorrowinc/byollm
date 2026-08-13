@@ -20,7 +20,7 @@
     "README.md"
   ],
   "engines": {
-    "node": ">=22.12"
+    "node": ">=22.14"
   },
   "scripts": {
     "build": "tsup",

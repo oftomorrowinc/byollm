@@ -1,0 +1,226 @@
+name: Release
+
+# Publish to npm from GitHub Actions, with no token anywhere.
+#
+# npm trusted publishing exchanges a GitHub OIDC identity for a short-lived
+# credential, so nothing long-lived exists to leak and a passkey never has to
+# be in the loop. It requires a public repo, which is why this was not an
+# option before the repo went public.
+#
+# One-time setup on npmjs.com, per package — see docs/releasing.md.
+
+on:
+  # The normal path: push a tag that matches the version.
+  push:
+    tags: ["v*"]
+  # The rehearsal path: run it by hand, dry by default.
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Pack and check everything, but do not publish"
+        type: boolean
+        default: true
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  # The whole point: this is what lets the runner mint an OIDC token npm will
+  # trust. Without it every publish fails with ENEEDAUTH.
+  id-token: write
+
+jobs:
+  release:
+    name: Publish to npm
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          # Same latest-LTS line as CI. Trusted publishing needs >= 22.14,
+          # which 24 satisfies; the assertion below keeps that true if the
+          # pin ever moves backwards.
+          node-version: "24"
+          registry-url: "https://registry.npmjs.org"
+          cache: pnpm
+      # npm >= 11.5.1 is required for OIDC. Node 24 ships something newer
+      # already; this makes the requirement explicit rather than inherited,
+      # so a future runner image cannot quietly drop below it.
+      - name: Ensure an npm that can do OIDC
+        run: |
+          npm install -g npm@latest
+          echo "npm $(npm --version), node $(node --version)"
+          node -e 'const [a,b]=process.versions.node.split(".").map(Number);
+            if (a<22||(a===22&&b<14)) { console.error("node too old for OIDC"); process.exit(1) }'
+
+      - run: pnpm install --frozen-lockfile
+
+      # ---------------------------------------------------------------------
+      # Nothing ships that the gates have not passed. This duplicates CI on
+      # purpose: a tag can point at any commit, including one CI never saw.
+      # ---------------------------------------------------------------------
+      - name: Full verification gate
+        run: pnpm run verify
+      - name: Adversarial corpus (blocking security gate)
+        run: pnpm run adversarial
+      - name: Conformance — reference server
+        run: pnpm run conformance
+
+      # ---------------------------------------------------------------------
+      # Guards. Each one is a mistake we would otherwise make silently.
+      # ---------------------------------------------------------------------
+      - name: Resolve and check the version
+        id: version
+        run: |
+          set -euo pipefail
+          VERSION="$(node -p 'require("./packages/protocol/package.json").version')"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Releasing $VERSION"
+
+          # 1. All four packages move in lockstep. A stale one would publish a
+          #    version whose siblings do not exist at the version it names.
+          for pkg in protocol server daemon conformance; do
+            V="$(node -p "require('./packages/$pkg/package.json').version")"
+            if [ "$V" != "$VERSION" ]; then
+              echo "::error::packages/$pkg is $V but protocol is $VERSION — versions must match"
+              exit 1
+            fi
+          done
+
+          # 2. A tag must name the version it claims to release.
+          if [ "${GITHUB_REF_TYPE:-}" = "tag" ]; then
+            TAG="${GITHUB_REF_NAME#v}"
+            if [ "$TAG" != "$VERSION" ]; then
+              echo "::error::tag v$TAG does not match package version $VERSION"
+              exit 1
+            fi
+          fi
+
+          # 3. npm versions are immutable. Failing here beats failing halfway
+          #    through, with two of four packages published.
+          for name in "@byollm/protocol" "@byollm/server" "byollm" "@byollm/conformance"; do
+            if npm view "$name@$VERSION" version >/dev/null 2>&1; then
+              echo "::error::$name@$VERSION is already published — bump the version"
+              exit 1
+            fi
+          done
+
+          # 4. A prerelease goes to its own dist-tag, never to `latest`.
+          case "$VERSION" in
+            *-alpha.*) TAG_NAME=alpha ;;
+            *-beta.*)  TAG_NAME=beta ;;
+            *-*)       TAG_NAME=next ;;
+            *)         TAG_NAME=latest ;;
+          esac
+          echo "npm_tag=$TAG_NAME" >> "$GITHUB_OUTPUT"
+          echo "Publishing under dist-tag: $TAG_NAME"
+
+      # ---------------------------------------------------------------------
+      # Pack with pnpm, publish with npm.
+      #
+      # This split is deliberate. `pnpm pack` rewrites `workspace:*` to the
+      # pinned version — publishing with npm alone would ship a manifest
+      # depending on a protocol nobody can resolve. `npm publish` is what
+      # speaks OIDC. Handing npm a tarball pnpm packed gets both.
+      # ---------------------------------------------------------------------
+      - name: Pack
+        run: |
+          set -euo pipefail
+          mkdir -p dist-tarballs
+          for pkg in protocol server daemon conformance; do
+            ( cd "packages/$pkg" && pnpm pack --pack-destination ../../dist-tarballs )
+          done
+          ls -la dist-tarballs
+          # A workspace: spec surviving into a tarball would install as a
+          # broken dependency for everyone. Cheap to assert, fatal to miss.
+          for t in dist-tarballs/*.tgz; do
+            if tar -xzOf "$t" package/package.json | grep -q '"workspace:'; then
+              echo "::error::$t still contains a workspace: dependency"
+              exit 1
+            fi
+          done
+
+      - name: Publish (dry run)
+        if: inputs.dry_run
+        run: |
+          echo "Dry run — nothing published. Tarballs that would have gone out:"
+          ls -1 dist-tarballs
+          echo ""
+          echo "Note: a dry run cannot exercise OIDC auth, so it proves the"
+          echo "build and the guards, not the npmjs.com trusted-publisher"
+          echo "configuration. The first real run is what tests that."
+
+      - name: Publish
+        if: ${{ !inputs.dry_run }}
+        run: |
+          set -euo pipefail
+          V="${{ steps.version.outputs.version }}"
+          # Dependency order, so a package never lands before something it
+          # names. npm does not enforce this; humans reading the registry do.
+          #
+          # The tarball name is derived from the manifest rather than matched
+          # by pattern: the daemon's directory is `daemon` but its package is
+          # `byollm`, so `byollm-0.1.0-….tgz` and `byollm-server-0.1.0-….tgz`
+          # both match any glob loose enough to catch the first.
+          for pkg in protocol server daemon conformance; do
+            NAME="$(node -p "require('./packages/$pkg/package.json').name")"
+            FILE="dist-tarballs/$(printf '%s' "$NAME" | sed 's|^@||; s|/|-|')-$V.tgz"
+            if [ ! -f "$FILE" ]; then
+              echo "::error::expected tarball $FILE for $NAME, which pnpm pack did not produce"
+              exit 1
+            fi
+            echo "==> publishing $NAME from $FILE"
+            npm publish "$FILE" --tag "${{ steps.version.outputs.npm_tag }}" --access public
+          done
+
+      # ---------------------------------------------------------------------
+      # The `latest` retag.
+      #
+      # npm forces `latest` onto a first publish and will not let it be
+      # removed, so a bare `npm install byollm` resolves somewhere regardless.
+      # Pointing it at the newest alpha means a bare install gets the version
+      # whose README carries the current warning, not one silently older.
+      #
+      # Whether OIDC covers `dist-tag` is undocumented — trusted publishers
+      # authorize publish actions, and this is a different write. So it is
+      # allowed to fail, loudly, with the manual command printed. The first
+      # real run settles the question one way or the other.
+      # ---------------------------------------------------------------------
+      - name: Point `latest` at this prerelease
+        if: ${{ !inputs.dry_run && steps.version.outputs.npm_tag != 'latest' }}
+        continue-on-error: true
+        id: retag
+        run: |
+          set -euo pipefail
+          for name in "@byollm/protocol" "@byollm/server" "byollm" "@byollm/conformance"; do
+            npm dist-tag add "$name@${{ steps.version.outputs.version }}" latest
+          done
+
+      - name: Report
+        if: ${{ !inputs.dry_run }}
+        run: |
+          V="${{ steps.version.outputs.version }}"
+          {
+            echo "## Published \`$V\` under \`${{ steps.version.outputs.npm_tag }}\`"
+            echo ""
+            if [ "${{ steps.retag.outcome }}" = "failure" ]; then
+              echo "⚠️ The \`latest\` retag failed — OIDC does not cover \`dist-tag\`."
+              echo "Run this locally to finish (each is a write, so expect a"
+              echo "passkey prompt per package):"
+              echo ""
+              echo '```'
+              for n in "@byollm/protocol" "@byollm/server" "byollm" "@byollm/conformance"; do
+                echo "npm dist-tag add $n@$V latest"
+              done
+              echo '```'
+            else
+              echo "\`latest\` now points at \`$V\`."
+            fi
+            echo ""
+            for n in "@byollm/protocol" "@byollm/server" "byollm" "@byollm/conformance"; do
+              echo "- https://www.npmjs.com/package/$n/v/$V"
+            done
+          } >> "$GITHUB_STEP_SUMMARY"

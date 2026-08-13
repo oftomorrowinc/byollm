@@ -4,7 +4,7 @@
   "type": "module",
   "packageManager": "pnpm@10.33.2",
   "engines": {
-    "node": ">=22.12"
+    "node": ">=22.14"
   },
   "scripts": {
     "build": "pnpm -r --filter \"./packages/*\" run build",

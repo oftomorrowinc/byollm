@@ -46,5 +46,16 @@ major. Revisit when `typescript-eslint` supports it.
 Realtime delivery channel where the resolver is called from a subscription
 callback rather than from inside the promise executor.
 
-**Node ≥22.12.** Node 20 reached end of life in April 2026. 22 is the current
-LTS line and has native `fetch`, `AbortSignal.any` and stable test tooling.
+**We build and test on Node 24**, the current LTS line, and that is what CI
+and the release workflow run.
+
+**But `engines` says ≥22.14**, deliberately lower. These are two different
+questions: what we develop on, and what we oblige a consumer to run. Node 22
+is in maintenance LTS until April 2027, nothing in this code needs 24, and
+raising the floor would drop working installs to buy nothing. The floor is
+22.14 rather than 22.12 because that is the minimum npm's trusted publishing
+accepts, so a contributor whose Node satisfies `engines` can also cut a
+release.
+
+Node 20 reached end of life in April 2026. Both supported lines have native
+`fetch`, `AbortSignal.any` and stable test tooling.

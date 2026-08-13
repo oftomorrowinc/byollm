@@ -10,7 +10,10 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  NODE_VERSION: "22.12"
+  # The latest LTS line. Node 22 went to maintenance when 24 became LTS, and
+  # trusted publishing needs >= 22.14 — so an old pin here fails a release for
+  # a reason the error message never connects to CI.
+  NODE_VERSION: "24"
 
 jobs:
   quality:

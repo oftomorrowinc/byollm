@@ -11,3 +11,7 @@ byollm.config.json
 *.log
 .git/_stale_locks/
 .tsbuild/
+
+# `pnpm pack` output, staged by the release workflow.
+dist-tarballs/
+*.tgz

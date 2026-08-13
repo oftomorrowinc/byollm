@@ -6,6 +6,22 @@ import { join } from "node:path";
 import { ByollmApp, MemoryStore, createFetchHandler } from "@byollm/server";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { daemonPaths, runCli, type CliIo, type DaemonPaths } from "byollm";
+import type { ServerResponse } from "node:http";
+
+/**
+ * Answer 500 when a fixture handler throws.
+ *
+ * Without this the rejection escapes and kills the vitest worker, which
+ * surfaces as an unrelated crash somewhere else in the run — the failure gets
+ * attributed to whatever test was unlucky enough to be next. A 500 makes the
+ * fixture fail where the fixture broke.
+ */
+const fail500 =
+  (res: ServerResponse) =>
+  (error: unknown): void => {
+    if (!res.headersSent) res.writeHead(500, { "content-type": "text/plain" });
+    res.end(String(error));
+  };
 
 /**
  * `npx byollm connect …` against a real HTTP server, end to end.
@@ -38,7 +54,7 @@ beforeEach(async () => {
   });
 
   server = createServer((req, res) => {
-    void (async () => {
+    (async () => {
       const chunks: Buffer[] = [];
       for await (const chunk of req) chunks.push(chunk as Buffer);
       const response = await protocol(
@@ -54,7 +70,7 @@ beforeEach(async () => {
         Object.fromEntries(response.headers.entries()),
       );
       res.end(Buffer.from(await response.arrayBuffer()));
-    })();
+    })().catch(fail500(res));
   });
 
   await new Promise<void>((resolve) => {
@@ -92,7 +108,7 @@ afterEach(async () => {
 function withModelServer(): void {
   server.removeAllListeners("request");
   server.on("request", (req, res) => {
-    void (async () => {
+    (async () => {
       const chunks: Buffer[] = [];
       for await (const chunk of req) chunks.push(chunk as Buffer);
       const raw =
@@ -135,7 +151,7 @@ function withModelServer(): void {
         Object.fromEntries(response.headers.entries()),
       );
       res.end(Buffer.from(await response.arrayBuffer()));
-    })();
+    })().catch(fail500(res));
   });
 }
 

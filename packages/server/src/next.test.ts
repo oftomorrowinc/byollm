@@ -11,6 +11,9 @@ describe("createHandler — the one-file Next mount", () => {
     createHandler({
       store: new MemoryStore(),
       verificationUrl: "https://app.test/settings/runners",
+      // What the docstring tells a Next user to write: this route lives at
+      // `app/api/byollm/[...route]`, so it is served under /api.
+      basePath: "/api/byollm",
     });
 
   it("exports POST, GET and a dynamic marker", () => {

@@ -54,6 +54,13 @@ class SupabaseRealtimeDelivery implements ResultDelivery {
     const current = await this.#deps.read(jobId);
     if (current && isTerminal(current.state)) return current;
 
+    // Declared before the subscription so the channel callback closes over a
+    // `settled` that already exists. Every async path below routes its failure
+    // here: a rejection that escapes this object becomes an unhandled
+    // rejection, and an unhandled rejection ends the process.
+    const settled = Promise.withResolvers<DeliveredResult>();
+    this.#resolve = settled.resolve;
+
     const channel = this.#client.channel(`byollm_job_${jobId}`).on(
       "postgres_changes",
       {
@@ -63,12 +70,9 @@ class SupabaseRealtimeDelivery implements ResultDelivery {
         filter: `id=eq.${jobId}`,
       },
       () => {
-        void this.#check(jobId);
+        this.#check(jobId).catch(settled.reject);
       },
     );
-
-    const settled = Promise.withResolvers<DeliveredResult>();
-    this.#resolve = settled.resolve;
 
     // `subscribe()` returns the channel, not a promise — awaiting it would be
     // a no-op that reads as if it waited for the subscription to be live.
@@ -76,7 +80,7 @@ class SupabaseRealtimeDelivery implements ResultDelivery {
 
     // A second read after subscribing closes the race where the job finished
     // between the first read and the subscription taking effect.
-    void this.#check(jobId);
+    this.#check(jobId).catch(settled.reject);
 
     const timer = setTimeout(() => {
       settled.reject(new ResultTimeoutError(jobId, timeoutMs));
@@ -114,7 +118,14 @@ class SupabaseRealtimeDelivery implements ResultDelivery {
     let noRunnerSince: number | null = null;
 
     return setInterval(() => {
-      void (async () => {
+      // `.catch`, not `void`. Two things in here can reject — the store read
+      // and the caller's own `onNoRunner` — and discarding either made a
+      // transient store error, or an app whose fallback throws, terminate the
+      // process. The caller is awaiting `result()`; that is where a failure
+      // belongs, and it is what the polling channel already does by virtue of
+      // running inside the awaited chain. A delivery adapter must not change
+      // what a failure means.
+      (async () => {
         const availability = await this.#deps.availability(jobId);
         if (availability.available || availability.blocked) {
           noRunnerSince = null;
@@ -130,7 +141,7 @@ class SupabaseRealtimeDelivery implements ResultDelivery {
         } else {
           settled.reject(new NoRunnerAvailableError(jobId, reason));
         }
-      })();
+      })().catch(settled.reject);
     }, 2_000);
   }
 }

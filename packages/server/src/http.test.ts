@@ -2,30 +2,85 @@ import { describe, expect, it } from "vitest";
 import { bearerFrom, createFetchHandler, routeEndpoint } from "./http.js";
 import { MemoryStore } from "./memory.js";
 
-const url = (endpoint: string) => `https://app.test/api/byollm/${endpoint}`;
+// A Next-style mount, stated rather than inferred — which is the point of
+// `basePath`. These tests used to reach the handler at this path with no
+// configuration at all, because matching was on the last segment.
+const MOUNT = "/api/byollm";
+const url = (endpoint: string) => `https://app.test${MOUNT}/${endpoint}`;
 
 function handler() {
   return createFetchHandler({
     store: new MemoryStore(),
     verificationUrl: "https://app.test/settings/runners",
+    basePath: MOUNT,
   });
 }
 
 describe("routeEndpoint", () => {
   it.each([
-    ["/api/byollm/pair", "pair"],
+    ["/byollm/pair", "pair"],
     ["/byollm/claim", "claim"],
-    ["/deeply/nested/mount/heartbeat", "heartbeat"],
-  ])("routes %s", (path, expected) => {
+    ["/byollm/heartbeat", "heartbeat"],
+    // A trailing slash is a URL detail, not a different route.
+    ["/byollm/claim/", "claim"],
+  ])("routes %s at the default mount", (path, expected) => {
     expect(routeEndpoint(path)).toBe(expected);
   });
 
-  it.each(["/api/byollm", "/api/byollm/unknown", "/", ""])(
-    "declines %s",
-    (path) => {
-      expect(routeEndpoint(path)).toBeNull();
-    },
-  );
+  it.each(["/byollm", "/byollm/unknown", "/", ""])("declines %s", (path) => {
+    expect(routeEndpoint(path)).toBeNull();
+  });
+
+  it("routes only under the mount point it was given", () => {
+    expect(routeEndpoint("/api/byollm/claim", "/api/byollm")).toBe("claim");
+    // ...and not under any other, including the default.
+    expect(routeEndpoint("/api/byollm/claim")).toBeNull();
+    expect(routeEndpoint("/byollm/claim", "/api/byollm")).toBeNull();
+  });
+
+  it("no longer dispatches on any path that merely ends in an endpoint", () => {
+    // This is the behaviour change. These previously routed — matching was on
+    // the last path segment alone, so `PROTOCOL_PREFIX` was decorative and a
+    // handler mounted under a broad catch-all answered on unrelated paths.
+    // For claim/result/heartbeat that is looser than the constant implies.
+    expect(routeEndpoint("/deeply/nested/mount/heartbeat")).toBeNull();
+    expect(routeEndpoint("/unrelated/app/route/claim")).toBeNull();
+    expect(routeEndpoint("/byollm/nested/claim")).toBeNull();
+  });
+
+  it("refuses a malformed mount point rather than matching nothing", () => {
+    // A bad mount is a deployment bug. Failing loudly beats a handler that
+    // silently 404s every request and looks like a networking problem.
+    expect(() => routeEndpoint("/byollm/claim", "byollm")).toThrow(
+      /must start with/,
+    );
+    expect(() => routeEndpoint("/byollm/claim", "/api//byollm")).toThrow(
+      /plain path/,
+    );
+  });
+});
+
+describe("a handler answers only where it is mounted", () => {
+  it("404s a request to the default prefix when mounted under /api", () => {
+    // The integrator failure this makes visible: mounting the Next route at
+    // `app/api/byollm/...` and then pairing against the bare domain, so the
+    // daemon asks for `/byollm/claim`. It used to answer anyway.
+    return handler()(
+      new Request("https://app.test/byollm/claim", { method: "POST" }),
+    ).then((response) => {
+      expect(response.status).toBe(404);
+    });
+  });
+
+  it("refuses a malformed basePath at construction, not per request", () => {
+    expect(() =>
+      createFetchHandler({
+        store: new MemoryStore(),
+        verificationUrl: "https://app.test/settings/runners",
+        basePath: "api/byollm",
+      }),
+    ).toThrow(/must start with/);
+  });
 });
 
 describe("bearerFrom", () => {

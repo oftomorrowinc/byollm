@@ -39,6 +39,27 @@ export default tseslint.config(
         "error",
         { argsIgnorePattern: "^_", varsIgnorePattern: "^_" },
       ],
+      // A rejection nobody handles ends the Node process. This has now been
+      // shipped twice in the same shape — `void this.#handle(job)` in the
+      // daemon, and three `void`-discarded promises in the Supabase delivery
+      // channel, where a transient store read or a caller's throwing
+      // `onNoRunner` took the process down.
+      //
+      // `no-floating-promises` was already on via strictTypeChecked and
+      // caught neither, because its default `ignoreVoid: true` treats `void
+      // promise` as a deliberate acknowledgement. That is a reasonable
+      // default for code where discarding is sometimes right. It is the wrong
+      // default here: `void` was the exact spelling of both bugs, so the rule
+      // was permitting the thing it exists to prevent.
+      //
+      // With `ignoreVoid: false` there is no silent spelling. Background work
+      // must say where its failure goes — `.catch(...)` routing to a caller,
+      // or an explicit handler. If a promise genuinely may be dropped, an
+      // eslint-disable with a reason is the honest way to say so.
+      "@typescript-eslint/no-floating-promises": [
+        "error",
+        { ignoreVoid: false, ignoreIIFE: false },
+      ],
       // byollm_004 §2: no code path may turn payload text into a command
       // line. These bans are belt-and-braces alongside the adversarial suite.
       "no-restricted-imports": [

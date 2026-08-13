@@ -35,8 +35,17 @@ import { store } from "@/lib/byollm";
 export const { POST } = createHandler({
   store,
   verificationUrl: "https://your-app.com/settings/runners",
+  // Next serves this route under /api, so say where it is mounted. The
+  // handler matches the full path and will 404 without this.
+  basePath: "/api/byollm",
 });
 ```
+
+Then pair against that same path — `byollm connect https://your-app.com/api`.
+The daemon appends `/byollm/<endpoint>` to whatever origin it is given, so
+connecting to the bare domain looks for `/byollm/claim` and finds nothing.
+To serve at `/byollm` instead, put the route at `app/byollm/[...route]/route.ts`,
+drop `basePath`, and pair against the bare domain.
 
 **2. Pick a store.**
 

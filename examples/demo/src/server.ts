@@ -60,7 +60,7 @@ const html = (body: string): Response =>
   );
 
 const server = createServer((req, res) => {
-  void (async () => {
+  (async () => {
     const request = new Request(`${ORIGIN}${req.url ?? "/"}`, {
       method: req.method ?? "GET",
       headers: req.headers as Record<string, string>,
@@ -75,7 +75,12 @@ const server = createServer((req, res) => {
       Object.fromEntries(response.headers.entries()),
     );
     res.end(Buffer.from(await response.arrayBuffer()));
-  })();
+  })().catch((error: unknown) => {
+    // A handler that throws must answer, not take the process down with it.
+    process.stderr.write(`request failed: ${String(error)}\n`);
+    if (!res.headersSent) res.writeHead(500, { "content-type": "text/plain" });
+    res.end("internal error");
+  });
 });
 
 async function route(request: Request): Promise<Response> {

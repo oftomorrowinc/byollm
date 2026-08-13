@@ -278,9 +278,22 @@ async function runLoop(
   if (signal === undefined) {
     const stop = (): void => {
       controller.abort();
-      void Promise.all(
-        runners.map((runner) => runner.shutdown("shutdown")),
-      ).then(() => process.exit(0));
+      // Ctrl-C must end in an exit, whatever the release path does. Without a
+      // rejection handler a failing `shutdown` left `process.exit` unreached
+      // and killed the daemon on an unhandled rejection instead — the same
+      // exit, with a stack trace and a misleading code.
+      Promise.all(runners.map((runner) => runner.shutdown("shutdown"))).then(
+        () => {
+          process.exit(0);
+        },
+        (error: unknown) => {
+          // Leases will lapse on their own; say what happened and leave a
+          // non-zero code so a supervisor can tell this apart from a clean
+          // stop.
+          io.err(`shutdown did not complete cleanly: ${String(error)}\n`);
+          process.exit(1);
+        },
+      );
     };
     process.on("SIGINT", stop);
     process.on("SIGTERM", stop);

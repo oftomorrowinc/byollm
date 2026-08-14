@@ -1,5 +1,5 @@
 > [!WARNING]
-> **Alpha (`0.1.0-alpha.3`) — under active development. Don't use this yet.**
+> **Alpha (`0.1.0-alpha.4`) — under active development. Don't use this yet.**
 >
 > Install it deliberately: `npm install @byollm/server@alpha`.
 >
@@ -12,6 +12,19 @@
 > bare install resolves here too. This notice is the only guard — deliberately
 > not an npm deprecation, which would read as *abandoned* rather than *early*.
 > Ask for `@alpha` explicitly so your lockfile records that you meant to.
+>
+> **`alpha.4` breaks every integration.** Three things changed for you:
+>
+> 1. **`siteKeys` is required.** Run `npx @byollm/server@alpha keygen` once,
+>    set `BYOLLM_SITE_KEYS`, and pass it to `ByollmApp` and `createHandler`.
+>    Once — not per deploy, never at startup.
+> 2. **`createHandler` takes a function.** `next build` imports route modules
+>    with no secrets present, so a config object fails the build.
+> 3. **Every paired runner re-pairs.** Bearer tokens are replaced by per-request
+>    signatures against a pinned device key, so old tokens authenticate nothing.
+>
+> Your store adapter is unaffected: payloads and results are sealed before they
+> reach it, and `JobStore` did not change.
 
 # `@byollm/server`
 

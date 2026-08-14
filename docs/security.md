@@ -233,24 +233,41 @@ both directions: POSIX asserts the mode, Windows asserts that it is *not* what
 protects the key, so nobody deletes the awkward assertion and restores a false
 one.
 
-### 3.5 What an upstream observes — not yet mirrored here
+### 3.5 What an upstream observes — the spec is the record, permanently
 
-byollm_009 §12 enumerates what a hostile or compelled upstream can see: the
-stub metadata, each job's `disposition` (`ok` / `error` / `canceled`), and
-timing and volume. That list is the authority; this document has not yet
-synced with it, and says so rather than carrying a stale summary that would
-read as a second, disagreeing commitment.
+**[byollm_009 §12](../specs/byollm_009-sessions-keys-envelopes.md) enumerates
+what a hostile or compelled upstream can see. This document does not restate
+it, and never will.** That is policy, not a gap awaiting a sync.
 
-One item is worth naming here because it is a **deliberate** disclosure rather
-than a residual one: `disposition` travels outside the sealed envelope so a
-relay can stop dispatching a finished job without opening it. In aggregate
-that is real telemetry — failure rates by site, by user, by backend. It was
-taken over the alternative in byollm_009 §6.1, where a relay that cannot
-distinguish `canceled` from `error` cannot tell an app it may re-enqueue.
+The reasoning is the one this codebase keeps arriving at from other
+directions. A hand-maintained prose copy of a security guarantee is two places
+deciding one value — the same shape as a version constant derived in two
+files, a clock read twice, or an envelope deadline recomputed by its opener.
+Each of those worked until the two copies disagreed. A duplicated threat model
+has the same failure with a longer fuse: it drifts, nobody notices, and then
+two documents disagree about what a relay can see. For this product that is
+the worst possible sentence to have two versions of, because the answer is the
+product.
 
-The rule, which outlives this particular trade: a leak we chose is still a
-leak and belongs on the list. A deliberate disclosure missing from the
-disclosure list is how an "exhaustive" surface quietly stops meaning anything.
+So: **one source, many renderings, drift caught by machine rather than
+prevented by discipline.** It is the third instance of a house pattern — the
+provider docs generate from the registry, the landing page is checked against
+the built packages by `scripts/check-site.mjs`, and any future
+"what your relay can and cannot see" page includes the spec's enumeration at
+build time with a CI check that the rendering still matches. Nothing
+security-relevant is prose-copied by hand.
+
+One thing is worth stating here, because it is a rule rather than a fact and
+rules do belong in this document: **a leak we chose is still a leak and
+belongs on the list.** `disposition` — the `ok`/`error`/`canceled`
+discriminator — rides outside the sealed envelope so a relay can stop
+dispatching a finished job without opening it, and in aggregate that is real
+telemetry about someone else's system: failure rates by site, by user, by
+backend. It was taken deliberately, over an alternative that left a relay
+unable to tell an app it may re-enqueue. It went on §12's list the moment it
+existed, and the next field to earn its way onto the wire goes on that list
+too. A deliberate disclosure missing from the disclosure list is how an
+"exhaustive" surface quietly stops meaning anything.
 
 Tightening this with an explicit ACL (`icacls`) is worth doing and is not
 done. It would mean spawning a process from the daemon's startup path, which

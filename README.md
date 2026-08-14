@@ -1,5 +1,5 @@
 > [!WARNING]
-> **Alpha (`0.1.0-alpha.3`) — under active development. Don't use this yet.**
+> **Alpha (`0.1.0-alpha.4`) — under active development. Don't use this yet.**
 >
 > Install it as `byollm@alpha`, deliberately. npm forces a `latest` tag onto a
 > package's first publish and will not let it be removed, so a bare install
@@ -10,13 +10,35 @@
 > has production miles. Read it, take the ideas, tell us what's wrong — but
 > don't put it in front of your users.
 >
-> **`alpha.3` is a breaking change.** `BackendDescriptor.account` is gone;
-> read `cost` instead (`free` / `metered` / `subscription`). A config naming
-> `openai-http` with a **remote** base URL and an offer scope wider than
-> `self` is now narrowed to `self` until the owner acknowledges the spend and
-> sets a daily ceiling — that narrowing is the bug being fixed, and
-> `byollm status` says so in words rather than doing it silently. Local base
-> URLs are unaffected. See [byollm_007](specs/byollm_007-cost-class-and-providers.md).
+> **`alpha.4` is the breaking one. Every paired runner must pair again, and
+> there is no upgrade path — by design, and for the last time before there are
+> real consumers.**
+>
+> Machines and sites now have cryptographic identities. Each daemon holds an
+> Ed25519 signing key and an X25519 encryption key; pairing exchanges and
+> **pins** them, every request is signed rather than bearing a token, and the
+> work itself is sealed: a payload is encrypted to the machine that claimed it,
+> a result is encrypted back to the site, and each is signed by its sender and
+> refused if it does not verify. An intermediary that relays byollm traffic
+> carries ciphertext it cannot read and cannot substitute.
+>
+> What that costs you, concretely:
+>
+> - **A site now needs a keypair.** Generate one — once — with
+>   `npx @byollm/server@alpha keygen`, and set `BYOLLM_SITE_KEYS`. Not at
+>   startup: every instance would get a different identity and daemons would
+>   pin one and be refused by another.
+> - **Runner tokens are gone.** A daemon proves who it is by signing, so old
+>   tokens authenticate nothing and every paired machine re-pairs.
+> - **`claim` answers with a stub, not the work.** A daemon that declines a job
+>   on its own allowlist never receives the prompt at all; it fetches the
+>   payload only after deciding to run it.
+> - **Next.js users:** `createHandler` now takes a *function*. See
+>   [`@byollm/server`](packages/server) — an object is constructed during
+>   `next build` and fails on credentials it cannot have.
+>
+> See [byollm_009](specs/byollm_009-sessions-keys-envelopes.md), including §12
+> for what an upstream can still observe.
 
 <div align="center">
 

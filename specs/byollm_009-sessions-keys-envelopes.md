@@ -269,6 +269,10 @@ is worth keeping.
 
 ## 7. What two-phase claiming does to the state machine
 
+**Status (2026-08-14): not built, and deliberately so — see §7a.** The
+analysis below is correct for the plane it was written about, and the
+implementation has not reached that plane yet.
+
 This is the part a design draft can gloss and a protocol spec cannot.
 Claim-then-fetch introduces a window that does not exist today: a job
 that has been claimed but whose payload has not yet been sealed.
@@ -309,6 +313,36 @@ reason: a job can now be blocked on a site that will not seal, which is
 neither "no runner" nor "running" and must not report as either.
 
 ---
+
+## 7a. Why `awaiting-payload` is not implemented yet
+
+Direct mode seals the payload **at enqueue**, to the site's own key.
+The work therefore already exists, sealed, before anyone claims it, and
+`fetch` is a synchronous open-and-hand-over.
+
+So the window §7 describes does not exist here. There is no moment when
+a site must go away and seal something before a waiting daemon can
+proceed — which is the only thing `awaiting-payload` is for.
+
+Building it now would add a state nothing can enter, a timeout nothing
+can fire, and a `TTL_EXPIRY` interaction nothing can exercise. That is
+worse than leaving it out: unreachable machinery reads as a guarantee,
+and the first person to rely on it would be relying on code that has
+never run.
+
+**What makes it reachable.** The state is needed the moment a payload
+is sealed *to the claiming device* rather than to the site itself,
+because the site cannot do that until it knows who claimed. That is:
+
+- a relay plane, where the site and the upstream are different parties;
+- or the second leg in direct mode, if payloads are re-sealed to the
+  device's key rather than opened by the site and sent over the
+  transport.
+
+The second is worth doing on its own merits — it would mean the site
+never holds plaintext outside the enqueue and result calls — and it is
+the natural next increment. `awaiting-payload` should land with it, in
+the change that makes it reachable, and not before.
 
 ## 8. Streaming, reserved but not built
 
@@ -518,6 +552,10 @@ without running one.
 
 Named rather than resolved, because resolving them on paper is how a
 spec freezes the wrong thing.
+
+0. **`awaiting-payload`, and re-sealing to the claiming device.**
+   Deferred together, for the reason in §7a. The state is unreachable
+   until the site seals to the device rather than to itself.
 
 1. ~~Reclaim without a reachable site.~~ **Resolved 2026-08-13:
    accepted, and the promise rewritten (§7.2).**

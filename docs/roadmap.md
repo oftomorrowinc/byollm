@@ -50,13 +50,21 @@ excuses — the security posture depends on naming these out loud.
    `dependsOn`). MLX *training* (`train.*`, process-class
    `mlx_lm.lora`) is a later kind.
 3. `byollm_005` — site build-out + generated docs. **Done.**
-4. **`byollm_009` — sessions, keys, sealed envelopes.** Drafted
-   2026-08-13, deliberately not frozen: it freezes when a job has
+4. **`byollm_009` — sessions, keys, sealed envelopes.** Session layer
+   and envelope v2 built (2026-08-14); still deliberately not frozen: it freezes when a job has
    round-tripped through a real implementation, not on review. The
    largest breaking change on the roadmap, taken while v0 permits it
    and before anything real depends on the current envelope. Direct
    mode adopts all of it with no relay involved — that adoption *is*
    the proof.
+
+   Built: device identity and pinning, version handshake, signed
+   requests (no bearer tokens), lease-scoped requests, claim-then-fetch
+   with an exhaustive stub, and payloads sealed at rest. Deferred with
+   a reason: `awaiting-payload` and re-sealing to the claiming device
+   (§7a — the state is unreachable until the site seals to the device
+   rather than to itself), and session resume, which is an optimisation
+   rather than a security property.
 5. Future: OS sandbox for process-class; `train.*` job kinds.
    Streaming (`byollm_006`) is unblocked by 009 §8 and waiting on a
    consumer, not on a design.

@@ -1,10 +1,14 @@
 import type { Capability } from "@byollm/protocol";
 import { ByollmApp } from "./app.js";
 import {
+  ENVELOPE_MAX_AGE_MS,
   generateKeys,
+  keyId,
   publicIdentityOf,
+  seal,
   signRequest,
   type Endpoint,
+  type JobOutcome,
   type StoredKeys,
 } from "@byollm/protocol";
 import { generateSiteKeys } from "./keys.js";
@@ -102,6 +106,21 @@ export interface Harness {
     body: Record<string, unknown>,
     runner: PairedRunner,
   ): Promise<HandlerResult>;
+  /**
+   * Build a `result` body the way a daemon does — sealed to the site, signed
+   * by the device.
+   *
+   * A helper rather than a per-test fixture because the alternative is
+   * eighteen tests each constructing an envelope, and the first time one of
+   * them got it slightly wrong the sealing would be quietly untested.
+   */
+  resultBody(input: {
+    jobId: string;
+    runner: PairedRunner;
+    outcome: JobOutcome;
+    model?: string;
+    backendClass?: "http" | "process";
+  }): Promise<Record<string, unknown>>;
 }
 
 /** A paired daemon, with what it needs to sign. */
@@ -230,5 +249,37 @@ export function createHarness(
     });
   }
 
-  return { clock, store, app, handlers, pair, call };
+  /** Seal an outcome back to the site, exactly as the daemon's runner does. */
+  async function resultBody(input: {
+    jobId: string;
+    runner: PairedRunner;
+    outcome: JobOutcome;
+    model?: string;
+    backendClass?: "http" | "process";
+  }): Promise<Record<string, unknown>> {
+    const envelope = await seal({
+      plaintext: JSON.stringify(input.outcome),
+      senderKeys: input.runner.keys,
+      recipientEncryptionPublic: publicIdentityOf(siteKeys).encryption,
+      context: {
+        jobId: input.jobId,
+        senderKeyId: keyId(publicIdentityOf(input.runner.keys).identity),
+        recipientKeyId: keyId(publicIdentityOf(siteKeys).identity),
+        deadlineAt: clock.now() + ENVELOPE_MAX_AGE_MS,
+        direction: "result",
+      },
+    });
+    return {
+      protocolVersion: "0",
+      runnerId: input.runner.runnerId,
+      jobId: input.jobId,
+      envelope,
+      disposition: input.outcome.outcome,
+      model: input.model ?? "test-model",
+      backendClass: input.backendClass ?? "http",
+      durationMs: 1,
+    };
+  }
+
+  return { clock, store, app, handlers, pair, call, resultBody };
 }

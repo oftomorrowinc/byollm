@@ -18,6 +18,7 @@ import {
   advance,
   claimOne,
   fetchGenuine,
+  postResult,
   fetchPayload,
   releaseLease,
   ownerIdFor,
@@ -1627,6 +1628,85 @@ export const CHECKS: readonly Check[] = [
         // not a check that refuses everything.
         const genuine = await fetchGenuine(target, daemon);
         assert(genuine, "a daemon could not open work its own site sealed");
+      } finally {
+        await daemon.dispose();
+      }
+    },
+  },
+
+  {
+    id: "C030_SITE_REFUSES_UNSIGNED_RESULTS",
+    title: "a site refuses a result not signed by the device that ran it",
+    musts: ["ENVELOPE_SEALED_AND_SIGNED"],
+    async run(target: ConformanceTarget): Promise<void> {
+      // The return leg of C029. `ENVELOPE_SEALED_AND_SIGNED` says "every
+      // payload *and result*", and until this check existed only half of that
+      // sentence was tested — an implementation could seal work to the device
+      // and accept whatever came back.
+      //
+      // Driven through the `result` endpoint rather than through `open()`,
+      // because the primitive already has unit tests and the question here is
+      // whether the endpoint uses it. That distinction is what made C028 fail
+      // to bite.
+      const daemon = await pairDaemon(target, { owner: "alice" });
+      try {
+        const job = await target.enqueue({
+          kind: "llm.generate",
+          payload: { prompt: "who signed this" },
+          owner: "alice",
+        });
+        const claimed = await claimOne(target, daemon);
+        assert(claimed.id === job.id, "the harness could not claim its job");
+
+        // Signed by a key the site never approved, sealed to the site, and
+        // delivered over a request the *genuine* device signed — a relay that
+        // holds a live session and substitutes the answer.
+        const relay = generateKeys(Date.now());
+        const forged = await postResult(target, daemon, {
+          jobId: job.id,
+          outcome: { outcome: "ok", text: "an answer the device never gave" },
+          sealWith: relay,
+        });
+        assert(
+          forged.status !== 200,
+          "a site accepted a result signed by a key it never approved",
+        );
+
+        // And the job is untouched — refused, not half-applied.
+        const afterForgery = await target.job(job.id);
+        assert(
+          afterForgery?.outcome === undefined,
+          "a refused result still reached the app",
+        );
+
+        // The same result, sealed by the device, is accepted — so this is not
+        // a check that refuses everything.
+        const real = await postResult(target, daemon, {
+          jobId: job.id,
+          outcome: { outcome: "ok", text: "the genuine answer" },
+        });
+        assert(
+          real.status === 200,
+          `a site refused a result its own device sealed (${String(real.status)})`,
+        );
+
+        // A daemon that seals an error and declares `ok` is the other half:
+        // the clear-text disposition is a routing hint, and believing it would
+        // let the wire contradict the envelope.
+        const lying = await postResult(target, daemon, {
+          jobId: job.id,
+          outcome: {
+            outcome: "error",
+            code: "backend-error",
+            message: "it actually failed",
+            retryable: false,
+          },
+          disposition: "ok",
+        });
+        assert(
+          lying.status !== 200,
+          "a site believed a disposition the sealed outcome contradicted",
+        );
       } finally {
         await daemon.dispose();
       }

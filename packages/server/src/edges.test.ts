@@ -157,15 +157,13 @@ describe("MemoryStore — edges", () => {
     );
     await h.call(
       "result",
-      {
-        protocolVersion: "0",
-        runnerId: runner.runnerId,
+      await h.resultBody({
         jobId: handle.id,
+        runner: runner,
         outcome: { outcome: "ok", text: "done" },
         model: "m",
         backendClass: "http",
-        durationMs: 1,
-      },
+      }),
       runner,
     );
 

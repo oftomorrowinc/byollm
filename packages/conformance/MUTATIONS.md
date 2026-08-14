@@ -26,21 +26,22 @@ overlap more than intended.
 
 ## Verified 2026-08-13
 
-| Check                               | File                                | Mutation                                                                                                                                                      | Result               |
-| ----------------------------------- | ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------- |
-| `C019_CLAIM_ATOMIC`                 | `packages/server/src/memory.ts`     | Make `claim` async and `await Promise.resolve()` between the claimable decision and `#jobs.set` — the exact race a store without `FOR UPDATE SKIP LOCKED` has | ✓ bites              |
-| `C020_PAIR_CODE_EXPIRES`            | `memory.ts` + `handlers.ts`         | Replace both `pairing.expiresAt <= now` guards with `false`                                                                                                   | ✓ bites              |
-| `C021_CAPABILITY_IS_DETECTED`       | `packages/daemon/src/runner.ts`     | Replace `if (!health.healthy) continue;` with `if (false) continue;` in `detectCapabilities`                                                                  | ✓ bites              |
-| `C022_KIND_NO_CODE`                 | `packages/server/src/app.ts`        | Disable the `KindedPayload` guard in `enqueue` and store `input` unvalidated                                                                                  | ✓ bites              |
-| `C029_DAEMON_REFUSES_UNSIGNED_WORK` | `packages/protocol/src/envelope.ts` | Disable the `verifyWith` signature check in `open`                                                                                                            | ✓ bites              |
-| `C028_STORED_WORK_IS_SEALED`        | `packages/server/src/app.ts`        | Store the plaintext as the envelope's ciphertext instead of sealing                                                                                           | ✓ bites              |
-| `C027_CLAIM_ANSWERS_WITH_STUBS`     | `packages/server/src/handlers.ts`   | Two, both verified: add `payload` back to the claim mapping; and drop the `lease.id` check from `#fetch`                                                      | ✓ bites (both)       |
-| `C026_LEASE_SCOPED_RELEASE`         | `packages/server/src/memory.ts`     | Drop `job.lease.id !== leaseId` from the release guard, leaving the runner-id match                                                                           | ✓ bites              |
-| `C025_SIGNED_REQUESTS`              | `packages/server/src/handlers.ts`   | Two, both verified: skip the `verifyRequest` result check; and verify against `""` rather than `auth.rawBody`                                                 | ✓ bites (both)       |
-| `C024_KEY_EXCHANGE`                 | `packages/server/src/handlers.ts`   | Two, both verified: disable the `verifyPublicIdentity(request.device)` guard; and omit `site` from the approval response                                      | ✓ bites (both)       |
-| `C023_VERSION_HANDSHAKE`            | `packages/server/src/http.ts`       | Disable the `checkProtocolVersion` guard in the fetch handler                                                                                                 | ✓ bites              |
-| `C017_METERED_DEFAULTS_SELF`        | `packages/protocol/src/audience.ts` | Delete the `cost === "metered" && spend?.acknowledged !== true` narrowing in `effectiveOfferScope`                                                            | ✓ bites (2026-08-13) |
-| `C018_METERED_CEILING`              | `packages/protocol/src/audience.ts` | Replace `daemon.spend.ceilingReached === true` with `false`                                                                                                   | ✓ bites (2026-08-13) |
+| Check                                | File                                | Mutation                                                                                                                                                      | Result               |
+| ------------------------------------ | ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------- |
+| `C019_CLAIM_ATOMIC`                  | `packages/server/src/memory.ts`     | Make `claim` async and `await Promise.resolve()` between the claimable decision and `#jobs.set` — the exact race a store without `FOR UPDATE SKIP LOCKED` has | ✓ bites              |
+| `C020_PAIR_CODE_EXPIRES`             | `memory.ts` + `handlers.ts`         | Replace both `pairing.expiresAt <= now` guards with `false`                                                                                                   | ✓ bites              |
+| `C021_CAPABILITY_IS_DETECTED`        | `packages/daemon/src/runner.ts`     | Replace `if (!health.healthy) continue;` with `if (false) continue;` in `detectCapabilities`                                                                  | ✓ bites              |
+| `C022_KIND_NO_CODE`                  | `packages/server/src/app.ts`        | Disable the `KindedPayload` guard in `enqueue` and store `input` unvalidated                                                                                  | ✓ bites              |
+| `C030_SITE_REFUSES_UNSIGNED_RESULTS` | `packages/server/src/handlers.ts`   | Two, both verified: accept an envelope that fails to open in `#openResult`; and drop the `outcome !== disposition` comparison                                 | ✓ bites (both)       |
+| `C029_DAEMON_REFUSES_UNSIGNED_WORK`  | `packages/protocol/src/envelope.ts` | Disable the `verifyWith` signature check in `open`                                                                                                            | ✓ bites              |
+| `C028_STORED_WORK_IS_SEALED`         | `packages/server/src/app.ts`        | Store the plaintext as the envelope's ciphertext instead of sealing                                                                                           | ✓ bites              |
+| `C027_CLAIM_ANSWERS_WITH_STUBS`      | `packages/server/src/handlers.ts`   | Two, both verified: add `payload` back to the claim mapping; and drop the `lease.id` check from `#fetch`                                                      | ✓ bites (both)       |
+| `C026_LEASE_SCOPED_RELEASE`          | `packages/server/src/memory.ts`     | Drop `job.lease.id !== leaseId` from the release guard, leaving the runner-id match                                                                           | ✓ bites              |
+| `C025_SIGNED_REQUESTS`               | `packages/server/src/handlers.ts`   | Two, both verified: skip the `verifyRequest` result check; and verify against `""` rather than `auth.rawBody`                                                 | ✓ bites (both)       |
+| `C024_KEY_EXCHANGE`                  | `packages/server/src/handlers.ts`   | Two, both verified: disable the `verifyPublicIdentity(request.device)` guard; and omit `site` from the approval response                                      | ✓ bites (both)       |
+| `C023_VERSION_HANDSHAKE`             | `packages/server/src/http.ts`       | Disable the `checkProtocolVersion` guard in the fetch handler                                                                                                 | ✓ bites              |
+| `C017_METERED_DEFAULTS_SELF`         | `packages/protocol/src/audience.ts` | Delete the `cost === "metered" && spend?.acknowledged !== true` narrowing in `effectiveOfferScope`                                                            | ✓ bites (2026-08-13) |
+| `C018_METERED_CEILING`               | `packages/protocol/src/audience.ts` | Replace `daemon.spend.ceilingReached === true` with `false`                                                                                                   | ✓ bites (2026-08-13) |
 
 ## Not yet verified
 
@@ -75,6 +76,25 @@ The lesson worth keeping: the gap was not closed by trying harder to test
 `C028`. It closed because the system changed shape, and the property became
 observable somewhere it had not been. Recording a gap honestly is what made
 it obvious when that happened.
+
+## Half a MUST is not a covered MUST (2026-08-14)
+
+`ENVELOPE_SEALED_AND_SIGNED` reads "every payload **and result**". For a day
+it was cited by `C029` alone, which tests the payload leg — so the registry
+counted the MUST as covered while half of the sentence had nothing behind
+it. An implementation could have sealed work to the device and accepted
+whatever came back, and passed certification.
+
+`C030` is the other half, and it is worth noting what nearly went wrong in
+writing it: the natural first draft asserted that the result endpoint
+refuses a forged envelope, and stopped. That would have passed against a
+server that refused _everything_, so the check also sends a genuine result
+and requires a 200 — the same both-directions discipline `C029` uses.
+
+The rule this suggests, which the coverage counter cannot enforce: when a
+MUST is a sentence with an "and" in it, check that each side of the "and"
+has a mutation that bites. Coverage is counted per MUST, and a MUST can be
+larger than one property.
 
 ## A check that did not bite, and what was done about it
 

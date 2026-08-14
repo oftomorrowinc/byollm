@@ -150,4 +150,5 @@ export {
   WireError,
   WireErrorCode,
   type Endpoint,
+  ResultDisposition,
 } from "./wire.js";

@@ -93,15 +93,13 @@ describe("ByollmApp — the app-facing surface", () => {
 
     await h.call(
       "result",
-      {
-        protocolVersion: "0",
-        runnerId: runner.runnerId,
+      await h.resultBody({
         jobId: handle.id,
+        runner: runner,
         outcome: { outcome: "ok", text: "done" },
         model: "gemma4:26b",
         backendClass: "http",
-        durationMs: 1,
-      },
+      }),
       runner,
     );
 

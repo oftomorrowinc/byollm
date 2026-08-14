@@ -558,21 +558,27 @@ describe("result [RESULT_IDEMPOTENT, RESULT_PROVENANCE]", () => {
     });
     await claimOne(h, runner);
 
-    const body = {
-      protocolVersion: "0" as const,
-      runnerId: runner.runnerId,
-      jobId: handle.id,
-      outcome: { outcome: "ok" as const, text: "first" },
-      model: "gemma4:26b",
-      backendClass: "http" as const,
-      durationMs: 12,
-    };
-    const first = await h.call("result", body, runner);
+    const first = await h.call(
+      "result",
+      await h.resultBody({
+        jobId: handle.id,
+        runner,
+        outcome: { outcome: "ok", text: "first" },
+      }),
+      runner,
+    );
     expect((first.body as { accepted: boolean }).accepted).toBe(true);
 
+    // A genuinely different second result, sealed and signed as properly as
+    // the first — so what makes it lose is idempotency, not a rejected
+    // envelope. Reusing the first body would have tested nothing.
     const second = await h.call(
       "result",
-      { ...body, outcome: { outcome: "ok", text: "second" } },
+      await h.resultBody({
+        jobId: handle.id,
+        runner,
+        outcome: { outcome: "ok", text: "second" },
+      }),
       runner,
     );
     expect((second.body as { accepted: boolean }).accepted).toBe(false);
@@ -593,15 +599,13 @@ describe("result [RESULT_IDEMPOTENT, RESULT_PROVENANCE]", () => {
     await claimOne(h, alice);
     await h.call(
       "result",
-      {
-        protocolVersion: "0",
-        runnerId: alice.runnerId,
+      await h.resultBody({
         jobId: selfJob.id,
+        runner: alice,
         outcome: { outcome: "ok", text: "mine" },
         model: "gemma4:26b",
         backendClass: "http",
-        durationMs: 1,
-      },
+      }),
       alice,
     );
     expect((await h.app.result(selfJob.id))?.provenance?.untrusted).toBe(false);
@@ -630,15 +634,13 @@ describe("result [RESULT_IDEMPOTENT, RESULT_PROVENANCE]", () => {
 
     await h.call(
       "result",
-      {
-        protocolVersion: "0",
-        runnerId: bob.runnerId,
+      await h.resultBody({
         jobId: publicJob.id,
+        runner: bob,
         outcome: { outcome: "ok", text: "from a stranger's machine" },
         model: "gemma4:26b",
         backendClass: "http",
-        durationMs: 1,
-      },
+      }),
       bob,
     );
     const delivered = await h.app.result(publicJob.id);
@@ -664,15 +666,13 @@ describe("result [RESULT_IDEMPOTENT, RESULT_PROVENANCE]", () => {
 
     const res = await h.call(
       "result",
-      {
-        protocolVersion: "0",
-        runnerId: runner.runnerId,
+      await h.resultBody({
         jobId: handle.id,
+        runner: runner,
         outcome: { outcome: "ok", text: "too late" },
         model: "gemma4:26b",
         backendClass: "http",
-        durationMs: 1,
-      },
+      }),
       runner,
     );
     expect((res.body as { accepted: boolean }).accepted).toBe(false);
@@ -683,15 +683,13 @@ describe("result [RESULT_IDEMPOTENT, RESULT_PROVENANCE]", () => {
     const runner = await h.pair();
     const res = await h.call(
       "result",
-      {
-        protocolVersion: "0",
-        runnerId: runner.runnerId,
+      await h.resultBody({
         jobId: "job_nope",
+        runner: runner,
         outcome: { outcome: "ok", text: "x" },
         model: "m",
         backendClass: "http",
-        durationMs: 1,
-      },
+      }),
       runner,
     );
     expect(res.status).toBe(404);

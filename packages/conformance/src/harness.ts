@@ -2,9 +2,12 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+  ENVELOPE_MAX_AGE_MS,
   PROTOCOL_VERSION,
   keyId,
   open,
+  seal,
+  type JobOutcome,
   publicIdentityOf,
   signRequest,
   type PublicIdentity,
@@ -585,6 +588,74 @@ export async function fetchPayload(
     raw,
     opened: opened.ok ? (JSON.parse(opened.plaintext) as unknown) : null,
   };
+}
+
+/**
+ * Report a result, sealed to the site — with the sealing key left open.
+ *
+ * `sealWith` defaults to the daemon's own keys, which is what a real daemon
+ * does. A check passes something else to be the relay: the request is still
+ * signed by the genuine device, so what the site is being asked to swallow is
+ * an *outcome* nobody it trusts produced. Separating the two keys is the whole
+ * point — an implementation that only checked the request signature would look
+ * correct until this check ran.
+ */
+export async function postResult(
+  target: ConformanceTarget,
+  daemon: HarnessDaemon,
+  input: {
+    jobId: string;
+    outcome: JobOutcome;
+    sealWith?: StoredKeys;
+    disposition?: "ok" | "error" | "canceled";
+  },
+): Promise<Response> {
+  const keys = await daemon.identityKeys();
+  const sealer = input.sealWith ?? keys;
+  const envelope = await seal({
+    plaintext: JSON.stringify(input.outcome),
+    senderKeys: sealer,
+    recipientEncryptionPublic: daemon.sitePinned.encryption,
+    context: {
+      jobId: input.jobId,
+      // Always the *device's* key id, even when a relay sealed it: an
+      // attacker naming itself would be refused for the wrong reason, and
+      // this check exists to prove the signature is what refuses it.
+      senderKeyId: keyId(publicIdentityOf(keys).identity),
+      recipientKeyId: keyId(daemon.sitePinned.identity),
+      deadlineAt: Date.now() + ENVELOPE_MAX_AGE_MS,
+      direction: "result",
+    },
+  });
+
+  const body = JSON.stringify({
+    protocolVersion: PROTOCOL_VERSION,
+    runnerId: daemon.runnerId,
+    jobId: input.jobId,
+    envelope,
+    disposition: input.disposition ?? input.outcome.outcome,
+    model: "conformance-model",
+    backendClass: "http",
+    durationMs: 1,
+  });
+  const signature = signRequest(daemon.keys, {
+    endpoint: "result",
+    runnerId: daemon.runnerId,
+    issuedAt: Date.now(),
+    body,
+  });
+  return target.fetch(
+    new Request(`${target.origin}/byollm/result`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-byollm-runner": signature.runnerId,
+        "x-byollm-issued-at": String(signature.issuedAt),
+        "x-byollm-signature": signature.signature,
+      },
+      body,
+    }),
+  );
 }
 
 /**

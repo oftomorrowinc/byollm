@@ -2,7 +2,7 @@ import { z } from "zod";
 import { PublicIdentity } from "./keys.js";
 import { OfferScope } from "./audience.js";
 import { BackendClass, BackendIdSchema } from "./backends.js";
-import { ClaimedStub, JobOutcome } from "./job.js";
+import { ClaimedStub } from "./job.js";
 import { SealedEnvelope } from "./envelope.js";
 import { JobKind } from "./kinds.js";
 
@@ -319,12 +319,42 @@ export type HeartbeatResponse = z.infer<typeof HeartbeatResponse>;
 // 4. POST /byollm/result
 // ---------------------------------------------------------------------------
 
+/**
+ * What an intermediary learns about how a job ended — byollm_009 §6.
+ *
+ * The discriminator and nothing else. A relay has to know a job reached a
+ * terminal state, and whether it failed, because that decides whether the job
+ * leaves the queue or the app may re-enqueue. It does not have to know what
+ * the model said, or what an error said, and this is where that line is drawn.
+ *
+ * Kept identical to `JobOutcome`'s discriminator rather than coarsened to
+ * ok/not-ok: a cancelled job and a failed one are different routing outcomes,
+ * and collapsing them would make the relay guess.
+ */
+export const ResultDisposition = z.enum(["ok", "error", "canceled"]);
+export type ResultDisposition = z.infer<typeof ResultDisposition>;
+
 export const ResultRequest = z
   .object({
     protocolVersion: z.literal(PROTOCOL_VERSION),
     runnerId: z.string().min(1),
     jobId: z.string().min(1),
-    outcome: JobOutcome,
+    /**
+     * The outcome, sealed to the site and signed by the device.
+     *
+     * The return leg of the payload envelope, and sealed for the same reason:
+     * a model's answer is as sensitive as the prompt that produced it, and an
+     * intermediary that cannot read one must not be handed the other.
+     */
+    envelope: SealedEnvelope,
+    /**
+     * The sealed outcome's discriminator, in the clear.
+     *
+     * Checked against the envelope once opened. It is a routing hint, not a
+     * fact: believing it unverified would let a daemon mark a job `ok` while
+     * sealing an error, and only the app would ever find out.
+     */
+    disposition: ResultDisposition,
     /** Which model actually served it, for the result's provenance. */
     model: z.string().min(1),
     backendClass: BackendClass,

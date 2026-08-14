@@ -1,4 +1,6 @@
 import {
+  type ResultDisposition,
+  type SealedEnvelope,
   ClaimResponse,
   FetchResponse,
   type PublicIdentity,
@@ -11,7 +13,6 @@ import {
   WireError,
   type Capability,
   type Endpoint,
-  type JobOutcome,
 } from "@byollm/protocol";
 import { type z } from "zod";
 
@@ -205,7 +206,8 @@ export class ProtocolClient {
   async result(input: {
     runnerId: string;
     jobId: string;
-    outcome: JobOutcome;
+    envelope: SealedEnvelope;
+    disposition: ResultDisposition;
     model: string;
     backendClass: "http" | "process";
     durationMs: number;

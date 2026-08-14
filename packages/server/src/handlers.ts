@@ -2,6 +2,7 @@ import {
   ENVELOPE_MAX_AGE_MS,
   FetchRequest,
   seal,
+  JobOutcome,
   keyId,
   open,
   publicIdentityOf,
@@ -524,6 +525,9 @@ export class ByollmHandlers {
     const job = await this.#store.get(request.jobId);
     if (!job) return fail("not-found", "unknown job");
 
+    const outcome = await this.#openResult(request, runner);
+    if (!outcome.ok) return outcome.failure;
+
     // Provenance is built here, from the job's audience and the authenticated
     // runner — never from anything the daemon asserted
     // ({@link MUSTS.RESULT_PROVENANCE}).
@@ -538,7 +542,7 @@ export class ByollmHandlers {
     const { accepted, job: updated } = await this.#store.complete({
       jobId: request.jobId,
       runnerId: runner.id,
-      outcome: request.outcome,
+      outcome: outcome.value,
       provenance,
       now,
     });
@@ -548,6 +552,59 @@ export class ByollmHandlers {
       state: updated?.state ?? job.state,
     };
     return ok(response);
+  }
+
+  /**
+   * Open a sealed result, or refuse it.
+   *
+   * The mirror of the daemon's `#openPayload`, and refuses for the same
+   * reason: an outcome that does not verify against the device's pinned key is
+   * an assertion by whoever relayed it, and storing it would let an
+   * intermediary write answers into the app.
+   *
+   * The clear-text `disposition` is checked here rather than trusted. It is on
+   * the wire so a relay can route without opening anything, which means the
+   * one thing it must not be is authoritative — a daemon that sealed an error
+   * and declared `ok` would otherwise have its declaration believed by
+   * everything upstream of this line.
+   */
+  async #openResult(
+    request: ResultRequestType,
+    runner: RunnerRecord,
+  ): Promise<
+    { ok: true; value: JobOutcome } | { ok: false; failure: HandlerResult }
+  > {
+    const refuse = (why: string) =>
+      ({ ok: false as const, failure: fail("bad-request", why) }) as const;
+
+    const opened = await open({
+      envelope: request.envelope,
+      recipientKeys: this.#siteKeys,
+      senderIdentityPublic: runner.device.identity,
+      expected: {
+        jobId: request.jobId,
+        senderKeyId: keyId(runner.device.identity),
+        recipientKeyId: keyId(publicIdentityOf(this.#siteKeys).identity),
+        direction: "result",
+      },
+    });
+    if (!opened.ok) {
+      return refuse("the result did not verify as coming from this device");
+    }
+
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(opened.plaintext);
+    } catch {
+      return refuse("the sealed result was not valid JSON");
+    }
+    const outcome = JobOutcome.safeParse(parsed);
+    if (!outcome.success) return refuse("the sealed result was not an outcome");
+
+    if (outcome.data.outcome !== request.disposition) {
+      return refuse("the declared disposition is not the one that was sealed");
+    }
+    return { ok: true, value: outcome.data };
   }
 
   // -- 5. release -----------------------------------------------------------

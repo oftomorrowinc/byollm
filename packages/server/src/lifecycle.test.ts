@@ -34,15 +34,12 @@ async function finish(
 ) {
   return h.call(
     "result",
-    {
-      protocolVersion: "0",
-      runnerId: runner.runnerId,
+    await h.resultBody({
       jobId,
+      runner,
       outcome: { outcome: "ok", text },
       model: "gemma4:26b",
-      backendClass: "http",
-      durationMs: 5,
-    },
+    }),
     runner,
   );
 }
@@ -187,10 +184,9 @@ describe("dependencies [DEPENDS_ON_GATING]", () => {
 
     await h.call(
       "result",
-      {
-        protocolVersion: "0",
-        runnerId: runner.runnerId,
+      await h.resultBody({
         jobId: first.id,
+        runner: runner,
         outcome: {
           outcome: "error",
           code: "backend-error",
@@ -199,8 +195,7 @@ describe("dependencies [DEPENDS_ON_GATING]", () => {
         },
         model: "gemma4:26b",
         backendClass: "http",
-        durationMs: 5,
-      },
+      }),
       runner,
     );
 
@@ -245,15 +240,13 @@ describe("cancel", () => {
 
     await h.call(
       "result",
-      {
-        protocolVersion: "0",
-        runnerId: runner.runnerId,
+      await h.resultBody({
         jobId: handle.id,
+        runner: runner,
         outcome: { outcome: "canceled" },
         model: "gemma4:26b",
         backendClass: "http",
-        durationMs: 5,
-      },
+      }),
       runner,
     );
     expect((await h.app.job(handle.id))?.state).toBe("canceled");

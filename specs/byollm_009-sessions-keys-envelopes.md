@@ -257,6 +257,26 @@ Ed25519 signatures also make `PROVENANCE_NAMES_DEVICE` mean something:
 a result is attributable to a device by proof of possession, not by a
 field anyone can populate.
 
+### 6.1 What the return leg leaves in the clear
+
+A result is sealed the same way, in the other direction. One thing does
+not travel inside the envelope: a `disposition` field carrying the
+outcome's discriminator — `ok`, `error` or `canceled`.
+
+It is there because a relay has to know a job reached a terminal state,
+and whether it failed, or it cannot stop dispatching it and the app can
+never be told it may re-enqueue. Collapsing the three into ok/not-ok
+was considered and rejected: a cancelled job and a failed one are
+different routing outcomes, and a relay that has to guess will guess
+wrong somewhere.
+
+The rule that keeps this from becoming a hole: **`disposition` is a
+routing hint, never a fact.** The recipient opens the envelope and
+compares. A daemon that sealed an error and declared `ok` is refused —
+otherwise a field outside the signature would decide what the app
+believes happened, which is the whole property this section exists to
+establish.
+
 Sealing after the claim rather than before is what makes multi-device
 fall out for free: there is no N-device encryption problem because the
 payload is only ever sealed once, to whoever actually took the work.

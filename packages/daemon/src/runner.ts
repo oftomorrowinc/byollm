@@ -1,7 +1,9 @@
 import {
+  ENVELOPE_MAX_AGE_MS,
   keyId,
   open,
   publicIdentityOf,
+  seal,
   sizeClassCeiling,
   type ClaimedStub,
   type JobPayload,
@@ -543,16 +545,55 @@ export class Runner {
     const route = this.#routeFor(job.kind);
     const outcome = await this.runJob({ ...job, payload });
 
+    const envelope = await this.#sealOutcome(job, outcome);
+
     await this.#safely(() =>
       this.#options.client.result({
         runnerId: this.#options.runnerId,
         jobId: job.id,
-        outcome,
+        envelope,
+        disposition: outcome.outcome,
         model: route?.model ?? "unknown",
         backendClass: route?.backendClass ?? "http",
         durationMs: 0,
       }),
     );
+  }
+
+  /**
+   * Seal a finished outcome back to the site that sent the work.
+   *
+   * The return leg of {@link ByollmRunner.#openPayload}, and it exists for the
+   * same reason: an answer is as sensitive as the prompt that produced it. A
+   * relay that is denied one and handed the other has been denied nothing.
+   *
+   * The signature also does work the payload leg does not need. `RESULT_
+   * PROVENANCE` says a result is attributable to a device; until now that
+   * rested on the request signature, which covers the request and expires with
+   * it. This binds the *outcome itself* to the device's key, so what the app
+   * eventually reads carries its own proof of who produced it.
+   */
+  async #sealOutcome(
+    job: ClaimedStub,
+    outcome: JobOutcome,
+  ): Promise<SealedEnvelope> {
+    const identity = this.#options.identity;
+    if (!identity) {
+      throw new Error("this daemon has no keys, so it cannot seal a result");
+    }
+    const keys = await identity.keys();
+    return seal({
+      plaintext: JSON.stringify(outcome),
+      senderKeys: keys,
+      recipientEncryptionPublic: identity.sitePinned.encryption,
+      context: {
+        jobId: job.id,
+        senderKeyId: keyId(publicIdentityOf(keys).identity),
+        recipientKeyId: keyId(identity.sitePinned.identity),
+        deadlineAt: Date.now() + ENVELOPE_MAX_AGE_MS,
+        direction: "result",
+      },
+    });
   }
 
   /**

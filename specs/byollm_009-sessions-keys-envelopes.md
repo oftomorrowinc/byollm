@@ -524,7 +524,22 @@ prevent.
 
 **A hostile or compelled upstream can:** drop jobs, refuse routes,
 observe the stub metadata in §6 — user, site, kind, size class,
-deadline, streaming flag — and observe timing and volume.
+deadline, streaming flag — observe each job's `disposition` (§6.1), and
+observe timing and volume.
+
+`disposition` is a **deliberate** addition to this list, not an
+oversight, and it is worth being precise about what it costs. Per-job
+outcome is more than a per-job fact in aggregate: an upstream learns
+failure rates by site, by user, and by backend, which is real
+operational telemetry about somebody else's system. It is here because
+a relay that cannot tell `canceled` from `error` cannot tell an app it
+may re-enqueue, and §6.1 takes that consumer over the smaller leak.
+
+The rule this is an instance of: the enumerated metadata surface is a
+commitment, so a leak we chose is still a leak and belongs on the list.
+A deliberate disclosure missing from the disclosure list is how
+"exhaustive" quietly stops meaning anything — at which point the
+commitment is worth nothing even where it is still accurate.
 
 **It cannot:** read payloads or results; **inject a payload** (an
 envelope must verify against the site's pinned identity key, which a

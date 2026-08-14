@@ -244,9 +244,15 @@ describe("the loop", () => {
       }),
     );
     await runner.tick();
-    await settles(() => backend.seen.length > 0, "the backend to be called");
+    // Wait on the *last* thing to happen, not the first. Waiting for the
+    // backend call and then asserting the finished event leaves the same race
+    // the fixed sleep had — which is how this failed on Windows after the
+    // sleep was replaced.
+    await settles(
+      () => events.some((e) => e.type === "finished"),
+      "the job to finish",
+    );
     expect(backend.seen).toEqual(["hi"]);
-    expect(events.some((e) => e.type === "finished")).toBe(true);
   });
 
   it("refuses and releases a job its allowlist does not admit", async () => {

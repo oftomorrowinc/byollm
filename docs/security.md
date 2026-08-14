@@ -206,6 +206,42 @@ no namespace. The isolation described above is process-level. Adding an
 OS-level layer where the platform allows is worth doing and is not done; this
 document will say so until it is.
 
+
+### 3.4 The device key file, and what protects it
+
+byollm_009 gives each machine an Ed25519 identity key. It is the most
+sensitive file the daemon writes, and unlike a runner token it cannot be
+reissued: losing it means re-pairing every app, and leaking it means someone
+else can be this machine.
+
+**On macOS and Linux it is written `0600`**, and the mode is re-checked on
+every load — a restore from backup or a stray `chmod -R` can widen it after
+the fact, and silently re-tightening would hide that something on the machine
+is treating it as ordinary data.
+
+**On Windows that protection does not exist, and the code no longer pretends
+otherwise.** Node synthesizes `mode` there: a writable file reports `0o666`
+whatever `writeFile` was given, and `chmod` only toggles the read-only flag.
+The mode we pass is ignored. What actually protects the file is the ACL it
+inherits from the user's profile directory — real protection against other
+*users*, weaker and less visible than an explicit mode, and not something the
+daemon sets or verifies.
+
+This was found by the platform CI matrix within hours of it existing, by a
+test that asserted `0600` and failed. The tests are now platform-specific in
+both directions: POSIX asserts the mode, Windows asserts that it is *not* what
+protects the key, so nobody deletes the awkward assertion and restores a false
+one.
+
+Tightening this with an explicit ACL (`icacls`) is worth doing and is not
+done. It would mean spawning a process from the daemon's startup path, which
+is a surface this project treats carefully, so it wants its own change rather
+than a line here.
+
+If you run a daemon on a shared Windows machine where other accounts can read
+your profile, the device key is readable by them, and no amount of the above
+changes that.
+
 ---
 
 ## 4. Output is inert

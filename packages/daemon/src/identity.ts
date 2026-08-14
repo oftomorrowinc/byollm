@@ -117,8 +117,17 @@ export class DeviceIdentity {
    * synced folder can widen it afterwards. Tightening it silently would hide
    * that something else on this machine is treating the file as ordinary
    * data, which is worth knowing.
+   *
+   * **Windows is exempt, because the check would lie.** Node's `mode` there
+   * is synthesized — a writable file reports `0o666` regardless of what was
+   * passed to `writeFile`, and `chmod` only toggles the read-only flag. So on
+   * Windows this would warn on every start and claim to fix something it had
+   * not fixed. The honest position is in `docs/security.md` §3.4: on Windows
+   * the key file is protected by the ACLs it inherits from the user profile,
+   * not by a mode we set.
    */
   async #warnIfReadable(): Promise<void> {
+    if (process.platform === "win32") return;
     try {
       const mode = (await stat(this.#path)).mode & 0o777;
       if ((mode & 0o077) !== 0) {
@@ -129,8 +138,7 @@ export class DeviceIdentity {
         await chmod(this.#path, 0o600);
       }
     } catch {
-      // Windows has no meaningful POSIX mode, and a stat failure here must
-      // not stop a daemon from starting.
+      // A stat failure must not stop a daemon from starting.
     }
   }
 }

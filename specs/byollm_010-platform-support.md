@@ -154,6 +154,29 @@ on; it belongs here regardless of whether one ever exists.
   `byollm --version`, which today prints only a package version. It
   gets materially more useful when §5 lands and that becomes a tuple.
 
+## 6a. What the matrix found on its first day
+
+Two things, both security-relevant, neither of which any amount of
+reasoning on a Mac would have produced:
+
+1. **What Windows injects into a child** (§3, answered above).
+2. **The daemon's device key file is not `0600` on Windows.** Node
+   synthesizes `mode` there — a writable file reports `0o666` whatever
+   `writeFile` was given, and `chmod` only toggles read-only. The mode
+   we pass is ignored; the ACL inherited from the user profile is what
+   protects it. Worse, the "warn if widened" check would have fired on
+   every Windows start and claimed to fix something it had not.
+
+   Found by a test asserting `0600` and failing. `docs/security.md`
+   §3.4 now states it, and the tests are platform-specific in both
+   directions — Windows asserts the mode is *not* what protects the
+   key, so nobody deletes the awkward assertion and restores a false
+   one.
+
+   Open: hardening it with an explicit ACL (`icacls`). Worth doing,
+   not done — it means spawning a process from the startup path, which
+   deserves its own change.
+
 ## 7. What this does not cover
 
 Installers, a tray app, auto-start, and code signing are distribution,

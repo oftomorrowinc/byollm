@@ -48,11 +48,29 @@ describe("first run", () => {
     expect(second.createdAt).toBe(first.createdAt);
   });
 
-  it("writes the private key 0600", async () => {
-    await identity().load(NOW);
-    const mode = (await stat(join(dir, "keys.json"))).mode & 0o777;
-    expect(mode & 0o077).toBe(0);
-  });
+  it.skipIf(process.platform === "win32")(
+    "writes the private key 0600",
+    async () => {
+      await identity().load(NOW);
+      const mode = (await stat(join(dir, "keys.json"))).mode & 0o777;
+      expect(mode & 0o077).toBe(0);
+    },
+  );
+
+  it.runIf(process.platform === "win32")(
+    "on Windows, records that the mode is not what protects the key",
+    async () => {
+      // Node synthesizes `mode` on Windows: a writable file reports 0o666
+      // whatever `writeFile` was given, and `chmod` only toggles read-only.
+      // So the 0600 above is not a protection there — the file is protected
+      // by the ACLs it inherits from the user profile directory, which is a
+      // weaker and less visible guarantee. Asserting the POSIX bits would
+      // have quietly claimed otherwise. See docs/security.md §3.4.
+      await identity().load(NOW);
+      const mode = (await stat(join(dir, "keys.json"))).mode & 0o777;
+      expect(mode & 0o077).not.toBe(0);
+    },
+  );
 
   it("does not lose a race between two daemons starting at once", async () => {
     // `wx` means the loser reads the winner's file rather than overwriting a
@@ -93,26 +111,50 @@ describe("a damaged key file is not silently replaced", () => {
 });
 
 describe("permissions are re-checked, not assumed", () => {
-  it("tightens and warns when the file has been widened", async () => {
-    await identity().load(NOW);
-    // A restore from backup, a careless chmod -R, a synced folder.
-    await chmod(join(dir, "keys.json"), 0o644);
-
-    const warnings: string[] = [];
-    const original = process.stderr.write.bind(process.stderr);
-    process.stderr.write = (chunk: unknown): boolean => {
-      warnings.push(typeof chunk === "string" ? chunk : String(chunk));
-      return true;
-    };
-    try {
+  it.skipIf(process.platform === "win32")(
+    "tightens and warns when the file has been widened",
+    async () => {
       await identity().load(NOW);
-    } finally {
-      process.stderr.write = original;
-    }
+      // A restore from backup, a careless chmod -R, a synced folder.
+      await chmod(join(dir, "keys.json"), 0o644);
 
-    expect(warnings.join("")).toMatch(/readable by other users/);
-    expect((await stat(join(dir, "keys.json"))).mode & 0o077).toBe(0);
-  });
+      const warnings: string[] = [];
+      const original = process.stderr.write.bind(process.stderr);
+      process.stderr.write = (chunk: unknown): boolean => {
+        warnings.push(typeof chunk === "string" ? chunk : String(chunk));
+        return true;
+      };
+      try {
+        await identity().load(NOW);
+      } finally {
+        process.stderr.write = original;
+      }
+
+      expect(warnings.join("")).toMatch(/readable by other users/);
+      expect((await stat(join(dir, "keys.json"))).mode & 0o077).toBe(0);
+    },
+  );
+
+  it.runIf(process.platform === "win32")(
+    "on Windows, says nothing rather than warning on every start",
+    async () => {
+      // The check is skipped there because it would fire every time and
+      // claim to have fixed something it had not.
+      await identity().load(NOW);
+      const warnings: string[] = [];
+      const original = process.stderr.write.bind(process.stderr);
+      process.stderr.write = (chunk: unknown): boolean => {
+        warnings.push(typeof chunk === "string" ? chunk : String(chunk));
+        return true;
+      };
+      try {
+        await identity().load(NOW);
+      } finally {
+        process.stderr.write = original;
+      }
+      expect(warnings.join("")).not.toMatch(/readable by other users/);
+    },
+  );
 });
 
 describe("signing with the device key", () => {

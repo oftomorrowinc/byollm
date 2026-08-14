@@ -37,6 +37,15 @@ export type ClientErrorKind =
    * looking at their network.
    */
   | "version-unsupported"
+  /**
+   * The upstream holds this job for us but has no payload to give yet.
+   *
+   * Only reachable off the direct plane. A direct site seals when asked,
+   * because it holds the keys; a relay must wait for the site to seal to the
+   * device that claimed — so "not yet" is a normal answer there, and treating
+   * it as a refusal drops work the daemon legitimately still holds.
+   */
+  | "not-ready"
   | "rate-limited"
   | "server-error"
   | "malformed-response";
@@ -56,6 +65,7 @@ export class ClientError extends Error {
   get retryable(): boolean {
     return (
       this.kind === "unreachable" ||
+      this.kind === "not-ready" ||
       this.kind === "rate-limited" ||
       this.kind === "server-error"
     );
@@ -332,6 +342,8 @@ export class ProtocolClient {
         return new ClientError("unauthorized", message, retryAfter);
       case 403:
         return new ClientError("revoked", message, retryAfter);
+      case 409:
+        return new ClientError("not-ready", message, retryAfter);
       case 429:
         return new ClientError("rate-limited", message, retryAfter);
       case 400:

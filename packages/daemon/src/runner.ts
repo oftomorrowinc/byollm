@@ -535,11 +535,8 @@ export class Runner {
     // payload arrive (byollm_009 §6). A daemon that declines on its own
     // allowlist never receives the prompt at all — which was not true when
     // the payload rode along with the claim.
-    const fetched = await this.#options.client.fetch({
-      runnerId: this.#options.runnerId,
-      jobId: job.id,
-      leaseId: job.lease.id,
-    });
+    const fetched = await this.#fetchWhenSealed(job);
+    if (!fetched) return;
     const payload = await this.#openPayload(job, fetched.envelope);
 
     const route = this.#routeFor(job.kind);
@@ -599,6 +596,55 @@ export class Runner {
         direction: "result",
       },
     });
+  }
+
+  /**
+   * Collect the payload, waiting if the upstream does not have it yet.
+   *
+   * On the direct plane this always succeeds first time: the site *is* the
+   * upstream, so it seals when asked. Through a relay the two are different
+   * parties — the site must be told which device claimed before it can seal to
+   * it — and `not-ready` is a normal answer for as long as that takes.
+   *
+   * Discovered by the skeleton relay, which is the reason it exists: the
+   * original claim-then-fetch had no wait here, so the first relayed job was
+   * claimed, refused with a 409 the daemon treated as a rejection, and
+   * abandoned while still holding a perfectly good lease.
+   *
+   * Bounded, and by the lease rather than by a retry count: waiting past our
+   * own lease means racing whoever gets the job next. Returning `null` gives
+   * the job up quietly — the upstream's `awaiting-payload` timer will requeue
+   * it, and the stub was never lost.
+   */
+  async #fetchWhenSealed(
+    job: ClaimedStub,
+  ): Promise<{ envelope: SealedEnvelope } | null> {
+    const deadline = Math.min(job.lease.expiresAt, this.#now() + 30_000);
+    let delay = 50;
+    for (;;) {
+      try {
+        return await this.#options.client.fetch({
+          runnerId: this.#options.runnerId,
+          jobId: job.id,
+          leaseId: job.lease.id,
+        });
+      } catch (error) {
+        const notReady =
+          error instanceof ClientError && error.kind === "not-ready";
+        if (!notReady) throw error;
+        if (this.#now() + delay >= deadline) {
+          this.#options.onEvent?.({
+            type: "error",
+            message: `gave up waiting for the payload of ${job.id}`,
+          });
+          return null;
+        }
+        await new Promise((resolve) => setTimeout(resolve, delay));
+        // Backs off, but stays responsive: a site that is merely slow should
+        // not cost the whole lease, and one that is gone is not worth polling.
+        delay = Math.min(delay * 2, 1_000);
+      }
+    }
   }
 
   /**

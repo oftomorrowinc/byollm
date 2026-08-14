@@ -1,10 +1,23 @@
 {
   "files": [],
   "references": [
-    { "path": "./packages/protocol" },
-    { "path": "./packages/server" },
-    { "path": "./packages/daemon" },
-    { "path": "./packages/conformance" },
-    { "path": "./examples/demo" }
+    {
+      "path": "./packages/protocol"
+    },
+    {
+      "path": "./packages/relay"
+    },
+    {
+      "path": "./packages/server"
+    },
+    {
+      "path": "./packages/daemon"
+    },
+    {
+      "path": "./packages/conformance"
+    },
+    {
+      "path": "./examples/demo"
+    }
   ]
 }

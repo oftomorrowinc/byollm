@@ -13,6 +13,9 @@ const sourceAliases = {
   "@byollm/server": fileURLToPath(
     new URL("./packages/server/src/index.ts", import.meta.url),
   ),
+  "@byollm/relay": fileURLToPath(
+    new URL("./packages/relay/src/index.ts", import.meta.url),
+  ),
   byollm: fileURLToPath(
     new URL("./packages/daemon/src/index.ts", import.meta.url),
   ),
@@ -50,6 +53,16 @@ export default defineConfig({
         test: {
           name: "conformance",
           include: ["packages/conformance/test/**/*.test.ts"],
+          environment: "node",
+          testTimeout: 60_000,
+          hookTimeout: 60_000,
+        },
+      },
+      {
+        resolve: { alias: sourceAliases },
+        test: {
+          name: "relay",
+          include: ["packages/relay/test/**/*.test.ts"],
           environment: "node",
           testTimeout: 60_000,
           hookTimeout: 60_000,

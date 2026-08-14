@@ -1,4 +1,9 @@
-import { generateKeys, publicIdentityOf } from "@byollm/protocol";
+import {
+  generateKeys,
+  publicIdentityOf,
+  signRequest,
+  verifyRequest,
+} from "@byollm/protocol";
 import { describe, expect, it } from "vitest";
 import { ClientError, ProtocolClient } from "./client.js";
 import { connect } from "./connect.js";
@@ -6,6 +11,18 @@ import { Pairings } from "./pairings.js";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+
+/** A daemon identity for tests: real keys, signing the real canonical form. */
+const TEST_KEYS = generateKeys(1_800_000_000_000);
+const TEST_SIGNER = {
+  runnerId: "runner_1",
+  sign: (input: {
+    endpoint: string;
+    runnerId: string;
+    issuedAt: number;
+    body: string;
+  }) => signRequest(TEST_KEYS, input).signature,
+};
 
 /** A fetch that answers with a fixed status and body. */
 function fetchReturning(
@@ -115,7 +132,7 @@ describe("ProtocolClient — the four truths never share a message", () => {
 });
 
 describe("ProtocolClient — request shape", () => {
-  it("sends the bearer token and never listens for anything", async () => {
+  it("signs the request and never listens for anything", async () => {
     let seen: Request | undefined;
     const capture: typeof fetch = (input, init) => {
       seen = new Request(input, init);
@@ -128,13 +145,38 @@ describe("ProtocolClient — request shape", () => {
 
     await new ProtocolClient({
       origin: "https://app.test/",
-      token: "secret-token",
+      identity: TEST_SIGNER,
       fetch: capture,
     }).release({ runnerId: "r", jobIds: ["j"], reason: "shutdown" });
 
     expect(seen?.url).toBe("https://app.test/byollm/release");
     expect(seen?.method).toBe("POST");
-    expect(seen?.headers.get("authorization")).toBe("Bearer secret-token");
+
+    // A signature over the exact bytes sent, not a bearer secret. Possession
+    // of a file no longer grants access; possession of a key does.
+    expect(seen?.headers.get("authorization")).toBeNull();
+    expect(seen?.headers.get("x-byollm-runner")).toBe("runner_1");
+    expect(seen?.headers.get("x-byollm-signature")).toBeTruthy();
+
+    const issuedAt = Number(seen?.headers.get("x-byollm-issued-at"));
+    expect(Number.isFinite(issuedAt)).toBe(true);
+
+    // And it verifies over the body actually transmitted — the point of
+    // serialising once rather than re-stringifying to sign.
+    const body = await seen!.text();
+    expect(
+      verifyRequest({
+        identityPublic: TEST_KEYS.identityPublic,
+        endpoint: "release",
+        body,
+        signature: {
+          runnerId: "runner_1",
+          issuedAt,
+          signature: seen!.headers.get("x-byollm-signature")!,
+        },
+        now: issuedAt,
+      }),
+    ).toBe(null);
   });
 
   it("normalises a trailing slash on the origin", () => {
@@ -144,10 +186,10 @@ describe("ProtocolClient — request shape", () => {
   });
 
   it("carries a token onto a derived client", () => {
-    const withToken = new ProtocolClient({
+    const signing = new ProtocolClient({
       origin: "https://app.test",
-    }).withToken("t");
-    expect(withToken.origin).toBe("https://app.test");
+    }).withIdentity(TEST_SIGNER);
+    expect(signing.origin).toBe("https://app.test");
   });
 });
 

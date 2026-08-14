@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   PROTOCOL_VERSION,
+  type StoredKeys,
   type Capability,
   type ClaimedJob,
 } from "@byollm/protocol";
@@ -97,6 +98,8 @@ export interface HarnessDaemon {
   readonly owner: string;
   /** The runner token, for checks that drive the protocol wire directly. */
   readonly token: string;
+  /** This daemon's keys, so a check can sign as it — or deliberately not. */
+  readonly keys: StoredKeys;
   readonly home: string;
   readonly ingress: IngressLog;
   /** The owner's spend ledger, so a check can drive it past its ceiling. */
@@ -301,7 +304,12 @@ export async function pairDaemon(
   const runner = new Runner({
     client: new ProtocolClient({
       origin: target.origin,
-      token: result.pairing.token,
+      // The harness signs exactly as a daemon does, so certification
+      // exercises the real verification path.
+      identity: {
+        runnerId: result.pairing.runnerId,
+        sign: (input) => deviceIdentity.signRequest(input),
+      },
       fetch: fetchImpl,
     }),
     runnerId: result.pairing.runnerId,
@@ -322,6 +330,7 @@ export async function pairDaemon(
     runnerId: result.pairing.runnerId,
     owner: result.pairing.owner,
     token: result.pairing.token,
+    keys: await deviceIdentity.load(Date.now()),
     home,
     ingress,
     spend,

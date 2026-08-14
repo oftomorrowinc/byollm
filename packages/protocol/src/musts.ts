@@ -120,6 +120,17 @@ export const MUSTS = Object.freeze({
     verifiedBy: "conformance",
     source: "byollm_009 §5",
   }),
+  REQUESTS_SIGNED_NOT_BEARER: must({
+    id: "REQUESTS_SIGNED_NOT_BEARER",
+    statement:
+      "Every authenticated request MUST be signed by the calling device's " +
+      "pinned identity key, over the endpoint, the runner id, a timestamp " +
+      "and the exact request body. A server MUST NOT accept a bearer " +
+      "credential in place of a signature.",
+    enforcedBy: "both",
+    verifiedBy: "conformance",
+    source: "byollm_009 §4.2",
+  }),
   KIND_TYPED_ONLY: must({
     id: "KIND_TYPED_ONLY",
     statement:

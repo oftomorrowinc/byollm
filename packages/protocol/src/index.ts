@@ -73,6 +73,15 @@ export {
 } from "./job.js";
 
 export {
+  MAX_CLOCK_SKEW_MS,
+  RequestSignature,
+  canonicalRequest,
+  signRequest,
+  verifyRequest,
+  type SignatureFailure,
+} from "./signing.js";
+
+export {
   PublicIdentity,
   StoredKeys,
   fingerprint,

@@ -28,7 +28,11 @@ const SITE_KEYS = generateSiteKeys();
  * target's `leaseMs` and `ttlMs` are short enough to be waited on either way.
  */
 class Clock {
-  #now = 1_800_000_000_000;
+  // Starts at the real clock, not a fictional epoch. Signed requests carry a
+  // timestamp the server checks against its own clock (byollm_009 §4.2), so a
+  // target whose clock sits five months from the daemon's rejects everything
+  // as stale — which is exactly what a real server with a wrong clock does.
+  #now = Date.now();
   now = (): number => this.#now;
   advance(ms: number): void {
     this.#now += ms;

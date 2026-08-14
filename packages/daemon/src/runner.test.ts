@@ -1,3 +1,4 @@
+import { generateKeys, signRequest } from "@byollm/protocol";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -16,6 +17,18 @@ import { DaemonConfig, resolveConfig } from "./config.js";
 import { IngressLog } from "./ingress.js";
 import { SpendLedger } from "./spend.js";
 import { Runner } from "./runner.js";
+
+/** A daemon identity for tests: real keys, signing the real canonical form. */
+const TEST_KEYS = generateKeys(1_800_000_000_000);
+const TEST_SIGNER = {
+  runnerId: "runner_1",
+  sign: (input: {
+    endpoint: string;
+    runnerId: string;
+    issuedAt: number;
+    body: string;
+  }) => signRequest(TEST_KEYS, input).signature,
+};
 
 /** A backend that records what it was asked to run. */
 class SpyBackend implements Backend {
@@ -110,7 +123,10 @@ async function makeRunner(
   });
 
   const runner = new Runner({
-    client: new ProtocolClient({ origin: "https://app.test", token: "t" }),
+    client: new ProtocolClient({
+      origin: "https://app.test",
+      identity: TEST_SIGNER,
+    }),
     runnerId: "runner_1",
     owner: options.owner ?? "me",
     daemonVersion: "0.0.0",

@@ -104,9 +104,33 @@ Runs on every connection, cheap enough to run on every reconnect.
    structured refusal naming a minimum and a human-readable fix.
    `VERSION_HANDSHAKE_REQUIRED`: no versionless connection is accepted,
    in either direction.
-2. **Challenge auth.** The upstream issues a nonce; the daemon signs it
-   with its device key. No passwords, no bearer tokens on the daemon
-   plane. Replay is bounded by nonce single-use and a short window.
+2. **Challenge auth.** No passwords, no bearer tokens on the daemon
+   plane: the daemon proves possession of its device key.
+
+   **Amended in implementation (2026-08-14).** This first said the
+   upstream issues a nonce and the daemon signs it. Building it showed
+   that costs one of two things — a round trip before every request, or
+   server-side session state — and a session token is a bearer
+   credential, which is the thing being removed.
+
+   So the daemon signs **the request itself**: endpoint, runner id,
+   timestamp, and a hash of the exact body, verified against the
+   identity pinned at consent. A captured signature is valid only for
+   the request it covers, and every authenticated endpoint here is
+   already idempotent — `RESULT_IDEMPOTENT` makes a replayed result a
+   no-op, a replayed claim returns what that runner already holds — so
+   a replay inside the freshness window gains an attacker nothing they
+   could not get by forwarding the original, which a relay can do
+   anyway.
+
+   That argument rests entirely on the endpoints being idempotent. **A
+   future endpoint that is not idempotent cannot use this scheme
+   unchanged**; it needs a server-issued nonce.
+
+   Freshness is bounded in both directions by a clock-skew window,
+   which couples a daemon's clock to its upstream's: a server whose
+   clock is wrong by more than the window refuses every daemon, and
+   says only that the signature is invalid.
 3. **Capability declaration — effective offers only.** The daemon
    declares kind, model, cost class and *effective* offer scope, with
    consent already applied locally. `EFFECTIVE_OFFER_ONLY`: an upstream

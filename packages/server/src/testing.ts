@@ -1,8 +1,14 @@
 import type { Capability } from "@byollm/protocol";
 import { ByollmApp } from "./app.js";
-import { generateKeys, publicIdentityOf } from "@byollm/protocol";
+import {
+  generateKeys,
+  publicIdentityOf,
+  signRequest,
+  type Endpoint,
+  type StoredKeys,
+} from "@byollm/protocol";
 import { generateSiteKeys } from "./keys.js";
-import { ByollmHandlers } from "./handlers.js";
+import { type HandlerResult, ByollmHandlers } from "./handlers.js";
 import { MemoryStore } from "./memory.js";
 
 /**
@@ -78,12 +84,32 @@ export interface Harness {
   readonly store: MemoryStore;
   readonly app: ByollmApp;
   readonly handlers: ByollmHandlers;
-  /** Pair a daemon end to end and return its bearer token and ids. */
+  /** Pair a daemon end to end and return its ids and signing keys. */
   pair(args?: {
     owner?: string;
     label?: string;
     capabilities?: Capability[];
-  }): Promise<{ token: string; runnerId: string; owner: string }>;
+  }): Promise<PairedRunner>;
+  /**
+   * Call an authenticated endpoint as a paired runner would — signed.
+   *
+   * Tests go through the real verification path rather than a bypass, so a
+   * change that breaks signing breaks the tests rather than being papered
+   * over by a harness that skips it.
+   */
+  call(
+    endpoint: Endpoint,
+    body: Record<string, unknown>,
+    runner: PairedRunner,
+  ): Promise<HandlerResult>;
+}
+
+/** A paired daemon, with what it needs to sign. */
+export interface PairedRunner {
+  readonly token: string;
+  readonly runnerId: string;
+  readonly owner: string;
+  readonly keys: StoredKeys;
 }
 
 /**
@@ -119,14 +145,25 @@ export function createHarness(
     ...(options.leaseMs === undefined ? {} : { leaseMs: options.leaseMs }),
   });
 
+  /** `pair` carries no signature: it is how a machine gets an identity. */
+  const UNAUTHENTICATED = {
+    endpoint: "pair",
+    rawBody: "",
+    signature: undefined,
+  };
+
   async function pair(
     args: {
       owner?: string;
       label?: string;
       capabilities?: Capability[];
     } = {},
-  ): Promise<{ token: string; runnerId: string; owner: string }> {
+  ): Promise<PairedRunner> {
     const owner = args.owner ?? "alice";
+    // A real keypair per simulated daemon: the harness signs exactly the way
+    // a daemon does, so the tests exercise the real verification path rather
+    // than a bypass.
+    const deviceKeys = generateKeys(clock.now());
     const start = await handlers.handle(
       "pair",
       {
@@ -139,10 +176,10 @@ export function createHarness(
         },
         // Every simulated daemon gets its own identity, so a test with two
         // runners is a test with two machines.
-        device: publicIdentityOf(generateKeys(Date.now())),
+        device: publicIdentityOf(deviceKeys),
         capabilities: args.capabilities ?? httpCapabilities(),
       },
-      undefined,
+      UNAUTHENTICATED,
     );
     const started = start.body as { deviceCode: string; userCode: string };
     await app.approvePairing({ userCode: started.userCode, owner });
@@ -154,7 +191,7 @@ export function createHarness(
         action: "poll",
         deviceCode: started.deviceCode,
       },
-      undefined,
+      UNAUTHENTICATED,
     );
     const approved = poll.body as {
       status: string;
@@ -168,8 +205,28 @@ export function createHarness(
       token: approved.runnerToken,
       runnerId: approved.runnerId,
       owner,
+      keys: deviceKeys,
     };
   }
 
-  return { clock, store, app, handlers, pair };
+  /** Call an authenticated endpoint as this runner would: signed. */
+  async function call(
+    endpoint: Endpoint,
+    body: Record<string, unknown>,
+    runner: { runnerId: string; keys: StoredKeys },
+  ): Promise<HandlerResult> {
+    const rawBody = JSON.stringify(body);
+    return handlers.handle(endpoint, body, {
+      endpoint,
+      rawBody,
+      signature: signRequest(runner.keys, {
+        endpoint,
+        runnerId: runner.runnerId,
+        issuedAt: clock.now(),
+        body: rawBody,
+      }),
+    });
+  }
+
+  return { clock, store, app, handlers, pair, call };
 }

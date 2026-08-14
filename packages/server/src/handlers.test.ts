@@ -4,6 +4,7 @@ import {
   createHarness,
   httpCapabilities,
   subscriptionCapabilities,
+  type PairedRunner,
 } from "./testing.js";
 
 const claim = (runnerId: string, caps = httpCapabilities()) => ({
@@ -25,7 +26,11 @@ describe("pairing [PAIR_INTERACTIVE, PAIR_ONE_USER]", () => {
         daemon: { version: "0.1.0", label: "mbp", platform: "darwin" },
         capabilities: httpCapabilities(),
       },
-      undefined,
+      {
+        endpoint: "pair",
+        rawBody: "",
+        signature: undefined,
+      },
     );
     const { deviceCode, userCode } = start.body as {
       deviceCode: string;
@@ -36,7 +41,11 @@ describe("pairing [PAIR_INTERACTIVE, PAIR_ONE_USER]", () => {
     const pending = await h.handlers.handle(
       "pair",
       { protocolVersion: "0", action: "poll", deviceCode },
-      undefined,
+      {
+        endpoint: "pair",
+        rawBody: "",
+        signature: undefined,
+      },
     );
     expect(pending.body).toEqual({ status: "pending" });
 
@@ -45,7 +54,11 @@ describe("pairing [PAIR_INTERACTIVE, PAIR_ONE_USER]", () => {
     const approved = await h.handlers.handle(
       "pair",
       { protocolVersion: "0", action: "poll", deviceCode },
-      undefined,
+      {
+        endpoint: "pair",
+        rawBody: "",
+        signature: undefined,
+      },
     );
     expect(approved.body).toMatchObject({ status: "approved", owner: "alice" });
   });
@@ -71,7 +84,11 @@ describe("pairing [PAIR_INTERACTIVE, PAIR_ONE_USER]", () => {
         daemon: { version: "0.1.0", label: "mbp", platform: "darwin" },
         capabilities: httpCapabilities(),
       },
-      undefined,
+      {
+        endpoint: "pair",
+        rawBody: "",
+        signature: undefined,
+      },
     );
     const { deviceCode, userCode } = start.body as {
       deviceCode: string;
@@ -82,7 +99,11 @@ describe("pairing [PAIR_INTERACTIVE, PAIR_ONE_USER]", () => {
     const first = await h.handlers.handle(
       "pair",
       { protocolVersion: "0", action: "poll", deviceCode },
-      undefined,
+      {
+        endpoint: "pair",
+        rawBody: "",
+        signature: undefined,
+      },
     );
     expect((first.body as { status: string }).status).toBe("approved");
 
@@ -90,7 +111,11 @@ describe("pairing [PAIR_INTERACTIVE, PAIR_ONE_USER]", () => {
     const replay = await h.handlers.handle(
       "pair",
       { protocolVersion: "0", action: "poll", deviceCode },
-      undefined,
+      {
+        endpoint: "pair",
+        rawBody: "",
+        signature: undefined,
+      },
     );
     expect(replay.status).toBe(404);
   });
@@ -106,7 +131,11 @@ describe("pairing [PAIR_INTERACTIVE, PAIR_ONE_USER]", () => {
         daemon: { version: "0.1.0", label: "mbp", platform: "darwin" },
         capabilities: httpCapabilities(),
       },
-      undefined,
+      {
+        endpoint: "pair",
+        rawBody: "",
+        signature: undefined,
+      },
     );
     const { deviceCode, userCode } = start.body as {
       deviceCode: string;
@@ -118,7 +147,11 @@ describe("pairing [PAIR_INTERACTIVE, PAIR_ONE_USER]", () => {
     const polled = await h.handlers.handle(
       "pair",
       { protocolVersion: "0", action: "poll", deviceCode },
-      undefined,
+      {
+        endpoint: "pair",
+        rawBody: "",
+        signature: undefined,
+      },
     );
     expect(polled.body).toEqual({ status: "expired" });
 
@@ -139,7 +172,11 @@ describe("pairing [PAIR_INTERACTIVE, PAIR_ONE_USER]", () => {
         daemon: { version: "0.1.0", label: "mbp", platform: "darwin" },
         capabilities: httpCapabilities(),
       },
-      undefined,
+      {
+        endpoint: "pair",
+        rawBody: "",
+        signature: undefined,
+      },
     );
     const { userCode } = start.body as { userCode: string };
     const mangled = userCode.toLowerCase().replace("-", " ");
@@ -158,21 +195,38 @@ describe("authentication", () => {
       "result",
       "release",
     ] as const) {
-      const res = await h.handlers.handle(endpoint, {}, undefined);
+      const res = await h.handlers.handle(
+        endpoint,
+        {},
+        {
+          endpoint: endpoint,
+          rawBody: "",
+          signature: undefined,
+        },
+      );
       expect(res.status, endpoint).toBe(401);
     }
   });
 
-  it("refuses a token it does not recognise", async () => {
+  it("refuses a runner it does not recognise", async () => {
     const h = createHarness();
-    const res = await h.handlers.handle("claim", {}, "not-a-real-token");
+    // A well-formed signature from a key nobody paired. The signature checks
+    // out against itself and against nothing the server pinned, which is the
+    // point: authentication is against a *stored* identity.
+    const stranger = {
+      token: "",
+      runnerId: "runner_nobody_paired",
+      owner: "nobody",
+      keys: generateKeys(Date.now()),
+    };
+    const res = await h.call("claim", {}, stranger);
     expect(res.status).toBe(401);
   });
 
   it("refuses a runnerId that does not match the bearer token", async () => {
     const h = createHarness();
     const alice = await h.pair({ owner: "alice" });
-    const res = await h.handlers.handle(
+    const res = await h.call(
       "claim",
       {
         protocolVersion: "0",
@@ -180,15 +234,15 @@ describe("authentication", () => {
         capabilities: httpCapabilities(),
         max: 1,
       },
-      alice.token,
+      alice,
     );
     expect(res.status).toBe(401);
   });
 
   it("rejects a body that fails schema validation", async () => {
     const h = createHarness();
-    const { token } = await h.pair();
-    const res = await h.handlers.handle("claim", { nope: true }, token);
+    const runner = await h.pair();
+    const res = await h.call("claim", { nope: true }, runner);
     expect(res.status).toBe(400);
   });
 });
@@ -203,11 +257,7 @@ describe("claim [CLAIM_REQUIRES_CAPABILITY, CLAIM_ATOMIC]", () => {
       owner: "alice",
     });
 
-    const res = await h.handlers.handle(
-      "claim",
-      claim(runner.runnerId),
-      runner.token,
-    );
+    const res = await h.call("claim", claim(runner.runnerId), runner);
     const body = res.body as { jobs: { id: string }[]; leaseMs: number };
     expect(body.jobs).toHaveLength(1);
     expect(body.leaseMs).toBeGreaterThan(0);
@@ -224,7 +274,7 @@ describe("claim [CLAIM_REQUIRES_CAPABILITY, CLAIM_ATOMIC]", () => {
 
     // The daemon paired advertising both kinds but now offers only generate —
     // the stored matrix must not be what the server matches on.
-    const res = await h.handlers.handle(
+    const res = await h.call(
       "claim",
       {
         protocolVersion: "0",
@@ -232,7 +282,7 @@ describe("claim [CLAIM_REQUIRES_CAPABILITY, CLAIM_ATOMIC]", () => {
         capabilities: [httpCapabilities()[0]!],
         max: 4,
       },
-      runner.token,
+      runner,
     );
     expect((res.body as { jobs: unknown[] }).jobs).toHaveLength(0);
   });
@@ -248,8 +298,8 @@ describe("claim [CLAIM_REQUIRES_CAPABILITY, CLAIM_ATOMIC]", () => {
     });
 
     const [a, b] = await Promise.all([
-      h.handlers.handle("claim", claim(one.runnerId), one.token),
-      h.handlers.handle("claim", claim(two.runnerId), two.token),
+      h.call("claim", claim(one.runnerId), one),
+      h.call("claim", claim(two.runnerId), two),
     ]);
     const total =
       (a.body as { jobs: unknown[] }).jobs.length +
@@ -260,11 +310,7 @@ describe("claim [CLAIM_REQUIRES_CAPABILITY, CLAIM_ATOMIC]", () => {
   it("returns an empty list — not an error — when there is no matching work", async () => {
     const h = createHarness();
     const runner = await h.pair();
-    const res = await h.handlers.handle(
-      "claim",
-      claim(runner.runnerId),
-      runner.token,
-    );
+    const res = await h.call("claim", claim(runner.runnerId), runner);
     expect(res.status).toBe(200);
     expect((res.body as { jobs: unknown[] }).jobs).toEqual([]);
   });
@@ -281,11 +327,7 @@ describe("audience enforcement on the server [AUDIENCE_BOTH_SIDES]", () => {
       audience: "self",
     });
 
-    const res = await h.handlers.handle(
-      "claim",
-      claim(bob.runnerId),
-      bob.token,
-    );
+    const res = await h.call("claim", claim(bob.runnerId), bob);
     expect((res.body as { jobs: unknown[] }).jobs).toHaveLength(0);
   });
 
@@ -304,7 +346,7 @@ describe("audience enforcement on the server [AUDIENCE_BOTH_SIDES]", () => {
       audience: "public",
     });
 
-    const res = await h.handlers.handle(
+    const res = await h.call(
       "claim",
       {
         protocolVersion: "0",
@@ -312,7 +354,7 @@ describe("audience enforcement on the server [AUDIENCE_BOTH_SIDES]", () => {
         capabilities: subscriptionCapabilities("public"),
         max: 4,
       },
-      bob.token,
+      bob,
     );
     expect((res.body as { jobs: unknown[] }).jobs).toHaveLength(0);
   });
@@ -330,7 +372,7 @@ describe("audience enforcement on the server [AUDIENCE_BOTH_SIDES]", () => {
       audience: "public",
     });
 
-    const res = await h.handlers.handle(
+    const res = await h.call(
       "claim",
       {
         protocolVersion: "0",
@@ -338,7 +380,7 @@ describe("audience enforcement on the server [AUDIENCE_BOTH_SIDES]", () => {
         capabilities: httpCapabilities("public"),
         max: 4,
       },
-      bob.token,
+      bob,
     );
     expect((res.body as { jobs: unknown[] }).jobs).toHaveLength(1);
   });
@@ -357,7 +399,7 @@ describe("audience enforcement on the server [AUDIENCE_BOTH_SIDES]", () => {
       audienceAllow: ["carol"],
     });
 
-    const res = await h.handlers.handle(
+    const res = await h.call(
       "claim",
       {
         protocolVersion: "0",
@@ -365,7 +407,7 @@ describe("audience enforcement on the server [AUDIENCE_BOTH_SIDES]", () => {
         capabilities: httpCapabilities("public"),
         max: 4,
       },
-      bob.token,
+      bob,
     );
     expect((res.body as { jobs: unknown[] }).jobs).toHaveLength(0);
   });
@@ -380,10 +422,10 @@ describe("heartbeat", () => {
       payload: { prompt: "hi" },
       owner: "alice",
     });
-    await h.handlers.handle("claim", claim(runner.runnerId), runner.token);
+    await h.call("claim", claim(runner.runnerId), runner);
 
     h.clock.advance(30_000);
-    const res = await h.handlers.handle(
+    const res = await h.call(
       "heartbeat",
       {
         protocolVersion: "0",
@@ -393,7 +435,7 @@ describe("heartbeat", () => {
         activeJobIds: [handle.id],
         paused: false,
       },
-      runner.token,
+      runner,
     );
     const body = res.body as {
       leases: { jobId: string; expiresAt: number }[];
@@ -411,11 +453,11 @@ describe("heartbeat", () => {
       payload: { prompt: "hi" },
       owner: "alice",
     });
-    await h.handlers.handle("claim", claim(runner.runnerId), runner.token);
+    await h.call("claim", claim(runner.runnerId), runner);
 
     // The daemon went away for longer than its lease.
     h.clock.advance(11_000);
-    const res = await h.handlers.handle(
+    const res = await h.call(
       "heartbeat",
       {
         protocolVersion: "0",
@@ -425,7 +467,7 @@ describe("heartbeat", () => {
         activeJobIds: [handle.id],
         paused: false,
       },
-      runner.token,
+      runner,
     );
     expect((res.body as { lost: string[] }).lost).toEqual([handle.id]);
   });
@@ -435,7 +477,7 @@ describe("heartbeat", () => {
     const runner = await h.pair();
     await h.app.revokeRunner(runner.runnerId);
 
-    const res = await h.handlers.handle(
+    const res = await h.call(
       "heartbeat",
       {
         protocolVersion: "0",
@@ -445,7 +487,7 @@ describe("heartbeat", () => {
         activeJobIds: [],
         paused: false,
       },
-      runner.token,
+      runner,
     );
     expect(res.status).toBe(200);
     expect((res.body as { revoked: boolean }).revoked).toBe(true);
@@ -456,11 +498,7 @@ describe("heartbeat", () => {
     const runner = await h.pair();
     await h.app.revokeRunner(runner.runnerId);
 
-    const res = await h.handlers.handle(
-      "claim",
-      claim(runner.runnerId),
-      runner.token,
-    );
+    const res = await h.call("claim", claim(runner.runnerId), runner);
     expect(res.status).toBe(403);
     expect((res.body as { error: string }).error).toBe("revoked");
   });
@@ -473,11 +511,11 @@ describe("heartbeat", () => {
       payload: { prompt: "hi" },
       owner: "alice",
     });
-    await h.handlers.handle("claim", claim(runner.runnerId), runner.token);
+    await h.call("claim", claim(runner.runnerId), runner);
 
     await h.app.cancel(handle.id);
 
-    const res = await h.handlers.handle(
+    const res = await h.call(
       "heartbeat",
       {
         protocolVersion: "0",
@@ -487,7 +525,7 @@ describe("heartbeat", () => {
         activeJobIds: [handle.id],
         paused: false,
       },
-      runner.token,
+      runner,
     );
     expect((res.body as { cancel: string[] }).cancel).toEqual([handle.id]);
   });
@@ -496,13 +534,9 @@ describe("heartbeat", () => {
 describe("result [RESULT_IDEMPOTENT, RESULT_PROVENANCE]", () => {
   async function claimOne(
     h: ReturnType<typeof createHarness>,
-    runner: { token: string; runnerId: string },
+    runner: PairedRunner,
   ) {
-    const res = await h.handlers.handle(
-      "claim",
-      claim(runner.runnerId),
-      runner.token,
-    );
+    const res = await h.call("claim", claim(runner.runnerId), runner);
     return (res.body as { jobs: { id: string }[] }).jobs[0]!;
   }
 
@@ -525,13 +559,13 @@ describe("result [RESULT_IDEMPOTENT, RESULT_PROVENANCE]", () => {
       backendClass: "http" as const,
       durationMs: 12,
     };
-    const first = await h.handlers.handle("result", body, runner.token);
+    const first = await h.call("result", body, runner);
     expect((first.body as { accepted: boolean }).accepted).toBe(true);
 
-    const second = await h.handlers.handle(
+    const second = await h.call(
       "result",
       { ...body, outcome: { outcome: "ok", text: "second" } },
-      runner.token,
+      runner,
     );
     expect((second.body as { accepted: boolean }).accepted).toBe(false);
 
@@ -549,7 +583,7 @@ describe("result [RESULT_IDEMPOTENT, RESULT_PROVENANCE]", () => {
       audience: "self",
     });
     await claimOne(h, alice);
-    await h.handlers.handle(
+    await h.call(
       "result",
       {
         protocolVersion: "0",
@@ -560,7 +594,7 @@ describe("result [RESULT_IDEMPOTENT, RESULT_PROVENANCE]", () => {
         backendClass: "http",
         durationMs: 1,
       },
-      alice.token,
+      alice,
     );
     expect((await h.app.result(selfJob.id))?.provenance?.untrusted).toBe(false);
 
@@ -574,7 +608,7 @@ describe("result [RESULT_IDEMPOTENT, RESULT_PROVENANCE]", () => {
       owner: "alice",
       audience: "public",
     });
-    const claimed = await h.handlers.handle(
+    const claimed = await h.call(
       "claim",
       {
         protocolVersion: "0",
@@ -582,11 +616,11 @@ describe("result [RESULT_IDEMPOTENT, RESULT_PROVENANCE]", () => {
         capabilities: httpCapabilities("public"),
         max: 4,
       },
-      bob.token,
+      bob,
     );
     expect((claimed.body as { jobs: unknown[] }).jobs).toHaveLength(1);
 
-    await h.handlers.handle(
+    await h.call(
       "result",
       {
         protocolVersion: "0",
@@ -597,7 +631,7 @@ describe("result [RESULT_IDEMPOTENT, RESULT_PROVENANCE]", () => {
         backendClass: "http",
         durationMs: 1,
       },
-      bob.token,
+      bob,
     );
     const delivered = await h.app.result(publicJob.id);
     expect(delivered?.provenance).toMatchObject({
@@ -620,7 +654,7 @@ describe("result [RESULT_IDEMPOTENT, RESULT_PROVENANCE]", () => {
     h.clock.advance(11_000);
     await h.app.sweep();
 
-    const res = await h.handlers.handle(
+    const res = await h.call(
       "result",
       {
         protocolVersion: "0",
@@ -631,7 +665,7 @@ describe("result [RESULT_IDEMPOTENT, RESULT_PROVENANCE]", () => {
         backendClass: "http",
         durationMs: 1,
       },
-      runner.token,
+      runner,
     );
     expect((res.body as { accepted: boolean }).accepted).toBe(false);
   });
@@ -639,7 +673,7 @@ describe("result [RESULT_IDEMPOTENT, RESULT_PROVENANCE]", () => {
   it("404s an unknown job", async () => {
     const h = createHarness();
     const runner = await h.pair();
-    const res = await h.handlers.handle(
+    const res = await h.call(
       "result",
       {
         protocolVersion: "0",
@@ -650,7 +684,7 @@ describe("result [RESULT_IDEMPOTENT, RESULT_PROVENANCE]", () => {
         backendClass: "http",
         durationMs: 1,
       },
-      runner.token,
+      runner,
     );
     expect(res.status).toBe(404);
   });
@@ -665,9 +699,9 @@ describe("release [REFUSAL_NOT_REOFFERED]", () => {
       payload: { prompt: "hi" },
       owner: "alice",
     });
-    await h.handlers.handle("claim", claim(runner.runnerId), runner.token);
+    await h.call("claim", claim(runner.runnerId), runner);
 
-    await h.handlers.handle(
+    await h.call(
       "release",
       {
         protocolVersion: "0",
@@ -675,16 +709,12 @@ describe("release [REFUSAL_NOT_REOFFERED]", () => {
         jobIds: [handle.id],
         reason: "shutdown",
       },
-      runner.token,
+      runner,
     );
     expect((await h.app.job(handle.id))?.state).toBe("queued");
 
     // Same runner may take it again — a shutdown is not a refusal.
-    const again = await h.handlers.handle(
-      "claim",
-      claim(runner.runnerId),
-      runner.token,
-    );
+    const again = await h.call("claim", claim(runner.runnerId), runner);
     expect((again.body as { jobs: unknown[] }).jobs).toHaveLength(1);
   });
 
@@ -702,15 +732,15 @@ describe("release [REFUSAL_NOT_REOFFERED]", () => {
     });
 
     const capabilities = httpCapabilities("public");
-    const first = await h.handlers.handle(
+    const first = await h.call(
       "claim",
       { protocolVersion: "0", runnerId: bob.runnerId, capabilities, max: 4 },
-      bob.token,
+      bob,
     );
     expect((first.body as { jobs: unknown[] }).jobs).toHaveLength(1);
 
     // Bob's local allowlist does not name alice, so his daemon declines.
-    await h.handlers.handle(
+    await h.call(
       "release",
       {
         protocolVersion: "0",
@@ -718,14 +748,14 @@ describe("release [REFUSAL_NOT_REOFFERED]", () => {
         jobIds: [handle.id],
         reason: "refused",
       },
-      bob.token,
+      bob,
     );
 
     // Without refusal tracking this would loop forever.
-    const second = await h.handlers.handle(
+    const second = await h.call(
       "claim",
       { protocolVersion: "0", runnerId: bob.runnerId, capabilities, max: 4 },
-      bob.token,
+      bob,
     );
     expect((second.body as { jobs: unknown[] }).jobs).toHaveLength(0);
     expect((await h.app.job(handle.id))?.state).toBe("queued");

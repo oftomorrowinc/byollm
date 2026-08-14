@@ -1,4 +1,6 @@
 import {
+  RequestSignature,
+  verifyRequest,
   publicIdentityOf,
   verifyPublicIdentity,
   type StoredKeys,
@@ -28,6 +30,19 @@ import type { RunnerRecord } from "./records.js";
 import type { ByollmStore } from "./store.js";
 
 /** Everything a mount needs to serve the protocol. */
+/**
+ * What a transport must hand the handler to authenticate a call.
+ *
+ * `rawBody` is the exact bytes received, not a re-serialisation of the parsed
+ * object: JSON.stringify does not round-trip byte-for-byte, and a signature
+ * over re-serialised input verifies something the sender never signed.
+ */
+export interface AuthContext {
+  readonly endpoint: string;
+  readonly rawBody: string;
+  readonly signature: unknown;
+}
+
 export interface HandlerConfig {
   readonly store: ByollmStore;
   /**
@@ -134,40 +149,35 @@ export class ByollmHandlers {
    *
    * @param endpoint - which of the five, already routed from the path
    * @param body - the parsed JSON request body, untrusted
-   * @param bearer - the `Authorization: Bearer` value, if any
+   * @param auth - the signature and the exact bytes it covers
    */
   async handle(
     endpoint: Endpoint,
     body: unknown,
-    bearer: string | undefined,
+    auth: AuthContext,
   ): Promise<HandlerResult> {
     switch (endpoint) {
       case "pair":
         return this.#pair(body);
       case "claim":
-        return this.#authed(bearer, body, ClaimRequest, this.#claim.bind(this));
+        return this.#authed(auth, body, ClaimRequest, this.#claim.bind(this));
       case "heartbeat":
         // Heartbeat is the channel revocation travels on, so a revoked runner
         // must reach the handler and be told `revoked: true` rather than be
         // bounced with a 403 it would treat as a transport problem
         // ({@link MUSTS.REVOCATION_HONORED}).
         return this.#authed(
-          bearer,
+          auth,
           body,
           HeartbeatRequest,
           this.#heartbeat.bind(this),
           { allowRevoked: true },
         );
       case "result":
-        return this.#authed(
-          bearer,
-          body,
-          ResultRequest,
-          this.#result.bind(this),
-        );
+        return this.#authed(auth, body, ResultRequest, this.#result.bind(this));
       case "release":
         return this.#authed(
-          bearer,
+          auth,
           body,
           ReleaseRequest,
           this.#release.bind(this),
@@ -176,25 +186,44 @@ export class ByollmHandlers {
   }
 
   /**
-   * Shared preamble for the four authenticated endpoints: resolve the bearer
-   * token to a runner, reject a revoked one, and parse the body.
+   * Shared preamble for the four authenticated endpoints: verify the
+   * signature, reject a revoked runner, and parse the body.
    *
-   * The token→runner lookup happens before schema validation so a stranger
-   * probing the endpoint learns nothing about the wire format.
+   * Authentication happens before schema validation so a stranger probing the
+   * endpoint learns nothing about the wire format.
    */
   async #authed<T>(
-    bearer: string | undefined,
+    auth: AuthContext,
     body: unknown,
     schema: { safeParse: (v: unknown) => { success: boolean; data?: T } },
     run: (request: T, runner: RunnerRecord) => Promise<HandlerResult>,
     options: { allowRevoked?: boolean } = {},
   ): Promise<HandlerResult> {
-    if (bearer === undefined || bearer.length === 0) {
-      return fail("unauthorized", "a runner token is required");
+    const signature = RequestSignature.safeParse(auth.signature);
+    if (!signature.success) {
+      return fail("unauthorized", "this request is not signed");
     }
-    const runner = await this.#store.getRunnerByTokenHash(hashSecret(bearer));
+
+    const runner = await this.#store.getRunner(signature.data.runnerId);
     if (!runner) {
-      return fail("unauthorized", "this runner token is not recognised");
+      return fail("unauthorized", "this runner is not recognised");
+    }
+
+    // Verified against the identity pinned when the user approved this
+    // machine — not against anything the request carries. A signature that
+    // authenticates itself authenticates nothing.
+    const failure = verifyRequest({
+      identityPublic: runner.device.identity,
+      endpoint: auth.endpoint,
+      body: auth.rawBody,
+      signature: signature.data,
+      now: this.#now(),
+    });
+    if (failure !== null) {
+      // Deliberately one message for both causes. Telling a caller whether
+      // their clock or their key is wrong tells an attacker which half of a
+      // forgery already works.
+      return fail("unauthorized", "this request's signature is not valid");
     }
     if (runner.revokedAt !== null && options.allowRevoked !== true) {
       // A distinct truth from "unauthorized": the daemon should stop and say
@@ -308,7 +337,7 @@ export class ByollmHandlers {
     runner: RunnerRecord,
   ): Promise<HandlerResult> {
     if (request.runnerId !== runner.id) {
-      return fail("unauthorized", "runner id does not match the bearer token");
+      return fail("unauthorized", "runner id does not match the signing key");
     }
     const now = this.#now();
 
@@ -351,7 +380,7 @@ export class ByollmHandlers {
     runner: RunnerRecord,
   ): Promise<HandlerResult> {
     if (request.runnerId !== runner.id) {
-      return fail("unauthorized", "runner id does not match the bearer token");
+      return fail("unauthorized", "runner id does not match the signing key");
     }
     const now = this.#now();
     const revoked = runner.revokedAt !== null;
@@ -404,7 +433,7 @@ export class ByollmHandlers {
     runner: RunnerRecord,
   ): Promise<HandlerResult> {
     if (request.runnerId !== runner.id) {
-      return fail("unauthorized", "runner id does not match the bearer token");
+      return fail("unauthorized", "runner id does not match the signing key");
     }
     const now = this.#now();
     const job = await this.#store.get(request.jobId);
@@ -443,7 +472,7 @@ export class ByollmHandlers {
     runner: RunnerRecord,
   ): Promise<HandlerResult> {
     if (request.runnerId !== runner.id) {
-      return fail("unauthorized", "runner id does not match the bearer token");
+      return fail("unauthorized", "runner id does not match the signing key");
     }
     const released = await this.#store.release({
       runnerId: runner.id,

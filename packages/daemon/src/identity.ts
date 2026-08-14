@@ -5,6 +5,7 @@ import {
   fingerprint,
   generateKeys,
   publicIdentityOf,
+  signRequest,
   signWith,
   type PublicIdentity,
 } from "@byollm/protocol";
@@ -87,6 +88,16 @@ export class DeviceIdentity {
   /** Sign a challenge nonce. */
   async sign(data: Uint8Array, now: number): Promise<string> {
     return signWith(await this.load(now), data);
+  }
+
+  /** Sign one outgoing protocol request (byollm_009 §4.2). */
+  async signRequest(input: {
+    endpoint: string;
+    runnerId: string;
+    issuedAt: number;
+    body: string;
+  }): Promise<string> {
+    return signRequest(await this.load(input.issuedAt), input).signature;
   }
 
   async #create(now: number): Promise<StoredKeys> {

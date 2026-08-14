@@ -1,7 +1,7 @@
 import { chmod, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { generateKeys, publicIdentityOf } from "@byollm/protocol";
+import { generateKeys, publicIdentityOf, signRequest } from "@byollm/protocol";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { Allowlist } from "./allowlist.js";
 import { ClaudeCliBackend } from "./backends/claude-cli.js";
@@ -17,6 +17,18 @@ import { DaemonConfig, resolveConfig } from "./config.js";
 import { IngressLog } from "./ingress.js";
 import { SpendLedger } from "./spend.js";
 import { Runner } from "./runner.js";
+
+/** A daemon identity for tests: real keys, signing the real canonical form. */
+const TEST_KEYS = generateKeys(1_800_000_000_000);
+const TEST_SIGNER = {
+  runnerId: "runner_1",
+  sign: (input: {
+    endpoint: string;
+    runnerId: string;
+    issuedAt: number;
+    body: string;
+  }) => signRequest(TEST_KEYS, input).signature,
+};
 
 const SITE = publicIdentityOf(generateKeys(1_800_000_000_000));
 const DEVICE = SITE;
@@ -93,7 +105,7 @@ async function makeRunner(fetchImpl: typeof fetch, backend: Backend) {
   return new Runner({
     client: new ProtocolClient({
       origin: "https://app.test",
-      token: "t",
+      identity: TEST_SIGNER,
       fetch: fetchImpl,
     }),
     runnerId: "runner_1",

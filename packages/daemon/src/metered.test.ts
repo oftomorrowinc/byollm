@@ -1,3 +1,4 @@
+import { generateKeys, signRequest } from "@byollm/protocol";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -17,6 +18,18 @@ import { IngressLog } from "./ingress.js";
 import { daemonPaths, type DaemonPaths } from "./paths.js";
 import { Runner } from "./runner.js";
 import { SpendLedger } from "./spend.js";
+
+/** A daemon identity for tests: real keys, signing the real canonical form. */
+const TEST_KEYS = generateKeys(1_800_000_000_000);
+const TEST_SIGNER = {
+  runnerId: "runner_1",
+  sign: (input: {
+    endpoint: string;
+    runnerId: string;
+    issuedAt: number;
+    body: string;
+  }) => signRequest(TEST_KEYS, input).signature,
+};
 
 /**
  * byollm_007, from the daemon's side.
@@ -90,7 +103,10 @@ async function makeRunner(options: {
   });
 
   const runner = new Runner({
-    client: new ProtocolClient({ origin: "https://app.test", token: "t" }),
+    client: new ProtocolClient({
+      origin: "https://app.test",
+      identity: TEST_SIGNER,
+    }),
     runnerId: "runner_1",
     owner: "me",
     daemonVersion: "0.0.0",
@@ -186,7 +202,10 @@ describe("the ledger is written by the work, not by hand", () => {
     // assertion — a free route must not reach for the ledger at all.
     const spend = new SpendLedger(join(dir, "s2.json"));
     const runner = new Runner({
-      client: new ProtocolClient({ origin: "https://app.test", token: "t" }),
+      client: new ProtocolClient({
+        origin: "https://app.test",
+        identity: TEST_SIGNER,
+      }),
       runnerId: "runner_1",
       owner: "me",
       daemonVersion: "0.0.0",

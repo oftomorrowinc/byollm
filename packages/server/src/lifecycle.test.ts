@@ -1,15 +1,19 @@
 import { describe, expect, it } from "vitest";
-import { createHarness, httpCapabilities } from "./testing.js";
+import {
+  createHarness,
+  httpCapabilities,
+  type PairedRunner,
+} from "./testing.js";
 
 const generate = (owner = "alice") =>
   ({ kind: "llm.generate", payload: { prompt: "hi" }, owner }) as const;
 
 async function claimAll(
   h: ReturnType<typeof createHarness>,
-  runner: { token: string; runnerId: string },
+  runner: PairedRunner,
   capabilities = httpCapabilities(),
 ) {
-  const res = await h.handlers.handle(
+  const res = await h.call(
     "claim",
     {
       protocolVersion: "0",
@@ -17,18 +21,18 @@ async function claimAll(
       capabilities,
       max: 8,
     },
-    runner.token,
+    runner,
   );
   return (res.body as { jobs: { id: string }[] }).jobs;
 }
 
 async function finish(
   h: ReturnType<typeof createHarness>,
-  runner: { token: string; runnerId: string },
+  runner: PairedRunner,
   jobId: string,
   text = "done",
 ) {
-  return h.handlers.handle(
+  return h.call(
     "result",
     {
       protocolVersion: "0",
@@ -39,7 +43,7 @@ async function finish(
       backendClass: "http",
       durationMs: 5,
     },
-    runner.token,
+    runner,
   );
 }
 
@@ -181,7 +185,7 @@ describe("dependencies [DEPENDS_ON_GATING]", () => {
     });
     await claimAll(h, runner);
 
-    await h.handlers.handle(
+    await h.call(
       "result",
       {
         protocolVersion: "0",
@@ -197,7 +201,7 @@ describe("dependencies [DEPENDS_ON_GATING]", () => {
         backendClass: "http",
         durationMs: 5,
       },
-      runner.token,
+      runner,
     );
 
     // A chain stops where it broke rather than running a step whose input
@@ -239,7 +243,7 @@ describe("cancel", () => {
     await h.app.cancel(handle.id);
     expect((await h.app.job(handle.id))?.state).toBe("claimed");
 
-    await h.handlers.handle(
+    await h.call(
       "result",
       {
         protocolVersion: "0",
@@ -250,7 +254,7 @@ describe("cancel", () => {
         backendClass: "http",
         durationMs: 5,
       },
-      runner.token,
+      runner,
     );
     expect((await h.app.job(handle.id))?.state).toBe("canceled");
   });
@@ -297,7 +301,7 @@ describe("no-runner signal [NO_RUNNER_SIGNAL]", () => {
   it("reports a live runner that lacks the capability", async () => {
     const h = createHarness();
     const runner = await h.pair({ owner: "alice" });
-    await h.handlers.handle(
+    await h.call(
       "heartbeat",
       {
         protocolVersion: "0",
@@ -307,7 +311,7 @@ describe("no-runner signal [NO_RUNNER_SIGNAL]", () => {
         activeJobIds: [],
         paused: false,
       },
-      runner.token,
+      runner,
     );
 
     expect(
@@ -338,7 +342,7 @@ describe("no-runner signal [NO_RUNNER_SIGNAL]", () => {
   it("treats a paused runner as offline", async () => {
     const h = createHarness();
     const runner = await h.pair({ owner: "alice" });
-    await h.handlers.handle(
+    await h.call(
       "heartbeat",
       {
         protocolVersion: "0",
@@ -348,7 +352,7 @@ describe("no-runner signal [NO_RUNNER_SIGNAL]", () => {
         activeJobIds: [],
         paused: true,
       },
-      runner.token,
+      runner,
     );
     expect(
       await h.app.runnerAvailability({ kind: "llm.generate", owner: "alice" }),

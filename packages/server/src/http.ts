@@ -67,11 +67,27 @@ export function routeEndpoint(
     : null;
 }
 
-/** Read the bearer token from an `Authorization` header. */
-export function bearerFrom(header: string | null): string | undefined {
-  if (!header) return undefined;
-  const match = /^Bearer[ ]+(.+)$/i.exec(header.trim());
-  return match?.[1];
+/**
+ * Read the request signature from headers (byollm_009 §4.2).
+ *
+ * In headers rather than the body so the signature covers the body whole,
+ * with no field to exclude from its own hash — a scheme that signs a body
+ * minus one field has to agree, byte for byte, on how that field is removed.
+ */
+export function signatureFrom(headers: Headers): unknown {
+  const runnerId = headers.get("x-byollm-runner");
+  const rawIssuedAt = headers.get("x-byollm-issued-at");
+  const signature = headers.get("x-byollm-signature");
+  if (runnerId === null || signature === null || rawIssuedAt === null) {
+    return undefined;
+  }
+  // Checked against null *before* Number(), because `Number(null)` is 0 —
+  // finite, plausible-looking, and wrong. A missing timestamp would have
+  // become a timestamp of the epoch, which the freshness check would then
+  // reject for the wrong reason.
+  const issuedAt = Number(rawIssuedAt);
+  if (!Number.isFinite(issuedAt)) return undefined;
+  return { runnerId, issuedAt, signature };
 }
 
 /**
@@ -119,8 +135,10 @@ export function createFetchHandler(
     }
 
     let body: unknown;
+    let rawBody: string;
     try {
-      const text = await request.text();
+      rawBody = await request.text();
+      const text = rawBody;
       if (text.length > MAX_BODY_BYTES) {
         return json(400, {
           error: "bad-request",
@@ -146,11 +164,13 @@ export function createFetchHandler(
       return json(ERROR_STATUS[refusal.error], refusal);
     }
 
-    const result = await handlers.handle(
+    const result = await handlers.handle(endpoint, body, {
       endpoint,
-      body,
-      bearerFrom(request.headers.get("authorization")),
-    );
+      // The bytes as received. Re-serialising the parsed object would verify
+      // a signature over something the sender never sent.
+      rawBody,
+      signature: signatureFrom(request.headers),
+    });
 
     const headers: Record<string, string> = {
       "content-type": "application/json",

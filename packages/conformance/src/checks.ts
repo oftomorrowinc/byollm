@@ -5,6 +5,7 @@ import {
   PublicIdentity,
   generateKeys,
   publicIdentityOf,
+  signRequest,
   verifyPublicIdentity,
   type MustId,
 } from "@byollm/protocol";
@@ -1258,6 +1259,104 @@ export const CHECKS: readonly Check[] = [
         verifyPublicIdentity(site.data),
         "the site's encryption key is not signed by the identity it presented",
       );
+    },
+  },
+
+  {
+    id: "C025_SIGNED_REQUESTS",
+    title: "authentication is a signature over the request, not a secret",
+    musts: ["REQUESTS_SIGNED_NOT_BEARER"],
+    async run(target: ConformanceTarget): Promise<void> {
+      const daemon = await pairDaemon(target, { owner: "alice" });
+      try {
+        const body = JSON.stringify({
+          protocolVersion: PROTOCOL_VERSION,
+          runnerId: daemon.runnerId,
+          capabilities: await daemon.runner.detectCapabilities(),
+          max: 1,
+        });
+
+        const post = (headers: Record<string, string>): Promise<Response> =>
+          target.fetch(
+            new Request(`${target.origin}/byollm/claim`, {
+              method: "POST",
+              headers: { "content-type": "application/json", ...headers },
+              body,
+            }),
+          );
+
+        const sign = (over: Partial<{ body: string; endpoint: string }> = {}) =>
+          signRequest(daemon.keys, {
+            endpoint: over.endpoint ?? "claim",
+            runnerId: daemon.runnerId,
+            issuedAt: Date.now(),
+            body: over.body ?? body,
+          });
+
+        const headersFor = (s: {
+          runnerId: string;
+          issuedAt: number;
+          signature: string;
+        }): Record<string, string> => ({
+          "x-byollm-runner": s.runnerId,
+          "x-byollm-issued-at": String(s.issuedAt),
+          "x-byollm-signature": s.signature,
+        });
+
+        // A correct signature is accepted.
+        assert(
+          (await post(headersFor(sign()))).status === 200,
+          "a correctly signed request was refused",
+        );
+
+        // No signature at all.
+        assert(
+          (await post({})).status === 401,
+          "an unsigned request was accepted",
+        );
+
+        // A signature over a different body. This is the one that matters:
+        // without it an intermediary can keep a valid signature and change
+        // what the request asks for.
+        assert(
+          (await post(headersFor(sign({ body: '{"other":true}' })))).status ===
+            401,
+          "a signature over different bytes was accepted",
+        );
+
+        // A signature made for another endpoint, replayed here.
+        assert(
+          (await post(headersFor(sign({ endpoint: "release" })))).status ===
+            401,
+          "a signature for another endpoint was accepted",
+        );
+
+        // A signature from a key nobody pinned.
+        const stranger = signRequest(generateKeys(Date.now()), {
+          endpoint: "claim",
+          runnerId: daemon.runnerId,
+          issuedAt: Date.now(),
+          body,
+        });
+        assert(
+          (await post(headersFor(stranger))).status === 401,
+          "a signature from an unpinned key was accepted",
+        );
+
+        // And a stale one, well outside any reasonable clock skew.
+        const stale = signRequest(daemon.keys, {
+          endpoint: "claim",
+          runnerId: daemon.runnerId,
+          issuedAt: Date.now() - 86_400_000,
+          body,
+        });
+        assert(
+          (await post(headersFor(stale))).status === 401,
+          "a signature from a day ago was accepted",
+        );
+      } finally {
+        await daemon.dispose();
+      }
     },
   },
 ];

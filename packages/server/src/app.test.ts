@@ -79,7 +79,7 @@ describe("ByollmApp — the app-facing surface", () => {
       owner: "alice",
     });
 
-    const claimed = await h.handlers.handle(
+    const claimed = await h.call(
       "claim",
       {
         protocolVersion: "0",
@@ -87,11 +87,11 @@ describe("ByollmApp — the app-facing surface", () => {
         capabilities: httpCapabilities(),
         max: 1,
       },
-      runner.token,
+      runner,
     );
     expect((claimed.body as { jobs: unknown[] }).jobs).toHaveLength(1);
 
-    await h.handlers.handle(
+    await h.call(
       "result",
       {
         protocolVersion: "0",
@@ -102,7 +102,7 @@ describe("ByollmApp — the app-facing surface", () => {
         backendClass: "http",
         durationMs: 1,
       },
-      runner.token,
+      runner,
     );
 
     const result = await handle.result({ timeoutMs: 5_000 });
@@ -166,7 +166,11 @@ describe("ByollmApp — the app-facing surface", () => {
         daemon: { version: "0.1.0", label: "todd-mbp", platform: "darwin" },
         capabilities: httpCapabilities(),
       },
-      undefined,
+      {
+        endpoint: "pair",
+        rawBody: "",
+        signature: undefined,
+      },
     );
     const { userCode } = start.body as { userCode: string };
 
@@ -188,7 +192,11 @@ describe("ByollmApp — the app-facing surface", () => {
         daemon: { version: "0.1.0", label: "mbp", platform: "darwin" },
         capabilities: [],
       },
-      undefined,
+      {
+        endpoint: "pair",
+        rawBody: "",
+        signature: undefined,
+      },
     );
     const { userCode } = start.body as { userCode: string };
     h.clock.advance(11 * 60_000);
@@ -206,7 +214,11 @@ describe("ByollmApp — the app-facing surface", () => {
         daemon: { version: "0.1.0", label: "mbp", platform: "darwin" },
         capabilities: [],
       },
-      undefined,
+      {
+        endpoint: "pair",
+        rawBody: "",
+        signature: undefined,
+      },
     );
     const { deviceCode, userCode } = start.body as {
       deviceCode: string;
@@ -217,7 +229,11 @@ describe("ByollmApp — the app-facing surface", () => {
     const polled = await h.handlers.handle(
       "pair",
       { protocolVersion: "0", action: "poll", deviceCode },
-      undefined,
+      {
+        endpoint: "pair",
+        rawBody: "",
+        signature: undefined,
+      },
     );
     expect(polled.body).toEqual({ status: "denied" });
   });
@@ -264,7 +280,11 @@ describe("ByollmApp — the app-facing surface", () => {
         daemon: { version: "0.1.0", label: "mbp", platform: "darwin" },
         capabilities: [],
       },
-      undefined,
+      {
+        endpoint: "pair",
+        rawBody: "",
+        signature: undefined,
+      },
     );
     const { userCode } = start.body as { userCode: string };
     await h.app.approvePairing({ userCode, owner: "alice" });

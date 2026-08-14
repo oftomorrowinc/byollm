@@ -64,7 +64,22 @@ export interface ClientOptions {
   /** The app's origin, e.g. `https://app.example.com`. */
   readonly origin: string;
   /** Bearer token from pairing. Absent while pairing. */
-  readonly token?: string | undefined;
+  /**
+   * How this daemon proves who it is (byollm_009 §4.2).
+   *
+   * A signer rather than a key, so the client never holds private material
+   * and the daemon decides where keys live. Absent while pairing, which is
+   * the one exchange that establishes an identity rather than using one.
+   */
+  readonly identity?: {
+    readonly runnerId: string;
+    sign(input: {
+      endpoint: string;
+      runnerId: string;
+      issuedAt: number;
+      body: string;
+    }): Promise<string> | string;
+  };
   /** Per-request timeout. */
   readonly timeoutMs?: number;
   /** Injectable fetch, for tests. */
@@ -81,22 +96,24 @@ const DEFAULT_TIMEOUT_MS = 30_000;
  */
 export class ProtocolClient {
   readonly #origin: string;
-  readonly #token: string | undefined;
+  readonly #identity: ClientOptions["identity"];
   readonly #timeoutMs: number;
   readonly #fetch: typeof fetch;
 
   constructor(options: ClientOptions) {
     this.#origin = options.origin.replace(/\/+$/, "");
-    this.#token = options.token;
+    this.#identity = options.identity;
     this.#timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
     this.#fetch = options.fetch ?? globalThis.fetch;
   }
 
-  /** A client for the same origin carrying a token. */
-  withToken(token: string): ProtocolClient {
+  /** A client for the same origin that signs as a given runner. */
+  withIdentity(
+    identity: NonNullable<ClientOptions["identity"]>,
+  ): ProtocolClient {
     return new ProtocolClient({
       origin: this.#origin,
-      token,
+      identity,
       timeoutMs: this.#timeoutMs,
       fetch: this.#fetch,
     });
@@ -201,8 +218,20 @@ export class ProtocolClient {
       "content-type": "application/json",
       accept: "application/json",
     };
-    if (this.#token !== undefined) {
-      headers["authorization"] = `Bearer ${this.#token}`;
+
+    // Serialise once and sign exactly those bytes. Signing a re-serialised
+    // copy would sign something the server never receives.
+    const rawBody = JSON.stringify(body);
+    if (this.#identity !== undefined) {
+      const issuedAt = Date.now();
+      headers["x-byollm-runner"] = this.#identity.runnerId;
+      headers["x-byollm-issued-at"] = String(issuedAt);
+      headers["x-byollm-signature"] = await this.#identity.sign({
+        endpoint,
+        runnerId: this.#identity.runnerId,
+        issuedAt,
+        body: rawBody,
+      });
     }
 
     let response: Response;
@@ -210,7 +239,7 @@ export class ProtocolClient {
       response = await this.#fetch(`${this.#origin}/byollm/${endpoint}`, {
         method: "POST",
         headers,
-        body: JSON.stringify(body),
+        body: rawBody,
         redirect: "error",
         signal: AbortSignal.timeout(this.#timeoutMs),
       });

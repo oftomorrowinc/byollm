@@ -1,3 +1,4 @@
+import { generateKeys, signRequest } from "@byollm/protocol";
 import { createServer, type Server } from "node:http";
 import { mkdtemp, rm } from "node:fs/promises";
 import type { AddressInfo } from "node:net";
@@ -17,6 +18,18 @@ import { DaemonConfig, resolveConfig } from "./config.js";
 import { IngressLog } from "./ingress.js";
 import { SpendLedger } from "./spend.js";
 import { Runner, type RunnerEvent } from "./runner.js";
+
+/** A daemon identity for tests: real keys, signing the real canonical form. */
+const TEST_KEYS = generateKeys(1_800_000_000_000);
+const TEST_SIGNER = {
+  runnerId: "runner_1",
+  sign: (input: {
+    endpoint: string;
+    runnerId: string;
+    issuedAt: number;
+    body: string;
+  }) => signRequest(TEST_KEYS, input).signature,
+};
 
 /**
  * The loop's own behaviour: what it does with a heartbeat that says stop, a
@@ -74,7 +87,7 @@ async function makeRunner(fetchImpl: typeof fetch, owner = "me") {
   return new Runner({
     client: new ProtocolClient({
       origin: "https://app.test",
-      token: "t",
+      identity: TEST_SIGNER,
       fetch: fetchImpl,
     }),
     runnerId: "runner_1",

@@ -1,6 +1,6 @@
 import { generateKeys, publicIdentityOf } from "@byollm/protocol";
 import { describe, expect, it } from "vitest";
-import { bearerFrom, createFetchHandler, routeEndpoint } from "./http.js";
+import { createFetchHandler, routeEndpoint, signatureFrom } from "./http.js";
 import { generateSiteKeys } from "./keys.js";
 import { MemoryStore } from "./memory.js";
 
@@ -87,17 +87,41 @@ describe("a handler answers only where it is mounted", () => {
   });
 });
 
-describe("bearerFrom", () => {
-  it("reads a bearer token, case-insensitively", () => {
-    expect(bearerFrom("Bearer abc123")).toBe("abc123");
-    expect(bearerFrom("bearer abc123")).toBe("abc123");
-    expect(bearerFrom("  Bearer   abc123  ")).toBe("abc123");
+describe("signatureFrom", () => {
+  const headers = (values: Record<string, string>) => new Headers(values);
+
+  it("reads a complete signature", () => {
+    expect(
+      signatureFrom(
+        headers({
+          "x-byollm-runner": "runner_1",
+          "x-byollm-issued-at": "1800000000000",
+          "x-byollm-signature": "sig",
+        }),
+      ),
+    ).toEqual({
+      runnerId: "runner_1",
+      issuedAt: 1_800_000_000_000,
+      signature: "sig",
+    });
   });
 
-  it("ignores anything that is not a bearer scheme", () => {
-    expect(bearerFrom(null)).toBeUndefined();
-    expect(bearerFrom("Basic abc123")).toBeUndefined();
-    expect(bearerFrom("")).toBeUndefined();
+  it.each([
+    ["no runner", { "x-byollm-issued-at": "1", "x-byollm-signature": "s" }],
+    ["no signature", { "x-byollm-runner": "r", "x-byollm-issued-at": "1" }],
+    ["no timestamp", { "x-byollm-runner": "r", "x-byollm-signature": "s" }],
+    [
+      "a non-numeric timestamp",
+      {
+        "x-byollm-runner": "r",
+        "x-byollm-issued-at": "soon",
+        "x-byollm-signature": "s",
+      },
+    ],
+  ])("returns nothing for %s", (_label, values) => {
+    // A partial signature is not a signature. Returning something
+    // half-formed would push the decision into code that assumes it is whole.
+    expect(signatureFrom(headers(values))).toBeUndefined();
   });
 });
 

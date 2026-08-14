@@ -119,7 +119,7 @@ describe("MemoryStore — edges", () => {
       payload: { prompt: "hi" },
       owner: "alice",
     });
-    await h.handlers.handle(
+    await h.call(
       "claim",
       {
         protocolVersion: "0",
@@ -127,9 +127,9 @@ describe("MemoryStore — edges", () => {
         capabilities: httpCapabilities(),
         max: 1,
       },
-      runner.token,
+      runner,
     );
-    await h.handlers.handle(
+    await h.call(
       "result",
       {
         protocolVersion: "0",
@@ -140,7 +140,7 @@ describe("MemoryStore — edges", () => {
         backendClass: "http",
         durationMs: 1,
       },
-      runner.token,
+      runner,
     );
 
     await h.app.cancel(handle.id);
@@ -162,7 +162,11 @@ describe("handlers — malformed input", () => {
     const response = await h.handlers.handle(
       "pair",
       { action: "nope" },
-      undefined,
+      {
+        endpoint: "pair",
+        rawBody: "",
+        signature: undefined,
+      },
     );
     expect(response.status).toBe(400);
   });
@@ -172,13 +176,24 @@ describe("handlers — malformed input", () => {
     const response = await h.handlers.handle(
       "pair",
       { protocolVersion: "0", action: "poll", deviceCode: "d".repeat(32) },
-      undefined,
+      {
+        endpoint: "pair",
+        rawBody: "",
+        signature: undefined,
+      },
     );
     expect(response.status).toBe(404);
   });
 
-  it("rejects an empty bearer token as unauthorized", async () => {
+  it("rejects an unsigned request as unauthorized", async () => {
     const h = createHarness();
-    expect((await h.handlers.handle("claim", {}, "")).status).toBe(401);
+    // No signature at all — the shape a caller who has not read the protocol
+    // sends, and the shape every pre-009 daemon sends.
+    const res = await h.handlers.handle(
+      "claim",
+      {},
+      { endpoint: "claim", rawBody: "{}", signature: undefined },
+    );
+    expect(res.status).toBe(401);
   });
 });

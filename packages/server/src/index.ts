@@ -41,7 +41,7 @@ export {
   type HandlerResult,
 } from "./handlers.js";
 
-export { bearerFrom, createFetchHandler, routeEndpoint } from "./http.js";
+export { createFetchHandler, routeEndpoint, signatureFrom } from "./http.js";
 
 export { formatSiteKeys, generateSiteKeys, siteKeysFromEnv } from "./keys.js";
 

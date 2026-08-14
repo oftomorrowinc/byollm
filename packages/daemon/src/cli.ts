@@ -238,6 +238,7 @@ async function runLoop(
   signal?: AbortSignal,
 ): Promise<ExitCode> {
   const { loaded, ingress, allowlist, budgets, spend } = await context(paths);
+  const identity = new DeviceIdentity(paths.keys);
   const pairings = new Pairings(paths.pairings);
   await pairings.load();
 
@@ -258,7 +259,13 @@ async function runLoop(
       continue;
     }
     const runner = new Runner({
-      client: new ProtocolClient({ origin, token: pairing.token }),
+      client: new ProtocolClient({
+        origin,
+        identity: {
+          runnerId: pairing.runnerId,
+          sign: (input) => identity.signRequest(input),
+        },
+      }),
       runnerId: pairing.runnerId,
       owner: pairing.owner,
       daemonVersion: DAEMON_VERSION,

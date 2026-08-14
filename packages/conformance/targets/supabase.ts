@@ -104,7 +104,7 @@ const toName = (id: string): string => ownerNames.get(id) ?? id;
 const SITE_KEYS = generateSiteKeys();
 
 const store = supabaseStore({ client, defaultTtlMs: TTL_MS });
-const app = new ByollmApp({ store });
+const app = new ByollmApp({ store, siteKeys: SITE_KEYS });
 const handler = createFetchHandler({
   store,
   verificationUrl: `${ORIGIN}/settings/runners`,

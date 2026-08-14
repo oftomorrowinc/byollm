@@ -1502,4 +1502,56 @@ export const CHECKS: readonly Check[] = [
       }
     },
   },
+
+  {
+    id: "C028_STORED_WORK_IS_SEALED",
+    title: "the store holds ciphertext, and a wrong-key envelope is refused",
+    musts: ["ENVELOPE_SEALED_AND_SIGNED"],
+    async run(target: ConformanceTarget): Promise<void> {
+      const secret = "a prompt nobody should read from storage";
+      const daemon = await pairDaemon(target, { owner: "alice" });
+      try {
+        const job = await target.enqueue({
+          kind: "llm.generate",
+          payload: prompt(secret),
+          owner: "alice",
+          audience: "self",
+        });
+
+        // 1. Whatever the store hands back about this job, the work is not
+        //    legible in it. This is §10's at-rest property, and it is the one
+        //    a database backup or a support engineer actually meets.
+        const stored = await target.job(job.id);
+        assert(
+          !JSON.stringify(stored ?? {}).includes(secret),
+          "the prompt was readable in the stored job",
+        );
+
+        // 2. The endpoint can still open its own work and hand it over.
+        const stub = await claimOne(target, daemon);
+        const delivered = await fetchPayload(
+          target,
+          daemon,
+          stub.id,
+          stub.lease.id,
+        );
+        assert(
+          JSON.stringify(delivered).includes(secret),
+          "the site could not open work it sealed itself",
+        );
+
+        // Deliberately *not* asserted here: that a wrong-key envelope is
+        // refused. Testing `open()` directly would test the primitive, which
+        // `envelope.test.ts` already covers, and would pass whether or not
+        // this server acted on the refusal — a mutation disabling the
+        // server's check went unnoticed, which is how that was found. The
+        // server-side property needs an envelope this site did not seal, and
+        // reaching that over the wire needs store access the kit does not
+        // have. Recorded in MUTATIONS.md rather than left as a check that
+        // does not bite.
+      } finally {
+        await daemon.dispose();
+      }
+    },
+  },
 ];

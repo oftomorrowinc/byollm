@@ -1,4 +1,6 @@
 import { describe, expect, it } from "vitest";
+import { keyId, publicIdentityOf, seal } from "@byollm/protocol";
+import { generateSiteKeys } from "./keys.js";
 import { MemoryStore } from "./memory.js";
 import { createHarness, httpCapabilities } from "./testing.js";
 
@@ -6,6 +8,33 @@ import { createHarness, httpCapabilities } from "./testing.js";
  * The store paths a happy run never takes: results for jobs nobody holds,
  * releases of things not held, sweeps with nothing to sweep.
  */
+/** A sealed store input, as the app would produce. */
+const SITE = generateSiteKeys();
+async function storedInput(over: { id?: string } = {}) {
+  const id = over.id ?? `job_${String(Math.floor(Date.now() % 1e9))}`;
+  const senderKeyId = keyId(publicIdentityOf(SITE).identity);
+  const deadlineAt = 1_700_000_000_000 + 60_000;
+  return {
+    id,
+    kind: "llm.generate" as const,
+    owner: "alice",
+    deadlineAt,
+    sizeClass: "small" as const,
+    envelope: await seal({
+      plaintext: JSON.stringify({ prompt: "hi" }),
+      senderKeys: SITE,
+      recipientEncryptionPublic: SITE.encryptionPublic,
+      context: {
+        jobId: id,
+        senderKeyId,
+        recipientKeyId: senderKeyId,
+        deadlineAt,
+        direction: "payload" as const,
+      },
+    }),
+  };
+}
+
 describe("MemoryStore — edges", () => {
   const now = 1_700_000_000_000;
 
@@ -34,10 +63,7 @@ describe("MemoryStore — edges", () => {
 
   it("refuses a result for an expired job", async () => {
     const store = new MemoryStore({ defaultTtlMs: 10 });
-    const job = await store.create(
-      { kind: "llm.generate", payload: { prompt: "x" }, owner: "me" },
-      now,
-    );
+    const job = await store.create(await storedInput(), now);
     await store.expireDue(now + 1_000);
 
     const result = await store.complete({
@@ -200,11 +226,8 @@ describe("handlers — malformed input", () => {
 
 describe("the push seam [byollm_009 §8.3]", () => {
   const now = 1_700_000_000_000;
-  const enqueue = (store: MemoryStore) =>
-    store.create(
-      { kind: "llm.generate", payload: { prompt: "hi" }, owner: "alice" },
-      now,
-    );
+  const enqueue = async (store: MemoryStore) =>
+    store.create(await storedInput(), now);
 
   it("notifies a watcher when the job changes", async () => {
     const store = new MemoryStore();

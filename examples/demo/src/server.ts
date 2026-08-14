@@ -29,12 +29,13 @@ import {
 const PORT = Number(process.env["PORT"] ?? 8787);
 const ORIGIN = `http://127.0.0.1:${String(PORT)}`;
 
-const store = new MemoryStore();
-const app = new ByollmApp({ store });
 // A demo, so generated at startup. A real site generates these ONCE with
 // `npx @byollm/server keygen` and supplies them as a secret — see
 // packages/server/src/keys.ts for why doing it here would break under scale.
 const SITE_KEYS = generateSiteKeys();
+
+const store = new MemoryStore();
+const app = new ByollmApp({ store, siteKeys: SITE_KEYS });
 
 const protocol = createFetchHandler({
   store,

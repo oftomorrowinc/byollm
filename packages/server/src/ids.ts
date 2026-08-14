@@ -32,7 +32,15 @@ export function generateRunnerId(): string {
 
 /** A job id. */
 export function generateJobId(): string {
-  return `job_${randomUUID()}`;
+  // A bare UUID, not a prefixed one.
+  //
+  // The app mints this now, because byollm_009 §6 binds the job id into the
+  // envelope's signature — so the id must exist before the row does. A
+  // `job_`-prefixed string is not a `uuid`, and the Supabase adapter's column
+  // is, so the prefix would have made every enqueue fail there while passing
+  // in memory. Ids are opaque to the protocol; the prefix was only ever
+  // decoration.
+  return randomUUID();
 }
 
 /**

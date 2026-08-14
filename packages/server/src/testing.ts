@@ -130,8 +130,10 @@ export function createHarness(
       ? {}
       : { defaultTtlMs: options.defaultTtlMs },
   );
+  const siteKeys = generateSiteKeys();
   const app = new ByollmApp({
     store,
+    siteKeys,
     now: clock.now,
     ...(options.noRunnerGraceMs === undefined
       ? {}
@@ -140,7 +142,7 @@ export function createHarness(
   const handlers = new ByollmHandlers({
     store,
     verificationUrl: "https://app.test/settings/runners",
-    siteKeys: generateSiteKeys(),
+    siteKeys,
     now: clock.now,
     ...(options.leaseMs === undefined ? {} : { leaseMs: options.leaseMs }),
   });

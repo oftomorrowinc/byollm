@@ -5,6 +5,8 @@ import type {
   JobKind,
   JobOutcome,
   JobPayload,
+  SealedEnvelope,
+  SizeClass,
   JobState,
   Lease,
   ResultProvenance,
@@ -20,7 +22,21 @@ import type {
 export interface JobRecord {
   readonly id: string;
   readonly kind: JobKind;
-  readonly payload: JobPayload;
+  /**
+   * The work, sealed to this site's own encryption key (byollm_009 §10).
+   *
+   * The store never holds plaintext. The app sees plaintext at enqueue and at
+   * result because the app *is* the endpoint; everything in between —
+   * database, backups, log aggregators, a support engineer with read access —
+   * sees ciphertext.
+   *
+   * This is not protection from the application the user deliberately sent
+   * their work to. It is protection from everything the application's storage
+   * touches, which is a longer list than most people picture.
+   */
+  readonly envelope: SealedEnvelope;
+  /** Fixed at enqueue, where the plaintext is. */
+  readonly sizeClass: SizeClass;
   readonly audience: Audience;
   /** The app's id for the user who enqueued it. */
   readonly owner: string;
@@ -115,6 +131,7 @@ export interface PairingRecord {
 /** What the app supplies to enqueue a job. */
 export interface EnqueueInput {
   readonly kind: JobKind;
+  /** The work, in plaintext. The server seals it before it is stored. */
   readonly payload: JobPayload;
   readonly owner: string;
   /** Defaults to `self` — the safe direction. */
@@ -126,4 +143,19 @@ export interface EnqueueInput {
   readonly deadlineAt?: number;
   /** Caller-supplied id, for idempotent enqueue. */
   readonly id?: string;
+}
+
+/**
+ * What the *store* is given — the sealed form.
+ *
+ * Distinct from {@link EnqueueInput} because the two are genuinely different
+ * things: an app hands over work in plaintext, and what gets written down is
+ * sealed. Collapsing them into one type would mean a field that is sometimes
+ * readable and sometimes not, which is the kind of ambiguity that ends with
+ * plaintext in a database.
+ */
+export interface StoredJobInput extends Omit<EnqueueInput, "payload" | "id"> {
+  readonly id: string;
+  readonly envelope: SealedEnvelope;
+  readonly sizeClass: SizeClass;
 }

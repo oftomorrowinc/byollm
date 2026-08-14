@@ -79,6 +79,18 @@ export {
 } from "./job.js";
 
 export {
+  ENVELOPE_MAX_AGE_MS,
+  EnvelopeDirection,
+  SealedEnvelope,
+  cryptoReady,
+  open,
+  seal,
+  type EnvelopeContext,
+  type EnvelopeFailure,
+  type OpenResult,
+} from "./envelope.js";
+
+export {
   MAX_CLOCK_SKEW_MS,
   RequestSignature,
   canonicalRequest,

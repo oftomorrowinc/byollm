@@ -345,10 +345,10 @@ export async function pairDaemon(
         timeoutMs: 2_000,
         what: "in-flight jobs to unwind",
       }).catch(() => undefined);
-      await rm(home, { recursive: true, force: true });
+      await removeHome(home);
     },
     abandon: async () => {
-      await rm(home, { recursive: true, force: true });
+      await removeHome(home);
     },
   };
 }
@@ -549,4 +549,30 @@ export async function fetchPayload(
   );
   //  for a refusal — a normal answer here, not an error.
   return response.status === 200 ? await response.json() : null;
+}
+
+/**
+ * Remove a harness home, tolerating a write that lands mid-removal.
+ *
+ * `rm -rf` walks a tree; a file created during the walk makes the parent
+ * non-empty again and the whole call fails with ENOTEMPTY. The daemon writes
+ * lazily — its key file appears the first time anything asks for its
+ * identity — so a late call can land after the last job has finished, which
+ * is what `dispose` waits for.
+ *
+ * Retried rather than serialised, because the alternative is the harness
+ * knowing every path on which the daemon might touch disk, which it should
+ * not have to.
+ */
+async function removeHome(home: string): Promise<void> {
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      await rm(home, { recursive: true, force: true });
+      return;
+    } catch {
+      await sleep(20);
+    }
+  }
+  // A leaked temp directory is not worth failing a conformance run over.
+  await rm(home, { recursive: true, force: true }).catch(() => undefined);
 }

@@ -1,11 +1,11 @@
 import {
   FetchRequest,
-  payloadTextLength,
-  sizeClassOf,
+  keyId,
+  open,
+  publicIdentityOf,
   type FetchResponse,
   RequestSignature,
   verifyRequest,
-  publicIdentityOf,
   verifyPublicIdentity,
   type StoredKeys,
   ClaimRequest,
@@ -269,7 +269,32 @@ export class ByollmHandlers {
       // hold". A caller who is allowed to know already knows which.
       return fail("not-found", "no such lease on this job");
     }
-    return ok({ payload: job.payload } satisfies FetchResponse);
+    // Opened here, with the site's own key: the store held ciphertext, and
+    // this is the endpoint that is entitled to read it. byollm_009 §6 seals
+    // it again to the claiming device; until that lands the plaintext travels
+    // as it always did, over the same transport, to a runner that has already
+    // proved possession of its key.
+    const senderKeyId = keyId(publicIdentityOf(this.#siteKeys).identity);
+    const opened = await open({
+      envelope: job.envelope,
+      recipientKeys: this.#siteKeys,
+      senderIdentityPublic: this.#siteKeys.identityPublic,
+      expected: {
+        jobId: job.id,
+        senderKeyId,
+        recipientKeyId: senderKeyId,
+        direction: "payload",
+      },
+    });
+    if (!opened.ok) {
+      // The store holds something this site cannot open: rotated keys, a
+      // corrupted row, or someone else's envelope. Not the runner's problem
+      // and not something a retry fixes.
+      return fail("server-error", "this job's payload could not be opened");
+    }
+    return ok({
+      payload: JSON.parse(opened.plaintext) as FetchResponse["payload"],
+    } satisfies FetchResponse);
   }
 
   // -- 1. pair --------------------------------------------------------------
@@ -395,12 +420,7 @@ export class ByollmHandlers {
         owner: job.owner,
         // Bucketed, not measured: an exact size is a stronger fingerprint
         // than routing needs (byollm_009 §6).
-        sizeClass: sizeClassOf(
-          payloadTextLength({
-            kind: job.kind,
-            payload: job.payload,
-          } as Parameters<typeof payloadTextLength>[0]),
-        ),
+        sizeClass: job.sizeClass,
         // Reserved for byollm_006; no job declares it yet.
         streaming: false,
         // The stub's deadline bounds how long a captured envelope is worth

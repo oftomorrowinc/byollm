@@ -32,6 +32,7 @@ overlap more than intended.
 | `C020_PAIR_CODE_EXPIRES`        | `memory.ts` + `handlers.ts`         | Replace both `pairing.expiresAt <= now` guards with `false`                                                                                                   | ✓ bites              |
 | `C021_CAPABILITY_IS_DETECTED`   | `packages/daemon/src/runner.ts`     | Replace `if (!health.healthy) continue;` with `if (false) continue;` in `detectCapabilities`                                                                  | ✓ bites              |
 | `C022_KIND_NO_CODE`             | `packages/server/src/app.ts`        | Disable the `KindedPayload` guard in `enqueue` and store `input` unvalidated                                                                                  | ✓ bites              |
+| `C028_STORED_WORK_IS_SEALED`    | `packages/server/src/app.ts`        | Store the plaintext as the envelope's ciphertext instead of sealing                                                                                           | ✓ bites              |
 | `C027_CLAIM_ANSWERS_WITH_STUBS` | `packages/server/src/handlers.ts`   | Two, both verified: add `payload` back to the claim mapping; and drop the `lease.id` check from `#fetch`                                                      | ✓ bites (both)       |
 | `C026_LEASE_SCOPED_RELEASE`     | `packages/server/src/memory.ts`     | Drop `job.lease.id !== leaseId` from the release guard, leaving the runner-id match                                                                           | ✓ bites              |
 | `C025_SIGNED_REQUESTS`          | `packages/server/src/handlers.ts`   | Two, both verified: skip the `verifyRequest` result check; and verify against `""` rather than `auth.rawBody`                                                 | ✓ bites (both)       |
@@ -57,6 +58,19 @@ looks certified is not.
 Add its row here, verified, in the same change. A check arriving without a
 mutation is a check nobody has confirmed does anything — and the moment
 there are two of those, this file stops meaning what it says.
+
+## A check that did not bite, and what was done about it
+
+`C028` was first written with a third assertion: that an envelope signed by
+the wrong key is refused. It called `open()` directly, and a mutation
+disabling the _server's_ check went unnoticed — because the assertion tested
+the primitive, which `envelope.test.ts` already covers, rather than anything
+the server does.
+
+The assertion was removed rather than kept as decoration. Testing the
+server-side property needs an envelope the site did not seal, and putting one
+in front of it needs store access the kit does not have. Recorded here as a
+real gap rather than left as a check that cannot fail.
 
 ## Observed flake, not yet explained (2026-08-14)
 

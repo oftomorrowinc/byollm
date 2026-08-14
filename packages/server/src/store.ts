@@ -4,7 +4,7 @@ import type {
   ResultProvenance,
 } from "@byollm/protocol";
 import type {
-  EnqueueInput,
+  StoredJobInput,
   JobRecord,
   PairingRecord,
   RunnerRecord,
@@ -20,7 +20,7 @@ import type {
  */
 export interface JobStore {
   /** Create a job. Idempotent when `input.id` is supplied and already exists. */
-  create(input: EnqueueInput, now: number): Promise<JobRecord>;
+  create(input: StoredJobInput, now: number): Promise<JobRecord>;
 
   get(jobId: string): Promise<JobRecord | null>;
 

@@ -52,7 +52,7 @@ let out: string;
 
 beforeEach(async () => {
   const store = new MemoryStore();
-  app = new ByollmApp({ store });
+  app = new ByollmApp({ store, siteKeys: SITE_KEYS });
 
   const protocol = createFetchHandler({
     siteKeys: SITE_KEYS,
@@ -178,7 +178,7 @@ const io = (): Partial<CliIo> => ({
 describe("byollm connect — the whole path", () => {
   it("pairs, claims, runs a job on the local model, and reports the result", async () => {
     const store = new MemoryStore();
-    app = new ByollmApp({ store });
+    app = new ByollmApp({ store, siteKeys: SITE_KEYS });
     protocolHandler = createFetchHandler({
       siteKeys: SITE_KEYS,
       store,

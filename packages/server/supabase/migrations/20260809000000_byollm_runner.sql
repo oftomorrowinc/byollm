@@ -83,7 +83,13 @@ create index byollm_pairings_expiry_idx on byollm_pairings (expires_at);
 create table byollm_jobs (
   id             uuid primary key default gen_random_uuid(),
   kind           text not null,
-  payload        jsonb not null,
+  -- The work, sealed to the site's own key (byollm_009 §10). The database
+  -- holds ciphertext; the application opens it, because the application is
+  -- the endpoint. Backups, replicas and anyone with read access see this.
+  envelope       jsonb not null,
+  -- Bucketed at enqueue, where the plaintext was.
+  size_class     text not null default 'small'
+                   check (size_class in ('small','medium','large','unbounded')),
   audience       byollm_audience not null default 'self',
   owner          uuid not null references auth.users (id) on delete cascade,
   -- Server-side restriction on which runner owners may take a `named` job.

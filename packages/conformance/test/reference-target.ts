@@ -50,7 +50,7 @@ export function referenceTarget(): ConformanceTarget {
   let store: ByollmStore & MemoryStore = new MemoryStore({
     defaultTtlMs: TTL_MS,
   });
-  let app = new ByollmApp({ store, now: clock.now });
+  let app = new ByollmApp({ store, siteKeys: SITE_KEYS, now: clock.now });
   let handler = createFetchHandler({
     store,
     verificationUrl: `${ORIGIN}/settings/runners`,
@@ -143,7 +143,7 @@ export function referenceTarget(): ConformanceTarget {
     reset: () => {
       clock = new Clock();
       store = new MemoryStore({ defaultTtlMs: TTL_MS });
-      app = new ByollmApp({ store, now: clock.now });
+      app = new ByollmApp({ store, siteKeys: SITE_KEYS, now: clock.now });
       handler = createFetchHandler({
         store,
         verificationUrl: `${ORIGIN}/settings/runners`,

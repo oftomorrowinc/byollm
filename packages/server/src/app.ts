@@ -1,5 +1,12 @@
 import {
+  ENVELOPE_MAX_AGE_MS,
   KindedPayload,
+  keyId,
+  payloadTextLength,
+  publicIdentityOf,
+  seal,
+  sizeClassOf,
+  type StoredKeys,
   backendDescriptor,
   matchAudience,
   type DeliveredResult,
@@ -11,7 +18,12 @@ import {
   type ResultDelivery,
   type WaitOptions,
 } from "./delivery.js";
-import { generateRunnerId, generateRunnerToken, hashSecret } from "./ids.js";
+import {
+  generateJobId,
+  generateRunnerId,
+  generateRunnerToken,
+  hashSecret,
+} from "./ids.js";
 import type { EnqueueInput, JobRecord, RunnerRecord } from "./records.js";
 import type { ByollmStore } from "./store.js";
 
@@ -67,6 +79,14 @@ export interface ByollmAppOptions {
    * gives up. Longer tolerates a daemon restarting; shorter fails faster.
    */
   readonly noRunnerGraceMs?: number;
+  /**
+   * This site's keypairs — the same ones the handlers use.
+   *
+   * The app needs them because it is the *endpoint*: it seals work on the way
+   * in and opens results on the way out. Nothing between those two points
+   * holds plaintext (byollm_009 §10).
+   */
+  readonly siteKeys: StoredKeys;
 }
 
 /**
@@ -96,12 +116,14 @@ export interface JobHandle {
  */
 export class ByollmApp {
   readonly #store: ByollmStore;
+  readonly #siteKeys: StoredKeys;
   readonly #now: () => number;
   readonly #livenessMs: number;
   readonly #delivery: ResultDelivery;
 
   constructor(options: ByollmAppOptions) {
     this.#store = options.store;
+    this.#siteKeys = options.siteKeys;
     this.#now = options.now ?? Date.now;
     this.#livenessMs = options.livenessMs ?? DEFAULT_LIVENESS_MS;
 
@@ -170,9 +192,64 @@ export class ByollmApp {
       throw new Error(`invalid ${input.kind} payload — ${detail}`);
     }
 
+    // Sealed before it is stored, to this site's own key. The app is the
+    // endpoint, so it can open its own work later; the store, its backups and
+    // anything reading them cannot.
+    // Two different deadlines, deliberately not conflated:
+    //
+    // - the *job's* deadline is the app's business, may be absent, and for a
+    //   dependent job its TTL clock does not even start until the job becomes
+    //   claimable (`TTL_EXPIRY`). Setting one here broke exactly that.
+    // - the *envelope's* deadline bounds how long a captured ciphertext is
+    //   worth keeping. It is bound into the signature, so it has to be
+    //   recomputable at open time from what the record stores — hence
+    //   creation plus TTL, which never moves.
+    // Resolved *here*, once, and passed to the store — because the envelope
+    // binds it. Letting the app default one value and the store default
+    // another produced a job whose seal and record disagreed, and therefore
+    // work nobody could open.
+    // One reading of the clock, used for both the seal and the record.
+    //
+    // Two readings passed every fake-clock test and failed against a real
+    // one: the envelope bound `createdAt + ttlMs` from the first call and the
+    // record stored `createdAt` from the second, a millisecond later, so
+    // nothing could be opened. A fixed clock returns the same number twice
+    // and hides it completely.
+    const createdAt = this.#now();
+    // Independent of the job's TTL, deliberately. Binding the envelope to
+    // `createdAt + ttl` meant the app had to decide a TTL in order to seal —
+    // which overrode the store's own default and broke every expiry test.
+    // The two answer different questions: how long the work is worth doing,
+    // and how long the ciphertext is worth keeping.
+    const envelopeDeadlineAt = createdAt + ENVELOPE_MAX_AGE_MS;
+    const jobId = input.id ?? generateJobId();
+    const senderKeyId = keyId(publicIdentityOf(this.#siteKeys).identity);
+    const envelope = await seal({
+      plaintext: JSON.stringify(parsed.data.payload),
+      senderKeys: this.#siteKeys,
+      recipientEncryptionPublic: this.#siteKeys.encryptionPublic,
+      context: {
+        jobId,
+        senderKeyId,
+        recipientKeyId: senderKeyId,
+        deadlineAt: envelopeDeadlineAt,
+        direction: "payload",
+      },
+    });
+
     const record = await this.#store.create(
-      { ...input, payload: parsed.data.payload },
-      this.#now(),
+      {
+        ...input,
+        id: jobId,
+        envelope,
+        sizeClass: sizeClassOf(
+          payloadTextLength({
+            kind: input.kind,
+            payload: parsed.data.payload,
+          } as Parameters<typeof payloadTextLength>[0]),
+        ),
+      },
+      createdAt,
     );
     return {
       id: record.id,

@@ -3,9 +3,9 @@ import {
   matchAudience,
   type Capability,
 } from "@byollm/protocol";
-import { generateLeaseId, generateJobId } from "./ids.js";
+import { generateLeaseId } from "./ids.js";
 import type {
-  EnqueueInput,
+  StoredJobInput,
   JobRecord,
   PairingRecord,
   RunnerRecord,
@@ -57,8 +57,10 @@ export class MemoryStore implements ByollmStore {
 
   // -- jobs ---------------------------------------------------------------
 
-  create(input: EnqueueInput, now: number): Promise<JobRecord> {
-    const id = input.id ?? generateJobId();
+  create(input: StoredJobInput, now: number): Promise<JobRecord> {
+    // Required now: the app mints the id before sealing, because the
+    // envelope binds it.
+    const id = input.id;
     const existing = this.#jobs.get(id);
     // Idempotent by caller-supplied id: re-enqueueing the same id is a no-op,
     // so an app's retry cannot duplicate work (the house "one door" rule).
@@ -72,7 +74,8 @@ export class MemoryStore implements ByollmStore {
     const job: JobRecord = {
       id,
       kind: input.kind,
-      payload: input.payload,
+      envelope: input.envelope,
+      sizeClass: input.sizeClass,
       audience: input.audience ?? "self",
       owner: input.owner,
       audienceAllow: input.audienceAllow ? [...input.audienceAllow] : undefined,

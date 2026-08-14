@@ -6,7 +6,7 @@ import type {
   PublicIdentity,
 } from "@byollm/protocol";
 import type {
-  EnqueueInput,
+  StoredJobInput,
   JobRecord,
   PairingRecord,
   RunnerRecord,
@@ -46,7 +46,8 @@ import type {
 interface JobRow {
   id: string;
   kind: string;
-  payload: unknown;
+  envelope: unknown;
+  size_class: "small" | "medium" | "large" | "unbounded";
   audience: "self" | "named" | "public";
   owner: string;
   audience_allow: string[] | null;
@@ -109,7 +110,8 @@ function toJob(row: JobRow): JobRecord {
   return {
     id: row.id,
     kind: row.kind as JobRecord["kind"],
-    payload: row.payload as JobRecord["payload"],
+    envelope: row.envelope as JobRecord["envelope"],
+    sizeClass: row.size_class,
     audience: row.audience,
     owner: row.owner,
     audienceAllow: row.audience_allow ?? undefined,
@@ -230,7 +232,7 @@ export function supabaseStore(options: SupabaseStoreOptions): ByollmStore {
   return {
     // -- jobs ---------------------------------------------------------------
 
-    async create(input: EnqueueInput, now: number): Promise<JobRecord> {
+    async create(input: StoredJobInput, now: number): Promise<JobRecord> {
       const dependsOn = [...(input.dependsOn ?? [])];
 
       // A job with dependencies starts blocked; the trigger sets
@@ -248,9 +250,10 @@ export function supabaseStore(options: SupabaseStoreOptions): ByollmStore {
       }
 
       const row = {
-        ...(input.id === undefined ? {} : { id: input.id }),
+        id: input.id,
         kind: input.kind,
-        payload: input.payload,
+        envelope: input.envelope,
+        size_class: input.sizeClass,
         audience: input.audience ?? "self",
         owner: input.owner,
         audience_allow: input.audienceAllow ? [...input.audienceAllow] : null,
@@ -273,11 +276,7 @@ export function supabaseStore(options: SupabaseStoreOptions): ByollmStore {
 
       if (inserted) return toJob(inserted);
       const existing = unwrap<JobRow>(
-        await db
-          .from("byollm_jobs")
-          .select()
-          .eq("id", input.id ?? "")
-          .single(),
+        await db.from("byollm_jobs").select().eq("id", input.id).single(),
       );
       return toJob(existing);
     },

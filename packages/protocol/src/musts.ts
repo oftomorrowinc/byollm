@@ -151,6 +151,16 @@ export const MUSTS = Object.freeze({
     verifiedBy: "conformance",
     source: "byollm_009 §6",
   }),
+  ENVELOPE_SEALED_AND_SIGNED: must({
+    id: "ENVELOPE_SEALED_AND_SIGNED",
+    statement:
+      "A stored payload MUST be sealed, and MUST be signed by the sender's " +
+      "identity key. An endpoint MUST refuse an envelope whose signature " +
+      "does not verify against the identity it pinned.",
+    enforcedBy: "server",
+    verifiedBy: "conformance",
+    source: "byollm_009 §6",
+  }),
   KIND_TYPED_ONLY: must({
     id: "KIND_TYPED_ONLY",
     statement:

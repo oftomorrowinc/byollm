@@ -2,6 +2,10 @@ import {
   AUDIENCES,
   OFFER_SCOPES,
   PROTOCOL_VERSION,
+  PublicIdentity,
+  generateKeys,
+  publicIdentityOf,
+  verifyPublicIdentity,
   type MustId,
 } from "@byollm/protocol";
 import {
@@ -931,6 +935,7 @@ export const CHECKS: readonly Check[] = [
           body: JSON.stringify({
             protocolVersion: PROTOCOL_VERSION,
             action: "start",
+            device: publicIdentityOf(generateKeys(Date.now())),
             daemon: {
               version: "conformance",
               label: "expiring-daemon",
@@ -1161,6 +1166,97 @@ export const CHECKS: readonly Check[] = [
       assert(
         authed.status === 400 || authed.status === 401,
         `a supported version with a bad token answered ${String(authed.status)}`,
+      );
+    },
+  },
+
+  {
+    id: "C024_KEY_EXCHANGE",
+    title:
+      "pairing exchanges identities, verifies them, and reveals nothing early",
+    musts: ["KEYS_EXCHANGED_AT_CONSENT"],
+    async run(target: ConformanceTarget): Promise<void> {
+      const start = async (device: unknown): Promise<Response> =>
+        target.fetch(
+          new Request(`${target.origin}/byollm/pair`, {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({
+              protocolVersion: PROTOCOL_VERSION,
+              action: "start",
+              daemon: {
+                version: "conformance",
+                label: "key-exchange",
+                platform: "linux",
+              },
+              device,
+              capabilities: [],
+            }),
+          }),
+        );
+
+      // 1. A device whose encryption key is not signed by the identity it
+      //    presents must be refused. Accepting it would let a caller pair a
+      //    real identity with a key it holds the secret for, and read
+      //    everything later sealed to that runner.
+      const honest = publicIdentityOf(generateKeys(Date.now()));
+      const attacker = publicIdentityOf(generateKeys(Date.now()));
+      const forged = await start({
+        ...honest,
+        encryption: attacker.encryption,
+      });
+      assert(
+        forged.status >= 400,
+        `a device with an unsigned encryption key paired anyway (${String(forged.status)})`,
+      );
+
+      // 2. An honest device starts a pairing.
+      const started = await start(honest);
+      assert(
+        started.status === 200,
+        "an honest device could not start pairing",
+      );
+      const pairing = (await started.json()) as {
+        deviceCode: string;
+        userCode: string;
+      };
+
+      const poll = async (): Promise<Record<string, unknown>> => {
+        const response = await target.fetch(
+          new Request(`${target.origin}/byollm/pair`, {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({
+              protocolVersion: PROTOCOL_VERSION,
+              action: "poll",
+              deviceCode: pairing.deviceCode,
+            }),
+          }),
+        );
+        return (await response.json()) as Record<string, unknown>;
+      };
+
+      // 3. Before approval, nothing. An unapproved code must not be a way to
+      //    enumerate a site's keys.
+      const pending = await poll();
+      assert(
+        pending["site"] === undefined,
+        "a pending poll disclosed the site's keys before anyone approved",
+      );
+
+      // 4. After approval, the site's identity arrives and verifies.
+      await target.approvePairing(pairing.userCode, "alice");
+      const approved = await poll();
+      assert(
+        approved["status"] === "approved",
+        `poll after approval said "${String(approved["status"])}"`,
+      );
+
+      const site = PublicIdentity.safeParse(approved["site"]);
+      assert(site.success, "the approval carried no usable site identity");
+      assert(
+        verifyPublicIdentity(site.data),
+        "the site's encryption key is not signed by the identity it presented",
       );
     },
   },

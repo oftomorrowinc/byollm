@@ -9,6 +9,7 @@ import { ClientError, ProtocolClient } from "./client.js";
 import { DaemonConfig, loadConfig } from "./config.js";
 import { connect } from "./connect.js";
 import { IngressLog, stripControlChars } from "./ingress.js";
+import { fingerprint } from "@byollm/protocol";
 import { DeviceIdentity } from "./identity.js";
 import { Pairings } from "./pairings.js";
 import { SpendLedger } from "./spend.js";
@@ -171,6 +172,7 @@ async function commandConnect(
     daemonVersion: DAEMON_VERSION,
     label: hostLabel(),
     capabilities,
+    device: await new DeviceIdentity(paths.keys).publicIdentity(Date.now()),
     onCode: (info) => {
       const minutes = Math.max(
         1,
@@ -373,6 +375,9 @@ async function commandStatus(paths: DaemonPaths, io: CliIo): Promise<ExitCode> {
   }
   for (const pairing of list) {
     io.out(`  ${pairing.origin}  as ${pairing.ownerLabel ?? pairing.owner}\n`);
+    // The pinned key, so an owner can check it against what the app shows.
+    // A pin nobody can see is a pin nobody can verify.
+    io.out(`    pinned: ${fingerprint(pairing.site.identity)}\n`);
   }
 
   io.out("\nroutes\n");

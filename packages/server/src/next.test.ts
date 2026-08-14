@@ -1,4 +1,6 @@
+import { generateKeys, publicIdentityOf } from "@byollm/protocol";
 import { describe, expect, it } from "vitest";
+import { generateSiteKeys } from "./keys.js";
 import { MemoryStore } from "./memory.js";
 import { createHandler } from "./next.js";
 
@@ -11,6 +13,7 @@ describe("createHandler — the one-file Next mount", () => {
     createHandler({
       store: new MemoryStore(),
       verificationUrl: "https://app.test/settings/runners",
+      siteKeys: generateSiteKeys(),
       // What the docstring tells a Next user to write: this route lives at
       // `app/api/byollm/[...route]`, so it is served under /api.
       basePath: "/api/byollm",
@@ -32,6 +35,7 @@ describe("createHandler — the one-file Next mount", () => {
           protocolVersion: "0",
           action: "start",
           daemon: { version: "0.1.0", label: "mbp", platform: "darwin" },
+          device: publicIdentityOf(generateKeys(Date.now())),
           capabilities: [],
         }),
       }),

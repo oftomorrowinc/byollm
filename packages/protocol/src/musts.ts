@@ -109,6 +109,17 @@ export const MUSTS = Object.freeze({
     verifiedBy: "conformance",
     source: "byollm_009 §4",
   }),
+  KEYS_EXCHANGED_AT_CONSENT: must({
+    id: "KEYS_EXCHANGED_AT_CONSENT",
+    statement:
+      "Pairing MUST exchange both parties' public identities; each side MUST " +
+      "verify that the encryption key is signed by the identity presenting " +
+      "it, and MUST pin the identity. Keys MUST NOT be delivered before " +
+      "approval.",
+    enforcedBy: "both",
+    verifiedBy: "conformance",
+    source: "byollm_009 §5",
+  }),
   KIND_TYPED_ONLY: must({
     id: "KIND_TYPED_ONLY",
     statement:

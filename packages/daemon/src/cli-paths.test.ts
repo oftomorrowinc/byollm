@@ -2,12 +2,15 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { payloadTextLength } from "@byollm/protocol";
+import { generateKeys, publicIdentityOf } from "@byollm/protocol";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { normalizeOrigin } from "./allowlist.js";
 import { composePrompt } from "./compose.js";
 import { main, runCli, type CliIo } from "./cli.js";
 import { daemonPaths, type DaemonPaths } from "./paths.js";
 import { Pairings } from "./pairings.js";
+
+const SITE = publicIdentityOf(generateKeys(1_800_000_000_000));
 
 /** The CLI paths a successful run never reaches. */
 
@@ -84,6 +87,7 @@ describe("byollm run — when the pairing is missing", () => {
       runnerId: "runner_1",
       token: "t",
       owner: "alice",
+      site: SITE,
       pairedAt: Date.now(),
     });
 

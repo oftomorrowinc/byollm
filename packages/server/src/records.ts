@@ -1,4 +1,5 @@
 import type {
+  PublicIdentity,
   Audience,
   Capability,
   JobKind,
@@ -73,6 +74,11 @@ export interface RunnerRecord {
   readonly revokedAt: number | null;
   readonly lastHeartbeatAt: number;
   readonly createdAt: number;
+  /**
+   * The device's pinned public keys. What later signatures verify against —
+   * a runner id names a machine, this proves it.
+   */
+  readonly device: PublicIdentity;
 }
 
 /** An in-flight device-code pairing. */
@@ -94,6 +100,14 @@ export interface PairingRecord {
   readonly platform: "darwin" | "linux" | "win32";
   readonly daemonVersion: string;
   readonly capabilities: readonly Capability[];
+  /**
+   * The device's public keys, presented at pair start (byollm_009 §5).
+   *
+   * Kept on the pairing so the approving user is approving a *specific
+   * machine*, not a code that any machine could later redeem. It is copied
+   * onto the runner at approval.
+   */
+  readonly device: PublicIdentity;
   readonly expiresAt: number;
   readonly createdAt: number;
 }

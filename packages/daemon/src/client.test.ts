@@ -1,3 +1,4 @@
+import { generateKeys, publicIdentityOf } from "@byollm/protocol";
 import { describe, expect, it } from "vitest";
 import { ClientError, ProtocolClient } from "./client.js";
 import { connect } from "./connect.js";
@@ -23,6 +24,10 @@ function fetchReturning(
 
 const client = (fetchImpl: typeof fetch) =>
   new ProtocolClient({ origin: "https://app.test", fetch: fetchImpl });
+
+const KEYS = generateKeys(1_800_000_000_000);
+const DEVICE = publicIdentityOf(KEYS);
+const SITE = publicIdentityOf(generateKeys(1_800_000_000_000));
 
 describe("ProtocolClient — the four truths never share a message", () => {
   it("reports an unreachable server distinctly", async () => {
@@ -183,6 +188,7 @@ describe("connect — the device-code flow", () => {
           { status: "pending" },
           {
             status: "approved",
+            site: SITE,
             runnerToken: "t".repeat(32),
             runnerId: "runner_1",
             owner: "alice",
@@ -192,6 +198,7 @@ describe("connect — the device-code flow", () => {
       daemonVersion: "0.0.0",
       label: "test",
       capabilities: [],
+      device: DEVICE,
       onCode: (info) => {
         shown = info;
       },
@@ -213,6 +220,7 @@ describe("connect — the device-code flow", () => {
       daemonVersion: "0.0.0",
       label: "test",
       capabilities: [],
+      device: DEVICE,
       onCode: () => undefined,
       sleep: () => Promise.resolve(),
     });
@@ -225,6 +233,7 @@ describe("connect — the device-code flow", () => {
       daemonVersion: "0.0.0",
       label: "test",
       capabilities: [],
+      device: DEVICE,
       onCode: () => undefined,
       sleep: () => Promise.resolve(),
     });
@@ -238,6 +247,7 @@ describe("connect — the device-code flow", () => {
       daemonVersion: "0.0.0",
       label: "test",
       capabilities: [],
+      device: DEVICE,
       onCode: () => undefined,
       now: () => now,
       sleep: () => {
@@ -270,6 +280,7 @@ describe("connect — the device-code flow", () => {
         new Response(
           JSON.stringify({
             status: "approved",
+            site: SITE,
             runnerToken: "t".repeat(32),
             runnerId: "runner_1",
             owner: "alice",
@@ -284,6 +295,7 @@ describe("connect — the device-code flow", () => {
       daemonVersion: "0.0.0",
       label: "test",
       capabilities: [],
+      device: DEVICE,
       onCode: () => undefined,
       sleep: () => Promise.resolve(),
     });
@@ -298,6 +310,7 @@ describe("connect — the device-code flow", () => {
       daemonVersion: "0.0.0",
       label: "test",
       capabilities: [],
+      device: DEVICE,
       onCode: () => undefined,
       sleep: () => Promise.resolve(),
       signal: controller.signal,
@@ -320,6 +333,7 @@ describe("Pairings", () => {
         runnerId: "runner_1",
         token: "t1",
         owner: "alice",
+        site: SITE,
         pairedAt: 1,
       });
       // Trailing slash and a path are the same server.
@@ -331,6 +345,7 @@ describe("Pairings", () => {
         runnerId: "runner_2",
         token: "t2",
         owner: "alice",
+        site: SITE,
         pairedAt: 2,
       });
       expect(store.list()).toHaveLength(1);

@@ -1,5 +1,7 @@
 import type { Capability } from "@byollm/protocol";
 import { ByollmApp } from "./app.js";
+import { generateKeys, publicIdentityOf } from "@byollm/protocol";
+import { generateSiteKeys } from "./keys.js";
 import { ByollmHandlers } from "./handlers.js";
 import { MemoryStore } from "./memory.js";
 
@@ -112,6 +114,7 @@ export function createHarness(
   const handlers = new ByollmHandlers({
     store,
     verificationUrl: "https://app.test/settings/runners",
+    siteKeys: generateSiteKeys(),
     now: clock.now,
     ...(options.leaseMs === undefined ? {} : { leaseMs: options.leaseMs }),
   });
@@ -134,6 +137,9 @@ export function createHarness(
           label: args.label ?? "test-machine",
           platform: "darwin",
         },
+        // Every simulated daemon gets its own identity, so a test with two
+        // runners is a test with two machines.
+        device: publicIdentityOf(generateKeys(Date.now())),
         capabilities: args.capabilities ?? httpCapabilities(),
       },
       undefined,

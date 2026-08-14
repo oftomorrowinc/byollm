@@ -12,6 +12,7 @@ import {
   IngressLog,
   SpendLedger,
   ProtocolClient,
+  DeviceIdentity,
   Runner,
   connect,
   resolveConfig,
@@ -251,9 +252,15 @@ export async function pairDaemon(
   // instead of failing one check.
   const pairingAbort = new AbortController();
   let pairingError: unknown;
+  // A real DeviceIdentity per harness daemon, backed by its own temp home —
+  // not a shared fixture. Each simulated daemon is a distinct machine, which
+  // is what makes a multi-runner check (C019) mean anything.
+  const deviceIdentity = new DeviceIdentity(join(home, "keys.json"));
+
   const pairing = connect({
     client: pairingClient,
     daemonVersion: "conformance",
+    device: await deviceIdentity.publicIdentity(Date.now()),
     label: options.label ?? `daemon-${options.owner}`,
     capabilities,
     onCode: (info) => {

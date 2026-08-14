@@ -1,5 +1,7 @@
+import { generateKeys, publicIdentityOf } from "@byollm/protocol";
 import { describe, expect, it } from "vitest";
 import { bearerFrom, createFetchHandler, routeEndpoint } from "./http.js";
+import { generateSiteKeys } from "./keys.js";
 import { MemoryStore } from "./memory.js";
 
 // A Next-style mount, stated rather than inferred — which is the point of
@@ -12,6 +14,7 @@ function handler() {
   return createFetchHandler({
     store: new MemoryStore(),
     verificationUrl: "https://app.test/settings/runners",
+    siteKeys: generateSiteKeys(),
     basePath: MOUNT,
   });
 }
@@ -77,6 +80,7 @@ describe("a handler answers only where it is mounted", () => {
       createFetchHandler({
         store: new MemoryStore(),
         verificationUrl: "https://app.test/settings/runners",
+        siteKeys: generateSiteKeys(),
         basePath: "api/byollm",
       }),
     ).toThrow(/must start with/);
@@ -105,6 +109,7 @@ describe("fetch handler", () => {
         body: JSON.stringify({
           protocolVersion: "0",
           action: "start",
+          device: publicIdentityOf(generateKeys(Date.now())),
           daemon: { version: "0.1.0", label: "mbp", platform: "darwin" },
           capabilities: [],
         }),

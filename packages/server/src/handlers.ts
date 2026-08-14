@@ -1,4 +1,7 @@
 import {
+  publicIdentityOf,
+  verifyPublicIdentity,
+  type StoredKeys,
   ClaimRequest,
   type ClaimRequest as ClaimRequestType,
   type HeartbeatRequest as HeartbeatRequestType,
@@ -41,6 +44,17 @@ export interface HandlerConfig {
   readonly pollIntervalMs?: number;
   /** Injectable clock, so tests can move time without sleeping. */
   readonly now?: () => number;
+  /**
+   * This site's keypairs (byollm_009 §5) — **supplied, never generated here.**
+   *
+   * A site is usually more than one process. Generating keys at startup would
+   * work perfectly in development and fail only in production, silently: each
+   * instance would have a different identity, a daemon would pin whichever
+   * one approved its pairing, and every request routed to a different
+   * instance would fail a signature check it had no way to explain. So this
+   * is a required input, and there is a `keygen` script that produces one.
+   */
+  readonly siteKeys: StoredKeys;
 }
 
 const DEFAULTS = {
@@ -94,9 +108,20 @@ export class ByollmHandlers {
   readonly #pairingTtlMs: number;
   readonly #pollIntervalMs: number;
   readonly #now: () => number;
+  readonly #siteKeys: StoredKeys;
 
   constructor(config: HandlerConfig) {
     this.#store = config.store;
+    // Fail at construction, not at the first pairing. A site whose keys are
+    // malformed should not start and then refuse its users one at a time.
+    if (!verifyPublicIdentity(publicIdentityOf(config.siteKeys))) {
+      throw new Error(
+        "siteKeys are not internally consistent: the encryption key is not " +
+          "signed by the identity key. Generate a fresh pair with " +
+          "`npx @byollm/server keygen`.",
+      );
+    }
+    this.#siteKeys = config.siteKeys;
     this.#verificationUrl = config.verificationUrl;
     this.#leaseMs = config.leaseMs ?? DEFAULTS.leaseMs;
     this.#pairingTtlMs = config.pairingTtlMs ?? DEFAULTS.pairingTtlMs;
@@ -199,7 +224,19 @@ export class ByollmHandlers {
       const userCode = generateUserCode();
       const expiresAt = now + this.#pairingTtlMs;
 
+      // The machine must prove its encryption key belongs to the identity it
+      // is presenting, before either is stored. Otherwise a caller could pair
+      // a real identity with an encryption key it holds the secret for, and
+      // read everything later sealed to that runner.
+      if (!verifyPublicIdentity(request.device)) {
+        return fail(
+          "bad-request",
+          "the device's encryption key is not signed by the identity it was presented with",
+        );
+      }
+
       await this.#store.createPairing({
+        device: request.device,
         deviceCodeHash: hashSecret(deviceCode),
         userCode,
         state: "pending",
@@ -250,6 +287,9 @@ export class ByollmHandlers {
         runnerToken: pairing.runnerTokenOnce,
         runnerId: pairing.runnerId,
         owner: pairing.owner,
+        // Only on approval: a pending or denied poll learns nothing, so an
+        // unapproved code cannot be used to enumerate a site's keys.
+        site: publicIdentityOf(this.#siteKeys),
       };
       // Delivered exactly once — a replayed device code gets nothing.
       await this.#store.consumePairingToken(pairing.deviceCodeHash);

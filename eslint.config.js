@@ -99,6 +99,7 @@ export default tseslint.config(
     files: [
       "packages/daemon/test/adversarial/*.mjs",
       "packages/daemon/scripts/*.mjs",
+      "packages/server/bin/*.mjs",
       "scripts/*.mjs",
     ],
     ...tseslint.configs.disableTypeChecked,

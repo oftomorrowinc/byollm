@@ -1,5 +1,9 @@
 import { platform } from "node:os";
-import type { Capability } from "@byollm/protocol";
+import {
+  verifyPublicIdentity,
+  type Capability,
+  type PublicIdentity,
+} from "@byollm/protocol";
 import { ClientError, type ProtocolClient } from "./client.js";
 import type { Pairing } from "./pairings.js";
 
@@ -8,6 +12,8 @@ export interface ConnectOptions {
   readonly daemonVersion: string;
   readonly label: string;
   readonly capabilities: readonly Capability[];
+  /** This machine's public keys, presented at pair start (byollm_009 §5). */
+  readonly device: PublicIdentity;
   /** Called once, with what to show the user. */
   readonly onCode: (info: {
     userCode: string;
@@ -49,6 +55,7 @@ export async function connect(options: ConnectOptions): Promise<ConnectResult> {
     version: options.daemonVersion,
     label: options.label,
     platform: currentPlatform(),
+    device: options.device,
     capabilities: options.capabilities,
   });
 
@@ -99,6 +106,21 @@ export async function connect(options: ConnectOptions): Promise<ConnectResult> {
           message: "the pairing code expired before it was approved",
         };
       case "approved":
+        // Verify before pinning. A site whose encryption key is not signed by
+        // the identity presenting it is either misconfigured or being
+        // impersonated, and pinning it would make the impersonation
+        // permanent — which is the failure mode pinning exists to prevent,
+        // arrived at by pinning.
+        if (!verifyPublicIdentity(polled.site)) {
+          return {
+            ok: false,
+            reason: "denied",
+            message:
+              "this app presented keys that do not verify: its encryption " +
+              "key is not signed by the identity it claims. Nothing was " +
+              "paired.",
+          };
+        }
         return {
           ok: true,
           pairing: {
@@ -109,6 +131,7 @@ export async function connect(options: ConnectOptions): Promise<ConnectResult> {
             ...(polled.ownerLabel === undefined
               ? {}
               : { ownerLabel: polled.ownerLabel }),
+            site: polled.site,
             pairedAt: now(),
           },
         };

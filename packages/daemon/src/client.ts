@@ -1,5 +1,6 @@
 import {
   ClaimResponse,
+  type PublicIdentity,
   HeartbeatResponse,
   PROTOCOL_VERSION,
   PairPollResponse,
@@ -109,11 +110,14 @@ export class ProtocolClient {
     version: string;
     label: string;
     platform: "darwin" | "linux" | "win32";
+    /** This machine's public keys (byollm_009 §5). */
+    device: PublicIdentity;
     capabilities: readonly Capability[];
   }): Promise<PairStartResponse> {
     return this.#post("pair", PairStartResponse, {
       protocolVersion: PROTOCOL_VERSION,
       action: "start",
+      device: input.device,
       daemon: {
         version: input.version,
         label: input.label,

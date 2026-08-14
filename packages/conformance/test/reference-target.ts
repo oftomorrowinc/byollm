@@ -2,6 +2,7 @@ import {
   ByollmApp,
   MemoryStore,
   createFetchHandler,
+  generateSiteKeys,
   type ByollmStore,
 } from "@byollm/server";
 import type { ConformanceTarget } from "../src/index.js";
@@ -9,6 +10,14 @@ import type { ConformanceTarget } from "../src/index.js";
 const ORIGIN = "https://reference.byollm.test";
 const LEASE_MS = 2_000;
 const TTL_MS = 1_500;
+/**
+ * One site identity for the life of this target.
+ *
+ * `reset()` clears state between checks, but a site does not get a new
+ * identity when it restarts — and modelling one that did would quietly make
+ * every pinning check untestable.
+ */
+const SITE_KEYS = generateSiteKeys();
 
 /**
  * A controllable clock shared by the handlers and the app.
@@ -41,6 +50,7 @@ export function referenceTarget(): ConformanceTarget {
   let handler = createFetchHandler({
     store,
     verificationUrl: `${ORIGIN}/settings/runners`,
+    siteKeys: SITE_KEYS,
     leaseMs: LEASE_MS,
     now: clock.now,
   });
@@ -133,6 +143,7 @@ export function referenceTarget(): ConformanceTarget {
       handler = createFetchHandler({
         store,
         verificationUrl: `${ORIGIN}/settings/runners`,
+        siteKeys: SITE_KEYS,
         leaseMs: LEASE_MS,
         now: clock.now,
       });

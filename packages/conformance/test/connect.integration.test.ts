@@ -3,7 +3,12 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { ByollmApp, MemoryStore, createFetchHandler } from "@byollm/server";
+import {
+  ByollmApp,
+  MemoryStore,
+  createFetchHandler,
+  generateSiteKeys,
+} from "@byollm/server";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { daemonPaths, runCli, type CliIo, type DaemonPaths } from "byollm";
 import type { ServerResponse } from "node:http";
@@ -39,6 +44,8 @@ const fail500 =
 let server: Server;
 let origin: string;
 let app: ByollmApp;
+const SITE_KEYS = generateSiteKeys();
+
 let home: string;
 let paths: DaemonPaths;
 let out: string;
@@ -48,6 +55,7 @@ beforeEach(async () => {
   app = new ByollmApp({ store });
 
   const protocol = createFetchHandler({
+    siteKeys: SITE_KEYS,
     store,
     verificationUrl: "http://127.0.0.1/pair",
     leaseMs: 5_000,
@@ -172,6 +180,7 @@ describe("byollm connect — the whole path", () => {
     const store = new MemoryStore();
     app = new ByollmApp({ store });
     protocolHandler = createFetchHandler({
+      siteKeys: SITE_KEYS,
       store,
       verificationUrl: `${origin}/pair`,
       leaseMs: 5_000,

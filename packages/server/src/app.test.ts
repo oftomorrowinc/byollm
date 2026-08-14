@@ -1,3 +1,4 @@
+import { generateKeys, publicIdentityOf } from "@byollm/protocol";
 import { describe, expect, it } from "vitest";
 import { NoRunnerAvailableError } from "./delivery.js";
 import {
@@ -161,6 +162,7 @@ describe("ByollmApp — the app-facing surface", () => {
       {
         protocolVersion: "0",
         action: "start",
+        device: publicIdentityOf(generateKeys(Date.now())),
         daemon: { version: "0.1.0", label: "todd-mbp", platform: "darwin" },
         capabilities: httpCapabilities(),
       },
@@ -182,6 +184,7 @@ describe("ByollmApp — the app-facing surface", () => {
       {
         protocolVersion: "0",
         action: "start",
+        device: publicIdentityOf(generateKeys(Date.now())),
         daemon: { version: "0.1.0", label: "mbp", platform: "darwin" },
         capabilities: [],
       },
@@ -199,6 +202,7 @@ describe("ByollmApp — the app-facing surface", () => {
       {
         protocolVersion: "0",
         action: "start",
+        device: publicIdentityOf(generateKeys(Date.now())),
         daemon: { version: "0.1.0", label: "mbp", platform: "darwin" },
         capabilities: [],
       },
@@ -256,6 +260,7 @@ describe("ByollmApp — the app-facing surface", () => {
       {
         protocolVersion: "0",
         action: "start",
+        device: publicIdentityOf(generateKeys(Date.now())),
         daemon: { version: "0.1.0", label: "mbp", platform: "darwin" },
         capabilities: [],
       },

@@ -422,6 +422,9 @@ export class MemoryStore implements ByollmStore {
       id: args.runnerId,
       owner: args.owner,
       tokenHash: args.tokenHash,
+      // Carried from the pairing, not re-supplied at approval: the user
+      // approved a specific machine, and the runner must be that machine.
+      device: pairing.device,
       label: pairing.label,
       platform: pairing.platform,
       daemonVersion: pairing.daemonVersion,

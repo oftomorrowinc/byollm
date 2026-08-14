@@ -1,6 +1,7 @@
 import { chmod, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { generateKeys, publicIdentityOf } from "@byollm/protocol";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { Allowlist } from "./allowlist.js";
 import { ClaudeCliBackend } from "./backends/claude-cli.js";
@@ -16,6 +17,9 @@ import { DaemonConfig, resolveConfig } from "./config.js";
 import { IngressLog } from "./ingress.js";
 import { SpendLedger } from "./spend.js";
 import { Runner } from "./runner.js";
+
+const SITE = publicIdentityOf(generateKeys(1_800_000_000_000));
+const DEVICE = SITE;
 
 /**
  * What happens when reporting itself fails.
@@ -437,6 +441,7 @@ describe("connect — a poll that fails outright", () => {
         daemonVersion: "0.0.0",
         label: "test",
         capabilities: [],
+        device: DEVICE,
         onCode: () => undefined,
         sleep: () => Promise.resolve(),
       }),

@@ -23,7 +23,8 @@
   "files": [
     "dist",
     "supabase/migrations",
-    "README.md"
+    "README.md",
+    "bin"
   ],
   "engines": {
     "node": ">=22.14"
@@ -56,5 +57,8 @@
   },
   "bugs": {
     "url": "https://github.com/oftomorrowinc/byollm/issues"
+  },
+  "bin": {
+    "keygen": "./bin/keygen.mjs"
   }
 }

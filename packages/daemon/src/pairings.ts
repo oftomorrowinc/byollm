@@ -1,5 +1,6 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
+import { PublicIdentity } from "@byollm/protocol";
 import { z } from "zod";
 import { normalizeOrigin } from "./allowlist.js";
 
@@ -20,6 +21,15 @@ export const Pairing = z
     /** The app's id for this daemon's owner. */
     owner: z.string().min(1),
     ownerLabel: z.string().optional(),
+    /**
+     * The site's public keys, pinned at pairing (byollm_009 §5).
+     *
+     * Pinned rather than fetched: a key re-fetched on each connection is a
+     * key an upstream can change, which is the whole thing pinning prevents.
+     * The owner can compare `sitePin`'s fingerprint against what the site
+     * displays.
+     */
+    site: PublicIdentity,
     pairedAt: z.number().int().positive(),
   })
   .strict();

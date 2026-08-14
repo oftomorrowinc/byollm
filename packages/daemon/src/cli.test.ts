@@ -1,11 +1,14 @@
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { generateKeys, publicIdentityOf } from "@byollm/protocol";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { runCli, type CliIo } from "./cli.js";
 import { IngressLog } from "./ingress.js";
 import { daemonPaths, type DaemonPaths } from "./paths.js";
 import { Pairings } from "./pairings.js";
+
+const SITE = publicIdentityOf(generateKeys(1_800_000_000_000));
 
 /**
  * The CLI is the trust surface, so it is tested like one.
@@ -176,6 +179,7 @@ describe("byollm status", () => {
       runnerId: "runner_1",
       token: "t",
       owner: "alice",
+      site: SITE,
       pairedAt: Date.now(),
     });
 
@@ -322,6 +326,7 @@ describe("byollm forget", () => {
       runnerId: "runner_1",
       token: "t",
       owner: "alice",
+      site: SITE,
       pairedAt: Date.now(),
     });
 

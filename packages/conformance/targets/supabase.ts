@@ -24,7 +24,11 @@ import {
 // The built package, not `../src`: Node's type stripping does not rewrite the
 // `.js` specifiers the source uses, and certifying the published entry points
 // is closer to what a consumer actually gets.
-import { ByollmApp, createFetchHandler } from "@byollm/server";
+import {
+  ByollmApp,
+  createFetchHandler,
+  generateSiteKeys,
+} from "@byollm/server";
 import { supabaseStore } from "@byollm/server/supabase";
 
 const SUPABASE_URL = process.env["SUPABASE_URL"] ?? "http://127.0.0.1:54421";
@@ -95,11 +99,16 @@ async function ensureUser(name: string): Promise<string> {
 
 const toName = (id: string): string => ownerNames.get(id) ?? id;
 
+// Generated per run: this target is one process, so there is no scale-out
+// identity problem to model here. A real deployment supplies these.
+const SITE_KEYS = generateSiteKeys();
+
 const store = supabaseStore({ client, defaultTtlMs: TTL_MS });
 const app = new ByollmApp({ store });
 const handler = createFetchHandler({
   store,
   verificationUrl: `${ORIGIN}/settings/runners`,
+  siteKeys: SITE_KEYS,
   leaseMs: LEASE_MS,
   pairingTtlMs: PAIRING_TTL_MS,
 });

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { PublicIdentity } from "./keys.js";
 import { OfferScope } from "./audience.js";
 import { BackendClass, BackendIdSchema } from "./backends.js";
 import { ClaimedJob, JobOutcome } from "./job.js";
@@ -152,6 +153,14 @@ export const PairStartRequest = z
       label: z.string().min(1).max(120),
       platform: z.enum(["darwin", "linux", "win32"]),
     }),
+    /**
+     * This machine's public keys (byollm_009 §5).
+     *
+     * Pairing is where the two parties learn each other's identities, because
+     * it is the one moment a human is already deciding to trust: the approval
+     * click. A key exchanged anywhere else would be a key nobody chose.
+     */
+    device: PublicIdentity,
     capabilities: CapabilityMatrix,
   })
   .strict();
@@ -196,6 +205,13 @@ export const PairPollResponse = z.discriminatedUnion("status", [
       owner: z.string().min(1),
       /** Display name for the trust UI, if the app offers one. */
       ownerLabel: z.string().optional(),
+      /**
+       * The site's public keys, for the daemon to pin (byollm_009 §5).
+       *
+       * Returned only on approval — a pending or denied poll learns nothing,
+       * so an unapproved code cannot be used to enumerate a site's keys.
+       */
+      site: PublicIdentity,
     })
     .strict(),
 ]);

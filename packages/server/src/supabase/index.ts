@@ -1,5 +1,10 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import type { Capability, JobOutcome, JobState } from "@byollm/protocol";
+import type {
+  Capability,
+  JobOutcome,
+  JobState,
+  PublicIdentity,
+} from "@byollm/protocol";
 import type {
   EnqueueInput,
   JobRecord,
@@ -68,6 +73,7 @@ interface RunnerRow {
   platform: "darwin" | "linux" | "win32";
   daemon_version: string;
   capabilities: Capability[];
+  device: PublicIdentity;
   paused: boolean;
   revoked_at: string | null;
   last_heartbeat_at: string;
@@ -86,6 +92,7 @@ interface PairingRow {
   platform: "darwin" | "linux" | "win32";
   daemon_version: string;
   capabilities: Capability[];
+  device: PublicIdentity;
   expires_at: string;
   created_at: string;
 }
@@ -131,6 +138,7 @@ function toRunner(row: RunnerRow): RunnerRecord {
     platform: row.platform,
     daemonVersion: row.daemon_version,
     capabilities: row.capabilities,
+    device: row.device,
     paused: row.paused,
     revokedAt: ms(row.revoked_at),
     lastHeartbeatAt: Date.parse(row.last_heartbeat_at),
@@ -150,6 +158,7 @@ function toPairing(row: PairingRow): PairingRecord {
     platform: row.platform,
     daemonVersion: row.daemon_version,
     capabilities: row.capabilities,
+    device: row.device,
     expiresAt: Date.parse(row.expires_at),
     createdAt: Date.parse(row.created_at),
   };
@@ -449,6 +458,7 @@ export function supabaseStore(options: SupabaseStoreOptions): ByollmStore {
     async createPairing(record: PairingRecord): Promise<void> {
       const { error } = await db.from("byollm_pairings").insert({
         device_code_hash: record.deviceCodeHash,
+        device: record.device,
         user_code: record.userCode,
         state: record.state,
         label: record.label,

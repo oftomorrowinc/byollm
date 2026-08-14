@@ -43,6 +43,8 @@ export {
 
 export { bearerFrom, createFetchHandler, routeEndpoint } from "./http.js";
 
+export { formatSiteKeys, generateSiteKeys, siteKeysFromEnv } from "./keys.js";
+
 export {
   generateDeviceCode,
   generateJobId,

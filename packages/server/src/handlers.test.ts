@@ -1,3 +1,4 @@
+import { generateKeys, publicIdentityOf } from "@byollm/protocol";
 import { describe, expect, it } from "vitest";
 import {
   createHarness,
@@ -20,6 +21,7 @@ describe("pairing [PAIR_INTERACTIVE, PAIR_ONE_USER]", () => {
       {
         protocolVersion: "0",
         action: "start",
+        device: publicIdentityOf(generateKeys(Date.now())),
         daemon: { version: "0.1.0", label: "mbp", platform: "darwin" },
         capabilities: httpCapabilities(),
       },
@@ -65,6 +67,7 @@ describe("pairing [PAIR_INTERACTIVE, PAIR_ONE_USER]", () => {
       {
         protocolVersion: "0",
         action: "start",
+        device: publicIdentityOf(generateKeys(Date.now())),
         daemon: { version: "0.1.0", label: "mbp", platform: "darwin" },
         capabilities: httpCapabilities(),
       },
@@ -99,6 +102,7 @@ describe("pairing [PAIR_INTERACTIVE, PAIR_ONE_USER]", () => {
       {
         protocolVersion: "0",
         action: "start",
+        device: publicIdentityOf(generateKeys(Date.now())),
         daemon: { version: "0.1.0", label: "mbp", platform: "darwin" },
         capabilities: httpCapabilities(),
       },
@@ -131,6 +135,7 @@ describe("pairing [PAIR_INTERACTIVE, PAIR_ONE_USER]", () => {
       {
         protocolVersion: "0",
         action: "start",
+        device: publicIdentityOf(generateKeys(Date.now())),
         daemon: { version: "0.1.0", label: "mbp", platform: "darwin" },
         capabilities: httpCapabilities(),
       },

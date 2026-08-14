@@ -30,16 +30,23 @@ npm install @byollm/server
 ```ts
 // app/api/byollm/[...route]/route.ts
 import { createHandler } from "@byollm/server/next";
-import { store } from "@/lib/byollm";
+import { siteKeysFromEnv } from "@byollm/server";
+import { getStore } from "@/lib/byollm";
 
-export const { POST } = createHandler({
-  store,
+export const { POST } = createHandler(() => ({
+  store: getStore(),
+  siteKeys: siteKeysFromEnv("BYOLLM_SITE_KEYS"),
   verificationUrl: "https://your-app.com/settings/runners",
   // Next serves this route under /api, so say where it is mounted. The
   // handler matches the full path and will 404 without this.
   basePath: "/api/byollm",
-});
+}));
 ```
+
+**Pass a function, not an object.** `next build` imports every route module to
+collect page data, in an environment that has no secrets. A config object is
+constructed during that import, so the build fails on credentials it cannot
+have. A function is not called until the first request.
 
 Then pair against that same path — `byollm connect https://your-app.com/api`.
 The daemon appends `/byollm/<endpoint>` to whatever origin it is given, so
@@ -51,16 +58,40 @@ drop `basePath`, and pair against the bare domain.
 
 ```ts
 // lib/byollm.ts
-import { ByollmApp, MemoryStore } from "@byollm/server";
+import { ByollmApp, MemoryStore, siteKeysFromEnv } from "@byollm/server";
 
-export const store = new MemoryStore();
-export const app = new ByollmApp({ store });
+// Lazily, and memoized, for the same reason the mount takes a function: a
+// module-scope `new` runs during `next build`.
+let store: MemoryStore | undefined;
+export function getStore(): MemoryStore {
+  return (store ??= new MemoryStore());
+}
+
+let app: ByollmApp | undefined;
+export function getApp(): ByollmApp {
+  return (app ??= new ByollmApp({
+    store: getStore(),
+    siteKeys: siteKeysFromEnv("BYOLLM_SITE_KEYS"),
+  }));
+}
 ```
+
+Generate that identity once, and keep it:
+
+```bash
+npx @byollm/server@alpha keygen   # prints BYOLLM_SITE_KEYS=...
+```
+
+Once, not per deploy and never at startup — a daemon pins this identity when
+its owner approves the pairing, and regenerating it means every paired machine
+must pair again. Generating at startup fails only under horizontal scale: each
+instance would have a different identity, and a daemon would be refused by
+whichever one it did not pair with.
 
 **3. Enqueue.**
 
 ```ts
-const job = await app.enqueue({
+const job = await getApp().enqueue({
   kind: "llm.generate",
   audience: "self", // this user's own machine only — the default
   owner: userId,
@@ -84,7 +115,7 @@ types the code their daemon showed them:
 
 ```ts
 // The owner comes from YOUR session. A daemon can never assert who it is.
-const runner = await app.approvePairing({
+const runner = await getApp().approvePairing({
   userCode: formData.get("code"),
   owner: session.userId,
 });
@@ -112,6 +143,7 @@ import {
 const store = supabaseStore({ client: serviceRoleClient });
 const app = new ByollmApp({
   store,
+  siteKeys: siteKeysFromEnv("BYOLLM_SITE_KEYS"),
   delivery: supabaseRealtimeDelivery(serviceRoleClient),
 });
 ```
@@ -132,7 +164,7 @@ and `untrusted` is derived from the audience — you cannot mark volunteer
 output as first-party:
 
 ```ts
-const { outcome, provenance } = await app.result(jobId);
+const { outcome, provenance } = await getApp().result(jobId);
 if (provenance?.untrusted) {
   // Do not render as trusted HTML. Do not feed to a privileged step.
   // Disclose where it came from.

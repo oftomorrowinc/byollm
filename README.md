@@ -66,25 +66,41 @@ Mount the handler, point it at a store, and enqueue.
 ```ts
 // app/api/byollm/[...route]/route.ts
 import { createHandler } from "@byollm/server/next";
-import { store } from "@/lib/byollm";
+import { getConfig } from "@/lib/byollm";
 
-export const { POST } = createHandler({
-  store,
+// A function, not an object: `next build` imports this module with no secrets
+// in the environment, and must not construct anything.
+export const { POST } = createHandler(getConfig);
+```
+
+```ts
+// lib/byollm.ts
+import { ByollmApp, MemoryStore, siteKeysFromEnv } from "@byollm/server";
+
+let shared: { store: MemoryStore; app: ByollmApp } | undefined;
+
+function get() {
+  if (!shared) {
+    const store = new MemoryStore();
+    // Generate once with `npx @byollm/server@alpha keygen` — never at startup,
+    // or each instance gets a different identity and paired daemons break.
+    const siteKeys = siteKeysFromEnv("BYOLLM_SITE_KEYS");
+    shared = { store, app: new ByollmApp({ store, siteKeys }) };
+  }
+  return shared;
+}
+
+export const getApp = () => get().app;
+export const getConfig = () => ({
+  store: get().store,
+  siteKeys: siteKeysFromEnv("BYOLLM_SITE_KEYS"),
   verificationUrl: "https://your-app.com/settings/runners",
 });
 ```
 
 ```ts
-// lib/byollm.ts
-import { ByollmApp, MemoryStore } from "@byollm/server";
-
-export const store = new MemoryStore();
-export const app = new ByollmApp({ store });
-```
-
-```ts
 // anywhere in your app
-const job = await app.enqueue({
+const job = await getApp().enqueue({
   kind: "llm.generate",
   audience: "self",            // this user's machine only
   owner: userId,

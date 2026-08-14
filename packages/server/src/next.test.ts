@@ -52,3 +52,73 @@ describe("createHandler — the one-file Next mount", () => {
     expect(response.status).toBe(405);
   });
 });
+
+/**
+ * Issue #4, reproduced against a real `next build` before it was fixed:
+ * "Failed to collect page data for /api/byollm/[...route]".
+ *
+ * `next build` imports every route module to collect page data, in an
+ * environment with no secrets. A config *object* is therefore constructed at
+ * build time, and anything it needs — a service-role key, a site identity —
+ * has to exist during the build, which it does not.
+ *
+ * Passing a function moves construction to the first request. These tests
+ * assert the property that failure depended on, so it cannot come back
+ * without a real Next install in CI to notice.
+ */
+describe("a config function is not called until a request arrives", () => {
+  const lazyMount = () => {
+    let calls = 0;
+    const mounted = createHandler(() => {
+      calls += 1;
+      return {
+        store: new MemoryStore(),
+        verificationUrl: "https://app.test/settings/runners",
+        siteKeys: generateSiteKeys(),
+        basePath: "/api/byollm",
+      };
+    });
+    return { mounted, calls: () => calls };
+  };
+
+  const pair = () =>
+    new Request("https://app.test/api/byollm/pair", {
+      method: "POST",
+      body: JSON.stringify({
+        protocolVersion: "0",
+        action: "start",
+        daemon: { version: "0.1.0", label: "mbp", platform: "darwin" },
+        device: publicIdentityOf(generateKeys(Date.now())),
+        capabilities: [],
+      }),
+    });
+
+  it("does not build anything at import time", () => {
+    const { calls } = lazyMount();
+    // This is the whole bug: at this point `next build` has imported the
+    // module and expects to be finished with it.
+    expect(calls()).toBe(0);
+  });
+
+  it("builds once, on the first request, and keeps it", async () => {
+    const { mounted, calls } = lazyMount();
+
+    expect((await mounted.POST(pair())).status).toBe(200);
+    expect(calls()).toBe(1);
+
+    // Rebuilding per request would mean a new store — and for a real adapter,
+    // a new connection pool — on every protocol call.
+    expect((await mounted.POST(pair())).status).toBe(200);
+    expect(calls()).toBe(1);
+  });
+
+  it("still accepts a plain object, for a store that needs no secrets", async () => {
+    const mounted = createHandler({
+      store: new MemoryStore(),
+      verificationUrl: "https://app.test/settings/runners",
+      siteKeys: generateSiteKeys(),
+      basePath: "/api/byollm",
+    });
+    expect((await mounted.POST(pair())).status).toBe(200);
+  });
+});

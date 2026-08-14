@@ -579,6 +579,11 @@ export class Runner {
   ): Promise<SealedEnvelope> {
     const identity = this.#options.identity;
     if (!identity) {
+      // Unreachable in practice, and the reason is load-bearing: `#openPayload`
+      // makes the same check before any work runs, so a keyless daemon fails
+      // there — having spent nothing — rather than here, having spent a whole
+      // job and lost the answer. Anything that moves the fetch after execution
+      // turns this branch into wasted compute.
       throw new Error("this daemon has no keys, so it cannot seal a result");
     }
     const keys = await identity.keys();

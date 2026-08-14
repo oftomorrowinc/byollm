@@ -527,6 +527,12 @@ export function supabaseStore(options: SupabaseStoreOptions): ByollmStore {
             platform: pairing.platform,
             daemon_version: pairing.daemon_version,
             capabilities: pairing.capabilities,
+            // Carried from the pairing, exactly as the SQL RPC does. There
+            // are two approval paths — this service-role one and
+            // `byollm_approve_pairing` for browser callers — and a field
+            // added to one and not the other produces a runner that is
+            // correct through one door and broken through the other.
+            device: pairing.device,
           })
           .select()
           .single(),

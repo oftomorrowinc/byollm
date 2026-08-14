@@ -6,7 +6,7 @@ import {
   signRequest,
 } from "@byollm/protocol";
 import { createServer, type Server } from "node:http";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp } from "node:fs/promises";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -24,6 +24,7 @@ import { DaemonConfig, resolveConfig } from "./config.js";
 import { IngressLog } from "./ingress.js";
 import { SpendLedger } from "./spend.js";
 import { Runner, type RunnerEvent } from "./runner.js";
+import { removeTemp } from "./test-support.js";
 
 /**
  * A site and a device, as pairing would have established them.
@@ -100,7 +101,7 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
-  await rm(dir, { recursive: true, force: true });
+  await removeTemp(dir);
 });
 
 async function makeRunner(fetchImpl: typeof fetch, owner = "me") {

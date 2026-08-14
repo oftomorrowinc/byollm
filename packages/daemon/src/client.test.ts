@@ -8,9 +8,10 @@ import { describe, expect, it } from "vitest";
 import { ClientError, ProtocolClient } from "./client.js";
 import { connect } from "./connect.js";
 import { Pairings } from "./pairings.js";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { removeTemp } from "./test-support.js";
 
 /** A daemon identity for tests: real keys, signing the real canonical form. */
 const TEST_KEYS = generateKeys(1_800_000_000_000);
@@ -404,7 +405,7 @@ describe("Pairings", () => {
       expect(await reloaded.remove("https://app.test")).toBe(true);
       expect(await reloaded.remove("https://app.test")).toBe(false);
     } finally {
-      await rm(dir, { recursive: true, force: true });
+      await removeTemp(dir);
     }
   });
 

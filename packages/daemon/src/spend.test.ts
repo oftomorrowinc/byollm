@@ -1,8 +1,9 @@
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { SpendLedger, estimateCents } from "./spend.js";
+import { removeTemp } from "./test-support.js";
 
 let dir: string;
 const NOW = 1_800_000_000_000;
@@ -11,7 +12,7 @@ beforeEach(async () => {
   dir = await mkdtemp(join(tmpdir(), "byollm-spend-"));
 });
 afterEach(async () => {
-  await rm(dir, { recursive: true, force: true });
+  await removeTemp(dir);
 });
 
 const ledger = () => new SpendLedger(join(dir, "spend.json"));

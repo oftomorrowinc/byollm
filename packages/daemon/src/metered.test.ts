@@ -4,7 +4,7 @@ import {
   generateKeys,
   signRequest,
 } from "@byollm/protocol";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -22,6 +22,7 @@ import { IngressLog } from "./ingress.js";
 import { daemonPaths, type DaemonPaths } from "./paths.js";
 import { Runner } from "./runner.js";
 import { SpendLedger } from "./spend.js";
+import { removeTemp } from "./test-support.js";
 
 /** A daemon identity for tests: real keys, signing the real canonical form. */
 const TEST_KEYS = generateKeys(1_800_000_000_000);
@@ -50,7 +51,7 @@ beforeEach(async () => {
   dir = await mkdtemp(join(tmpdir(), "byollm-metered-"));
 });
 afterEach(async () => {
-  await rm(dir, { recursive: true, force: true });
+  await removeTemp(dir);
 });
 
 /** Answers instantly with a fixed-length reply, so spend is predictable. */
@@ -260,7 +261,7 @@ describe("what the user is told about their money", () => {
     out = "";
   });
   afterEach(async () => {
-    await rm(home, { recursive: true, force: true });
+    await removeTemp(home);
   });
 
   const config = (backends: unknown) =>
@@ -367,7 +368,7 @@ describe("byollm offer — the command the config error names", () => {
     asked = [];
   });
   afterEach(async () => {
-    await rm(home, { recursive: true, force: true });
+    await removeTemp(home);
   });
 
   const write = (backends: unknown) =>

@@ -1,16 +1,10 @@
-import {
-  chmod,
-  mkdtemp,
-  readFile,
-  rm,
-  stat,
-  writeFile,
-} from "node:fs/promises";
+import { chmod, mkdtemp, readFile, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { verifyPublicIdentity, verifyWith } from "@byollm/protocol";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { DeviceIdentity } from "./identity.js";
+import { removeTemp } from "./test-support.js";
 
 /**
  * The device key is the one file the daemon writes that cannot be reissued.
@@ -25,7 +19,7 @@ beforeEach(async () => {
   dir = await mkdtemp(join(tmpdir(), "byollm-identity-"));
 });
 afterEach(async () => {
-  await rm(dir, { recursive: true, force: true });
+  await removeTemp(dir);
 });
 
 describe("first run", () => {

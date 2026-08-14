@@ -1,4 +1,4 @@
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -13,6 +13,7 @@ import { Budgets } from "./budgets.js";
 import { loadConfig } from "./config.js";
 import { currentPlatform } from "./connect.js";
 import { daemonPaths, defaultRoot } from "./paths.js";
+import { removeTemp } from "./test-support.js";
 
 /**
  * The paths a happy run never takes: bad config, missing files, unreachable
@@ -27,7 +28,7 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
-  await rm(dir, { recursive: true, force: true });
+  await removeTemp(dir);
 });
 
 describe("paths", () => {

@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { generateKeys, publicIdentityOf } from "@byollm/protocol";
@@ -7,6 +7,7 @@ import { runCli, type CliIo } from "./cli.js";
 import { IngressLog } from "./ingress.js";
 import { daemonPaths, type DaemonPaths } from "./paths.js";
 import { Pairings } from "./pairings.js";
+import { removeTemp } from "./test-support.js";
 
 const SITE = publicIdentityOf(generateKeys(1_800_000_000_000));
 
@@ -53,7 +54,7 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
-  await rm(home, { recursive: true, force: true });
+  await removeTemp(home);
 });
 
 /** A config pointing at a backend that is definitely not running. */

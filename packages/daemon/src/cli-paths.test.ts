@@ -1,4 +1,4 @@
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { payloadTextLength } from "@byollm/protocol";
@@ -9,6 +9,7 @@ import { composePrompt } from "./compose.js";
 import { main, runCli, type CliIo } from "./cli.js";
 import { daemonPaths, type DaemonPaths } from "./paths.js";
 import { Pairings } from "./pairings.js";
+import { removeTemp } from "./test-support.js";
 
 const SITE = publicIdentityOf(generateKeys(1_800_000_000_000));
 
@@ -35,7 +36,7 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
-  await rm(home, { recursive: true, force: true });
+  await removeTemp(home);
 });
 
 describe("byollm connect — when it cannot", () => {

@@ -1,10 +1,11 @@
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { Allowlist, normalizeOrigin } from "./allowlist.js";
 import { Budgets } from "./budgets.js";
 import { IngressLog } from "./ingress.js";
+import { removeTemp } from "./test-support.js";
 
 let dir: string;
 
@@ -13,7 +14,7 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
-  await rm(dir, { recursive: true, force: true });
+  await removeTemp(dir);
 });
 
 describe("normalizeOrigin", () => {

@@ -24,6 +24,11 @@ Step 3 matters as much as the failure. A mutation that fails six checks has
 not isolated anything — it means the mutation was too broad, or the checks
 overlap more than intended.
 
+Two is not six. `C005`'s second mutation also fails `C017`, because making
+`case "self"` return `ALLOWED` breaks the metered default that narrows _to_
+`self`. That is a shared chokepoint doing its job, not a broad mutation —
+noted here so the overlap reads as expected rather than as a smell.
+
 ## Verified 2026-08-13
 
 | Check                                | File                                | Mutation                                                                                                                                                      | Result               |
@@ -43,17 +48,62 @@ overlap more than intended.
 | `C017_METERED_DEFAULTS_SELF`         | `packages/protocol/src/audience.ts` | Delete the `cost === "metered" && spend?.acknowledged !== true` narrowing in `effectiveOfferScope`                                                            | ✓ bites (2026-08-13) |
 | `C018_METERED_CEILING`               | `packages/protocol/src/audience.ts` | Replace `daemon.spend.ceilingReached === true` with `false`                                                                                                   | ✓ bites (2026-08-13) |
 
+## Verified 2026-08-14 — the four with no other enforcement
+
+The four this file previously nominated as most urgent, now done. (It named
+them by a wrong id: `C004` is `LEASE_RECLAIM`; the audience check is `C005`.)
+
+| Check                           | File                                | Mutation                                                                                             | Result                        |
+| ------------------------------- | ----------------------------------- | ---------------------------------------------------------------------------------------------------- | ----------------------------- |
+| `C005_AUDIENCE_MATRIX`          | `packages/protocol/src/audience.ts` | Two: delete the `audience === "self" && !sameOwner` refusal; and make `case "self"` return `ALLOWED` | ✓ bites (both)                |
+| `C007_SUBSCRIPTION_SELF_LOCK`   | `packages/protocol/src/audience.ts` | Delete **both** the `effectiveOfferScope` lock and the `matchAudience` refusal                       | ✓ bites — but only both       |
+| `C014_RESULT_PROVENANCE`        | `packages/protocol/src/job.ts`      | Hard-code `untrusted: false` in `provenanceFor`                                                      | ✓ bites                       |
+| `C015_INGRESS_BEFORE_EXECUTION` | `packages/daemon/src/runner.ts`     | Two: delete `recordPrompt`; and **move it after the backend call**                                   | ✓ bites (after strengthening) |
+
+Two of these were more than a tick.
+
+### `C007`: neither guard bites alone, and that is correct
+
+The subscription self-lock is enforced twice — `effectiveOfferScope` narrows
+what the daemon advertises, and `matchAudience` refuses again at match time.
+Removing either alone changes nothing observable: with only the first gone
+the daemon advertises `public` but still refuses; with only the second gone
+it never advertises wider than `self`, so the server never offers the work.
+
+Deleting both fails `C007` and nothing else. So the MUST is genuinely
+enforced, in depth, and the check catches its removal — it just cannot
+attribute which layer did the work. Recorded as "bites, both required"
+rather than "bites", because a future reader deleting one guard will find
+the suite green and should know that is expected rather than proof the guard
+is dead.
+
+### `C015`: the check tested the wrong half of its own name
+
+The MUST is `INGRESS_LOGGED_BEFORE_EXECUTION`. The check waited for the job
+to finish and then looked for the prompt in the log — which is satisfied by
+logging _after_ execution just as well as before. Moving `recordPrompt` to
+after the backend call left the suite fully green.
+
+That ordering is the entire point. The daemon is the owner's trust anchor
+and `byollm log` promises every prompt that ran here, ever; a daemon logging
+afterwards keeps that promise until the first crash or kill mid-job, and
+loses exactly the prompt someone would want to look up.
+
+Fixed by hanging the backend and reading the log **while execution is in
+flight**, so the two orderings are distinguishable. The ordering mutation now
+bites.
+
+The general lesson, which is the same one the `and`-in-a-MUST note below
+records from a different direction: a check named after a property does not
+necessarily test that property. Read the name as a claim and ask what
+mutation would falsify it.
+
 ## Not yet verified
 
-`C001`–`C016` predate this practice. They are not suspect — several were
-written against bugs they then caught — but "not suspect" is not the same as
-"checked", and the distinction is the whole reason this file exists.
-
-Working through them is worth a session. The ones to do first are the checks
-whose MUST has no other enforcement: `C004_AUDIENCE_BOTH_SIDES`,
-`C007_SUBSCRIPTION_SELF_LOCK`, `C014_RESULT_PROVENANCE`,
-`C015_INGRESS_BEFORE_EXECUTION`. If any of those does not bite, a MUST that
-looks certified is not.
+`C001`–`C004`, `C006`, `C008`–`C013`, `C016` predate this practice. They are
+not suspect — several were written against bugs they then caught — but "not
+suspect" is not the same as "checked", and the distinction is the whole
+reason this file exists.
 
 ## When adding a check
 

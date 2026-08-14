@@ -668,28 +668,47 @@ export const CHECKS: readonly Check[] = [
 
   {
     id: "C015_INGRESS_BEFORE_EXECUTION",
-    title: "every executed prompt is in the ingress log",
+    title: "every executed prompt is in the ingress log before it runs",
     musts: ["INGRESS_LOGGED_BEFORE_EXECUTION"],
     async run(target: ConformanceTarget): Promise<void> {
       const daemon = await pairDaemon(target, { owner: "alice" });
+      let ticking: Promise<unknown> = Promise.resolve();
       try {
+        // The ordering is the MUST, and it is not decoration. The daemon is
+        // the owner's trust anchor: `byollm log` promises every prompt that
+        // ran here, ever. A daemon that logged after execution would keep that
+        // promise until the first crash, kill, or power cut mid-job — and lose
+        // exactly the prompt someone would want to look up.
+        //
+        // Checked while the backend is still running, because after completion
+        // both orderings look identical. An earlier version of this check
+        // waited for the job to finish and so could not tell them apart:
+        // moving the log call after the backend call left it passing.
+        daemon.backend.hangMs = 30_000;
+
         const job = await target.enqueue({
           kind: "llm.generate",
           payload: prompt("logged prompt"),
           owner: "alice",
         });
-        await daemon.runner.tick();
-        await waitFor(async () => (await target.job(job.id))?.state === "ok", {
-          what: "the job to complete",
+        // Deliberately not awaited: the backend is hanging, so this tick does
+        // not settle until `dispose` cancels it. Kept and awaited in the
+        // `finally`, because a discarded rejection here would surface as an
+        // unhandled rejection in whatever test ran next.
+        ticking = daemon.runner.tick().catch(() => undefined);
+
+        // Execution has demonstrably begun: the backend has the prompt.
+        await waitFor(() => Promise.resolve(daemon.backend.seen.length > 0), {
+          what: "the backend to be called",
         });
 
-        const entries = await daemon.ingress.read();
-        const logged = entries.find(
+        const during = await daemon.ingress.read();
+        const logged = during.find(
           (entry) => entry.type === "prompt" && entry.jobId === job.id,
         );
         assert(
           logged !== undefined,
-          "the executed prompt is not in the ingress log",
+          "a prompt reached the backend before it reached the ingress log",
         );
         assert(
           logged.type === "prompt" && logged.prompt === "logged prompt",
@@ -697,6 +716,7 @@ export const CHECKS: readonly Check[] = [
         );
       } finally {
         await daemon.dispose();
+        await ticking;
       }
     },
   },

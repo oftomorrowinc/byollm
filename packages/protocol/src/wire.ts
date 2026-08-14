@@ -7,6 +7,92 @@ import { JobKind } from "./kinds.js";
 /** Protocol version carried on every request; servers refuse what they can't speak. */
 export const PROTOCOL_VERSION = "0" as const;
 
+/**
+ * Every protocol version this build can serve, **oldest first**.
+ *
+ * One entry today. It is a list rather than a constant because the shape of
+ * the check is the point: a server supporting two versions through a
+ * migration should not need a different code path from one supporting one.
+ */
+export const SUPPORTED_PROTOCOL_VERSIONS = Object.freeze([
+  PROTOCOL_VERSION,
+]) as readonly string[];
+
+/**
+ * The oldest version this build will talk to — derived, not declared.
+ *
+ * Stating it separately would be a second thing to keep in step with the list
+ * above, and the failure would be silent: a minimum that no longer matches
+ * what is supported produces a refusal naming a version the server would in
+ * fact have accepted.
+ */
+export const MIN_PROTOCOL_VERSION: string =
+  SUPPORTED_PROTOCOL_VERSIONS[0] ?? PROTOCOL_VERSION;
+
+/** A structured refusal, so a daemon can say something useful to its owner. */
+export interface VersionRefusal {
+  readonly error: "unsupported-protocol-version";
+  readonly message: string;
+  readonly supported: readonly string[];
+  readonly minimum: string;
+}
+
+/**
+ * Check the protocol version on an incoming request
+ * ({@link MUSTS.VERSION_HANDSHAKE_REQUIRED}).
+ *
+ * Returns a refusal, or `null` to proceed.
+ *
+ * **A missing version is refused the same way a wrong one is.** That is the
+ * half worth stating: before this existed, the version travelled as a
+ * `z.literal` inside each endpoint's schema, so a mismatch surfaced as a
+ * generic `bad-request` — a daemon and a server discovered they disagreed by
+ * failing, with nothing in the response naming the disagreement. An error a
+ * user cannot act on is barely better than a hang.
+ *
+ * The message names the fix, because the person reading it is usually the one
+ * who has to apply it.
+ */
+export function checkProtocolVersion(body: unknown): VersionRefusal | null {
+  // `hasOwn`, not `in`: `in` walks the prototype chain, and a version check
+  // should read what the request actually carried rather than something an
+  // object happens to inherit. Not reachable from a JSON body today, which is
+  // the reason to fix it now rather than after it is.
+  const declared =
+    typeof body === "object" &&
+    body !== null &&
+    Object.hasOwn(body, "protocolVersion")
+      ? (body as { protocolVersion: unknown }).protocolVersion
+      : undefined;
+
+  if (typeof declared !== "string" || declared.length === 0) {
+    return {
+      error: "unsupported-protocol-version",
+      message:
+        "this request declared no protocol version. Upgrade the daemon: " +
+        "`npm i -g byollm@alpha`.",
+      supported: SUPPORTED_PROTOCOL_VERSIONS,
+      minimum: MIN_PROTOCOL_VERSION,
+    };
+  }
+
+  if (!SUPPORTED_PROTOCOL_VERSIONS.includes(declared)) {
+    return {
+      error: "unsupported-protocol-version",
+      message:
+        `this server speaks protocol ${SUPPORTED_PROTOCOL_VERSIONS.join(", ")} ` +
+        `and the daemon asked for ${declared}. ` +
+        (declared < MIN_PROTOCOL_VERSION
+          ? "Upgrade the daemon: `npm i -g byollm@alpha`."
+          : "This daemon is newer than the server; the server needs upgrading."),
+      supported: SUPPORTED_PROTOCOL_VERSIONS,
+      minimum: MIN_PROTOCOL_VERSION,
+    };
+  }
+
+  return null;
+}
+
 /** The path prefix all endpoints mount under. */
 export const PROTOCOL_PREFIX = "/byollm" as const;
 

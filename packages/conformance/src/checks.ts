@@ -1105,4 +1105,63 @@ export const CHECKS: readonly Check[] = [
       }
     },
   },
+
+  {
+    id: "C023_VERSION_HANDSHAKE",
+    title: "a version mismatch is refused in words, not by failing",
+    musts: ["VERSION_HANDSHAKE_REQUIRED"],
+    async run(target: ConformanceTarget): Promise<void> {
+      // Before this existed the version travelled as a schema literal, so a
+      // mismatch surfaced as a generic bad-request with nothing naming the
+      // disagreement — a daemon and a server discovering they disagree by
+      // failing. An error nobody can act on is barely better than a hang.
+      const post = (body: unknown): Promise<Response> =>
+        target.fetch(
+          new Request(`${target.origin}/byollm/claim`, {
+            method: "POST",
+            headers: {
+              "content-type": "application/json",
+              authorization: "Bearer whatever",
+            },
+            body: JSON.stringify(body),
+          }),
+        );
+
+      for (const [label, body] of [
+        ["a version from the future", { protocolVersion: "99", max: 1 }],
+        ["no version at all", { max: 1 }],
+        ["a non-string version", { protocolVersion: 0, max: 1 }],
+      ] as const) {
+        const response = await post(body);
+        const parsed = (await response.json()) as {
+          error?: string;
+          message?: string;
+          supported?: string[];
+        };
+
+        assert(
+          parsed.error === "unsupported-protocol-version",
+          `${label}: answered "${parsed.error ?? "nothing"}" rather than unsupported-protocol-version`,
+        );
+        assert(
+          Array.isArray(parsed.supported) && parsed.supported.length > 0,
+          `${label}: the refusal did not say what the server supports`,
+        );
+        // The message is the part a human acts on, so it has to carry
+        // something actionable rather than restating the code.
+        assert(
+          (parsed.message ?? "").length > 20,
+          `${label}: the refusal carried no usable message`,
+        );
+      }
+
+      // The version check must not become a way past authentication: a
+      // well-versioned request with a bad token is still refused.
+      const authed = await post({ protocolVersion: PROTOCOL_VERSION, max: 1 });
+      assert(
+        authed.status === 400 || authed.status === 401,
+        `a supported version with a bad token answered ${String(authed.status)}`,
+      );
+    },
+  },
 ];

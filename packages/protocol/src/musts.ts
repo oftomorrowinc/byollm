@@ -99,6 +99,16 @@ export const MUSTS = Object.freeze({
   }),
 
   // ---- Typed job kinds --------------------------------------------------
+  VERSION_HANDSHAKE_REQUIRED: must({
+    id: "VERSION_HANDSHAKE_REQUIRED",
+    statement:
+      "Every protocol request MUST declare a protocol version, and a server " +
+      "MUST refuse an absent or unsupported one with a structured error " +
+      "naming what it supports — never a generic parse failure.",
+    enforcedBy: "both",
+    verifiedBy: "conformance",
+    source: "byollm_009 §4",
+  }),
   KIND_TYPED_ONLY: must({
     id: "KIND_TYPED_ONLY",
     statement:

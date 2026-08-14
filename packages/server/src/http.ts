@@ -1,4 +1,10 @@
-import { ENDPOINTS, PROTOCOL_PREFIX, type Endpoint } from "@byollm/protocol";
+import {
+  ENDPOINTS,
+  ERROR_STATUS,
+  PROTOCOL_PREFIX,
+  checkProtocolVersion,
+  type Endpoint,
+} from "@byollm/protocol";
 import { ByollmHandlers, type HandlerConfig } from "./handlers.js";
 
 /**
@@ -129,6 +135,15 @@ export function createFetchHandler(
         error: "bad-request",
         message: "request body is not valid JSON",
       });
+    }
+
+    // byollm_009 §4: version before anything else. A mismatch must name the
+    // disagreement and the fix, not surface as a generic bad-request from a
+    // schema literal buried in an endpoint — which is what happened before,
+    // and is why "the connection is versionless" was listed as a defect.
+    const refusal = checkProtocolVersion(body);
+    if (refusal) {
+      return json(ERROR_STATUS[refusal.error], refusal);
     }
 
     const result = await handlers.handle(

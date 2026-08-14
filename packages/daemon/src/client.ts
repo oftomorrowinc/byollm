@@ -27,6 +27,13 @@ export type ClientErrorKind =
   | "revoked"
   | "unauthorized"
   | "rejected"
+  /**
+   * The server does not speak our protocol version. Its own kind because it
+   * is the one refusal a retry can never fix and an upgrade always can — and
+   * because a daemon that reports it as a generic rejection sends its owner
+   * looking at their network.
+   */
+  | "version-unsupported"
   | "rate-limited"
   | "server-error"
   | "malformed-response";
@@ -255,6 +262,15 @@ export class ProtocolClient {
 
     if (wire.success && wire.data.error === "revoked") {
       return new ClientError("revoked", message, retryAfter);
+    }
+    if (
+      typeof body === "object" &&
+      body !== null &&
+      (body as { error?: unknown }).error === "unsupported-protocol-version"
+    ) {
+      // The server already composed a message naming the fix; pass it through
+      // rather than paraphrasing it into something vaguer.
+      return new ClientError("version-unsupported", message, retryAfter);
     }
     switch (response.status) {
       case 401:

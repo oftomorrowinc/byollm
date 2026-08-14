@@ -45,9 +45,60 @@ jobs:
       # docs/standards.md: every example executes in CI so docs cannot rot.
       - run: pnpm --filter @byollm/example-demo run check
 
+  # ---------------------------------------------------------------------------
+  # byollm_010: a platform CI does not run is a platform we do not support.
+  #
+  # The claude-cli backend was completely non-functional on Windows for the
+  # whole of the alpha — not degraded, unusable — and we found out from a user
+  # days after publishing. Nothing in the README says "macOS and Linux only",
+  # and `npx byollm@alpha connect` reads as a promise to anyone with Node.
+  # ---------------------------------------------------------------------------
+  daemon-matrix:
+    name: Daemon suite (${{ matrix.os }})
+    strategy:
+      # Every platform reports. A Windows failure must not hide a macOS one.
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run build
+      # Run the built binary as a binary, on each platform. The bug that
+      # started this was a spawn failure, which is exactly what a smoke test
+      # of the real binary catches and a unit test does not.
+      - run: pnpm run smoke
+      - run: pnpm run test:unit
+      # byollm_010 §3, open question: what does this OS put into a spawned
+      # child regardless of the environment we hand it? macOS injects
+      # `__CF_USER_TEXT_ENCODING`; the adversarial suite shows Windows
+      # injecting more, and nobody has enumerated it. Informational on
+      # purpose — the answer has to be read before it can be asserted, and an
+      # assertion written to match whatever was observed tests nothing.
+      - name: What this OS injects into a child (informational)
+        run: pnpm --filter byollm run env-report
+
   adversarial:
-    name: Adversarial corpus (blocking security gate)
-    runs-on: ubuntu-latest
+    name: Adversarial corpus (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        # Windows is deliberately absent until byollm_010 §3 is answered: the
+        # environment assertion is a hand-written copy of the Unix allowlist,
+        # so the Windows widening trips it by design, and the same run shows
+        # variables Windows injects that are on neither list. Rewriting the
+        # assertion to match what was observed is how a security test quietly
+        # stops testing anything, so it stays out of the gate rather than
+        # being loosened into it. The env-report step above is what will
+        # settle it.
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4

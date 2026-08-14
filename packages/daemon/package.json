@@ -1,7 +1,7 @@
 {
   "name": "byollm",
   "version": "0.1.0-alpha.3",
-  "description": "Bring Your Own LLM \u2014 run an app's LLM jobs on your own models. ALPHA: under active development, not for production use.",
+  "description": "Bring Your Own LLM — run an app's LLM jobs on your own models. ALPHA: under active development, not for production use.",
   "license": "MIT",
   "type": "module",
   "bin": {
@@ -25,7 +25,8 @@
   "scripts": {
     "build": "tsup",
     "clean": "rm -rf dist .tsbuild",
-    "smoke": "node scripts/smoke.mjs"
+    "smoke": "node scripts/smoke.mjs",
+    "env-report": "node scripts/env-report.mjs"
   },
   "dependencies": {
     "@byollm/protocol": "workspace:*",

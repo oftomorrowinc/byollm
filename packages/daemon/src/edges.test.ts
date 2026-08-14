@@ -32,17 +32,24 @@ afterEach(async () => {
 
 describe("paths", () => {
   it("puts everything under one directory the owner can find", () => {
-    const paths = daemonPaths("/tmp/byollm-test");
-    expect(paths.config).toBe("/tmp/byollm-test/config.json");
-    expect(paths.ingressLog).toBe("/tmp/byollm-test/ingress.log");
-    expect(paths.allowlist).toBe("/tmp/byollm-test/allow.json");
+    // Built with `join`, asserted with `join`. Hardcoding "/" made this the
+    // one daemon unit test that could not pass on Windows, where the same
+    // correct code produces "\\" — a test failing on a separator says
+    // nothing about the property, which is that these live together under a
+    // root the owner can find.
+    const root = join(tmpdir(), "byollm-test");
+    const paths = daemonPaths(root);
+    expect(paths.config).toBe(join(root, "config.json"));
+    expect(paths.ingressLog).toBe(join(root, "ingress.log"));
+    expect(paths.allowlist).toBe(join(root, "allow.json"));
   });
 
   it("honours BYOLLM_HOME so tests never touch a real ~/.byollm", () => {
     const previous = process.env["BYOLLM_HOME"];
     try {
-      process.env["BYOLLM_HOME"] = "/tmp/byollm-override";
-      expect(defaultRoot()).toBe("/tmp/byollm-override");
+      const override = join(tmpdir(), "byollm-override");
+      process.env["BYOLLM_HOME"] = override;
+      expect(defaultRoot()).toBe(override);
       delete process.env["BYOLLM_HOME"];
       expect(defaultRoot()).toMatch(/\.byollm$/);
     } finally {

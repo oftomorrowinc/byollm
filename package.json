@@ -20,7 +20,8 @@
     "dupes": "jscpd packages --config .jscpd.json",
     "verify": "pnpm run format:check && pnpm run build && pnpm run smoke && pnpm run check:site && pnpm run lint && pnpm run typecheck && pnpm run test:coverage && pnpm run knip",
     "smoke": "pnpm --filter byollm run smoke",
-    "check:site": "node scripts/check-site.mjs"
+    "check:site": "node scripts/check-site.mjs",
+    "test:unit": "vitest run --project unit"
   },
   "devDependencies": {
     "@changesets/cli": "^2.31.1",

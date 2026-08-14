@@ -182,10 +182,39 @@ function findWindowsEntry(
  * caller's argv is unchanged on every platform, which is what keeps the
  * adversarial suite's argv assertions meaningful.
  */
+const launchCache = new Map<string, ClaudeLaunch>();
+
+/** Drop the memo, for tests that change PATH between calls. */
+export function resetClaudeLaunchCache(): void {
+  launchCache.clear();
+}
+
 export function resolveClaudeLaunch(
   binary = "claude",
   platform: NodeJS.Platform = process.platform,
   source: NodeJS.ProcessEnv = process.env,
+): ClaudeLaunch {
+  // Memoized because this runs on every `health()` and every `execute()`, and
+  // on Windows walks each PATH entry with two `existsSync` calls. At the
+  // default concurrency that is a synchronous filesystem crawl on the job
+  // dispatch path, blocking the event loop while other jobs are in flight.
+  //
+  // Safe to cache: the answer is a function of the binary name, the platform
+  // and PATH, none of which change meaningfully inside one daemon process. A
+  // CLI installed while the daemon runs is picked up on restart — the same
+  // thing already true of config.
+  const key = `${platform}\u0000${binary}\u0000${source["PATH"] ?? ""}`;
+  const cached = launchCache.get(key);
+  if (cached) return cached;
+  const resolved = resolveUncached(binary, platform, source);
+  launchCache.set(key, resolved);
+  return resolved;
+}
+
+function resolveUncached(
+  binary: string,
+  platform: NodeJS.Platform,
+  source: NodeJS.ProcessEnv,
 ): ClaudeLaunch {
   if (platform !== "win32") return { command: binary, prefixArgs: [] };
 

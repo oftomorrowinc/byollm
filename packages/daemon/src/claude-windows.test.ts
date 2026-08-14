@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   childEnv,
   claudeArgv,
+  resetClaudeLaunchCache,
   resolveClaudeLaunch,
 } from "./backends/claude-cli.js";
 
@@ -114,5 +115,33 @@ describe("childEnv on Windows", () => {
     const withKey = { ...source, ANTHROPIC_API_KEY: "sk-ant-nope" };
     expect(childEnv(withKey, "win32")["ANTHROPIC_API_KEY"]).toBeUndefined();
     expect(childEnv(withKey, "linux")["ANTHROPIC_API_KEY"]).toBeUndefined();
+  });
+});
+
+describe("resolution is memoized", () => {
+  // It runs on every health probe and every job. On Windows that is a
+  // synchronous PATH crawl on the dispatch path, which blocks the event loop
+  // while other jobs are in flight.
+  it("keys the memo on platform, binary and PATH", () => {
+    resetClaudeLaunchCache();
+
+    // Same inputs, same answer.
+    const first = resolveClaudeLaunch("claude", "win32", { PATH: "C:\\a" });
+    const second = resolveClaudeLaunch("claude", "win32", { PATH: "C:\\a" });
+    expect(second).toEqual(first);
+
+    // A different PATH is a different question, and must not be answered from
+    // the memo — otherwise a cache would silently outlive the thing it
+    // describes.
+    const elsewhere = resolveClaudeLaunch("claude", "win32", {
+      PATH: "C:\\b",
+    });
+    expect(elsewhere).toEqual({ command: "claude", prefixArgs: [] });
+
+    // And platform is part of the identity, not an argument that gets lost.
+    expect(resolveClaudeLaunch("claude", "linux", { PATH: "C:\\a" })).toEqual({
+      command: "claude",
+      prefixArgs: [],
+    });
   });
 });

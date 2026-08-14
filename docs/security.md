@@ -177,6 +177,30 @@ a uid and a locale, no secret. It is named in the adversarial suite's
 assertion rather than filtered out of it, so the test says what is actually
 true.
 
+**Windows injects six**, measured on a real runner rather than assumed:
+`HOMEDRIVE`, `HOMEPATH`, `SYSTEMDRIVE`, `USERNAME`, `USERDOMAIN` and
+`LOGONSERVER`. Linux injects none.
+
+They cannot be removed. Naming a variable explicitly in the environment we
+pass does not replace it — the injection happens below the process, so the
+choice here is to state them, not to strip them.
+
+Four carry nothing the allowlist does not already give: `HOMEDRIVE` and
+`HOMEPATH` reconstruct the profile path we pass as `USERPROFILE`,
+`SYSTEMDRIVE` is `C:`, and `USERNAME` is already a component of
+`USERPROFILE`.
+
+**Two do carry something new, and this is the honest cost of running a
+process-class backend on Windows.** On a domain-joined machine `USERDOMAIN`
+is the Active Directory domain and `LOGONSERVER` names a domain controller —
+organisational identity and an internal hostname, neither implied by anything
+in the allowlist. A hostile job running on a corporate Windows machine learns
+both. What prevents it acting on that is the same thing as everywhere else:
+**having no tools, no shell, and no network egress it can reach through the
+model**. But the information is visible, we cannot close it, and if that is
+not acceptable to you, do not configure a process-class backend on a
+domain-joined machine — the HTTP-class one spawns nothing at all.
+
 **No OS-level sandbox yet.** There is no seatbelt profile, no seccomp filter,
 no namespace. The isolation described above is process-level. Adding an
 OS-level layer where the platform allows is worth doing and is not done; this

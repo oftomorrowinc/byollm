@@ -89,15 +89,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Windows is deliberately absent until byollm_010 §3 is answered: the
-        # environment assertion is a hand-written copy of the Unix allowlist,
-        # so the Windows widening trips it by design, and the same run shows
-        # variables Windows injects that are on neither list. Rewriting the
-        # assertion to match what was observed is how a security test quietly
-        # stops testing anything, so it stays out of the gate rather than
-        # being loosened into it. The env-report step above is what will
-        # settle it.
-        os: [ubuntu-latest, macos-latest]
+        # All three. byollm_010 §3 is answered: the six variables Windows
+        # injects were measured on a real runner and are named in the suite,
+        # with the two that carry something new called out rather than waved
+        # through. The gate covers every platform we ship to.
+        os: [ubuntu-latest, macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4

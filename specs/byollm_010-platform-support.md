@@ -1,6 +1,8 @@
 # byollm_010 — Platform support: matrix CI, and what "supported" means
 
-**Status: proposed 2026-08-13, prompted by PR #1.**
+**Status: implemented 2026-08-13**, except §5 (the version tuple), which
+rides with the session-layer work in byollm_009 because it threads
+through the handshake as well as CI.
 
 A contributor found the `claude-cli` backend completely non-functional
 on Windows within days of the repo going public. Not degraded —
@@ -75,10 +77,27 @@ variable needs a judgement — carries no secret, or does.
 
 The contributor's instinct here should be the house rule: **an
 assertion rewritten to match observed behaviour has stopped testing
-anything.** The suite stays failing on Windows until the question is
-answered, and `docs/security.md` §3.3 says plainly that the
-process-class claim is verified on Linux and macOS and unverified on
-Windows until it is.
+anything.**
+
+**Answered 2026-08-13, on a real runner.** Windows injects exactly six:
+`HOMEDRIVE`, `HOMEPATH`, `SYSTEMDRIVE`, `USERNAME`, `USERDOMAIN`,
+`LOGONSERVER`. Linux injects none; macOS injects one. They are not
+removable — naming a variable explicitly does not replace it, so the
+injection happens below the process.
+
+Four carry nothing the allowlist does not already give. Two do:
+on a domain-joined machine `USERDOMAIN` is the AD domain and
+`LOGONSERVER` names a domain controller. That is a real widening of
+what a hostile job sees on a corporate Windows machine, it cannot be
+closed from here, and `docs/security.md` §3.3 states it as a cost of
+running a process-class backend there rather than leaving it to be
+discovered.
+
+The measurement came from `pnpm --filter byollm run env-report`, which
+asserts nothing and prints. Keeping the answer and the assertion in
+separate steps is the point: the assertion was written after reading
+the answer, by someone deciding, rather than generated from whatever
+the machine happened to do.
 
 ## 4. Tests cannot substitute for a runner, and nearly looked like they could
 

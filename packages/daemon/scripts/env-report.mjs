@@ -66,3 +66,38 @@ if (dropped.length > 0) {
   console.log("");
   console.log(`dropped in transit (unexpected): ${dropped.join(", ")}`);
 }
+
+// Can we take them back? If an injected variable can be overridden by naming
+// it explicitly, the two that carry something new could be blanked rather
+// than merely documented. On macOS the OS wins — `__CF_USER_TEXT_ENCODING`
+// keeps its value even when we pass our own — which suggests injection below
+// the process level rather than a merge Node performs. Windows may differ,
+// and the difference decides whether the leak is closable or only statable.
+if (injected.length > 0) {
+  const SENTINEL = "byollm-override-probe";
+  const withOverrides = await new Promise((resolve, reject) => {
+    const env = { ...passed };
+    for (const name of injected) env[name] = SENTINEL;
+    const child = spawn(process.execPath, ["-e", probe], {
+      env,
+      stdio: ["ignore", "pipe", "inherit"],
+      shell: false,
+    });
+    let out = "";
+    child.stdout.on("data", (chunk) => (out += chunk));
+    child.on("error", reject);
+    child.on("close", () => {
+      resolve(JSON.parse(out));
+    });
+  });
+
+  const held = injected.filter((name) => withOverrides[name] === SENTINEL);
+  console.log("");
+  console.log(
+    held.length === injected.length
+      ? `all ${String(injected.length)} are overridable — we can blank them`
+      : held.length === 0
+        ? "none are overridable — the OS wins, these can only be documented"
+        : `overridable: ${held.join(", ")}; OS wins for the rest`,
+  );
+}

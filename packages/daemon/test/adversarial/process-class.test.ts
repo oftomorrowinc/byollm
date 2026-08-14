@@ -18,7 +18,14 @@ import { PROCESS_CORPUS } from "./corpus.js";
 const PROBE = fileURLToPath(new URL("./probe-backend.mjs", import.meta.url));
 const MODEL = "claude-opus-5";
 
-/** Exactly what {@link childEnv} sets. */
+/**
+ * Exactly what {@link childEnv} sets.
+ *
+ * Hand-written on purpose, and kept that way. Importing the allowlist would
+ * make this assert only that the code agrees with itself; typing it out means
+ * a change to the shipped allowlist has to be made twice, deliberately, with
+ * this file's reader asking whether the new variable belongs.
+ */
 const ALLOWED_ENV = new Set([
   "PATH",
   "HOME",
@@ -27,6 +34,22 @@ const ALLOWED_ENV = new Set([
   "TZ",
   "TMPDIR",
   "CI",
+]);
+
+/**
+ * The eight more the daemon passes on Windows, and only there
+ * (byollm_007-era `childEnv`, `docs/security.md` §3.3). Same rule: written
+ * out rather than imported.
+ */
+const WINDOWS_ALLOWED_ENV = new Set([
+  "USERPROFILE",
+  "APPDATA",
+  "LOCALAPPDATA",
+  "TEMP",
+  "TMP",
+  "SystemRoot",
+  "windir",
+  "PATHEXT",
 ]);
 
 /**
@@ -41,6 +64,46 @@ const ALLOWED_ENV = new Set([
  * of the assertion.
  */
 const OS_INJECTED = new Set(["__CF_USER_TEXT_ENCODING"]);
+
+/**
+ * What Windows puts into every child regardless of the environment passed —
+ * measured on a real runner (byollm_010 §3), not assumed.
+ *
+ * They are not overridable: naming them explicitly does not replace them, so
+ * the choice is to state them, not to strip them.
+ *
+ * Four carry nothing the allowlist does not already: `HOMEDRIVE` and
+ * `HOMEPATH` reconstruct the profile path we pass as `USERPROFILE`,
+ * `SYSTEMDRIVE` is `C:`, and `USERNAME` is already a component of
+ * `USERPROFILE`.
+ *
+ * Two do carry something new, and are named here rather than waved through:
+ * on a domain-joined machine `USERDOMAIN` is the Active Directory domain and
+ * `LOGONSERVER` names a domain controller — organisational identity and an
+ * internal hostname, neither of which any allowlist entry implies. A hostile
+ * job on a corporate Windows machine learns them. That is a real widening of
+ * what the child can see, it cannot be closed from here, and `docs/security.md`
+ * §3.3 says so plainly rather than leaving it to be discovered.
+ */
+const WINDOWS_OS_INJECTED = new Set([
+  "HOMEDRIVE",
+  "HOMEPATH",
+  "SYSTEMDRIVE",
+  "USERNAME",
+  "USERDOMAIN",
+  "LOGONSERVER",
+]);
+
+/** The full set this platform may legitimately show. */
+const allowedHere = (): Set<string> =>
+  process.platform === "win32"
+    ? new Set([...ALLOWED_ENV, ...WINDOWS_ALLOWED_ENV])
+    : ALLOWED_ENV;
+
+const injectedHere = (): Set<string> =>
+  process.platform === "win32"
+    ? new Set([...OS_INJECTED, ...WINDOWS_OS_INJECTED])
+    : OS_INJECTED;
 
 interface ProbeReport {
   argv: string[];
@@ -116,8 +179,10 @@ describe("process-class corpus [NO_SHELL_INTERPOLATION, NO_PAYLOAD_ROUTING]", ()
       // 5. The environment holds the allowlist and nothing else we control.
       expect(report.env["ANTHROPIC_API_KEY"]).toBeUndefined();
       expect(report.env["AWS_SECRET_ACCESS_KEY"]).toBeUndefined();
+      const allowed = allowedHere();
+      const injected = injectedHere();
       const unexpected = Object.keys(report.env).filter(
-        (name) => !ALLOWED_ENV.has(name) && !OS_INJECTED.has(name),
+        (name) => !allowed.has(name) && !injected.has(name),
       );
       expect(unexpected).toEqual([]);
 

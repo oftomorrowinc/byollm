@@ -22,6 +22,12 @@ export interface DaemonPaths {
   readonly budgets: string;
   /** Estimated money spent running other people's work on metered backends. */
   readonly spend: string;
+  /**
+   * This machine's device keypairs (byollm_009 §3). The most sensitive file
+   * the daemon writes: it is the machine's identity, not a token a server can
+   * revoke and reissue.
+   */
+  readonly keys: string;
   /** Set while the owner has the daemon paused. */
   readonly pauseFlag: string;
   /**
@@ -41,6 +47,7 @@ export function daemonPaths(root = defaultRoot()): DaemonPaths {
     ingressLog: join(root, "ingress.log"),
     budgets: join(root, "budgets.json"),
     spend: join(root, "spend.json"),
+    keys: join(root, "keys.json"),
     pauseFlag: join(root, "paused"),
     scratch: join(root, "scratch"),
   };

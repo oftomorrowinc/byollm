@@ -73,6 +73,18 @@ export {
 } from "./job.js";
 
 export {
+  PublicIdentity,
+  StoredKeys,
+  fingerprint,
+  generateKeys,
+  keyId,
+  publicIdentityOf,
+  signWith,
+  verifyPublicIdentity,
+  verifyWith,
+} from "./keys.js";
+
+export {
   MUST_IDS,
   MUSTS,
   mustsVerifiedBy,

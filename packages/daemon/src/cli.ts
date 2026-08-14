@@ -9,11 +9,12 @@ import { ClientError, ProtocolClient } from "./client.js";
 import { DaemonConfig, loadConfig } from "./config.js";
 import { connect } from "./connect.js";
 import { IngressLog, stripControlChars } from "./ingress.js";
+import { DeviceIdentity } from "./identity.js";
 import { Pairings } from "./pairings.js";
 import { SpendLedger } from "./spend.js";
 import { daemonPaths, type DaemonPaths } from "./paths.js";
 import { Runner, type RunnerEvent } from "./runner.js";
-import { DAEMON_VERSION } from "./index.js";
+import { DAEMON_VERSION, formatVersion } from "./index.js";
 
 const USAGE = `byollm — run an app's LLM jobs on your own models.
 
@@ -86,7 +87,9 @@ export async function runCli(
       return 0;
     case "--version":
     case "version":
-      io.out(`${DAEMON_VERSION}\n`);
+      // The full tuple, not a bare version. byollm_010 §5: an issue that
+      // arrives without a platform costs a round trip to learn one.
+      io.out(formatVersion());
       return 0;
     case "connect":
       return commandConnect(paths, rest, io, signal);
@@ -354,7 +357,13 @@ async function commandStatus(paths: DaemonPaths, io: CliIo): Promise<ExitCode> {
   const paused = await isPaused(paths);
   const now = Date.now();
 
-  io.out(`byollm ${DAEMON_VERSION}\n`);
+  io.out(formatVersion());
+  // This machine's fingerprint, so an owner can compare it against what a
+  // site shows them (byollm_009 §3). A fingerprint nobody can find is a
+  // fingerprint nobody compares.
+  io.out(
+    `identity: ${await new DeviceIdentity(paths.keys).fingerprint(now)}\n`,
+  );
   io.out(`state: ${paused ? "PAUSED" : "running"}\n\n`);
 
   io.out("paired apps\n");

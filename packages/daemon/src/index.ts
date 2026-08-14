@@ -8,6 +8,8 @@
  * @packageDocumentation
  */
 
+import { PROTOCOL_VERSION } from "@byollm/protocol";
+
 export { Allowlist, normalizeOrigin, type AllowEntry } from "./allowlist.js";
 
 export { main, runCli, type CliIo, type ExitCode } from "./cli.js";
@@ -28,6 +30,8 @@ export {
 } from "./backends/index.js";
 
 export { Budgets, type BudgetDecision, type BudgetRefusal } from "./budgets.js";
+
+export { DeviceIdentity } from "./identity.js";
 
 export {
   ClientError,
@@ -98,3 +102,43 @@ export {
  * told to every user, and a literal that a test pins cannot drift quietly.
  */
 export const DAEMON_VERSION = "0.1.0-alpha.3";
+
+/**
+ * Everything needed to reason about one daemon — byollm_010 §5.
+ *
+ * `--version` used to print a package version and nothing else, which is the
+ * least useful version string a distributed daemon can have. "It doesn't work
+ * on Windows" with no platform, no Node version and no protocol version is
+ * the most expensive sentence an open-source project receives, and every
+ * later capability — deprecation warnings, a minimum-supported-version
+ * policy, "your daemon is N releases behind" — needs these facts to exist.
+ *
+ * The same tuple goes in the handshake (byollm_009 §4), deliberately: a
+ * support conversation and a version policy should be arguing about the same
+ * numbers.
+ */
+export interface DaemonVersion {
+  readonly daemon: string;
+  readonly protocol: string;
+  readonly platform: NodeJS.Platform;
+  readonly arch: string;
+  readonly node: string;
+}
+
+export function daemonVersion(): DaemonVersion {
+  return {
+    daemon: DAEMON_VERSION,
+    protocol: PROTOCOL_VERSION,
+    platform: process.platform,
+    arch: process.arch,
+    node: process.versions.node,
+  };
+}
+
+/** One line, for `--version` and for pasting into an issue. */
+export function formatVersion(v: DaemonVersion = daemonVersion()): string {
+  return (
+    `byollm ${v.daemon} (protocol ${v.protocol})\n` +
+    `${v.platform}-${v.arch}, node ${v.node}\n`
+  );
+}

@@ -48,12 +48,15 @@ async function check(name, args, assertion) {
 process.stdout.write("\nbyollm binary smoke test\n");
 
 try {
+  // byollm_010 §5: the tuple, not a bare version. This runs the real binary
+  // on every platform in CI, which is the only way to know `process.platform`
+  // reports what the issue template will ask a reporter to paste.
   await check(
-    "--version prints the package version",
+    "--version prints the full tuple",
     ["--version"],
     (r) =>
-      r.stdout.trim() === process.env.npm_package_version ||
-      /^\d+\.\d+\.\d+/.test(r.stdout.trim()),
+      /^byollm \d+\.\d+\.\d+\S* \(protocol \S+\)/.test(r.stdout.trim()) &&
+      /\n\S+-\S+, node \d+\.\d+\.\d+/.test(r.stdout),
   );
   await check("--help prints usage", ["--help"], (r) =>
     r.stdout.includes("byollm connect"),

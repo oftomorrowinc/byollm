@@ -12,6 +12,7 @@ import {
   PublicIdentity,
   type ClaimedStub,
 } from "@byollm/protocol";
+import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import type { Projection } from "./fixture.js";
 import { AWAITING_PAYLOAD_MS, type RelayState } from "./state.js";
@@ -178,7 +179,13 @@ export class DaemonPlane {
           continue;
         }
 
-        const leaseId = `lease_${job.id}_${String(now)}_${String(granted.length)}`;
+        // A UUID, not a readable composite. The direct plane's lease ids are
+        // UUIDs and the Supabase adapter's `lease_id` column is typed `uuid`
+        // — so a relay minting `lease_<job>_<time>` would route perfectly
+        // against a memory store and fail the moment a real site adopted the
+        // lease into Postgres. Same shape as the `job_<uuid>` bug: an id that
+        // is only a string until something declares what kind of string.
+        const leaseId = randomUUID();
         job.state = "awaiting-payload";
         job.claimedBy = {
           runnerId: device.runnerId,

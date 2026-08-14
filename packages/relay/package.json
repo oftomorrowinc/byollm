@@ -27,6 +27,7 @@
     "access": "public"
   },
   "devDependencies": {
-    "byollm": "workspace:*"
+    "byollm": "workspace:*",
+    "@byollm/server": "workspace:*"
   }
 }

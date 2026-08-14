@@ -24,6 +24,7 @@ import {
   generateRunnerToken,
   hashSecret,
 } from "./ids.js";
+import { CloudLane, type CloudLaneOptions } from "./cloud.js";
 import type { EnqueueInput, JobRecord, RunnerRecord } from "./records.js";
 import type { ByollmStore } from "./store.js";
 
@@ -87,6 +88,15 @@ export interface ByollmAppOptions {
    * holds plaintext (byollm_009 §10).
    */
   readonly siteKeys: StoredKeys;
+  /**
+   * Which connection plane this site uses — cloud_004 §9.4.
+   *
+   * Omitted means `direct`: a daemon reaches this site's own handlers, and
+   * everything works as it always has. Supplying a relay switches the plane
+   * and nothing else — `enqueue` is identical in every lane, which is the
+   * property that lets the same app move between them by config.
+   */
+  readonly lane?: CloudLaneOptions;
 }
 
 /**
@@ -120,12 +130,23 @@ export class ByollmApp {
   readonly #now: () => number;
   readonly #livenessMs: number;
   readonly #delivery: ResultDelivery;
+  /** Present only in the cloud lane; the site's side of the relay. */
+  readonly cloud: CloudLane | undefined;
 
   constructor(options: ByollmAppOptions) {
     this.#store = options.store;
     this.#siteKeys = options.siteKeys;
     this.#now = options.now ?? Date.now;
     this.#livenessMs = options.livenessMs ?? DEFAULT_LIVENESS_MS;
+    this.cloud =
+      options.lane === undefined
+        ? undefined
+        : new CloudLane({
+            options: options.lane,
+            store: options.store,
+            siteKeys: options.siteKeys,
+            now: this.#now,
+          });
 
     const deps: PollingDeliveryDeps = {
       ...(options.noRunnerGraceMs === undefined
@@ -251,6 +272,11 @@ export class ByollmApp {
       },
       createdAt,
     );
+    // The lane's only intrusion into enqueue, and it is additive: the record
+    // is already stored and sealed at rest before anything is published, so a
+    // relay that is down costs a routing delay rather than a lost job.
+    await this.cloud?.publish(record);
+
     return {
       id: record.id,
       record,

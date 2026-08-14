@@ -14,6 +14,7 @@ import type {
   ApproveArgs,
   ByollmStore,
   ClaimArgs,
+  AdoptArgs,
   CompleteArgs,
   CompleteResult,
   ReleaseArgs,
@@ -211,6 +212,32 @@ export class MemoryStore implements ByollmStore {
       renewed.push({ jobId, expiresAt });
     }
     return Promise.resolve({ renewed, lost });
+  }
+
+  adopt(args: AdoptArgs): Promise<JobRecord | null> {
+    const job = this.#jobs.get(args.jobId);
+    if (!job) return Promise.resolve(null);
+    // Only a job that is genuinely available can be adopted. A terminal or
+    // already-leased job means the relay and this store disagree about
+    // reality, and the store's row is not the place to resolve that.
+    if (job.state !== "queued" && job.state !== "claimed") {
+      return Promise.resolve(null);
+    }
+    if (job.lease && job.lease.runnerId !== args.runnerId) {
+      return Promise.resolve(null);
+    }
+    const updated: JobRecord = {
+      ...job,
+      state: "claimed",
+      lease: {
+        id: args.leaseId,
+        runnerId: args.runnerId,
+        expiresAt: args.expiresAt,
+      },
+      updatedAt: args.now,
+    };
+    this.#write(updated.id, updated);
+    return Promise.resolve(updated);
   }
 
   complete(args: CompleteArgs): Promise<CompleteResult> {

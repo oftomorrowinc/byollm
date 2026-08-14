@@ -15,6 +15,7 @@ import type {
   ApproveArgs,
   ByollmStore,
   ClaimArgs,
+  AdoptArgs,
   CompleteArgs,
   CompleteResult,
   LeaseRef,
@@ -332,6 +333,28 @@ export function supabaseStore(options: SupabaseStoreOptions): ByollmStore {
           .map((l) => l.jobId)
           .filter((id) => !renewedIds.has(id)),
       };
+    },
+
+    async adopt(args: AdoptArgs): Promise<JobRecord | null> {
+      // The predicates are the guard, evaluated in the database rather than
+      // read-then-written here: `state in (queued, claimed)` is what makes
+      // adopting a terminal or expired job impossible under concurrency.
+      const rows = unwrap<JobRow[]>(
+        await db
+          .from("byollm_jobs")
+          .update({
+            state: "claimed",
+            lease_id: args.leaseId,
+            lease_runner: args.runnerId,
+            lease_expires_at: iso(args.expiresAt),
+            updated_at: iso(args.now),
+          })
+          .eq("id", args.jobId)
+          .in("state", ["queued", "claimed"])
+          .select(),
+      );
+      const written = rows[0];
+      return written === undefined ? null : toJob(written);
     },
 
     async complete(args: CompleteArgs): Promise<CompleteResult> {

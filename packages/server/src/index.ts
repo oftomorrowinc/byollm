@@ -44,6 +44,8 @@ export {
 export { createFetchHandler, routeEndpoint, signatureFrom } from "./http.js";
 
 export { formatSiteKeys, generateSiteKeys, siteKeysFromEnv } from "./keys.js";
+export { CloudLane } from "./cloud.js";
+export type { CloudLaneOptions, PumpReport } from "./cloud.js";
 
 export {
   generateDeviceCode,

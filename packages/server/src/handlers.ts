@@ -1,7 +1,5 @@
 import {
-  ENVELOPE_MAX_AGE_MS,
   FetchRequest,
-  seal,
   JobOutcome,
   keyId,
   open,
@@ -33,6 +31,7 @@ import {
   type WireErrorCode,
 } from "@byollm/protocol";
 import { generateDeviceCode, generateUserCode, hashSecret } from "./ids.js";
+import { resealForDevice } from "./reseal.js";
 import type { JobRecord, RunnerRecord } from "./records.js";
 import type { ByollmStore } from "./store.js";
 
@@ -272,46 +271,18 @@ export class ByollmHandlers {
       // hold". A caller who is allowed to know already knows which.
       return fail("not-found", "no such lease on this job");
     }
-    // Opened here, with the site's own key: the store held ciphertext, and
-    // this is the endpoint that is entitled to read it. byollm_009 §6 seals
-    // it again to the claiming device; until that lands the plaintext travels
-    // as it always did, over the same transport, to a runner that has already
-    // proved possession of its key.
-    const senderKeyId = keyId(publicIdentityOf(this.#siteKeys).identity);
-    const opened = await open({
-      envelope: job.envelope,
-      recipientKeys: this.#siteKeys,
-      senderIdentityPublic: this.#siteKeys.identityPublic,
-      expected: {
-        jobId: job.id,
-        senderKeyId,
-        recipientKeyId: senderKeyId,
-        direction: "payload",
-      },
+    // One implementation of open-and-reseal, shared with the cloud lane: the
+    // deadline and key ids are bound into a signature, and two copies of a
+    // bound value is the bug this codebase keeps finding.
+    const resealed = await resealForDevice({
+      siteKeys: this.#siteKeys,
+      job: { id: job.id, envelope: job.envelope, createdAt: job.createdAt },
+      device: runner.device,
     });
-    if (!opened.ok) {
-      // The store holds something this site cannot open: rotated keys, a
-      // corrupted row, or someone else's envelope. Not the runner's problem
-      // and not something a retry fixes.
+    if (!resealed.ok) {
       return fail("server-error", "this job's payload could not be opened");
     }
-    // Re-sealed to the machine that claimed it, signed by this site. The
-    // plaintext exists here for one statement and never reaches the wire —
-    // and the daemon can prove the work came from the site it pinned, which
-    // a plaintext response could not offer at all.
-    const resealed = await seal({
-      plaintext: opened.plaintext,
-      senderKeys: this.#siteKeys,
-      recipientEncryptionPublic: runner.device.encryption,
-      context: {
-        jobId: job.id,
-        senderKeyId,
-        recipientKeyId: keyId(runner.device.identity),
-        deadlineAt: job.createdAt + ENVELOPE_MAX_AGE_MS,
-        direction: "payload",
-      },
-    });
-    return ok({ envelope: resealed } satisfies FetchResponse);
+    return ok({ envelope: resealed.envelope } satisfies FetchResponse);
   }
 
   // -- 1. pair --------------------------------------------------------------

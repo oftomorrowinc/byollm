@@ -30,6 +30,7 @@ import {
   type BackendRequest,
   type BackendResult,
 } from "byollm";
+import { ByollmApp, MemoryStore, generateSiteKeys } from "@byollm/server";
 import { afterEach, beforeAll, describe, expect, it } from "vitest";
 import { Relay, type RelayFixture } from "../src/index.js";
 
@@ -624,5 +625,127 @@ describe("the freeze gate — cloud_004 §14", () => {
 
     expect(relay.state.jobs()[0]?.stub.streaming).toBe(false);
     expect(relay.state.jobs()[0]?.state).toBe("done");
+  });
+});
+
+/**
+ * The sixth integration — cloud_004 §9.4.
+ *
+ * Every real consumer so far has found one assumption the previous plane
+ * hid: the relay found that claim-then-fetch assumed `fetch` always
+ * succeeds. This is the last such integration before byollm_009 freezes, and
+ * the first real consumer the frozen spec will ever have — a genuine
+ * `ByollmApp`, with its store, its at-rest sealing and its delivery channel,
+ * routing through the relay because a config field says so.
+ *
+ * The property being demonstrated is §9.4's: **`enqueue` is identical in
+ * every lane.** Nothing below calls a cloud-specific enqueue, because there
+ * is not one.
+ */
+describe("the cloud lane — a real ByollmApp through the relay", () => {
+  it("8. round-trips through app.enqueue with the lane as config", async () => {
+    const siteKeys = generateSiteKeys();
+    const site = publicIdentityOf(siteKeys);
+    const relay = new Relay({ siteId: SITE_ID, fixture: fixtureFor(site) });
+    const store = new MemoryStore();
+
+    const app = new ByollmApp({
+      store,
+      siteKeys,
+      // The whole difference between the lanes.
+      lane: {
+        relayOrigin: "http://relay.test",
+        siteId: SITE_ID,
+        fetch: (input, init) => relay.handle(new Request(input, init)),
+      },
+    });
+
+    const daemon = await makeDaemon(relay, {
+      owner: "alice",
+      runnerId: "runner_alice",
+      site,
+    });
+    disposers.push(daemon.dispose);
+
+    // Identical to direct mode — this is the assertion, not the setup.
+    const handle = await app.enqueue({
+      kind: "llm.generate",
+      owner: "alice",
+      audience: "self",
+      payload: { prompt: "through the relay" },
+    });
+
+    // The relay got a stub and nothing else: the payload is still in the
+    // site's own store, sealed at rest, which is direct mode's property
+    // inherited rather than replaced.
+    expect(relay.state.job(handle.id)?.stub.kind).toBe("llm.generate");
+    expect(JSON.stringify(relay.state.jobs())).not.toContain(
+      "through the relay",
+    );
+
+    for (let i = 0; i < 80; i += 1) {
+      await daemon.runner.tick();
+      const report = await app.cloud!.pump();
+      expect(report.refused).toEqual([]);
+      const record = await app.job(handle.id);
+      if (record?.state === "ok") break;
+      await new Promise((r) => setTimeout(r, 10));
+    }
+
+    const delivered = await app.result(handle.id);
+    expect(delivered?.outcome).toMatchObject({
+      outcome: "ok",
+      text: "echo: through the relay",
+    });
+    // Provenance is derived from the job's audience, exactly as on the direct
+    // plane: a result is not more trustworthy for having crossed a relay.
+    expect(delivered?.provenance?.untrusted).toBe(false);
+    expect(daemon.backend.seen).toEqual(["through the relay"]);
+  });
+
+  it("9. refuses a result the relay attributes to the wrong device", async () => {
+    // The relay says which device ran the job. This is the check that keeps
+    // RELAY_BLIND from quietly becoming RELAY_TRUSTED: the site verifies that
+    // claim against a signature the relay cannot produce.
+    const siteKeys = generateSiteKeys();
+    const site = publicIdentityOf(siteKeys);
+    const relay = new Relay({ siteId: SITE_ID, fixture: fixtureFor(site) });
+    const store = new MemoryStore();
+    const app = new ByollmApp({
+      store,
+      siteKeys,
+      lane: {
+        relayOrigin: "http://relay.test",
+        siteId: SITE_ID,
+        fetch: (input, init) => relay.handle(new Request(input, init)),
+      },
+    });
+    const daemon = await makeDaemon(relay, {
+      owner: "alice",
+      runnerId: "runner_alice",
+      site,
+    });
+    disposers.push(daemon.dispose);
+
+    const handle = await app.enqueue({
+      kind: "llm.generate",
+      owner: "alice",
+      audience: "self",
+      payload: { prompt: "whose result is this" },
+    });
+
+    for (let i = 0; i < 60; i += 1) {
+      await daemon.runner.tick();
+      await app.cloud!.pump();
+      if (relay.state.job(handle.id)?.state === "done") break;
+      await new Promise((r) => setTimeout(r, 10));
+    }
+
+    // A relay lying about provenance: same sealed result, different device.
+    const impostor = publicIdentityOf(generateKeys(Date.now()));
+    const routed = relay.state.job(handle.id);
+    routed!.claimedBy = { ...routed!.claimedBy!, device: impostor };
+    const report = await app.cloud!.pump();
+    expect(report.completed).not.toContain(handle.id);
   });
 });

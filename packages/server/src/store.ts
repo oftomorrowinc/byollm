@@ -48,6 +48,28 @@ export interface JobStore {
    * has lost. A job whose lease expired un-renewed returns to `queued`
    * ({@link MUSTS.LEASE_RECLAIMABLE}).
    */
+  /**
+   * Record a lease granted by an upstream this store does not own.
+   *
+   * The cloud lane's one addition to the store contract, and it exists
+   * because of a question the direct plane never has to answer: **who grants
+   * the lease?** On the direct plane the site is the upstream, so `claim`
+   * both selects the job and grants the lease in one atomic step. Through a
+   * relay the relay selects and grants, and the site finds out afterwards.
+   *
+   * Without this the site's own row stays `queued` while a device is
+   * actively running the work, which breaks two things that are not
+   * cosmetic: `complete` refuses the result because no lease matches
+   * ({@link MUSTS.LEASE_HONORED} enforced against a lease that was never
+   * recorded), and `expireDue` expires a job someone is in the middle of.
+   *
+   * Not a second grant: it records one, and returns `null` if the job is not
+   * in a state that can accept it. The authority over who holds what remains
+   * the upstream that granted it — a store adopting a lease is bookkeeping,
+   * not a decision.
+   */
+  adopt(args: AdoptArgs): Promise<JobRecord | null>;
+
   renewLeases(args: RenewArgs): Promise<RenewResult>;
 
   /**
@@ -92,6 +114,15 @@ export interface ClaimArgs {
   readonly capabilities: readonly Capability[];
   readonly max: number;
   readonly leaseMs: number;
+  readonly now: number;
+}
+
+/** What an upstream tells a store it has granted. */
+export interface AdoptArgs {
+  readonly jobId: string;
+  readonly runnerId: string;
+  readonly leaseId: string;
+  readonly expiresAt: number;
   readonly now: number;
 }
 

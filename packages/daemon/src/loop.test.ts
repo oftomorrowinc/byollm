@@ -1,4 +1,10 @@
-import { generateKeys, signRequest } from "@byollm/protocol";
+import {
+  keyId,
+  publicIdentityOf,
+  seal,
+  generateKeys,
+  signRequest,
+} from "@byollm/protocol";
 import { createServer, type Server } from "node:http";
 import { mkdtemp, rm } from "node:fs/promises";
 import type { AddressInfo } from "node:net";
@@ -18,6 +24,40 @@ import { DaemonConfig, resolveConfig } from "./config.js";
 import { IngressLog } from "./ingress.js";
 import { SpendLedger } from "./spend.js";
 import { Runner, type RunnerEvent } from "./runner.js";
+
+/**
+ * A site and a device, as pairing would have established them.
+ *
+ * The fakes seal work exactly as a real site does, so these exercise the
+ * daemon's verification rather than skipping past it — a fake that handed
+ * over plaintext would test nothing about the property that matters.
+ */
+const TEST_SITE_KEYS = generateKeys(1_800_000_000_000);
+const TEST_DEVICE_KEYS = generateKeys(1_800_000_000_000);
+const TEST_IDENTITY = {
+  keys: () => Promise.resolve(TEST_DEVICE_KEYS),
+  sitePinned: publicIdentityOf(TEST_SITE_KEYS),
+};
+
+/** Seal a payload to the test device, as the site would at fetch time. */
+async function sealedFor(
+  jobId: string,
+  payload: unknown,
+  senderKeys = TEST_SITE_KEYS,
+): Promise<unknown> {
+  return seal({
+    plaintext: JSON.stringify(payload),
+    senderKeys,
+    recipientEncryptionPublic: TEST_DEVICE_KEYS.encryptionPublic,
+    context: {
+      jobId,
+      senderKeyId: keyId(publicIdentityOf(TEST_SITE_KEYS).identity),
+      recipientKeyId: keyId(publicIdentityOf(TEST_DEVICE_KEYS).identity),
+      deadlineAt: Date.now() + 3_600_000,
+      direction: "payload",
+    },
+  });
+}
 
 /** A daemon identity for tests: real keys, signing the real canonical form. */
 const TEST_KEYS = generateKeys(1_800_000_000_000);
@@ -91,6 +131,7 @@ async function makeRunner(fetchImpl: typeof fetch, owner = "me") {
       fetch: fetchImpl,
     }),
     runnerId: "runner_1",
+    identity: TEST_IDENTITY,
     owner,
     daemonVersion: "0.0.0",
     loaded,
@@ -137,13 +178,16 @@ function routed(responses: {
   result?: unknown;
   release?: unknown;
 }): typeof fetch {
-  return (input) => {
+  return async (input) => {
     const url = String(input instanceof Request ? input.url : input);
     const endpoint = url.split("/").pop() ?? "";
     const body =
       endpoint === "fetch"
-        ? // Claim-then-fetch: the stub arrives from `claim`, the work here.
-          (responses.fetch ?? { payload: { prompt: "hi" } })
+        ? // Sealed to the device, as a real site does. A fake handing over
+          // plaintext would skip the verification this exercises.
+          (responses.fetch ?? {
+            envelope: await sealedFor("job_1", { prompt: "hi" }),
+          })
         : endpoint === "heartbeat"
           ? (responses.heartbeat ?? {
               revoked: false,
@@ -157,11 +201,9 @@ function routed(responses: {
             : endpoint === "result"
               ? (responses.result ?? { accepted: true, state: "ok" })
               : (responses.release ?? { released: [] });
-    return Promise.resolve(
-      new Response(JSON.stringify(body), {
-        headers: { "content-type": "application/json" },
-      }),
-    );
+    return new Response(JSON.stringify(body), {
+      headers: { "content-type": "application/json" },
+    });
   };
 }
 
@@ -206,6 +248,7 @@ describe("the loop", () => {
               lease: {
                 id: "lease_test",
                 runnerId: "runner_1",
+                identity: TEST_IDENTITY,
                 expiresAt: Date.now() + 60_000,
               },
             },
@@ -235,6 +278,7 @@ describe("the loop", () => {
               lease: {
                 id: "lease_test",
                 runnerId: "runner_1",
+                identity: TEST_IDENTITY,
                 expiresAt: Date.now() + 60_000,
               },
             },
@@ -271,6 +315,7 @@ describe("the loop", () => {
               lease: {
                 id: "lease_test",
                 runnerId: "runner_1",
+                identity: TEST_IDENTITY,
                 expiresAt: Date.now() + 60_000,
               },
             },

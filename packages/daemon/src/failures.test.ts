@@ -1,7 +1,13 @@
 import { chmod, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { generateKeys, publicIdentityOf, signRequest } from "@byollm/protocol";
+import {
+  generateKeys,
+  keyId,
+  publicIdentityOf,
+  seal,
+  signRequest,
+} from "@byollm/protocol";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { Allowlist } from "./allowlist.js";
 import { ClaudeCliBackend } from "./backends/claude-cli.js";
@@ -17,6 +23,40 @@ import { DaemonConfig, resolveConfig } from "./config.js";
 import { IngressLog } from "./ingress.js";
 import { SpendLedger } from "./spend.js";
 import { Runner } from "./runner.js";
+
+/**
+ * A site and a device, as pairing would have established them.
+ *
+ * The fakes seal work exactly as a real site does, so these exercise the
+ * daemon's verification rather than skipping past it — a fake that handed
+ * over plaintext would test nothing about the property that matters.
+ */
+const TEST_SITE_KEYS = generateKeys(1_800_000_000_000);
+const TEST_DEVICE_KEYS = generateKeys(1_800_000_000_000);
+const TEST_IDENTITY = {
+  keys: () => Promise.resolve(TEST_DEVICE_KEYS),
+  sitePinned: publicIdentityOf(TEST_SITE_KEYS),
+};
+
+/** Seal a payload to the test device, as the site would at fetch time. */
+async function sealedFor(
+  jobId: string,
+  payload: unknown,
+  senderKeys = TEST_SITE_KEYS,
+): Promise<unknown> {
+  return seal({
+    plaintext: JSON.stringify(payload),
+    senderKeys,
+    recipientEncryptionPublic: TEST_DEVICE_KEYS.encryptionPublic,
+    context: {
+      jobId,
+      senderKeyId: keyId(publicIdentityOf(TEST_SITE_KEYS).identity),
+      recipientKeyId: keyId(publicIdentityOf(TEST_DEVICE_KEYS).identity),
+      deadlineAt: Date.now() + 3_600_000,
+      direction: "payload",
+    },
+  });
+}
 
 /** A daemon identity for tests: real keys, signing the real canonical form. */
 const TEST_KEYS = generateKeys(1_800_000_000_000);
@@ -109,6 +149,7 @@ async function makeRunner(fetchImpl: typeof fetch, backend: Backend) {
       fetch: fetchImpl,
     }),
     runnerId: "runner_1",
+    identity: TEST_IDENTITY,
     owner: "me",
     daemonVersion: "0.0.0",
     loaded,
@@ -159,6 +200,7 @@ const oneJob = [
     lease: {
       id: "lease_test",
       runnerId: "runner_1",
+      identity: TEST_IDENTITY,
       expiresAt: 4_000_000_000_000,
     },
   },
@@ -174,11 +216,13 @@ describe("reporting failures never lose the job", () => {
         return Promise.reject(new Error("server went away"));
       }
       if (url.endsWith("/fetch")) {
-        // Claim-then-fetch: the payload arrives here, after admission.
-        return Promise.resolve(
-          new Response(JSON.stringify({ payload: { prompt: "hi" } }), {
-            headers: { "content-type": "application/json" },
-          }),
+        // Sealed to the device, as a real site does. A fake handing over
+        // plaintext would skip the verification this exists to exercise.
+        return sealedFor("job_1", { prompt: "hi" }).then(
+          (envelope) =>
+            new Response(JSON.stringify({ envelope }), {
+              headers: { "content-type": "application/json" },
+            }),
         );
       }
       const body = url.endsWith("/claim")
@@ -222,11 +266,13 @@ describe("reporting failures never lose the job", () => {
         );
       }
       if (url.endsWith("/fetch")) {
-        // Claim-then-fetch: the payload arrives here, after admission.
-        return Promise.resolve(
-          new Response(JSON.stringify({ payload: { prompt: "hi" } }), {
-            headers: { "content-type": "application/json" },
-          }),
+        // Sealed to the device, as a real site does. A fake handing over
+        // plaintext would skip the verification this exists to exercise.
+        return sealedFor("job_1", { prompt: "hi" }).then(
+          (envelope) =>
+            new Response(JSON.stringify({ envelope }), {
+              headers: { "content-type": "application/json" },
+            }),
         );
       }
       const body = url.endsWith("/claim")
@@ -262,11 +308,13 @@ describe("reporting failures never lose the job", () => {
         return Promise.reject(new Error("gone"));
       }
       if (url.endsWith("/fetch")) {
-        // Claim-then-fetch: the payload arrives here, after admission.
-        return Promise.resolve(
-          new Response(JSON.stringify({ payload: { prompt: "hi" } }), {
-            headers: { "content-type": "application/json" },
-          }),
+        // Sealed to the device, as a real site does. A fake handing over
+        // plaintext would skip the verification this exists to exercise.
+        return sealedFor("job_1", { prompt: "hi" }).then(
+          (envelope) =>
+            new Response(JSON.stringify({ envelope }), {
+              headers: { "content-type": "application/json" },
+            }),
         );
       }
       const body = url.endsWith("/claim")
@@ -326,11 +374,13 @@ describe("reporting failures never lose the job", () => {
         );
       }
       if (url.endsWith("/fetch")) {
-        // Claim-then-fetch: the payload arrives here, after admission.
-        return Promise.resolve(
-          new Response(JSON.stringify({ payload: { prompt: "hi" } }), {
-            headers: { "content-type": "application/json" },
-          }),
+        // Sealed to the device, as a real site does. A fake handing over
+        // plaintext would skip the verification this exists to exercise.
+        return sealedFor("job_1", { prompt: "hi" }).then(
+          (envelope) =>
+            new Response(JSON.stringify({ envelope }), {
+              headers: { "content-type": "application/json" },
+            }),
         );
       }
       const body = url.endsWith("/claim")

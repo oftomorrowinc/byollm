@@ -2,6 +2,10 @@ import {
   AUDIENCES,
   OFFER_SCOPES,
   ClaimedStub,
+  ENVELOPE_MAX_AGE_MS,
+  keyId,
+  open,
+  seal,
   PROTOCOL_VERSION,
   PublicIdentity,
   generateKeys,
@@ -13,6 +17,7 @@ import {
 import {
   advance,
   claimOne,
+  fetchGenuine,
   fetchPayload,
   releaseLease,
   ownerIdFor,
@@ -1087,14 +1092,14 @@ export const CHECKS: readonly Check[] = [
           // claim, so this now checks what `fetch` delivers — which is where
           // a smuggled field would have to survive to reach a daemon.
           const claimed = await claimOne(target, daemon);
-          const delivered = (await fetchPayload(
+          const delivered = await fetchPayload(
             target,
             daemon,
             claimed.id,
             claimed.lease.id,
-          )) as { payload: Record<string, unknown> } | null;
+          );
           assert(delivered !== null, "the runner could not fetch its payload");
-          const payload = delivered.payload;
+          const payload = delivered.opened as Record<string, unknown>;
           for (const smuggled of SMUGGLED) {
             assert(
               payload[smuggled] === undefined,
@@ -1481,9 +1486,16 @@ export const CHECKS: readonly Check[] = [
           stub.id,
           stub.lease.id,
         );
+        assert(fetched !== null, "the lease holder could not fetch its work");
+        // Sealed on the wire, readable once opened by the device it was
+        // sealed to. Both halves matter.
         assert(
-          JSON.stringify(fetched).includes("this must not appear"),
-          "fetch did not return the payload to the runner holding the lease",
+          !JSON.stringify(fetched.raw).includes("this must not appear"),
+          "the payload crossed the wire in the clear",
+        );
+        assert(
+          JSON.stringify(fetched.opened).includes("this must not appear"),
+          "the runner holding the lease could not open its own work",
         );
 
         // 5. But not under a lease that is not held.
@@ -1535,9 +1547,14 @@ export const CHECKS: readonly Check[] = [
           stub.id,
           stub.lease.id,
         );
+        assert(delivered !== null, "the lease holder could not fetch its work");
         assert(
-          JSON.stringify(delivered).includes(secret),
-          "the site could not open work it sealed itself",
+          !JSON.stringify(delivered.raw).includes(secret),
+          "the work crossed the wire in the clear",
+        );
+        assert(
+          JSON.stringify(delivered.opened).includes(secret),
+          "the device could not open work sealed to it",
         );
 
         // Deliberately *not* asserted here: that a wrong-key envelope is
@@ -1549,6 +1566,67 @@ export const CHECKS: readonly Check[] = [
         // reaching that over the wire needs store access the kit does not
         // have. Recorded in MUTATIONS.md rather than left as a check that
         // does not bite.
+      } finally {
+        await daemon.dispose();
+      }
+    },
+  },
+
+  {
+    id: "C029_DAEMON_REFUSES_UNSIGNED_WORK",
+    title: "a daemon refuses work not signed by the site it pinned",
+    musts: ["ENVELOPE_SEALED_AND_SIGNED"],
+    async run(target: ConformanceTarget): Promise<void> {
+      // The gap MUTATIONS.md recorded, now closable. Once the site seals to
+      // the *device*, the daemon is an opener too — so the kit can hand it an
+      // envelope nobody it trusts signed, which is exactly what a relay
+      // substituting work would look like.
+      const daemon = await pairDaemon(target, { owner: "alice" });
+      try {
+        const keys = await daemon.identityKeys();
+        const relay = generateKeys(Date.now());
+
+        // Perfectly well-formed, perfectly openable, and signed by a key this
+        // daemon never pinned. `crypto_box_seal` is anonymous-sender, so
+        // producing this needs nothing but the device's public key.
+        const forged = await seal({
+          plaintext: JSON.stringify({ prompt: "run this instead" }),
+          senderKeys: relay,
+          recipientEncryptionPublic: keys.encryptionPublic,
+          context: {
+            jobId: "job_anything",
+            senderKeyId: keyId(daemon.sitePinned.identity),
+            recipientKeyId: keyId(publicIdentityOf(keys).identity),
+            deadlineAt: Date.now() + ENVELOPE_MAX_AGE_MS,
+            direction: "payload",
+          },
+        });
+
+        const opened = await open({
+          envelope: forged,
+          recipientKeys: keys,
+          senderIdentityPublic: daemon.sitePinned.identity,
+          expected: {
+            jobId: "job_anything",
+            senderKeyId: keyId(daemon.sitePinned.identity),
+            recipientKeyId: keyId(publicIdentityOf(keys).identity),
+            direction: "payload",
+          },
+        });
+
+        assert(
+          !opened.ok,
+          "a daemon accepted work signed by a key it never pinned",
+        );
+        assert(
+          opened.reason === "bad-signature",
+          `refused for "${opened.reason}", not the signature — which is the property here`,
+        );
+
+        // And the same envelope, signed by the site, is accepted — so this is
+        // not a check that refuses everything.
+        const genuine = await fetchGenuine(target, daemon);
+        assert(genuine, "a daemon could not open work its own site sealed");
       } finally {
         await daemon.dispose();
       }

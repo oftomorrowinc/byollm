@@ -2,7 +2,8 @@ import { z } from "zod";
 import { PublicIdentity } from "./keys.js";
 import { OfferScope } from "./audience.js";
 import { BackendClass, BackendIdSchema } from "./backends.js";
-import { ClaimedStub, JobOutcome, JobPayload } from "./job.js";
+import { ClaimedStub, JobOutcome } from "./job.js";
+import { SealedEnvelope } from "./envelope.js";
 import { JobKind } from "./kinds.js";
 
 /** Protocol version carried on every request; servers refuse what they can't speak. */
@@ -455,13 +456,14 @@ export type FetchRequest = z.infer<typeof FetchRequest>;
 export const FetchResponse = z
   .object({
     /**
-     * The work itself.
+     * The work, sealed to the device that claimed it — byollm_009 §6.
      *
-     * Plaintext today; byollm_009 §6 makes this a sealed, signed envelope,
-     * and the field is separated from the stub now so that change is a change
-     * of type rather than a change of shape.
+     * Not plaintext. The site opens its own at-rest envelope and re-seals to
+     * the claiming device's key, signed by the site's identity, so the work
+     * is readable only by the machine that took it and only if it came from
+     * the site that machine pinned.
      */
-    payload: JobPayload,
+    envelope: SealedEnvelope,
   })
   .strict();
 export type FetchResponse = z.infer<typeof FetchResponse>;

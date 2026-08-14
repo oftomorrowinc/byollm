@@ -3,7 +3,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   PROTOCOL_VERSION,
+  keyId,
+  open,
+  publicIdentityOf,
   signRequest,
+  type PublicIdentity,
+  type SealedEnvelope,
   type StoredKeys,
   type Capability,
   type ClaimedStub,
@@ -101,6 +106,9 @@ export interface HarnessDaemon {
   readonly token: string;
   /** This daemon's keys, so a check can sign as it — or deliberately not. */
   readonly keys: StoredKeys;
+  /** This daemon's keys, and the site identity it pinned at pairing. */
+  identityKeys(): Promise<StoredKeys>;
+  readonly sitePinned: PublicIdentity;
   readonly home: string;
   readonly ingress: IngressLog;
   /** The owner's spend ledger, so a check can drive it past its ceiling. */
@@ -315,6 +323,11 @@ export async function pairDaemon(
     }),
     runnerId: result.pairing.runnerId,
     owner: result.pairing.owner,
+    identity: {
+      keys: () => deviceIdentity.load(Date.now()),
+      // Pinned at pairing, exactly as a real daemon does.
+      sitePinned: result.pairing.site,
+    },
     daemonVersion: "conformance",
     loaded,
     allowlist,
@@ -332,6 +345,8 @@ export async function pairDaemon(
     owner: result.pairing.owner,
     token: result.pairing.token,
     keys: await deviceIdentity.load(Date.now()),
+    identityKeys: () => deviceIdentity.load(Date.now()),
+    sitePinned: result.pairing.site,
     home,
     ingress,
     spend,
@@ -522,7 +537,7 @@ export async function fetchPayload(
   daemon: HarnessDaemon,
   jobId: string,
   leaseId: string,
-): Promise<unknown> {
+): Promise<{ raw: unknown; opened: unknown } | null> {
   const body = JSON.stringify({
     protocolVersion: PROTOCOL_VERSION,
     runnerId: daemon.runnerId,
@@ -547,8 +562,29 @@ export async function fetchPayload(
       body,
     }),
   );
-  //  for a refusal — a normal answer here, not an error.
-  return response.status === 200 ? await response.json() : null;
+  // `null` for a refusal — a normal answer here, not an error.
+  if (response.status !== 200) return null;
+
+  // Both halves are returned: the raw response, so a check can assert no
+  // plaintext crossed the wire, and the opened work, so it can assert the
+  // device it was sealed to can still read it.
+  const raw = (await response.json()) as { envelope: SealedEnvelope };
+  const keys = await daemon.identityKeys();
+  const opened = await open({
+    envelope: raw.envelope,
+    recipientKeys: keys,
+    senderIdentityPublic: daemon.sitePinned.identity,
+    expected: {
+      jobId,
+      senderKeyId: keyId(daemon.sitePinned.identity),
+      recipientKeyId: keyId(publicIdentityOf(keys).identity),
+      direction: "payload",
+    },
+  });
+  return {
+    raw,
+    opened: opened.ok ? (JSON.parse(opened.plaintext) as unknown) : null,
+  };
 }
 
 /**
@@ -575,4 +611,39 @@ async function removeHome(home: string): Promise<void> {
   }
   // A leaked temp directory is not worth failing a conformance run over.
   await rm(home, { recursive: true, force: true }).catch(() => undefined);
+}
+
+/** Enqueue, claim and open one job — the happy path, end to end. */
+export async function fetchGenuine(
+  target: ConformanceTarget,
+  daemon: HarnessDaemon,
+  owner = "alice",
+): Promise<boolean> {
+  const marker = "genuine work";
+  await target.enqueue({
+    kind: "llm.generate",
+    payload: { prompt: marker },
+    // The target's own name for the user, not the id it mapped that to —
+    // passing a mapped id back in addresses a user the target never made.
+    owner,
+    audience: "self",
+  });
+  // Retried: an in-memory store makes a job claimable the instant enqueue
+  // returns, and a real database does not. Claiming once passes everywhere
+  // the kit is developed and fails where it is meant to certify.
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    try {
+      const stub = await claimOne(target, daemon);
+      const fetched = await fetchPayload(
+        target,
+        daemon,
+        stub.id,
+        stub.lease.id,
+      );
+      return JSON.stringify(fetched?.opened ?? {}).includes(marker);
+    } catch {
+      await sleep(50);
+    }
+  }
+  return false;
 }

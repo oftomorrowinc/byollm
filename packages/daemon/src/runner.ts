@@ -1,6 +1,13 @@
 import {
+  keyId,
+  open,
+  publicIdentityOf,
   sizeClassCeiling,
   type ClaimedStub,
+  type JobPayload,
+  type PublicIdentity,
+  type SealedEnvelope,
+  type StoredKeys,
   REFUSAL_MESSAGES,
   matchAudience,
   type Capability,
@@ -42,6 +49,18 @@ export interface RunnerOptions {
   /** Tracks money spent on other people's work, for metered backends. */
   readonly spend: SpendLedger;
   readonly ingress: IngressLog;
+  /**
+   * How this daemon opens work sealed to it, and what it checks it against.
+   *
+   * `sitePinned` is the identity taken at pairing (byollm_009 §5). Verifying
+   * against it — rather than against anything the envelope claims — is what
+   * makes a relay unable to substitute work: it can produce an envelope this
+   * machine can open, but not one signed by the site.
+   */
+  readonly identity?: {
+    keys(): Promise<StoredKeys>;
+    readonly sitePinned: PublicIdentity;
+  };
   /** Heartbeat cadence before jitter. */
   readonly heartbeatMs?: number;
   readonly now?: () => number;
@@ -519,9 +538,10 @@ export class Runner {
       jobId: job.id,
       leaseId: job.lease.id,
     });
+    const payload = await this.#openPayload(job, fetched.envelope);
 
     const route = this.#routeFor(job.kind);
-    const outcome = await this.runJob({ ...job, payload: fetched.payload });
+    const outcome = await this.runJob({ ...job, payload });
 
     await this.#safely(() =>
       this.#options.client.result({
@@ -533,6 +553,45 @@ export class Runner {
         durationMs: 0,
       }),
     );
+  }
+
+  /**
+   * Open work sealed to this machine, or refuse to run it.
+   *
+   * A failure here is not a job failure to be reported — it is a claim that
+   * the work came from the pinned site, which did not hold. Running it anyway
+   * would be running whatever an intermediary supplied, on the owner's
+   * hardware and their subscription.
+   */
+  async #openPayload(
+    job: ClaimedStub,
+    envelope: SealedEnvelope,
+  ): Promise<JobPayload> {
+    const identity = this.#options.identity;
+    if (!identity) {
+      throw new Error(
+        "this daemon has no keys, so it cannot open work sealed to it",
+      );
+    }
+    const keys = await identity.keys();
+    const opened = await open({
+      envelope,
+      recipientKeys: keys,
+      senderIdentityPublic: identity.sitePinned.identity,
+      expected: {
+        jobId: job.id,
+        senderKeyId: keyId(identity.sitePinned.identity),
+        recipientKeyId: keyId(publicIdentityOf(keys).identity),
+        direction: "payload",
+      },
+    });
+    if (!opened.ok) {
+      throw new Error(
+        `refusing job ${job.id}: its payload did not verify as coming from ` +
+          `the app this machine paired with (${opened.reason})`,
+      );
+    }
+    return JSON.parse(opened.plaintext) as JobPayload;
   }
 
   /**

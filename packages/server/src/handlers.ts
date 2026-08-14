@@ -1,5 +1,7 @@
 import {
+  ENVELOPE_MAX_AGE_MS,
   FetchRequest,
+  seal,
   keyId,
   open,
   publicIdentityOf,
@@ -292,9 +294,23 @@ export class ByollmHandlers {
       // and not something a retry fixes.
       return fail("server-error", "this job's payload could not be opened");
     }
-    return ok({
-      payload: JSON.parse(opened.plaintext) as FetchResponse["payload"],
-    } satisfies FetchResponse);
+    // Re-sealed to the machine that claimed it, signed by this site. The
+    // plaintext exists here for one statement and never reaches the wire —
+    // and the daemon can prove the work came from the site it pinned, which
+    // a plaintext response could not offer at all.
+    const resealed = await seal({
+      plaintext: opened.plaintext,
+      senderKeys: this.#siteKeys,
+      recipientEncryptionPublic: runner.device.encryption,
+      context: {
+        jobId: job.id,
+        senderKeyId,
+        recipientKeyId: keyId(runner.device.identity),
+        deadlineAt: job.createdAt + ENVELOPE_MAX_AGE_MS,
+        direction: "payload",
+      },
+    });
+    return ok({ envelope: resealed } satisfies FetchResponse);
   }
 
   // -- 1. pair --------------------------------------------------------------

@@ -268,6 +268,10 @@ async function runLoop(
       }),
       runnerId: pairing.runnerId,
       owner: pairing.owner,
+      identity: {
+        keys: () => identity.load(Date.now()),
+        sitePinned: pairing.site,
+      },
       daemonVersion: DAEMON_VERSION,
       loaded,
       allowlist,

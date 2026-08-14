@@ -334,15 +334,18 @@ never run.
 is sealed *to the claiming device* rather than to the site itself,
 because the site cannot do that until it knows who claimed. That is:
 
-- a relay plane, where the site and the upstream are different parties;
-- or the second leg in direct mode, if payloads are re-sealed to the
-  device's key rather than opened by the site and sent over the
-  transport.
+- a relay plane, where the site and the upstream are different parties.
 
-The second is worth doing on its own merits — it would mean the site
-never holds plaintext outside the enqueue and result calls — and it is
-the natural next increment. `awaiting-payload` should land with it, in
-the change that makes it reachable, and not before.
+**That list was longer, and wrong (corrected 2026-08-14).** It also named
+re-sealing to the claiming device in direct mode. That work is now
+done — the site opens its at-rest envelope and re-seals to the device
+at fetch — and it did *not* make the state reachable, because the
+re-seal happens inside the fetch request. Nothing waits.
+
+The precise condition is narrower than first written: `awaiting-payload`
+is reachable only when **the party that must seal is not the party
+answering the fetch.** In direct mode they are the same party and
+always will be. It is a relay-plane state, and only that.
 
 ## 8. Streaming, reserved but not built
 

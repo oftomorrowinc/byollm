@@ -33,6 +33,9 @@ create table byollm_runners (
   platform         text not null check (platform in ('darwin', 'linux', 'win32')),
   daemon_version   text not null,
   capabilities     jsonb not null default '[]'::jsonb,
+  -- byollm_009 §5: the device's pinned public identity. What a later
+  -- signature verifies against — a runner id names a machine, this proves it.
+  device           jsonb not null,
   paused           boolean not null default false,
   -- Set once. A revoked runner never un-revokes.
   revoked_at       timestamptz,
@@ -63,6 +66,9 @@ create table byollm_pairings (
   platform         text not null,
   daemon_version   text not null,
   capabilities     jsonb not null default '[]'::jsonb,
+  -- Presented at pair start, so the user approves a *machine* rather than a
+  -- code any machine could redeem. Copied onto the runner at approval.
+  device           jsonb not null,
   expires_at       timestamptz not null,
   created_at       timestamptz not null default now()
 );
@@ -437,9 +443,9 @@ begin
   end if;
 
   insert into byollm_runners (owner, token_hash, label, platform,
-                              daemon_version, capabilities)
+                              daemon_version, capabilities, device)
   values (v_owner, p_token_hash, v_pairing.label, v_pairing.platform,
-          v_pairing.daemon_version, v_pairing.capabilities)
+          v_pairing.daemon_version, v_pairing.capabilities, v_pairing.device)
   returning * into v_runner;
 
   update byollm_pairings

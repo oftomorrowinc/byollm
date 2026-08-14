@@ -169,7 +169,7 @@ export class ProtocolClient {
     runnerId: string;
     daemonVersion: string;
     capabilities: readonly Capability[];
-    activeJobIds: readonly string[];
+    activeLeases: readonly { jobId: string; leaseId: string }[];
     paused: boolean;
   }): Promise<HeartbeatResponse> {
     return this.#post("heartbeat", HeartbeatResponse, {
@@ -177,7 +177,7 @@ export class ProtocolClient {
       runnerId: input.runnerId,
       daemonVersion: input.daemonVersion,
       capabilities: input.capabilities,
-      activeJobIds: input.activeJobIds,
+      activeLeases: input.activeLeases,
       paused: input.paused,
     });
   }
@@ -198,13 +198,13 @@ export class ProtocolClient {
 
   async release(input: {
     runnerId: string;
-    jobIds: readonly string[];
+    leases: readonly { jobId: string; leaseId: string }[];
     reason: "shutdown" | "pause" | "revoked" | "backend-down" | "refused";
   }): Promise<ReleaseResponse> {
     return this.#post("release", ReleaseResponse, {
       protocolVersion: PROTOCOL_VERSION,
       runnerId: input.runnerId,
-      jobIds: input.jobIds,
+      leases: input.leases,
       reason: input.reason,
     });
   }

@@ -91,6 +91,10 @@ create table byollm_jobs (
   audience_allow uuid[] ,
   depends_on     uuid[] not null default '{}',
   state          byollm_job_state not null default 'queued',
+  -- Identifies this *grant*, not just its holder. A runner can claim, release
+  -- and re-claim the same job; without an id per grant a replayed release
+  -- lands on a later lease and returns a job to the queue mid-execution.
+  lease_id       uuid,
   lease_runner   uuid references byollm_runners (id) on delete set null,
   lease_expires_at timestamptz,
   -- When the job became claimable. THE TTL CLOCK STARTS HERE, not at
@@ -188,6 +192,7 @@ begin
   --    lease reclaim exists to provide.
   update byollm_jobs
      set state            = 'queued',
+         lease_id         = null,
          lease_runner     = null,
          lease_expires_at = null,
          claimable_at     = now(),
@@ -202,6 +207,7 @@ begin
   --    past its absolute deadline.
   update byollm_jobs
      set state        = 'expired',
+         lease_id = null,
          lease_runner = null,
          lease_expires_at = null,
          updated_at   = now()
@@ -279,6 +285,7 @@ begin
   )
   update byollm_jobs j
      set state            = 'claimed',
+         lease_id         = gen_random_uuid(),
          lease_runner     = p_runner_id,
          lease_expires_at = now() + (p_lease_ms || ' milliseconds')::interval,
          attempts         = j.attempts + 1,

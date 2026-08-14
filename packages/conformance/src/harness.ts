@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   PROTOCOL_VERSION,
+  signRequest,
   type StoredKeys,
   type Capability,
   type ClaimedJob,
@@ -435,26 +436,77 @@ export async function claimOne(
   daemon: HarnessDaemon,
 ): Promise<ClaimedJob> {
   const capabilities = await daemon.runner.detectCapabilities();
+  // Signed, not bearer. This helper predated signed requests and kept
+  // sending a token: it 401'd the moment a check actually used it, which
+  // C022 had not.
+  const body = JSON.stringify({
+    protocolVersion: PROTOCOL_VERSION,
+    runnerId: daemon.runnerId,
+    capabilities,
+    max: 1,
+  });
+  const signature = signRequest(daemon.keys, {
+    endpoint: "claim",
+    runnerId: daemon.runnerId,
+    issuedAt: Date.now(),
+    body,
+  });
   const response = await target.fetch(
     new Request(`${target.origin}/byollm/claim`, {
       method: "POST",
       headers: {
         "content-type": "application/json",
-        authorization: `Bearer ${daemon.token}`,
+        "x-byollm-runner": signature.runnerId,
+        "x-byollm-issued-at": String(signature.issuedAt),
+        "x-byollm-signature": signature.signature,
       },
-      body: JSON.stringify({
-        protocolVersion: PROTOCOL_VERSION,
-        runnerId: daemon.runnerId,
-        capabilities,
-        max: 1,
-      }),
+      body,
     }),
   );
   if (response.status !== 200) {
     throw new Error(`claim answered ${String(response.status)}`);
   }
-  const body = (await response.json()) as { jobs: ClaimedJob[] };
-  const job = body.jobs[0];
+  const parsed = (await response.json()) as { jobs: ClaimedJob[] };
+  const job = parsed.jobs[0];
   if (!job) throw new Error("claim returned no jobs");
   return job;
+}
+
+/**
+ * Release one named lease over the wire, signed, as a daemon would.
+ *
+ * Raw rather than through the runner, because the property under test is what
+ * the *server* does with a request naming a particular grant — including a
+ * request the daemon would never send twice.
+ */
+export async function releaseLease(
+  target: ConformanceTarget,
+  daemon: HarnessDaemon,
+  jobId: string,
+  leaseId: string,
+): Promise<Response> {
+  const body = JSON.stringify({
+    protocolVersion: PROTOCOL_VERSION,
+    runnerId: daemon.runnerId,
+    leases: [{ jobId, leaseId }],
+    reason: "backend-down",
+  });
+  const signature = signRequest(daemon.keys, {
+    endpoint: "release",
+    runnerId: daemon.runnerId,
+    issuedAt: Date.now(),
+    body,
+  });
+  return target.fetch(
+    new Request(`${target.origin}/byollm/release`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-byollm-runner": signature.runnerId,
+        "x-byollm-issued-at": String(signature.issuedAt),
+        "x-byollm-signature": signature.signature,
+      },
+      body,
+    }),
+  );
 }

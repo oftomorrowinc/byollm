@@ -65,6 +65,21 @@ export function canTransition(from: JobState, to: JobState): boolean {
 
 /** A lease: the right to work on a job until `expiresAt`. */
 export const Lease = z.object({
+  /**
+   * Identifies *this* grant, not just its holder.
+   *
+   * A runner can hold a job, release it, and claim it again — three leases,
+   * one runner id. Without an id for the grant itself, a lease-scoped request
+   * names a mutable target ambiguously, and a replayed release from the first
+   * grant lands on the third: the job returns to the queue while the daemon
+   * is mid-execution, and the work runs twice on the owner's hardware.
+   *
+   * That was a live hole, found in review after signed requests shipped. The
+   * signature scheme's replay argument rests on endpoints being idempotent —
+   * and release *is*, per lease, but not across leases, because nothing in
+   * the request said which one.
+   */
+  id: z.string().min(1),
   /** The runner holding the lease. */
   runnerId: z.string().min(1),
   /** Epoch milliseconds after which the claim is void. */

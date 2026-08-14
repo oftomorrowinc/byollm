@@ -7,6 +7,14 @@ import {
   type PairedRunner,
 } from "./testing.js";
 
+/** The (job, lease) pairs a claim response actually granted. */
+const leasesFrom = (res: {
+  body: unknown;
+}): { jobId: string; leaseId: string }[] =>
+  (res.body as { jobs: { id: string; lease: { id: string } }[] }).jobs.map(
+    (j) => ({ jobId: j.id, leaseId: j.lease.id }),
+  );
+
 const claim = (runnerId: string, caps = httpCapabilities()) => ({
   protocolVersion: "0" as const,
   runnerId,
@@ -417,12 +425,12 @@ describe("heartbeat", () => {
   it("renews leases for jobs the runner holds", async () => {
     const h = createHarness({ leaseMs: 60_000 });
     const runner = await h.pair();
-    const handle = await h.app.enqueue({
+    await h.app.enqueue({
       kind: "llm.generate",
       payload: { prompt: "hi" },
       owner: "alice",
     });
-    await h.call("claim", claim(runner.runnerId), runner);
+    const claimed = await h.call("claim", claim(runner.runnerId), runner);
 
     h.clock.advance(30_000);
     const res = await h.call(
@@ -432,7 +440,7 @@ describe("heartbeat", () => {
         runnerId: runner.runnerId,
         daemonVersion: "0.1.0",
         capabilities: httpCapabilities(),
-        activeJobIds: [handle.id],
+        activeLeases: leasesFrom(claimed),
         paused: false,
       },
       runner,
@@ -453,7 +461,7 @@ describe("heartbeat", () => {
       payload: { prompt: "hi" },
       owner: "alice",
     });
-    await h.call("claim", claim(runner.runnerId), runner);
+    const claimed = await h.call("claim", claim(runner.runnerId), runner);
 
     // The daemon went away for longer than its lease.
     h.clock.advance(11_000);
@@ -464,7 +472,7 @@ describe("heartbeat", () => {
         runnerId: runner.runnerId,
         daemonVersion: "0.1.0",
         capabilities: httpCapabilities(),
-        activeJobIds: [handle.id],
+        activeLeases: leasesFrom(claimed),
         paused: false,
       },
       runner,
@@ -484,7 +492,7 @@ describe("heartbeat", () => {
         runnerId: runner.runnerId,
         daemonVersion: "0.1.0",
         capabilities: httpCapabilities(),
-        activeJobIds: [],
+        activeLeases: [],
         paused: false,
       },
       runner,
@@ -511,7 +519,7 @@ describe("heartbeat", () => {
       payload: { prompt: "hi" },
       owner: "alice",
     });
-    await h.call("claim", claim(runner.runnerId), runner);
+    const claimed = await h.call("claim", claim(runner.runnerId), runner);
 
     await h.app.cancel(handle.id);
 
@@ -522,7 +530,7 @@ describe("heartbeat", () => {
         runnerId: runner.runnerId,
         daemonVersion: "0.1.0",
         capabilities: httpCapabilities(),
-        activeJobIds: [handle.id],
+        activeLeases: leasesFrom(claimed),
         paused: false,
       },
       runner,
@@ -699,14 +707,14 @@ describe("release [REFUSAL_NOT_REOFFERED]", () => {
       payload: { prompt: "hi" },
       owner: "alice",
     });
-    await h.call("claim", claim(runner.runnerId), runner);
+    const claimed = await h.call("claim", claim(runner.runnerId), runner);
 
     await h.call(
       "release",
       {
         protocolVersion: "0",
         runnerId: runner.runnerId,
-        jobIds: [handle.id],
+        leases: leasesFrom(claimed),
         reason: "shutdown",
       },
       runner,
@@ -745,7 +753,7 @@ describe("release [REFUSAL_NOT_REOFFERED]", () => {
       {
         protocolVersion: "0",
         runnerId: bob.runnerId,
-        jobIds: [handle.id],
+        leases: leasesFrom(first),
         reason: "refused",
       },
       bob,
@@ -758,6 +766,104 @@ describe("release [REFUSAL_NOT_REOFFERED]", () => {
       bob,
     );
     expect((second.body as { jobs: unknown[] }).jobs).toHaveLength(0);
+    expect((await h.app.job(handle.id))?.state).toBe("queued");
+  });
+});
+
+describe("a lease names the grant, not just its holder", () => {
+  // The hole this closes, found in review after signed requests shipped:
+  //
+  //   1. runner claims J           -> lease A
+  //   2. runner releases J         -> a genuinely signed request
+  //   3. backend recovers, runner re-claims J -> lease B
+  //   4. a relay replays the step-2 request inside the freshness window
+  //
+  // Matching on runner id alone, step 4 released lease B. The job returned to
+  // the queue while the daemon was mid-execution, and the work ran twice on
+  // the owner's hardware — RESULT_IDEMPOTENT dedupes the *result*, not the
+  // compute. With `reason: "refused"` it was worse: the replay also barred the
+  // legitimate re-claim, stranding the job.
+  const enqueue = (h: ReturnType<typeof createHarness>) =>
+    h.app.enqueue({
+      kind: "llm.generate",
+      payload: { prompt: "hi" },
+      owner: "alice",
+    });
+
+  it("ignores a replayed release aimed at a lease that has been superseded", async () => {
+    const h = createHarness();
+    const runner = await h.pair();
+    const handle = await enqueue(h);
+
+    const first = await h.call("claim", claim(runner.runnerId), runner);
+    const staleRelease = {
+      protocolVersion: "0" as const,
+      runnerId: runner.runnerId,
+      leases: leasesFrom(first),
+      reason: "backend-down" as const,
+    };
+    await h.call("release", staleRelease, runner);
+
+    // Backend recovers; the same runner takes it again. A different grant.
+    const second = await h.call("claim", claim(runner.runnerId), runner);
+    expect(leasesFrom(second)[0]?.leaseId).not.toBe(
+      leasesFrom(first)[0]?.leaseId,
+    );
+
+    // The relay replays the earlier, genuinely signed release.
+    const replayed = await h.call("release", staleRelease, runner);
+    expect((replayed.body as { released: string[] }).released).toEqual([]);
+
+    // The daemon still holds the job it is executing.
+    const job = await h.app.job(handle.id);
+    expect(job?.state).toBe("claimed");
+    expect(job?.lease?.id).toBe(leasesFrom(second)[0]?.leaseId);
+  });
+
+  it("does not let a replayed refusal strand a job", async () => {
+    const h = createHarness();
+    const runner = await h.pair();
+    await enqueue(h);
+
+    const first = await h.call("claim", claim(runner.runnerId), runner);
+    const staleRefusal = {
+      protocolVersion: "0" as const,
+      runnerId: runner.runnerId,
+      leases: leasesFrom(first),
+      reason: "refused" as const,
+    };
+    await h.call("release", staleRefusal, runner);
+
+    // A second runner picks it up.
+    const other = await h.pair({ owner: "alice", label: "other" });
+    const second = await h.call("claim", claim(other.runnerId), other);
+    expect(leasesFrom(second)).toHaveLength(1);
+
+    // Replaying the first runner's refusal must not touch the second's lease.
+    await h.call("release", staleRefusal, runner);
+    expect((await h.app.job(leasesFrom(second)[0]!.jobId))?.state).toBe(
+      "claimed",
+    );
+  });
+
+  it("still releases the lease actually named", async () => {
+    // The fix must not turn release into a no-op.
+    const h = createHarness();
+    const runner = await h.pair();
+    const handle = await enqueue(h);
+    const claimed = await h.call("claim", claim(runner.runnerId), runner);
+
+    const res = await h.call(
+      "release",
+      {
+        protocolVersion: "0",
+        runnerId: runner.runnerId,
+        leases: leasesFrom(claimed),
+        reason: "shutdown",
+      },
+      runner,
+    );
+    expect((res.body as { released: string[] }).released).toEqual([handle.id]);
     expect((await h.app.job(handle.id))?.state).toBe("queued");
   });
 });

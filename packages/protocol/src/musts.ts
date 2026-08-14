@@ -131,6 +131,16 @@ export const MUSTS = Object.freeze({
     verifiedBy: "conformance",
     source: "byollm_009 §4.2",
   }),
+  LEASE_SCOPED_BY_GRANT: must({
+    id: "LEASE_SCOPED_BY_GRANT",
+    statement:
+      "A lease-scoped request MUST name the lease it acts on, and a server " +
+      "MUST apply it only to that lease. Naming the job and the runner is " +
+      "not sufficient: both survive a claim-release-reclaim cycle.",
+    enforcedBy: "both",
+    verifiedBy: "conformance",
+    source: "byollm_009 §4.2",
+  }),
   KIND_TYPED_ONLY: must({
     id: "KIND_TYPED_ONLY",
     statement:

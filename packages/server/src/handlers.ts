@@ -26,7 +26,7 @@ import {
   type WireErrorCode,
 } from "@byollm/protocol";
 import { generateDeviceCode, generateUserCode, hashSecret } from "./ids.js";
-import type { RunnerRecord } from "./records.js";
+import type { JobRecord, RunnerRecord } from "./records.js";
 import type { ByollmStore } from "./store.js";
 
 /** Everything a mount needs to serve the protocol. */
@@ -363,10 +363,12 @@ export class ByollmHandlers {
         ...(job.audienceAllow === undefined
           ? {}
           : { audienceAllow: [...job.audienceAllow] }),
-        lease: job.lease ?? {
-          runnerId: runner.id,
-          expiresAt: now + this.#leaseMs,
-        },
+        // No fallback. A job returned from `claim` holds a lease by
+        // definition, and synthesising one here would hand the daemon a lease
+        // id the store has never heard of — every later release naming it
+        // would silently match nothing. A store that returns an unleased job
+        // has broken its contract, and this says so.
+        lease: leaseOf(job),
       })),
       leaseMs: this.#leaseMs,
     };
@@ -409,7 +411,7 @@ export class ByollmHandlers {
 
     const { renewed, lost } = await this.#store.renewLeases({
       runnerId: runner.id,
-      jobIds: request.activeJobIds,
+      leases: request.activeLeases,
       leaseMs: this.#leaseMs,
       now,
     });
@@ -476,7 +478,7 @@ export class ByollmHandlers {
     }
     const released = await this.#store.release({
       runnerId: runner.id,
-      jobIds: request.jobIds,
+      leases: request.leases,
       reason: request.reason,
       now: this.#now(),
     });
@@ -487,3 +489,14 @@ export class ByollmHandlers {
 
 /** The protocol version this build speaks. */
 export const SERVED_PROTOCOL_VERSION = PROTOCOL_VERSION;
+
+/** The lease a claimed job must have, or a loud failure. */
+function leaseOf(job: JobRecord): NonNullable<JobRecord["lease"]> {
+  if (!job.lease) {
+    throw new Error(
+      `store returned job ${job.id} from claim with no lease — the store ` +
+        `contract requires a claimed job to hold one`,
+    );
+  }
+  return job.lease;
+}

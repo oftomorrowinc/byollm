@@ -68,7 +68,11 @@ describe("ClaimedJob wire shape", () => {
     payload: { prompt: "hi" },
     audience: "self" as const,
     owner: "alice",
-    lease: { runnerId: "runner-1", expiresAt: Date.now() + 30_000 },
+    lease: {
+      id: "lease_test",
+      runnerId: "runner-1",
+      expiresAt: Date.now() + 30_000,
+    },
   };
 
   it("accepts a well-formed job", () => {

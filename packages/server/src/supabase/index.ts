@@ -17,6 +17,7 @@ import type {
   ClaimArgs,
   CompleteArgs,
   CompleteResult,
+  LeaseRef,
   ReleaseArgs,
   RenewArgs,
   RenewResult,
@@ -51,6 +52,7 @@ interface JobRow {
   audience_allow: string[] | null;
   depends_on: string[];
   state: JobState;
+  lease_id: string | null;
   lease_runner: string | null;
   lease_expires_at: string | null;
   claimable_at: string | null;
@@ -114,8 +116,14 @@ function toJob(row: JobRow): JobRecord {
     dependsOn: row.depends_on,
     state: row.state,
     lease:
-      row.lease_runner !== null && leaseExpires !== null
-        ? { runnerId: row.lease_runner, expiresAt: leaseExpires }
+      row.lease_runner !== null &&
+      leaseExpires !== null &&
+      row.lease_id !== null
+        ? {
+            id: row.lease_id,
+            runnerId: row.lease_runner,
+            expiresAt: leaseExpires,
+          }
         : null,
     createdAt: Date.parse(row.created_at),
     claimableAt: ms(row.claimable_at),
@@ -128,6 +136,16 @@ function toJob(row: JobRow): JobRecord {
     updatedAt: Date.parse(row.updated_at),
   };
 }
+
+/**
+ * A PostgREST filter matching exactly these (job, lease) pairs.
+ *
+ * Not two `IN` lists: `id IN (…) AND lease_id IN (…)` is a cross product, and
+ * while UUID uniqueness makes a mismatch improbable, "improbable" is not the
+ * property a lease check should rest on. This says what it means.
+ */
+const leasePairs = (leases: readonly LeaseRef[]): string =>
+  leases.map((l) => `and(id.eq.${l.jobId},lease_id.eq.${l.leaseId})`).join(",");
 
 function toRunner(row: RunnerRow): RunnerRecord {
   return {
@@ -287,7 +305,7 @@ export function supabaseStore(options: SupabaseStoreOptions): ByollmStore {
 
     async renewLeases(args: RenewArgs): Promise<RenewResult> {
       await db.rpc("byollm_expire_due");
-      if (args.jobIds.length === 0) return { renewed: [], lost: [] };
+      if (args.leases.length === 0) return { renewed: [], lost: [] };
 
       const expiresAt = iso(args.now + args.leaseMs);
       const renewedRows = unwrap<JobRow[]>(
@@ -299,7 +317,7 @@ export function supabaseStore(options: SupabaseStoreOptions): ByollmStore {
             updated_at: iso(args.now),
           })
           .eq("lease_runner", args.runnerId)
-          .in("id", [...args.jobIds])
+          .or(leasePairs(args.leases))
           .in("state", ["claimed", "running"])
           .select("id"),
       );
@@ -311,7 +329,9 @@ export function supabaseStore(options: SupabaseStoreOptions): ByollmStore {
           expiresAt: args.now + args.leaseMs,
         })),
         // Anything the runner thinks it holds but did not renew is gone.
-        lost: args.jobIds.filter((id) => !renewedIds.has(id)),
+        lost: args.leases
+          .map((l) => l.jobId)
+          .filter((id) => !renewedIds.has(id)),
       };
     },
 
@@ -362,14 +382,14 @@ export function supabaseStore(options: SupabaseStoreOptions): ByollmStore {
     },
 
     async release(args: ReleaseArgs): Promise<string[]> {
-      if (args.jobIds.length === 0) return [];
+      if (args.leases.length === 0) return [];
 
       const held = unwrap<{ id: string; refused_by: string[] }[]>(
         await db
           .from("byollm_jobs")
           .select("id,refused_by")
           .eq("lease_runner", args.runnerId)
-          .in("id", [...args.jobIds]),
+          .or(leasePairs(args.leases)),
       );
 
       const released: string[] = [];
@@ -383,6 +403,7 @@ export function supabaseStore(options: SupabaseStoreOptions): ByollmStore {
           .from("byollm_jobs")
           .update({
             state: "queued",
+            lease_id: null,
             lease_runner: null,
             lease_expires_at: null,
             // Newly available again, so the TTL clock restarts.

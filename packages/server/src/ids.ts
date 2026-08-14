@@ -69,3 +69,13 @@ export function secretsMatch(aHex: string, bHex: string): boolean {
   if (aHex.length !== bHex.length) return false;
   return timingSafeEqual(Buffer.from(aHex, "hex"), Buffer.from(bHex, "hex"));
 }
+
+/**
+ * A fresh id for one lease grant.
+ *
+ * Not a secret and not guessed at — a daemon is told its lease id in the claim
+ * response. It exists to distinguish *this* grant from the next one over the
+ * same job by the same runner, which is what stops a replayed release landing
+ * on a lease the sender never meant.
+ */
+export const generateLeaseId = (): string => randomUUID();

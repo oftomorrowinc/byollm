@@ -133,7 +133,11 @@ const oneJob = [
     payload: { prompt: "hi" },
     audience: "self",
     owner: "me",
-    lease: { runnerId: "runner_1", expiresAt: 4_000_000_000_000 },
+    lease: {
+      id: "lease_test",
+      runnerId: "runner_1",
+      expiresAt: 4_000_000_000_000,
+    },
   },
 ];
 
@@ -174,10 +178,14 @@ describe("reporting failures never lose the job", () => {
       if (url.endsWith("/release")) {
         const body = JSON.parse(
           typeof init?.body === "string" ? init.body : "{}",
-        ) as { jobIds: string[] };
-        released = body.jobIds;
+        ) as { leases: { jobId: string; leaseId: string }[] };
+        // Asserted as job ids, but the daemon must now name the *grant* —
+        // a release that named only the job could be replayed onto a later
+        // lease (byollm_009 §4.2, `Lease.id`).
+        released = body.leases.map((l) => l.jobId);
+        expect(body.leases.every((l) => l.leaseId.length > 0)).toBe(true);
         return Promise.resolve(
-          new Response(JSON.stringify({ released: body.jobIds }), {
+          new Response(JSON.stringify({ released: released }), {
             headers: { "content-type": "application/json" },
           }),
         );

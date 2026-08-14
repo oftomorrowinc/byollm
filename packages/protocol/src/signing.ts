@@ -28,9 +28,23 @@ import { signWith, verifyWith, type StoredKeys } from "./keys.js";
  * which a relay can do anyway.
  *
  * That is the whole argument, and it is worth stating because it rests
- * entirely on the endpoints being idempotent. **A future endpoint that is not
- * idempotent cannot use this scheme unchanged** — it would need a
- * server-issued nonce, and this comment is the reason someone will know that.
+ * entirely on the endpoints being idempotent. Two ways that can fail, and the
+ * second is the one that actually bit:
+ *
+ * 1. **A future endpoint that is not idempotent cannot use this scheme
+ *    unchanged** — it would need a server-issued nonce.
+ * 2. **Idempotence must hold per *addressed instance*, not per endpoint.** A
+ *    request that names a mutable target — a lease, a session, a
+ *    subscription — must name the *instance*, or a replay lands on a
+ *    different one than the sender meant and the endpoint's idempotence buys
+ *    nothing. `release` was idempotent per lease and ambiguous across them:
+ *    it named a job and a runner, both of which survive a
+ *    claim-release-reclaim cycle, so a replayed release yanked a later grant.
+ *    Fixed by giving a lease its own id and requiring it.
+ *
+ * The rule for anything added later: if a signed request can be replayed onto
+ * a target that has changed underneath it, the request has to say which
+ * target it meant.
  */
 
 /** How far a request's timestamp may be from the server's clock. */

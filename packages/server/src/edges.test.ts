@@ -63,7 +63,7 @@ describe("MemoryStore — edges", () => {
     expect(
       await store.release({
         runnerId: "r",
-        jobIds: ["job_nope"],
+        leases: [{ jobId: "job_nope", leaseId: "lease_nope" }],
         reason: "shutdown",
         now,
       }),
@@ -73,7 +73,7 @@ describe("MemoryStore — edges", () => {
   it("reports nothing for renewals with no job ids", async () => {
     const store = new MemoryStore();
     expect(
-      await store.renewLeases({ runnerId: "r", jobIds: [], leaseMs: 1, now }),
+      await store.renewLeases({ runnerId: "r", leases: [], leaseMs: 1, now }),
     ).toEqual({ renewed: [], lost: [] });
   });
 

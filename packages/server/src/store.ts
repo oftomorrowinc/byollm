@@ -95,9 +95,15 @@ export interface ClaimArgs {
   readonly now: number;
 }
 
+/** A lease named by its grant, not only by the job it covers. */
+export interface LeaseRef {
+  readonly jobId: string;
+  readonly leaseId: string;
+}
+
 export interface RenewArgs {
   readonly runnerId: string;
-  readonly jobIds: readonly string[];
+  readonly leases: readonly LeaseRef[];
   readonly leaseMs: number;
   readonly now: number;
 }
@@ -124,7 +130,7 @@ export interface CompleteResult {
 
 export interface ReleaseArgs {
   readonly runnerId: string;
-  readonly jobIds: readonly string[];
+  readonly leases: readonly LeaseRef[];
   readonly reason:
     "shutdown" | "pause" | "revoked" | "backend-down" | "refused";
   readonly now: number;

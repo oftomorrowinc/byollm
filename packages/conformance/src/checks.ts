@@ -12,6 +12,7 @@ import {
 import {
   advance,
   claimOne,
+  releaseLease,
   ownerIdFor,
   pairDaemon,
   sleep,
@@ -1353,6 +1354,62 @@ export const CHECKS: readonly Check[] = [
         assert(
           (await post(headersFor(stale))).status === 401,
           "a signature from a day ago was accepted",
+        );
+      } finally {
+        await daemon.dispose();
+      }
+    },
+  },
+
+  {
+    id: "C026_LEASE_SCOPED_RELEASE",
+    title: "a release acts on the lease it names, not whatever lease exists",
+    musts: ["LEASE_SCOPED_BY_GRANT"],
+    async run(target: ConformanceTarget): Promise<void> {
+      // A signed request is replayable inside its freshness window. That is
+      // safe only where the endpoint is idempotent *per addressed instance* —
+      // and a release naming a job and a runner names neither uniquely, since
+      // both survive a claim-release-reclaim cycle. A replayed release then
+      // drops a later grant while the daemon is still executing, and the
+      // owner's compute runs the job twice.
+      const daemon = await pairDaemon(target, { owner: "alice" });
+      try {
+        const job = await target.enqueue({
+          kind: "llm.generate",
+          payload: prompt("run me once"),
+          owner: "alice",
+          audience: "self",
+        });
+
+        const first = await claimOne(target, daemon);
+        assert(
+          typeof first.lease.id === "string" && first.lease.id.length > 0,
+          "a claimed job arrived without a lease id — nothing can be scoped to it",
+        );
+
+        await releaseLease(target, daemon, job.id, first.lease.id);
+
+        const second = await claimOne(target, daemon);
+        assert(
+          second.lease.id !== first.lease.id,
+          "re-claiming the same job reused the lease id, so the two grants are indistinguishable",
+        );
+
+        // Replay the first release. It must not touch the second grant.
+        await releaseLease(target, daemon, job.id, first.lease.id);
+
+        const state = await target.job(job.id);
+        assert(
+          state?.state === "claimed" || state?.state === "running",
+          `a replayed release returned the job to "${String(state?.state)}" while it was held`,
+        );
+
+        // And the current grant can still be released, so this is not a
+        // no-op dressed as a fix.
+        await releaseLease(target, daemon, job.id, second.lease.id);
+        assert(
+          (await target.job(job.id))?.state === "queued",
+          "releasing the current lease did not return the job to the queue",
         );
       } finally {
         await daemon.dispose();

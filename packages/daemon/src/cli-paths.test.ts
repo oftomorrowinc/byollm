@@ -122,7 +122,7 @@ describe("small edges elsewhere", () => {
       },
       audience: "self",
       owner: "me",
-      lease: { runnerId: "r", expiresAt: Date.now() + 1_000 },
+      lease: { id: "lease_test", runnerId: "r", expiresAt: Date.now() + 1_000 },
     });
     expect(composed).toContain("System: be brief");
     expect(composed).toContain("User: hi");

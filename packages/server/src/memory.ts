@@ -3,7 +3,7 @@ import {
   matchAudience,
   type Capability,
 } from "@byollm/protocol";
-import { generateJobId } from "./ids.js";
+import { generateLeaseId, generateJobId } from "./ids.js";
 import type {
   EnqueueInput,
   JobRecord,
@@ -116,6 +116,9 @@ export class MemoryStore implements ByollmStore {
         ...job,
         state: "claimed",
         lease: {
+          // A fresh id per grant. Two claims of the same job by the same
+          // runner are two different leases, and must be distinguishable.
+          id: generateLeaseId(),
           runnerId: args.runnerId,
           expiresAt: args.now + args.leaseMs,
         },
@@ -178,11 +181,15 @@ export class MemoryStore implements ByollmStore {
     const renewed: { jobId: string; expiresAt: number }[] = [];
     const lost: string[] = [];
 
-    for (const jobId of args.jobIds) {
+    for (const { jobId, leaseId } of args.leases) {
       const job = this.#jobs.get(jobId);
-      if (!job || job.lease?.runnerId !== args.runnerId) {
-        // Either reclaimed by someone else or terminal — either way this
-        // runner must stop working on it.
+      if (
+        !job ||
+        job.lease?.runnerId !== args.runnerId ||
+        job.lease.id !== leaseId
+      ) {
+        // Reclaimed by someone else, terminal, or a different grant than the
+        // one being renewed — either way this runner must stop.
         lost.push(jobId);
         continue;
       }
@@ -194,7 +201,8 @@ export class MemoryStore implements ByollmStore {
       this.#jobs.set(jobId, {
         ...job,
         state: "running",
-        lease: { runnerId: args.runnerId, expiresAt },
+        // Renewal extends the existing grant; it does not mint a new one.
+        lease: { ...job.lease, expiresAt },
         updatedAt: args.now,
       });
       renewed.push({ jobId, expiresAt });
@@ -270,9 +278,18 @@ export class MemoryStore implements ByollmStore {
 
   release(args: ReleaseArgs): Promise<string[]> {
     const released: string[] = [];
-    for (const jobId of args.jobIds) {
+    for (const { jobId, leaseId } of args.leases) {
       const job = this.#jobs.get(jobId);
-      if (!job || job.lease?.runnerId !== args.runnerId) continue;
+      // The *grant*, not just its holder. Matching on runner id alone let a
+      // replayed release from an earlier lease drop a later one, returning a
+      // job to the queue while the daemon was still executing it.
+      if (
+        !job ||
+        job.lease?.runnerId !== args.runnerId ||
+        job.lease.id !== leaseId
+      ) {
+        continue;
+      }
 
       this.#jobs.set(jobId, {
         ...job,

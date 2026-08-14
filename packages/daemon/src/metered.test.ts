@@ -126,7 +126,11 @@ const job = (overrides: Partial<ClaimedJob> = {}): ClaimedJob => ({
   payload: { prompt: "hello" },
   audience: "public",
   owner: "stranger",
-  lease: { runnerId: "runner_1", expiresAt: Date.now() + 60_000 },
+  lease: {
+    id: "lease_test",
+    runnerId: "runner_1",
+    expiresAt: Date.now() + 60_000,
+  },
   ...overrides,
 });
 

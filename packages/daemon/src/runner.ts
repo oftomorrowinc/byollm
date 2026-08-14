@@ -80,7 +80,18 @@ const DEFAULT_HEARTBEAT_MS = 10_000;
 export class Runner {
   readonly #options: RunnerOptions;
   readonly #backends = new Map<string, Backend>();
-  readonly #active = new Map<string, AbortController>();
+  /**
+   * Jobs in flight, by job id → the grant and how to stop it.
+   *
+   * The lease id is kept because every lease-scoped call has to name the
+   * grant it means: a release that names only the job releases whatever
+   * lease exists when it arrives, which for a replayed request is not the
+   * one this daemon meant (byollm_009 §4.2, `Lease.id`).
+   */
+  readonly #active = new Map<
+    string,
+    { controller: AbortController; leaseId: string }
+  >();
   readonly #now: () => number;
   #capabilities: Capability[] = [];
   #paused = false;
@@ -267,7 +278,7 @@ export class Runner {
     }
 
     const controller = new AbortController();
-    this.#active.set(job.id, controller);
+    this.#active.set(job.id, { controller, leaseId: job.lease.id });
 
     const prompt = composePrompt(job);
     const community = job.owner !== this.#options.owner;
@@ -359,12 +370,12 @@ export class Runner {
 
   /** Abort a job's in-flight backend call ({@link MUSTS.CANCEL_HONORED}). */
   cancelJob(jobId: string): void {
-    this.#active.get(jobId)?.abort();
+    this.#active.get(jobId)?.controller.abort();
   }
 
   /** Abort everything — revocation, or shutdown. */
   cancelAll(): void {
-    for (const controller of this.#active.values()) controller.abort();
+    for (const { controller } of this.#active.values()) controller.abort();
   }
 
   /**
@@ -414,7 +425,10 @@ export class Runner {
       runnerId: this.#options.runnerId,
       daemonVersion: this.#options.daemonVersion,
       capabilities,
-      activeJobIds: [...this.#active.keys()],
+      activeLeases: [...this.#active.entries()].map(([jobId, held]) => ({
+        jobId,
+        leaseId: held.leaseId,
+      })),
       paused: this.#paused,
     });
     this.#options.onEvent?.({
@@ -487,7 +501,7 @@ export class Runner {
       await this.#safely(() =>
         this.#options.client.release({
           runnerId: this.#options.runnerId,
-          jobIds: [job.id],
+          leases: [{ jobId: job.id, leaseId: job.lease.id }],
           reason: "refused",
         }),
       );
@@ -528,13 +542,16 @@ export class Runner {
   /** Release everything on shutdown, so nothing waits for a lease to lapse. */
   async shutdown(reason: "shutdown" | "pause"): Promise<void> {
     this.#stopped = true;
-    const jobIds = [...this.#active.keys()];
+    const leases = [...this.#active.entries()].map(([jobId, held]) => ({
+      jobId,
+      leaseId: held.leaseId,
+    }));
     this.cancelAll();
-    if (jobIds.length === 0) return;
+    if (leases.length === 0) return;
     await this.#safely(() =>
       this.#options.client.release({
         runnerId: this.#options.runnerId,
-        jobIds,
+        leases,
         reason,
       }),
     );

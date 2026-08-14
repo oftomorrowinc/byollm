@@ -147,7 +147,11 @@ describe("ProtocolClient — request shape", () => {
       origin: "https://app.test/",
       identity: TEST_SIGNER,
       fetch: capture,
-    }).release({ runnerId: "r", jobIds: ["j"], reason: "shutdown" });
+    }).release({
+      runnerId: "r",
+      leases: [{ jobId: "j", leaseId: "lease_1" }],
+      reason: "shutdown",
+    });
 
     expect(seen?.url).toBe("https://app.test/byollm/release");
     expect(seen?.method).toBe("POST");

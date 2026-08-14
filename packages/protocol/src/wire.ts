@@ -258,8 +258,15 @@ export const HeartbeatRequest = z
     runnerId: z.string().min(1),
     daemonVersion: z.string().min(1),
     capabilities: CapabilityMatrix,
-    /** Jobs this daemon believes it holds; the server renews their leases. */
-    activeJobIds: z.array(z.string().min(1)),
+    /**
+     * Leases this daemon believes it holds; the server renews exactly these.
+     *
+     * Lease ids rather than job ids, so a replayed heartbeat cannot renew a
+     * grant the runner no longer holds — see {@link Lease.id}.
+     */
+    activeLeases: z.array(
+      z.object({ jobId: z.string().min(1), leaseId: z.string().min(1) }),
+    ),
     /** True while the owner has the daemon paused; the server stops offering work. */
     paused: z.boolean(),
   })
@@ -336,7 +343,16 @@ export const ReleaseRequest = z
   .object({
     protocolVersion: z.literal(PROTOCOL_VERSION),
     runnerId: z.string().min(1),
-    jobIds: z.array(z.string().min(1)),
+    /**
+     * Which leases to release — the grant, not just the job.
+     *
+     * A release naming only a job id releases whatever lease exists at the
+     * moment it arrives, which for a replayed request is not the lease the
+     * daemon meant. See {@link Lease.id}.
+     */
+    leases: z.array(
+      z.object({ jobId: z.string().min(1), leaseId: z.string().min(1) }),
+    ),
     /**
      * Why, so the app's runner list can say something true.
      *

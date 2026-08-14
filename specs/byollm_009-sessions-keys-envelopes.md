@@ -64,13 +64,25 @@ primitive is a change of protocol version.
 
 ## 3. Identity and keys
 
-- **Device key.** Each daemon generates an Ed25519 keypair at first
-  run. The private key never leaves the machine — OS keychain where
-  available, a `0600` file otherwise. This replaces the bearer token as
-  the daemon's identity: a stolen file still needs to be on a machine
-  that can use it, and a compromised upstream cannot mint a device.
-- **Site key.** Each site holds a keypair. Sites sign their upstream
-  requests; a site key compromise is revocable without touching users.
+**Each party holds two keypairs, and the distinction is load-bearing:**
+
+- an **Ed25519 identity key**, used to sign — challenges, and every
+  envelope the party sends;
+- an **X25519 encryption key**, used to receive sealed envelopes.
+
+The encryption key is signed by the identity key at exchange time, and
+**the identity key is what gets pinned.** That separation lets an
+encryption key rotate without re-establishing trust, and it keeps the
+"who sent this" and "who can read this" questions answered by different
+keys — which §6 depends on.
+
+- **Device keys.** Generated at first run. Private halves never leave
+  the machine — OS keychain where available, a `0600` file otherwise.
+  This replaces the bearer token as the daemon's identity: a stolen
+  file still needs to be on a machine that can use it, and a
+  compromised upstream cannot mint a device.
+- **Site keys.** Same pair, same rules. A site key compromise is
+  revocable without touching users.
 - **An upstream holds public keys only.** No escrow, no content
   recovery. Losing every device means re-pairing, which is acceptable
   precisely because no content exists at rest in a relay.
@@ -104,6 +116,10 @@ Runs on every connection, cheap enough to run on every reconnect.
 4. **Session and resume.** Heartbeat cadence is agreed; a short-lived
    resume token lets a dropped connection continue without a full
    handshake. Resume tokens are single-use and bound to the device key.
+   **Resume re-asserts the protocol version.** Skipping it would make
+   resume a way to keep an unsupported daemon connected indefinitely
+   across a version cutover — the one path around a minimum-version
+   policy, opened by an optimisation.
 
 The version tuple from byollm_010 §5 lands here — `--version` and the
 handshake report the same thing, because a support conversation and a
@@ -116,8 +132,11 @@ minimum-version policy need the same facts.
 A user connects a site to their compute by an explicit approval — the
 same shape as today's device-code pairing, extended to carry keys. The
 result is a **consent record** binding {user, site, scopes}, plus an
-exchange: the site receives the user's device public keys, the daemon
-receives the site's public key. **Both sides pin what they received.**
+exchange: each side receives the other's **identity public key and its
+signed encryption public key**, verifies the signature, and **pins the
+identity key**. An encryption key presented later without a valid
+signature from the pinned identity is refused — which is what stops an
+upstream swapping in a key of its own.
 
 `CONSENT_BEFORE_ROUTE`: no consent record, no routing, ever. There is
 no discovery path, no directory lookup, and no "sites you might like"
@@ -151,20 +170,76 @@ moves into the ciphertext.
 
 **Phase 2 — claim, then fetch.** A device claims the stub (audience,
 capability and budget checks daemon-side exactly as today). The
-upstream tells the site which device key claimed. The site then seals
-the payload **to that device's key** — X25519 sealed box, with
-`AAD = {jobId, kind, deadlineAt}` so the routing metadata is
-*authenticated*: a tampered stub fails decryption rather than silently
-routing a job somewhere else. The daemon seals its result back to the
-site's key the same way.
+upstream tells the site which device claimed. The site then sends the
+payload sealed to that device's encryption key.
+
+### Envelopes are signed, then sealed
+
+An earlier draft of this section specified a bare X25519 sealed box.
+That was wrong, and wrong in the direction that matters, so the
+reasoning is kept rather than quietly corrected.
+
+`crypto_box_seal` is **anonymous-sender by construction**: it derives a
+key from an ephemeral pair and discards the secret, so the recipient
+can decrypt but learns nothing about who sent it. Both public keys here
+are, by definition, public — the upstream distributed them. So **any
+holder of a public key can produce an envelope that decrypts cleanly**,
+and a relay holds both. The consequences were concrete:
+
+- **Payload leg.** A relay could substitute its own payload for a
+  claimed job. The daemon would decrypt it successfully and run it —
+  arbitrary prompts injected onto the owner's subscription. That is the
+  same class the fixed-argv discipline exists to prevent, arriving
+  through the front door instead of the argument vector.
+- **Result leg.** Anyone holding the site's public key could forge a
+  result for a known job id. `PROVENANCE_NAMES_DEVICE` would carry a
+  device key id, but **carrying an id is not proving possession** — an
+  id is data, and a forger writes whatever they like.
+
+The earlier draft also attached `AAD` to a sealed box, which
+`crypto_box_seal` does not accept; and even given AAD, a forger who
+writes the ciphertext also writes the AAD. Authentication cannot be
+retrofitted onto an anonymous primitive by adding associated data.
+
+**The construction, corrected.** Every envelope is **signed with the
+sender's Ed25519 identity key, then sealed to the recipient's X25519
+encryption key.** The signature covers a bound context:
+
+```
+signed = Ed25519-Sign(sender_identity_sk,
+                      jobId ‖ sender_key_id ‖ recipient_key_id ‖
+                      deadlineAt ‖ direction ‖ H(plaintext))
+envelope = crypto_box_seal(plaintext ‖ signed, recipient_encryption_pk)
+```
+
+The recipient decrypts, then verifies the signature **against the
+identity key it pinned at consent**. An envelope that does not verify
+is refused, not run.
+
+Three details earn their place:
+
+- **Both key ids are inside the signature**, so an envelope cannot be
+  lifted from one recipient and replayed to another, or re-signed by a
+  third party claiming authorship.
+- **`direction` is inside it**, so a payload envelope can never be
+  replayed as a result envelope.
+- **Sign-then-encrypt, not encrypt-then-sign.** The signature lives
+  *inside* the ciphertext, so a relay never accumulates a
+  non-repudiable record of who sent what to whom. Signing the outside
+  would hand the relay exactly the attestation trail that `RELAY_BLIND`
+  exists to deny it.
+
+Ed25519 signatures also make `PROVENANCE_NAMES_DEVICE` mean something:
+a result is attributable to a device by proof of possession, not by a
+field anyone can populate.
 
 Sealing after the claim rather than before is what makes multi-device
 fall out for free: there is no N-device encryption problem because the
 payload is only ever sealed once, to whoever actually took the work.
 
-**Replay defence.** Job ids are single-use at both endpoints;
-`deadlineAt` in the AAD bounds how long a captured ciphertext is worth
-keeping.
+**Replay defence.** Job ids are single-use at both endpoints, and
+`deadlineAt` inside the signature bounds how long a captured envelope
+is worth keeping.
 
 ---
 
@@ -186,13 +261,20 @@ Three consequences, each of which needs an answer in the frozen spec:
    lease. A site that goes down between claim and seal must not strand
    the job on a daemon that is waiting politely. On expiry the job
    returns to `queued` and may be claimed again.
-2. **Reclaim requires re-sealing.** `LEASE_RECLAIMABLE` says a lapsed
-   lease returns work to the queue with no loss. Under v2 the new
-   claimant has a different key, so the site must seal again — which
-   means **reclaim now requires the site to be reachable**, where today
-   it does not. That is a real reduction in a property we currently
-   advertise, and the spec must either accept it explicitly or define
-   a mechanism (a short-lived re-seal queue) that preserves it.
+2. **Payload delivery requires a reachable site — at every claim, not
+   only at reclaim.** This was first written as a reclaim-specific
+   regression, which framed it wrongly: a first claim needs the site to
+   seal just as much as a second one does. So `LEASE_RECLAIMABLE` is
+   restated rather than footnoted:
+
+   > A lapsed lease returns the **stub** to the queue with no loss.
+   > Payload delivery requires a reachable site at claim time.
+
+   In direct mode the qualifier is vacuous — the site *is* the upstream
+   and the store host, so a site that cannot seal is also a site with
+   no queue to reclaim from. On a relay plane it is real and bounded:
+   §7.1's `awaiting-payload` timeout returns the stub to `queued`, and
+   one site's outage pauses that site's jobs and nobody else's.
 3. **`TTL_EXPIRY` measures unclaimed time.** It now has two kinds of
    waiting to distinguish. A job in `awaiting-payload` is not
    unclaimed, and treating it as such would expire jobs that are
@@ -313,8 +395,8 @@ labelled rather than implied.
 | `EFFECTIVE_OFFER_ONLY` | A daemon MUST declare effective offers only; an upstream MUST NOT receive raw config, allowlists, or unshared capacity. | conformance |
 | `CONSENT_BEFORE_ROUTE` | An upstream MUST NOT route a job to a device without a consent record binding that user, site and scope. | conformance |
 | `REVOCATION_IMMEDIATE` | Revocation MUST take effect at the upstream at once, and MUST reach the daemon by its next heartbeat. | conformance |
-| `SEALED_PAYLOAD_ONLY` | On a routed plane, a payload MUST travel sealed to the claiming device's key. An endpoint MUST NOT send plaintext, and MUST refuse a plaintext payload it receives. | conformance |
-| `STUB_METADATA_EXHAUSTIVE` | An upstream MUST NOT require any job field beyond the enumerated stub. | conformance |
+| `ENVELOPE_SEALED_AND_SIGNED` | Every payload and result MUST be signed by the sender's pinned identity key and sealed to the recipient's encryption key. An endpoint MUST NOT emit plaintext, and MUST refuse any envelope that is unsealed, unsigned, or whose signature does not verify against the pinned identity. | conformance |
+| `STUB_METADATA_EXHAUSTIVE` | A stub MUST carry exactly the enumerated fields. An endpoint MUST NOT emit a stub carrying others, and an upstream MUST reject one that does. | conformance |
 | `PROVENANCE_NAMES_DEVICE` | A result MUST carry the claiming device key id and its relationship to the requester. | conformance |
 | `ROSTER_NOT_DISCLOSED` | A site MUST NOT learn the membership of a group whose compute it uses. | conformance |
 | `FALLBACK_LABELED` | Work served by anything other than the user's own compute MUST be labelled as such wherever it is reported, and MUST NOT be silently substituted. | conformance |
@@ -332,11 +414,14 @@ that never had them passes. Key non-possession is not observable from
 outside.
 
 What *is* testable is decomposed out of it deliberately:
-`SEALED_PAYLOAD_ONLY` says an endpoint never emits plaintext, and that
-is conformance-checkable against any implementation — a client that
-sends a readable payload fails. So the checkable half is checked, and
-`RELAY_BLIND` covers only the residue: what the operator does with what
-it receives.
+`ENVELOPE_SEALED_AND_SIGNED` says an endpoint never emits plaintext and
+refuses anything that does not verify against a pinned identity. That
+is conformance-checkable against any implementation, and checkable in
+the strong direction: the kit can hand a daemon a well-formed envelope
+signed by the *wrong* key and assert it is refused. A relay that
+tampers is caught by the endpoints, by construction, in a way a test
+can observe. So the checkable half is checked, and `RELAY_BLIND`
+covers only the residue: what an operator does with what it receives.
 
 An honest account of what a third party can verify about `RELAY_BLIND`:
 the client code is open, the envelope format is published, and the stub
@@ -360,9 +445,16 @@ prevent.
 observe the stub metadata in §6 — user, site, kind, size class,
 deadline, streaming flag — and observe timing and volume.
 
-**It cannot:** read payloads or results, forge a claim (claims are
-signed by a device key it does not hold), or mint consent (records are
-displayed and revocable at the daemon, which pins independently).
+**It cannot:** read payloads or results; **inject a payload** (an
+envelope must verify against the site's pinned identity key, which a
+relay does not hold); **forge a result** (same, against the claiming
+device's key); forge a claim (claims are signed by a device key it does
+not hold); or mint consent (records are displayed and revocable at the
+daemon, which pins independently).
+
+The first two of those were **not true of the first draft of this
+spec**, which specified anonymous sealed boxes — see §6. They are true
+of the construction above, and they are the reason it changed.
 
 **Traffic analysis is not addressed.** Size class and timing are
 visible by construction, and padding at this layer is not obviously
@@ -403,9 +495,26 @@ without running one.
 Named rather than resolved, because resolving them on paper is how a
 spec freezes the wrong thing.
 
-1. **Reclaim without a reachable site** (§7.2). The one genuine
-   regression this design introduces. Options: accept it and document,
-   or add a re-seal queue. Needs a decision before freeze.
+1. ~~Reclaim without a reachable site.~~ **Resolved 2026-08-13:
+   accepted, and the promise rewritten (§7.2).**
+
+   The old property is not preservable under end-to-end encryption, and
+   that is arithmetic rather than a design shortfall. Letting a new
+   claimant decrypt without the site being reachable requires *someone
+   other than the site* to hold decryption capability: escrow at the
+   relay, which breaks `RELAY_BLIND`, or pre-sealing to every device,
+   which leaks the payload to non-claimants and abandons the
+   sealed-to-the-claimant model that makes multi-device free.
+
+   A re-seal queue does not restore it either — it automates the
+   re-seal once the site returns, but the job still cannot run during
+   the outage. So the real choice was never "accept vs preserve"; it
+   was **accept, versus accept plus machinery that pretends
+   otherwise.** Machinery that implies a guarantee it does not deliver
+   is worse than the honest sentence.
+
+   Revisit only if skeleton telemetry shows claim-during-site-outage is
+   actually frequent.
 2. **Sealed box per job vs a Noise-XX session per site↔device pair.**
    Sealed boxes are simpler and stateless; a session is cheaper at
    volume. Start sealed-box, measure, revisit — but the envelope must
@@ -428,7 +537,11 @@ prove-in-a-real-consumer rule, applied to ourselves.
 
 Done when: direct mode has adopted sessions, keys and envelope v2 in
 full, with no relay involved; every `conformance`-kind MUST above has a
-check, mutation-verified per `packages/conformance/MUTATIONS.md`; the
+check, mutation-verified per `packages/conformance/MUTATIONS.md` —
+including one that hands an endpoint an envelope signed by the wrong
+key and asserts refusal, since the injection path in §6 is the most
+expensive thing this spec fixes and a check that only tests the happy
+path would not have caught it; the
 two `operator`-kind MUSTs are labelled as such in the registry and in
 the certification report; revocation is observed to kill routing within
 one heartbeat; a store adapter that has not implemented the

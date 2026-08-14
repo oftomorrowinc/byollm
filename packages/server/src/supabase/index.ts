@@ -476,6 +476,41 @@ export function supabaseStore(options: SupabaseStoreOptions): ByollmStore {
 
     // -- pairing and runners -------------------------------------------------
 
+    /**
+     * The push seam (byollm_009 §8.3), over Postgres Realtime.
+     *
+     * Native here, which is the point of requiring it of every adapter: the
+     * backend that can push does, the one that cannot polls, and the
+     * interface does not change again when streaming arrives.
+     */
+    subscribe(jobId: string, onChange: () => void): () => void {
+      const channel = db
+        .channel(`byollm_job_${jobId}`)
+        .on(
+          "postgres_changes",
+          {
+            event: "UPDATE",
+            schema: "public",
+            table: "byollm_jobs",
+            filter: `id=eq.${jobId}`,
+          },
+          () => {
+            onChange();
+          },
+        )
+        .subscribe();
+
+      let live = true;
+      return () => {
+        if (!live) return;
+        live = false;
+        // `removeChannel` is async and nothing awaits an unsubscribe, so the
+        // rejection is routed rather than dropped — an unhandled one here
+        // would end the process (see the Realtime delivery channel).
+        void db.removeChannel(channel).catch(() => undefined);
+      };
+    },
+
     async createPairing(record: PairingRecord): Promise<void> {
       const { error } = await db.from("byollm_pairings").insert({
         device_code_hash: record.deviceCodeHash,

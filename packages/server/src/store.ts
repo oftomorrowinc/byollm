@@ -169,6 +169,26 @@ export interface RunnerStore {
 
   /** Live runners for an owner — used by the no-runner signal. */
   listRunners(owner?: string): Promise<RunnerRecord[]>;
+
+  /**
+   * Watch one job for state changes — the push seam (byollm_009 §8.3).
+   *
+   * **Required of every adapter, from day one, even though v1 uses it only
+   * for result readiness.** byollm_006 located streaming's real difficulty at
+   * the server→app leg: polling cannot carry deltas by construction. If the
+   * store contract were request/response only, adding streaming later would
+   * force a *second* adapter-breaking reshape — so the channel exists now and
+   * gets one more use later, rather than the interface changing twice.
+   *
+   * The handler is called after a change lands; it is a signal, not a
+   * payload, so a missed or duplicated call is survivable and the caller
+   * re-reads. That looseness is deliberate: it is the weakest contract every
+   * plausible backend can honour, and a stronger one would exclude adapters
+   * for no gain.
+   *
+   * Returns an unsubscribe function. Calling it twice MUST be safe.
+   */
+  subscribe(jobId: string, onChange: () => void): () => void;
 }
 
 export interface ApproveArgs {

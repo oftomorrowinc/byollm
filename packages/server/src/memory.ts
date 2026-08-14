@@ -90,7 +90,7 @@ export class MemoryStore implements ByollmStore {
       provenance: null,
       updatedAt: now,
     };
-    this.#jobs.set(id, job);
+    this.#write(id, job);
     return Promise.resolve(job);
   }
 
@@ -125,7 +125,7 @@ export class MemoryStore implements ByollmStore {
         attempts: job.attempts + 1,
         updatedAt: args.now,
       };
-      this.#jobs.set(job.id, updated);
+      this.#write(job.id, updated);
       claimed.push(updated);
     }
     return Promise.resolve(claimed);
@@ -198,7 +198,7 @@ export class MemoryStore implements ByollmStore {
         continue;
       }
       const expiresAt = args.now + args.leaseMs;
-      this.#jobs.set(jobId, {
+      this.#write(jobId, {
         ...job,
         state: "running",
         // Renewal extends the existing grant; it does not mint a new one.
@@ -247,7 +247,7 @@ export class MemoryStore implements ByollmStore {
       provenance: args.provenance,
       updatedAt: args.now,
     };
-    this.#jobs.set(job.id, updated);
+    this.#write(job.id, updated);
     this.#cancelRequests.delete(job.id);
 
     if (state === "ok") this.#unblockDependents(job.id, args.now);
@@ -271,7 +271,63 @@ export class MemoryStore implements ByollmStore {
         (depId) => this.#jobs.get(depId)?.state === "ok",
       );
       if (ready) {
-        this.#jobs.set(job.id, { ...job, claimableAt: now, updatedAt: now });
+        this.#write(job.id, { ...job, claimableAt: now, updatedAt: now });
+      }
+    }
+  }
+
+  /**
+   * Watchers, by job id (byollm_009 §8.3).
+   *
+   * A `Set` per job so an unsubscribe removes exactly the handler it
+   * registered — two waiters on the same job are ordinary, and removing by
+   * job id alone would silently cancel someone else's wait.
+   */
+  readonly #watchers = new Map<string, Set<() => void>>();
+
+  subscribe(jobId: string, onChange: () => void): () => void {
+    const existing = this.#watchers.get(jobId) ?? new Set<() => void>();
+    existing.add(onChange);
+    this.#watchers.set(jobId, existing);
+    let live = true;
+    return () => {
+      // Idempotent: the contract says calling twice is safe, and a `finally`
+      // that unsubscribes after an error path already did is the normal way
+      // this gets called twice.
+      if (!live) return;
+      live = false;
+      const set = this.#watchers.get(jobId);
+      set?.delete(onChange);
+      if (set?.size === 0) this.#watchers.delete(jobId);
+    };
+  }
+
+  /**
+   * The single write path for a job.
+   *
+   * Every mutation goes through here so notification cannot be forgotten by
+   * a future one. Nine call sites existed when the push seam was added, and
+   * "remember to notify" is not a property nine call sites keep.
+   */
+  #write(jobId: string, record: JobRecord): void {
+    this.#jobs.set(jobId, record);
+    this.#notify(jobId);
+  }
+
+  /**
+   * Tell anyone watching that a job changed.
+   *
+   * A throwing watcher must not corrupt the store's own bookkeeping, so each
+   * is isolated: this runs inside write paths, and one bad listener taking
+   * out an unrelated write would be a far worse failure than a missed
+   * notification.
+   */
+  #notify(jobId: string): void {
+    for (const watcher of this.#watchers.get(jobId) ?? []) {
+      try {
+        watcher();
+      } catch {
+        // A watcher is a signal handler; the caller re-reads regardless.
       }
     }
   }
@@ -291,7 +347,7 @@ export class MemoryStore implements ByollmStore {
         continue;
       }
 
-      this.#jobs.set(jobId, {
+      this.#write(jobId, {
         ...job,
         state: "queued",
         lease: null,
@@ -343,7 +399,7 @@ export class MemoryStore implements ByollmStore {
           claimableAt: now,
           updatedAt: now,
         };
-        this.#jobs.set(job.id, requeued);
+        this.#write(job.id, requeued);
         changed.push(requeued);
       }
     }
@@ -361,7 +417,7 @@ export class MemoryStore implements ByollmStore {
         lease: null,
         updatedAt: now,
       };
-      this.#jobs.set(job.id, expired);
+      this.#write(job.id, expired);
       changed.push(expired);
     }
     return changed;
@@ -377,7 +433,7 @@ export class MemoryStore implements ByollmStore {
         lease: null,
         updatedAt: now,
       };
-      this.#jobs.set(jobId, canceled);
+      this.#write(jobId, canceled);
       return Promise.resolve(canceled);
     }
     if (job.state === "claimed" || job.state === "running") {

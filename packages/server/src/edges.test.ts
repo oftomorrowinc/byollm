@@ -197,3 +197,131 @@ describe("handlers — malformed input", () => {
     expect(res.status).toBe(401);
   });
 });
+
+describe("the push seam [byollm_009 §8.3]", () => {
+  const now = 1_700_000_000_000;
+  const enqueue = (store: MemoryStore) =>
+    store.create(
+      { kind: "llm.generate", payload: { prompt: "hi" }, owner: "alice" },
+      now,
+    );
+
+  it("notifies a watcher when the job changes", async () => {
+    const store = new MemoryStore();
+    const job = await enqueue(store);
+
+    let calls = 0;
+    store.subscribe(job.id, () => {
+      calls += 1;
+    });
+    await store.cancel(job.id, now);
+
+    expect(calls).toBeGreaterThan(0);
+  });
+
+  it("notifies every watcher, not just the first", async () => {
+    // Two waiters on one job is ordinary — `result()` called twice, or an app
+    // and a dashboard. Keying by job id alone would serve one of them.
+    const store = new MemoryStore();
+    const job = await enqueue(store);
+    let a = 0;
+    let b = 0;
+    store.subscribe(job.id, () => {
+      a += 1;
+    });
+    store.subscribe(job.id, () => {
+      b += 1;
+    });
+
+    await store.cancel(job.id, now);
+    expect(a).toBeGreaterThan(0);
+    expect(b).toBeGreaterThan(0);
+  });
+
+  it("stops notifying after unsubscribe, and only that watcher", async () => {
+    const store = new MemoryStore();
+    const job = await enqueue(store);
+    let stopped = 0;
+    let kept = 0;
+    const off = store.subscribe(job.id, () => {
+      stopped += 1;
+    });
+    store.subscribe(job.id, () => {
+      kept += 1;
+    });
+
+    off();
+    await store.cancel(job.id, now);
+
+    expect(stopped).toBe(0);
+    expect(kept).toBeGreaterThan(0);
+  });
+
+  it("survives unsubscribing twice", async () => {
+    // The contract says so, and a `finally` that runs after an error path
+    // already unsubscribed is the ordinary way it happens.
+    const store = new MemoryStore();
+    const job = await enqueue(store);
+    const off = store.subscribe(job.id, () => undefined);
+    off();
+    expect(() => {
+      off();
+    }).not.toThrow();
+  });
+
+  it("does not let a throwing watcher break the write that notified it", async () => {
+    // A watcher is a signal handler. One bad listener taking out an unrelated
+    // store write would be far worse than a missed notification.
+    const store = new MemoryStore();
+    const job = await enqueue(store);
+    store.subscribe(job.id, () => {
+      throw new Error("bad listener");
+    });
+    let reached = 0;
+    store.subscribe(job.id, () => {
+      reached += 1;
+    });
+
+    await expect(store.cancel(job.id, now)).resolves.toBeTruthy();
+    expect(reached).toBeGreaterThan(0);
+    expect((await store.get(job.id))?.state).toBe("canceled");
+  });
+
+  it("notifies on every write path, not the ones someone remembered", async () => {
+    // Writes funnel through one method precisely so this holds as paths are
+    // added. Claim and complete are different code from cancel.
+    const store = new MemoryStore();
+    const job = await enqueue(store);
+    let calls = 0;
+    store.subscribe(job.id, () => {
+      calls += 1;
+    });
+
+    await store.claim({
+      runnerId: "r",
+      runnerOwner: "alice",
+      capabilities: httpCapabilities(),
+      max: 1,
+      leaseMs: 60_000,
+      now,
+    });
+    const afterClaim = calls;
+    expect(afterClaim).toBeGreaterThan(0);
+
+    await store.complete({
+      jobId: job.id,
+      runnerId: "r",
+      outcome: { outcome: "ok", text: "done" },
+      provenance: {
+        untrusted: false,
+        audience: "self",
+        runnerId: "r",
+        runnerOwner: "alice",
+        backendClass: "http",
+        model: "echo-model",
+      },
+      now,
+    });
+    expect(calls).toBeGreaterThan(afterClaim);
+  });
+});

@@ -1,0 +1,437 @@
+# byollm_009 — Sessions, keys, and sealed envelopes
+
+**Status: draft, 2026-08-13. Not frozen.** The freeze condition is
+deliberate and stated in §14: this design is not adopted until a real
+job has round-tripped through it between a real daemon and a real
+server. Protocol specs that freeze before their first consumer freeze
+the wrong things.
+
+This is the largest breaking change on the roadmap. It is taken while
+the protocol is v0 and says plainly that it will change without a
+deprecation path, and before anything real depends on the current
+envelope — which is the cheapest this will ever be.
+
+---
+
+## 1. What this changes
+
+Today a daemon pairs with **a site** and polls it. Three things about
+that are load-bearing and none of them are stated anywhere:
+
+1. **The daemon has no identity.** A runner token is a bearer secret
+   the server minted. Anyone holding it is the runner.
+2. **Jobs are stored in plaintext** by whoever runs the server, and
+   read in plaintext by anything with database access.
+3. **The connection is versionless.** A daemon and a server discover
+   they disagree by failing.
+
+This spec replaces all three, and introduces one new idea that makes
+the rest reusable: **the thing a daemon connects to is an _upstream_,
+not necessarily the app itself.**
+
+A site running `@byollm/server` is one upstream. A relay that routes
+between many users and many sites is another. **They implement the
+same interface, and this spec is written about the interface.** Nothing
+here requires a relay to exist, and every part of it is worth having
+without one — §10 is explicit about what direct mode gains, and about
+what it does not.
+
+### Terms
+
+| Term | Meaning |
+|---|---|
+| **device** | One daemon install, with one keypair. A user may have several. |
+| **site** | An application using `@byollm/server`. Holds a keypair. |
+| **upstream** | Whatever a daemon connects to: a site directly, or a relay. |
+| **relay** | An upstream that routes between users and sites it does not own. |
+| **endpoint** | A party that holds keys and sees plaintext: a device or a site. Never a relay. |
+
+---
+
+## 2. Cryptography
+
+**Established primitives only, via libsodium:** Ed25519 signatures,
+X25519 key agreement, XChaCha20-Poly1305 AEAD, sealed boxes. No novel
+constructions. The cleverness budget goes to key *management*, which is
+where these systems actually fail.
+
+A concrete consequence: this spec names no algorithm agility mechanism.
+Negotiating primitives is a downgrade surface, and a v0 protocol that
+can break compatibility freely does not need one — a change of
+primitive is a change of protocol version.
+
+---
+
+## 3. Identity and keys
+
+- **Device key.** Each daemon generates an Ed25519 keypair at first
+  run. The private key never leaves the machine — OS keychain where
+  available, a `0600` file otherwise. This replaces the bearer token as
+  the daemon's identity: a stolen file still needs to be on a machine
+  that can use it, and a compromised upstream cannot mint a device.
+- **Site key.** Each site holds a keypair. Sites sign their upstream
+  requests; a site key compromise is revocable without touching users.
+- **An upstream holds public keys only.** No escrow, no content
+  recovery. Losing every device means re-pairing, which is acceptable
+  precisely because no content exists at rest in a relay.
+
+**Fingerprints are displayable on both sides.** `byollm status` shows
+the site keys a daemon has pinned; a site's settings page shows the
+device keys it has pinned. This is what makes key distribution
+trust-on-first-use rather than trust-the-middle: an out-of-band
+comparison is possible for anyone who wants it.
+
+---
+
+## 4. The session
+
+Runs on every connection, cheap enough to run on every reconnect.
+
+1. **Version first.** The daemon sends build version, platform, and
+   protocol semver. The upstream answers with an accepted version or a
+   structured refusal naming a minimum and a human-readable fix.
+   `VERSION_HANDSHAKE_REQUIRED`: no versionless connection is accepted,
+   in either direction.
+2. **Challenge auth.** The upstream issues a nonce; the daemon signs it
+   with its device key. No passwords, no bearer tokens on the daemon
+   plane. Replay is bounded by nonce single-use and a short window.
+3. **Capability declaration — effective offers only.** The daemon
+   declares kind, model, cost class and *effective* offer scope, with
+   consent already applied locally. `EFFECTIVE_OFFER_ONLY`: an upstream
+   never learns raw config, allowlist contents, spend ceilings, or
+   capacity the owner has not agreed to share. It learns what is on
+   offer, not what exists.
+4. **Session and resume.** Heartbeat cadence is agreed; a short-lived
+   resume token lets a dropped connection continue without a full
+   handshake. Resume tokens are single-use and bound to the device key.
+
+The version tuple from byollm_010 §5 lands here — `--version` and the
+handshake report the same thing, because a support conversation and a
+minimum-version policy need the same facts.
+
+---
+
+## 5. Consent and key exchange
+
+A user connects a site to their compute by an explicit approval — the
+same shape as today's device-code pairing, extended to carry keys. The
+result is a **consent record** binding {user, site, scopes}, plus an
+exchange: the site receives the user's device public keys, the daemon
+receives the site's public key. **Both sides pin what they received.**
+
+`CONSENT_BEFORE_ROUTE`: no consent record, no routing, ever. There is
+no discovery path, no directory lookup, and no "sites you might like"
+that bypasses the click.
+
+**Revocation** deletes the routing entry at the upstream *and* is
+pushed to the daemon, which drops the pinned key.
+`REVOCATION_IMMEDIATE`: upstream-side removal takes effect at once and
+the upstream refuses routes meanwhile; the daemon-side key drop lands
+by the next heartbeat. Stating both halves matters — a revocation that
+is only enforced at one end is a revocation that survives a compromise
+of that end.
+
+---
+
+## 6. Envelope v2 — stub and sealed payload
+
+The core change. A job becomes two things instead of one.
+
+**Phase 1 — the stub.** The site enqueues routing metadata only:
+
+```
+{ jobId, user, site, kind, sizeClass, deadlineAt, streaming }
+```
+
+This list is **exhaustive and normative**. It is what an upstream can
+see, stated as a commitment rather than left as an accident of
+implementation. `kind` is visible because capability matching happens
+upstream; if a later revision moves matching to the daemon, `kind`
+moves into the ciphertext.
+
+**Phase 2 — claim, then fetch.** A device claims the stub (audience,
+capability and budget checks daemon-side exactly as today). The
+upstream tells the site which device key claimed. The site then seals
+the payload **to that device's key** — X25519 sealed box, with
+`AAD = {jobId, kind, deadlineAt}` so the routing metadata is
+*authenticated*: a tampered stub fails decryption rather than silently
+routing a job somewhere else. The daemon seals its result back to the
+site's key the same way.
+
+Sealing after the claim rather than before is what makes multi-device
+fall out for free: there is no N-device encryption problem because the
+payload is only ever sealed once, to whoever actually took the work.
+
+**Replay defence.** Job ids are single-use at both endpoints;
+`deadlineAt` in the AAD bounds how long a captured ciphertext is worth
+keeping.
+
+---
+
+## 7. What two-phase claiming does to the state machine
+
+This is the part a design draft can gloss and a protocol spec cannot.
+Claim-then-fetch introduces a window that does not exist today: a job
+that has been claimed but whose payload has not yet been sealed.
+
+```
+queued ──claim──▶ awaiting-payload ──sealed──▶ running ──▶ ok | error
+   ▲                    │
+   └────────────────────┘  site never seals, or seals too late
+```
+
+Three consequences, each of which needs an answer in the frozen spec:
+
+1. **`awaiting-payload` needs its own timeout**, distinct from the
+   lease. A site that goes down between claim and seal must not strand
+   the job on a daemon that is waiting politely. On expiry the job
+   returns to `queued` and may be claimed again.
+2. **Reclaim requires re-sealing.** `LEASE_RECLAIMABLE` says a lapsed
+   lease returns work to the queue with no loss. Under v2 the new
+   claimant has a different key, so the site must seal again — which
+   means **reclaim now requires the site to be reachable**, where today
+   it does not. That is a real reduction in a property we currently
+   advertise, and the spec must either accept it explicitly or define
+   a mechanism (a short-lived re-seal queue) that preserves it.
+3. **`TTL_EXPIRY` measures unclaimed time.** It now has two kinds of
+   waiting to distinguish. A job in `awaiting-payload` is not
+   unclaimed, and treating it as such would expire jobs that are
+   progressing normally.
+
+The `NO_RUNNER_SIGNAL` contract is unaffected in shape but gains a
+reason: a job can now be blocked on a site that will not seal, which is
+neither "no runner" nor "running" and must not report as either.
+
+---
+
+## 8. Streaming, reserved but not built
+
+byollm_006 stays parked. What this spec must do is make sure streaming
+arrives later as an *addition* rather than a second breaking change.
+Three reservations, all in the frozen schema from day one:
+
+1. **A streaming marker in the stub.** Streamed jobs have no size up
+   front, so `sizeClass` needs an unbounded value and the stub needs a
+   `streaming` flag. Adding a field to a published envelope later is
+   the v2 break all over again.
+2. **A streamed job still ends in a terminal sealed result.** Deltas
+   are ephemeral; the final envelope — full text or digest, token
+   counts, provenance — is sealed and stored exactly like a
+   non-streamed result. Without this, streaming quietly exits the
+   result model and takes `RESULT_IDEMPOTENT`, `RESULT_PROVENANCE` and
+   every ledger with it.
+3. **The store contract carries a push-capable delivery seam.**
+   byollm_006 located streaming's real difficulty at the server→app
+   leg: polling cannot carry deltas by construction. If v2 reshapes the
+   store as request/response only, streaming forces a *second*
+   adapter-breaking reshape. So v2 defines a subscription channel —
+   Supabase Realtime implements it natively, the memory reference over
+   SSE — even though v1 uses it only for availability and result
+   readiness. One reshape, not two.
+
+When streaming does land, the per-job symmetric key is derived at claim
+time by X25519 agreement over the already-pinned keys, and deltas are
+XChaCha20-Poly1305 frames with a frame counter in the AAD. A relay
+forwards opaque frames and sees sizes and timing. Ordering and loss
+handling live at the endpoints.
+
+---
+
+## 9. Multi-device, and provenance that names the machine
+
+An account is a set of device keys. Claim-then-fetch makes this
+natural: whoever claims is who the payload is sealed to.
+
+`RESULT_PROVENANCE` extends to name **the claiming device and its
+relationship to the requester** — `own`, `shared`, or `pool`. A result
+that ran on someone else's machine is already marked untrusted; this
+says *whose*, which is what a ledger, a trust decision and a debugging
+session all actually need.
+
+Two requirements that are trivial now and painful to retrofit:
+
+- **Zero-device accounts must be representable.** A user who never
+  installs a daemon still has an identity, for consent and routing.
+- **Rosters are not disclosed to sites.** A capability declaration says
+  at most "shared, N seats". Who else is in a group is the owner's
+  data, and a site learns whether *this* consenting user has reachable
+  compute, never who else does. `ROSTER_NOT_DISCLOSED`.
+
+And one that is a disclosure obligation rather than a mechanism:
+when a job runs on someone else's machine, **that machine's owner can
+see the prompt** — `byollm log` shows every prompt that has run, by
+design, and that is not going to change. A consent flow that widens a
+user's work onto shared compute must say so in plain language before
+the first such job. Disclosed, it is a property. Undisclosed, it is a
+betrayal. `SHARED_COMPUTE_DISCLOSED`.
+
+---
+
+## 10. Direct mode: what it gains, and what it does not
+
+Every part of this is adopted by direct mode first, with no relay
+anywhere. That is the covenant working, and it is also how the design
+gets proven.
+
+**What direct mode gains:**
+
+- **Signed-challenge auth** replacing a bearer token. Strictly better,
+  no third party involved.
+- **Jobs encrypted at rest, for free.** The site's own store — Supabase,
+  Postgres, memory — holds ciphertext. The app sees plaintext at
+  enqueue and at result because the app is the endpoint; everything in
+  between is sealed. A database backup, a log aggregator, a support
+  engineer with read access: none of them see prompts.
+- **A version handshake**, so a daemon and a server that disagree say
+  so instead of failing obscurely.
+- **Key pinning with visible fingerprints**, so a site whose DNS is
+  hijacked cannot silently become a different site.
+
+**What direct mode does not gain, stated plainly:** the app can read
+its own jobs. It holds the site key; it is the endpoint. Encryption
+here protects the payload from *storage and intermediaries*, not from
+the application the user deliberately sent it to. Anyone reading "E2E"
+as "my app operator cannot see my prompts" has misread it, and this
+spec would rather say so than let the acronym do work it cannot.
+
+The distinction only becomes a separation of powers when the upstream
+and the endpoint are different parties — which is exactly the case a
+relay introduces, and exactly why `RELAY_BLIND` is stated separately in
+§11 and verified differently.
+
+---
+
+## 11. New MUSTs
+
+Each carries a verification kind (byollm_011). The distribution is the
+point: what conformance can check, it checks; what it cannot, is
+labelled rather than implied.
+
+| MUST | Statement | Verified by |
+|---|---|---|
+| `VERSION_HANDSHAKE_REQUIRED` | No connection is established without an explicit protocol version exchange; a mismatch MUST produce a structured refusal naming the minimum. | conformance |
+| `EFFECTIVE_OFFER_ONLY` | A daemon MUST declare effective offers only; an upstream MUST NOT receive raw config, allowlists, or unshared capacity. | conformance |
+| `CONSENT_BEFORE_ROUTE` | An upstream MUST NOT route a job to a device without a consent record binding that user, site and scope. | conformance |
+| `REVOCATION_IMMEDIATE` | Revocation MUST take effect at the upstream at once, and MUST reach the daemon by its next heartbeat. | conformance |
+| `SEALED_PAYLOAD_ONLY` | On a routed plane, a payload MUST travel sealed to the claiming device's key. An endpoint MUST NOT send plaintext, and MUST refuse a plaintext payload it receives. | conformance |
+| `STUB_METADATA_EXHAUSTIVE` | An upstream MUST NOT require any job field beyond the enumerated stub. | conformance |
+| `PROVENANCE_NAMES_DEVICE` | A result MUST carry the claiming device key id and its relationship to the requester. | conformance |
+| `ROSTER_NOT_DISCLOSED` | A site MUST NOT learn the membership of a group whose compute it uses. | conformance |
+| `FALLBACK_LABELED` | Work served by anything other than the user's own compute MUST be labelled as such wherever it is reported, and MUST NOT be silently substituted. | conformance |
+| `RELAY_BLIND` | A relay MUST NOT hold any key capable of decrypting a payload, a result, or a delta frame. | **operator** |
+| `SHARED_COMPUTE_DISCLOSED` | Before a user's work first runs on compute they do not own, they MUST be told in plain language that the machine's owner can see it. | **operator** |
+
+### On the two operator-kind MUSTs
+
+This is the case byollm_011 built the taxonomy for, and it is worth
+being exact rather than reassuring.
+
+`RELAY_BLIND` is **not testable over the wire.** A relay that holds
+decryption keys and declines to use them passes every check a relay
+that never had them passes. Key non-possession is not observable from
+outside.
+
+What *is* testable is decomposed out of it deliberately:
+`SEALED_PAYLOAD_ONLY` says an endpoint never emits plaintext, and that
+is conformance-checkable against any implementation — a client that
+sends a readable payload fails. So the checkable half is checked, and
+`RELAY_BLIND` covers only the residue: what the operator does with what
+it receives.
+
+An honest account of what a third party can verify about `RELAY_BLIND`:
+the client code is open, the envelope format is published, and the stub
+metadata is enumerated — so anyone can confirm that a *correct client*
+sends nothing readable. Whether a given relay operator also holds keys
+out of band is a question about that operator, answerable by audit or
+by source, and by nothing this project ships. It is stated as a MUST
+because it is a real obligation. It is labelled `operator` so that
+"passes conformance" never silently includes it.
+
+`SHARED_COMPUTE_DISCLOSED` is the same shape for a different reason: a
+consent screen's wording is not wire-observable, and a boolean saying
+"we disclosed" would be exactly the box-ticking the MUST exists to
+prevent.
+
+---
+
+## 12. Threat model
+
+**A hostile or compelled upstream can:** drop jobs, refuse routes,
+observe the stub metadata in §6 — user, site, kind, size class,
+deadline, streaming flag — and observe timing and volume.
+
+**It cannot:** read payloads or results, forge a claim (claims are
+signed by a device key it does not hold), or mint consent (records are
+displayed and revocable at the daemon, which pins independently).
+
+**Traffic analysis is not addressed.** Size class and timing are
+visible by construction, and padding at this layer is not obviously
+worth its cost. Anyone whose threat model includes an upstream
+correlating their activity should run direct mode, where there is no
+third party to correlate it.
+
+**A compromised device** exposes that device's pinned site keys and any
+job sealed to it. It does not expose other devices: keys are per-device
+and payloads are sealed to one.
+
+---
+
+## 13. What this breaks
+
+Everything about the job envelope, and the store interface with it.
+Taken once, deliberately, while v0 permits it.
+
+- **`workspace`-level:** the store contract reshapes to stub/payload
+  separation, plus the subscription seam from §8.3. Both shipped
+  adapters change; a third-party adapter must too.
+- **Wire:** the claim response carries a stub, not a payload. A fetch
+  step is new. Result submission is sealed.
+- **Pairing:** device-code pairing gains a key exchange. Existing
+  runner tokens do not carry a device key and cannot be upgraded in
+  place — **every paired runner must re-pair.**
+- **`@byollm/server` API:** `enqueue` is unchanged in shape, which is
+  the point. Apps see the same call.
+
+The conformance kit gains the checks above and the hub simulator as a
+fixture, so a third-party server can be certified against the new plane
+without running one.
+
+---
+
+## 14. Open questions
+
+Named rather than resolved, because resolving them on paper is how a
+spec freezes the wrong thing.
+
+1. **Reclaim without a reachable site** (§7.2). The one genuine
+   regression this design introduces. Options: accept it and document,
+   or add a re-seal queue. Needs a decision before freeze.
+2. **Sealed box per job vs a Noise-XX session per site↔device pair.**
+   Sealed boxes are simpler and stateless; a session is cheaper at
+   volume. Start sealed-box, measure, revisit — but the envelope must
+   not make the second impossible.
+3. **Metadata minimisation.** Size-class buckets vs exact sizes;
+   whether timing padding buys anything real.
+4. **Post-quantum.** Hybrid X25519+ML-KEM sealed boxes when
+   libsodium's story settles. Designed as a swap, not a redesign.
+5. **Per-frame deadline semantics** for streaming, owned jointly with
+   byollm_006.
+
+---
+
+## 15. Freeze condition, and Done when
+
+**This spec does not freeze on review.** It freezes when a job has
+round-tripped end to end through a real implementation of it: real
+daemon, real `@byollm/server`, sealed envelope, signed claim. The
+prove-in-a-real-consumer rule, applied to ourselves.
+
+Done when: direct mode has adopted sessions, keys and envelope v2 in
+full, with no relay involved; every `conformance`-kind MUST above has a
+check, mutation-verified per `packages/conformance/MUTATIONS.md`; the
+two `operator`-kind MUSTs are labelled as such in the registry and in
+the certification report; revocation is observed to kill routing within
+one heartbeat; a store adapter that has not implemented the
+subscription seam fails the kit rather than passing quietly; and
+`docs/security.md` carries §12's threat model including what an
+upstream can see, stated as a list rather than a reassurance.

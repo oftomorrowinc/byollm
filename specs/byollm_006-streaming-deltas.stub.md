@@ -51,6 +51,19 @@ delivery channel cannot carry deltas by construction, so each store
 adapter needs a real push path (Supabase Realtime can; the in-memory
 reference would need SSE). That, not the daemon, is where the work is.
 
+## Unblocked, and reserved (2026-08-13)
+
+byollm_009 §8 reserves the three things streaming needs so it can land
+later as an addition rather than a second breaking change: a streaming
+marker and unbounded size class in the frozen stub schema, a terminal
+sealed result for streamed jobs so they stay inside the result model,
+and a push-capable delivery seam in the v2 store contract so the
+adapters reshape once rather than twice.
+
+The design this stub was waiting for is therefore settled; what
+remains is a consumer. Per-frame deadline semantics stay open and are
+owned jointly with 009.
+
 ## Why this is recorded here
 
 Same relationship the framework has with its consumers: the payload

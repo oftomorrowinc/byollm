@@ -49,9 +49,26 @@ excuses — the security posture depends on naming these out loud.
    `named`, Claude review on a colleague's as `self`, chained via
    `dependsOn`). MLX *training* (`train.*`, process-class
    `mlx_lm.lora`) is a later kind.
-3. `byollm_005` — site build-out + generated docs.
-4. Future: OS sandbox for process-class; streaming lane (v2);
-   `train.*` job kinds.
+3. `byollm_005` — site build-out + generated docs. **Done.**
+4. **`byollm_009` — sessions, keys, sealed envelopes.** Drafted
+   2026-08-13, deliberately not frozen: it freezes when a job has
+   round-tripped through a real implementation, not on review. The
+   largest breaking change on the roadmap, taken while v0 permits it
+   and before anything real depends on the current envelope. Direct
+   mode adopts all of it with no relay involved — that adoption *is*
+   the proof.
+5. Future: OS sandbox for process-class; `train.*` job kinds.
+   Streaming (`byollm_006`) is unblocked by 009 §8 and waiting on a
+   consumer, not on a design.
+
+### Ordering, and why
+
+`byollm_011` (verification kinds) landed before 009 was drafted on
+purpose: 009 introduces the first `operator`-kind MUST, and
+retrofitting a taxonomy around a live MUST is how labels get fudged.
+`byollm_010` (platform matrix) landed before the breaking work for a
+duller reason — three-platform green is the floor you want *before* a
+large break, not a thing you discover after.
 
 ## Finding from the first integration (2026-08-08)
 

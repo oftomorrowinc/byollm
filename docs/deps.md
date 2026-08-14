@@ -29,6 +29,47 @@ That is the whole list.
 - **No test-only HTTP server.** `node:http` for the adversarial suite's probe
   server; the conformance kit drives handlers in-process.
 
+### Decided, not yet added: `effect`
+
+**Scope decided 2026-08-13, adopted with byollm_009. Not a dependency
+today.** Recorded here so the scope is a decision rather than something
+settled implicitly by whoever writes the first file that needs it.
+
+The prompt was a crash class, not a preference. The Supabase delivery
+channel discarded three promises with `void`; each turned an ordinary
+failure — a transient store read, an app's own fallback throwing — into a
+dead process, because an unhandled rejection ends Node. It survived review
+because `no-floating-promises` was configured to permit exactly that
+spelling. We fixed the instances and tightened the rule, and the rule is
+still a lint: a thing that can be configured off, and was.
+
+Effect makes the class **unrepresentable rather than lintable**. The error
+is in the type — `Effect<A, E>` does not compile if `E` is ignored — and
+fibers cannot be silently dropped the way promises can. Retry, timeout,
+backoff and heartbeat are first-class instead of hand-rolled, which is most
+of what a session layer is.
+
+**Where it goes:**
+
+- **Yes — the session layer** (connect, handshake, heartbeat, resume). This
+  is retry-and-timeout logic, which is the thing Effect is for.
+- **Yes — delivery adapters.** "An adapter must not change what a failure
+  means" is currently a code-review principle. Here it becomes a
+  compiler-checked property.
+- **Later, on evidence — the daemon job loop.** Working, hardened code.
+  Migrate when it is opened for 009, not before, and not for tidiness.
+- **No — public package APIs.** These stay Promise-based, with
+  `Effect.runPromise` at the boundary. **Nobody should have to learn Effect
+  to enqueue a job.** Adoption is an internal discipline; making it an
+  ecosystem tax on consumers of `@byollm/server` would be a straight
+  betrayal of the dependency-minimalism rule at the top of this file.
+
+The honest cost: it is a large dependency with a real learning curve, in a
+repo whose stated bar is minimalism, and the boundary above is the only
+thing keeping those two facts compatible. If that boundary erodes — if an
+`Effect` type ever appears in a published signature — the trade has
+stopped being the one we agreed to.
+
 ### Peer, optional
 
 | Package                 | Used by                  | Why                                                                                                                    |

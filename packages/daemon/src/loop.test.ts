@@ -109,6 +109,27 @@ async function makeRunner(fetchImpl: typeof fetch, owner = "me") {
 }
 
 /** Answers each endpoint from a script. */
+/**
+ * Wait for a condition rather than a duration.
+ *
+ * A fixed sleep encodes an assumption about how many round trips the protocol
+ * takes. Claim-then-fetch added one, and the sleeps that had been comfortable
+ * became marginal on a loaded runner — which is how a platform matrix earns
+ * its keep, and also how it stops being trusted if left flaky.
+ */
+async function settles(
+  predicate: () => boolean,
+  what: string,
+  timeoutMs = 2_000,
+): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (predicate()) return;
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+  throw new Error(`timed out waiting for ${what}`);
+}
+
 function routed(responses: {
   heartbeat?: unknown;
   claim?: unknown;
@@ -223,7 +244,7 @@ describe("the loop", () => {
       }),
     );
     await runner.tick();
-    await new Promise((resolve) => setTimeout(resolve, 50));
+    await settles(() => backend.seen.length > 0, "the backend to be called");
     expect(backend.seen).toEqual(["hi"]);
     expect(events.some((e) => e.type === "finished")).toBe(true);
   });
@@ -253,10 +274,12 @@ describe("the loop", () => {
       }),
     );
     await runner.tick();
-    await new Promise((resolve) => setTimeout(resolve, 50));
+    await settles(
+      () => events.some((e) => e.type === "refused"),
+      "the job to be refused",
+    );
 
     expect(backend.seen).toEqual([]);
-    expect(events.some((e) => e.type === "refused")).toBe(true);
     expect(runner.status().refused).toBe(1);
   });
 
@@ -266,7 +289,10 @@ describe("the loop", () => {
     );
     const controller = new AbortController();
     const running = runner.run(controller.signal);
-    await new Promise((resolve) => setTimeout(resolve, 40));
+    await settles(
+      () => runner.status().lastError !== undefined,
+      "the unreachable server to be reported",
+    );
     controller.abort();
     await running;
 

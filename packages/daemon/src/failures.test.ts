@@ -126,6 +126,27 @@ async function makeRunner(fetchImpl: typeof fetch, backend: Backend) {
 
 const claimOne = (jobs: unknown[]) => JSON.stringify({ jobs, leaseMs: 60_000 });
 
+/**
+ * Wait for a condition rather than for a duration.
+ *
+ * These used fixed 30ms sleeps, which were adequate when a claim delivered
+ * the payload and became marginal when claim-then-fetch added a round trip —
+ * failing on a loaded macOS runner and nowhere else. A fixed sleep encodes an
+ * assumption about how many hops the protocol has; this does not.
+ */
+async function settles(
+  predicate: () => boolean,
+  what: string,
+  timeoutMs = 2_000,
+): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (predicate()) return;
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+  throw new Error(`timed out waiting for ${what}`);
+}
+
 const oneJob = [
   {
     id: "job_1",
@@ -225,8 +246,7 @@ describe("reporting failures never lose the job", () => {
     }, backend);
 
     await runner.tick();
-    await new Promise((resolve) => setTimeout(resolve, 30));
-    expect(runner.status().activeJobs).toBe(1);
+    await settles(() => runner.status().activeJobs === 1, "the job to start");
 
     await runner.shutdown("shutdown");
     // Released explicitly, so the app sees the work return to the queue at
@@ -266,7 +286,7 @@ describe("reporting failures never lose the job", () => {
     }, backend);
 
     await runner.tick();
-    await new Promise((resolve) => setTimeout(resolve, 30));
+    await settles(() => runner.status().activeJobs === 1, "the job to start");
     await expect(runner.shutdown("shutdown")).resolves.toBeUndefined();
     expect(runner.status().lastError).toContain("could not reach");
   });
@@ -322,14 +342,15 @@ describe("reporting failures never lose the job", () => {
     }, backend);
 
     await runner.tick();
-    await new Promise((resolve) => setTimeout(resolve, 30));
-    expect(runner.status().activeJobs).toBe(1);
+    await settles(() => runner.status().activeJobs === 1, "the job to start");
 
     await runner.tick();
-    await new Promise((resolve) => setTimeout(resolve, 30));
     // The daemon stopped work on it rather than finishing something it no
     // longer holds.
-    expect(runner.status().activeJobs).toBe(0);
+    await settles(
+      () => runner.status().activeJobs === 0,
+      "the lost job to be abandoned",
+    );
   });
 });
 

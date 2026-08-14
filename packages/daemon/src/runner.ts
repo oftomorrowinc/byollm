@@ -1,7 +1,8 @@
 import {
+  sizeClassCeiling,
+  type ClaimedStub,
   REFUSAL_MESSAGES,
   matchAudience,
-  payloadTextLength,
   type Capability,
   type ClaimedJob,
   type JobOutcome,
@@ -213,7 +214,7 @@ export class Runner {
    * the owner's community budgets. A job that fails here is released with
    * reason `refused`, which the server remembers so it is never offered back.
    */
-  admit(job: ClaimedJob): { ok: true } | { ok: false; reason: string } {
+  admit(job: ClaimedStub): { ok: true } | { ok: false; reason: string } {
     const route = this.#routeFor(job.kind);
     if (!route) {
       // An unknown or unrouted kind is refused, never guessed
@@ -246,12 +247,13 @@ export class Runner {
     }
 
     if (job.owner !== this.#options.owner) {
+      // From the stub's bucket, because admission happens before the payload
+      // is fetched. The ceiling is charged rather than a midpoint: refusing
+      // slightly too eagerly is the safe direction for someone else's work on
+      // the owner's machine.
       const decision = this.#options.budgets.check(
         this.#now(),
-        payloadTextLength({
-          kind: job.kind,
-          payload: job.payload,
-        } as Parameters<typeof payloadTextLength>[0]),
+        sizeClassCeiling(job.sizeClass),
       );
       if (!decision.ok) return { ok: false, reason: decision.detail };
     }
@@ -477,7 +479,7 @@ export class Runner {
     }
   }
 
-  async #handle(job: ClaimedJob): Promise<void> {
+  async #handle(job: ClaimedStub): Promise<void> {
     this.#options.onEvent?.({
       type: "claimed",
       jobId: job.id,
@@ -508,8 +510,18 @@ export class Runner {
       return;
     }
 
+    // Only now, after this daemon has decided it will run the work, does the
+    // payload arrive (byollm_009 §6). A daemon that declines on its own
+    // allowlist never receives the prompt at all — which was not true when
+    // the payload rode along with the claim.
+    const fetched = await this.#options.client.fetch({
+      runnerId: this.#options.runnerId,
+      jobId: job.id,
+      leaseId: job.lease.id,
+    });
+
     const route = this.#routeFor(job.kind);
-    const outcome = await this.runJob(job);
+    const outcome = await this.runJob({ ...job, payload: fetched.payload });
 
     await this.#safely(() =>
       this.#options.client.result({

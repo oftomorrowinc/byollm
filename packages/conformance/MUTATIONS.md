@@ -26,18 +26,19 @@ overlap more than intended.
 
 ## Verified 2026-08-13
 
-| Check                         | File                                | Mutation                                                                                                                                                      | Result               |
-| ----------------------------- | ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------- |
-| `C019_CLAIM_ATOMIC`           | `packages/server/src/memory.ts`     | Make `claim` async and `await Promise.resolve()` between the claimable decision and `#jobs.set` — the exact race a store without `FOR UPDATE SKIP LOCKED` has | ✓ bites              |
-| `C020_PAIR_CODE_EXPIRES`      | `memory.ts` + `handlers.ts`         | Replace both `pairing.expiresAt <= now` guards with `false`                                                                                                   | ✓ bites              |
-| `C021_CAPABILITY_IS_DETECTED` | `packages/daemon/src/runner.ts`     | Replace `if (!health.healthy) continue;` with `if (false) continue;` in `detectCapabilities`                                                                  | ✓ bites              |
-| `C022_KIND_NO_CODE`           | `packages/server/src/app.ts`        | Disable the `KindedPayload` guard in `enqueue` and store `input` unvalidated                                                                                  | ✓ bites              |
-| `C026_LEASE_SCOPED_RELEASE`   | `packages/server/src/memory.ts`     | Drop `job.lease.id !== leaseId` from the release guard, leaving the runner-id match                                                                           | ✓ bites              |
-| `C025_SIGNED_REQUESTS`        | `packages/server/src/handlers.ts`   | Two, both verified: skip the `verifyRequest` result check; and verify against `""` rather than `auth.rawBody`                                                 | ✓ bites (both)       |
-| `C024_KEY_EXCHANGE`           | `packages/server/src/handlers.ts`   | Two, both verified: disable the `verifyPublicIdentity(request.device)` guard; and omit `site` from the approval response                                      | ✓ bites (both)       |
-| `C023_VERSION_HANDSHAKE`      | `packages/server/src/http.ts`       | Disable the `checkProtocolVersion` guard in the fetch handler                                                                                                 | ✓ bites              |
-| `C017_METERED_DEFAULTS_SELF`  | `packages/protocol/src/audience.ts` | Delete the `cost === "metered" && spend?.acknowledged !== true` narrowing in `effectiveOfferScope`                                                            | ✓ bites (2026-08-13) |
-| `C018_METERED_CEILING`        | `packages/protocol/src/audience.ts` | Replace `daemon.spend.ceilingReached === true` with `false`                                                                                                   | ✓ bites (2026-08-13) |
+| Check                           | File                                | Mutation                                                                                                                                                      | Result               |
+| ------------------------------- | ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------- |
+| `C019_CLAIM_ATOMIC`             | `packages/server/src/memory.ts`     | Make `claim` async and `await Promise.resolve()` between the claimable decision and `#jobs.set` — the exact race a store without `FOR UPDATE SKIP LOCKED` has | ✓ bites              |
+| `C020_PAIR_CODE_EXPIRES`        | `memory.ts` + `handlers.ts`         | Replace both `pairing.expiresAt <= now` guards with `false`                                                                                                   | ✓ bites              |
+| `C021_CAPABILITY_IS_DETECTED`   | `packages/daemon/src/runner.ts`     | Replace `if (!health.healthy) continue;` with `if (false) continue;` in `detectCapabilities`                                                                  | ✓ bites              |
+| `C022_KIND_NO_CODE`             | `packages/server/src/app.ts`        | Disable the `KindedPayload` guard in `enqueue` and store `input` unvalidated                                                                                  | ✓ bites              |
+| `C027_CLAIM_ANSWERS_WITH_STUBS` | `packages/server/src/handlers.ts`   | Two, both verified: add `payload` back to the claim mapping; and drop the `lease.id` check from `#fetch`                                                      | ✓ bites (both)       |
+| `C026_LEASE_SCOPED_RELEASE`     | `packages/server/src/memory.ts`     | Drop `job.lease.id !== leaseId` from the release guard, leaving the runner-id match                                                                           | ✓ bites              |
+| `C025_SIGNED_REQUESTS`          | `packages/server/src/handlers.ts`   | Two, both verified: skip the `verifyRequest` result check; and verify against `""` rather than `auth.rawBody`                                                 | ✓ bites (both)       |
+| `C024_KEY_EXCHANGE`             | `packages/server/src/handlers.ts`   | Two, both verified: disable the `verifyPublicIdentity(request.device)` guard; and omit `site` from the approval response                                      | ✓ bites (both)       |
+| `C023_VERSION_HANDSHAKE`        | `packages/server/src/http.ts`       | Disable the `checkProtocolVersion` guard in the fetch handler                                                                                                 | ✓ bites              |
+| `C017_METERED_DEFAULTS_SELF`    | `packages/protocol/src/audience.ts` | Delete the `cost === "metered" && spend?.acknowledged !== true` narrowing in `effectiveOfferScope`                                                            | ✓ bites (2026-08-13) |
+| `C018_METERED_CEILING`          | `packages/protocol/src/audience.ts` | Replace `daemon.spend.ceilingReached === true` with `false`                                                                                                   | ✓ bites (2026-08-13) |
 
 ## Not yet verified
 
@@ -56,3 +57,16 @@ looks certified is not.
 Add its row here, verified, in the same change. A check arriving without a
 mutation is a check nobody has confirmed does anything — and the moment
 there are two of those, this file stops meaning what it says.
+
+## Observed flake, not yet explained (2026-08-14)
+
+`C004_LEASE_RECLAIM` failed once against the Supabase adapter at **74ms**,
+immediately after `supabase start`, then passed three consecutive times warm
+at ~2640ms. The fast failure suggests it gave up before the waiting it is
+supposed to do.
+
+Not diagnosed, and deliberately not "fixed" — adding a warm-up without
+establishing the cause is cargo-culting. Recorded because CI runs
+`supabase start` and certifies immediately, so if this is a cold-start race
+CI can hit it too, and the next person seeing a lone C004 failure should know
+it has been seen before rather than assume they broke leases.

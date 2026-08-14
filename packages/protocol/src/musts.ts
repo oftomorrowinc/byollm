@@ -141,6 +141,16 @@ export const MUSTS = Object.freeze({
     verifiedBy: "conformance",
     source: "byollm_009 §4.2",
   }),
+  STUB_METADATA_EXHAUSTIVE: must({
+    id: "STUB_METADATA_EXHAUSTIVE",
+    statement:
+      "A claim MUST answer with stubs carrying exactly the enumerated " +
+      "fields and no payload. An endpoint MUST NOT emit a stub carrying " +
+      "others, and an upstream MUST NOT require any.",
+    enforcedBy: "both",
+    verifiedBy: "conformance",
+    source: "byollm_009 §6",
+  }),
   KIND_TYPED_ONLY: must({
     id: "KIND_TYPED_ONLY",
     statement:

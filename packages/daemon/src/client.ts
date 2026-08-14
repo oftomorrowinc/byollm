@@ -1,5 +1,6 @@
 import {
   ClaimResponse,
+  FetchResponse,
   type PublicIdentity,
   HeartbeatResponse,
   PROTOCOL_VERSION,
@@ -149,6 +150,25 @@ export class ProtocolClient {
       protocolVersion: PROTOCOL_VERSION,
       action: "poll",
       deviceCode,
+    });
+  }
+
+  /**
+   * Collect the payload for a lease this daemon holds (byollm_009 §6).
+   *
+   * The second half of claim-then-fetch: a claim answers with a stub, and the
+   * work is collected by the device that took it.
+   */
+  async fetch(input: {
+    runnerId: string;
+    jobId: string;
+    leaseId: string;
+  }): Promise<FetchResponse> {
+    return this.#post("fetch", FetchResponse, {
+      protocolVersion: PROTOCOL_VERSION,
+      runnerId: input.runnerId,
+      jobId: input.jobId,
+      leaseId: input.leaseId,
     });
   }
 

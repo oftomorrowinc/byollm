@@ -208,3 +208,84 @@ export const DeliveredResult = z
   })
   .strict();
 export type DeliveredResult = z.infer<typeof DeliveredResult>;
+
+/**
+ * How big a payload is, in buckets — byollm_009 §6.
+ *
+ * A relay routes without reading, and matching a job to a machine needs some
+ * notion of size. Buckets rather than byte counts because the exact figure is
+ * a stronger fingerprint than the routing decision requires, and because a
+ * bucket survives compression and encoding changes that an exact count does
+ * not.
+ *
+ * `unbounded` exists for streamed jobs, which have no size when they start.
+ * It is reserved now rather than added later: byollm_009 §8.1 — adding a
+ * field to a published envelope is the v2 break all over again.
+ */
+export const SizeClass = z.enum(["small", "medium", "large", "unbounded"]);
+export type SizeClass = z.infer<typeof SizeClass>;
+
+/** Where the bucket boundaries sit, in characters of payload text. */
+export const SIZE_CLASS_LIMITS = Object.freeze({
+  small: 4_000,
+  medium: 64_000,
+  large: Number.POSITIVE_INFINITY,
+});
+
+/**
+ * The most a payload in this bucket can be.
+ *
+ * Used where a decision must be made from a stub, before the payload has been
+ * fetched — a budget check, for instance. Charging the bucket's ceiling is the
+ * conservative direction: it refuses slightly too eagerly rather than
+ * admitting work that turns out larger than the budget allowed.
+ *
+ * `unbounded` returns `Infinity`, which fails every ceiling. That is correct
+ * until byollm_006 defines how a streamed job is budgeted — failing closed on
+ * a case nobody has designed beats inventing an allowance for it.
+ */
+export function sizeClassCeiling(sizeClass: SizeClass): number {
+  if (sizeClass === "unbounded") return Number.POSITIVE_INFINITY;
+  return SIZE_CLASS_LIMITS[sizeClass];
+}
+
+/** Bucket a payload by its text length. */
+export function sizeClassOf(textChars: number): SizeClass {
+  if (textChars <= SIZE_CLASS_LIMITS.small) return "small";
+  if (textChars <= SIZE_CLASS_LIMITS.medium) return "medium";
+  return "large";
+}
+
+/**
+ * Everything an upstream may see about a job — byollm_009 §6.
+ *
+ * **This list is exhaustive and normative.** It is a commitment about the
+ * metadata surface, not an accident of what the implementation happens to
+ * send: an upstream that requires more has exceeded the protocol, and an
+ * endpoint that emits more has leaked past it
+ * ({@link MUSTS.STUB_METADATA_EXHAUSTIVE}).
+ *
+ * What is absent is the point. No payload, no model, no prompt, no result.
+ * `kind` is here because capability matching happens upstream; if a later
+ * revision moves matching to the daemon, `kind` moves into the ciphertext.
+ */
+export const JobStub = z
+  .object({
+    id: z.string().min(1),
+    kind: JobKind,
+    /** The app's id for the user who enqueued it. */
+    owner: z.string().min(1),
+    audience: Audience,
+    audienceAllow: z.array(z.string().min(1)).optional(),
+    sizeClass: SizeClass,
+    /** Reserved for byollm_006. False until streaming exists. */
+    streaming: z.boolean(),
+    /** Epoch ms after which the work is pointless; bounds ciphertext retention. */
+    deadlineAt: z.number().int().positive(),
+  })
+  .strict();
+export type JobStub = z.infer<typeof JobStub>;
+
+/** A stub, plus the lease the claiming runner now holds for it. */
+export const ClaimedStub = JobStub.extend({ lease: Lease }).strict();
+export type ClaimedStub = z.infer<typeof ClaimedStub>;

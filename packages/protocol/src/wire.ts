@@ -2,7 +2,7 @@ import { z } from "zod";
 import { PublicIdentity } from "./keys.js";
 import { OfferScope } from "./audience.js";
 import { BackendClass, BackendIdSchema } from "./backends.js";
-import { ClaimedJob, JobOutcome } from "./job.js";
+import { ClaimedStub, JobOutcome, JobPayload } from "./job.js";
 import { JobKind } from "./kinds.js";
 
 /** Protocol version carried on every request; servers refuse what they can't speak. */
@@ -97,10 +97,18 @@ export function checkProtocolVersion(body: unknown): VersionRefusal | null {
 /** The path prefix all endpoints mount under. */
 export const PROTOCOL_PREFIX = "/byollm" as const;
 
-/** The five endpoint names, in the order byollm_001 lists them. */
+/**
+ * The endpoint names, in the order byollm_001 lists them, plus `fetch`.
+ *
+ * `fetch` is byollm_009 §6's second phase: a claim returns a stub, and the
+ * payload is collected separately by the device that took it. Two steps
+ * rather than one because a payload can only be sealed once its recipient is
+ * known — which is also what makes multi-device free.
+ */
 export const ENDPOINTS = Object.freeze([
   "pair",
   "claim",
+  "fetch",
   "heartbeat",
   "result",
   "release",
@@ -241,7 +249,11 @@ export type ClaimRequest = z.infer<typeof ClaimRequest>;
 
 export const ClaimResponse = z
   .object({
-    jobs: z.array(ClaimedJob),
+    /**
+     * Stubs, not jobs. The payload arrives from `fetch`, sealed to whichever
+     * device claimed — see {@link JobStub} for the exhaustive metadata list.
+     */
+    jobs: z.array(ClaimedStub),
     /** Lease duration granted, so the daemon knows its renewal deadline. */
     leaseMs: z.number().int().positive(),
   })
@@ -418,3 +430,38 @@ export const ERROR_STATUS: Readonly<Record<WireErrorCode, number>> =
     "rate-limited": 429,
     "server-error": 500,
   });
+
+// ---------------------------------------------------------------------------
+// 3. POST /byollm/fetch — collect the payload for a lease you hold
+// ---------------------------------------------------------------------------
+
+export const FetchRequest = z
+  .object({
+    protocolVersion: z.string().min(1),
+    runnerId: z.string().min(1),
+    jobId: z.string().min(1),
+    /**
+     * The grant this daemon holds.
+     *
+     * Named, not inferred: a fetch is lease-scoped, and a request that names
+     * only the job would be answerable for whatever lease exists when it
+     * arrives ({@link Lease.id}).
+     */
+    leaseId: z.string().min(1),
+  })
+  .strict();
+export type FetchRequest = z.infer<typeof FetchRequest>;
+
+export const FetchResponse = z
+  .object({
+    /**
+     * The work itself.
+     *
+     * Plaintext today; byollm_009 §6 makes this a sealed, signed envelope,
+     * and the field is separated from the stub now so that change is a change
+     * of type rather than a change of shape.
+     */
+    payload: JobPayload,
+  })
+  .strict();
+export type FetchResponse = z.infer<typeof FetchResponse>;

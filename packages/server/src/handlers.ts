@@ -1,4 +1,8 @@
 import {
+  FetchRequest,
+  payloadTextLength,
+  sizeClassOf,
+  type FetchResponse,
   RequestSignature,
   verifyRequest,
   publicIdentityOf,
@@ -173,6 +177,8 @@ export class ByollmHandlers {
           this.#heartbeat.bind(this),
           { allowRevoked: true },
         );
+      case "fetch":
+        return this.#authed(auth, body, FetchRequest, this.#fetch.bind(this));
       case "result":
         return this.#authed(auth, body, ResultRequest, this.#result.bind(this));
       case "release":
@@ -236,6 +242,34 @@ export class ByollmHandlers {
       return fail("bad-request", "request body failed schema validation");
     }
     return run(parsed.data, runner);
+  }
+
+  /**
+   * Hand over the payload for a lease this runner holds — byollm_009 §6.
+   *
+   * The second half of claim-then-fetch. A claim answers with a stub, and the
+   * work itself is collected separately by the device that took it, because a
+   * payload can only be sealed once its recipient is known.
+   *
+   * Scoped to the lease, not the job: answering for whatever lease happens to
+   * exist would hand the work to a runner whose grant had already been
+   * superseded.
+   */
+  async #fetch(
+    request: FetchRequest,
+    runner: RunnerRecord,
+  ): Promise<HandlerResult> {
+    const job = await this.#store.get(request.jobId);
+    if (
+      !job ||
+      job.lease?.runnerId !== runner.id ||
+      job.lease.id !== request.leaseId
+    ) {
+      // One answer for "no such job", "not yours" and "a lease you no longer
+      // hold". A caller who is allowed to know already knows which.
+      return fail("not-found", "no such lease on this job");
+    }
+    return ok({ payload: job.payload } satisfies FetchResponse);
   }
 
   // -- 1. pair --------------------------------------------------------------
@@ -357,9 +391,22 @@ export class ByollmHandlers {
       jobs: jobs.map((job) => ({
         id: job.id,
         kind: job.kind,
-        payload: job.payload,
         audience: job.audience,
         owner: job.owner,
+        // Bucketed, not measured: an exact size is a stronger fingerprint
+        // than routing needs (byollm_009 §6).
+        sizeClass: sizeClassOf(
+          payloadTextLength({
+            kind: job.kind,
+            payload: job.payload,
+          } as Parameters<typeof payloadTextLength>[0]),
+        ),
+        // Reserved for byollm_006; no job declares it yet.
+        streaming: false,
+        // The stub's deadline bounds how long a captured envelope is worth
+        // keeping, so it is always present — falling back to the TTL window
+        // when the app named no absolute one.
+        deadlineAt: job.deadlineAt ?? (job.claimableAt ?? now) + job.ttlMs,
         ...(job.audienceAllow === undefined
           ? {}
           : { audienceAllow: [...job.audienceAllow] }),

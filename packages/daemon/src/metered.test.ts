@@ -1,8 +1,12 @@
-import { generateKeys, signRequest } from "@byollm/protocol";
+import {
+  type ClaimedStub,
+  type JobPayload,
+  generateKeys,
+  signRequest,
+} from "@byollm/protocol";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { ClaimedJob } from "@byollm/protocol";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { Allowlist } from "./allowlist.js";
 import type {
@@ -120,12 +124,17 @@ async function makeRunner(options: {
   return { runner, spend, loaded };
 }
 
-const job = (overrides: Partial<ClaimedJob> = {}): ClaimedJob => ({
+const job = (
+  overrides: Partial<ClaimedStub & { payload: JobPayload }> = {},
+): ClaimedStub & { payload: JobPayload } => ({
   id: "job_1",
   kind: "llm.generate",
   payload: { prompt: "hello" },
   audience: "public",
   owner: "stranger",
+  sizeClass: "small",
+  streaming: false,
+  deadlineAt: Date.now() + 60_000,
   lease: {
     id: "lease_test",
     runnerId: "runner_1",

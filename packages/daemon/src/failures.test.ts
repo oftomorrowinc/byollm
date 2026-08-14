@@ -130,9 +130,11 @@ const oneJob = [
   {
     id: "job_1",
     kind: "llm.generate",
-    payload: { prompt: "hi" },
     audience: "self",
     owner: "me",
+    sizeClass: "small",
+    streaming: false,
+    deadlineAt: Date.now() + 60_000,
     lease: {
       id: "lease_test",
       runnerId: "runner_1",
@@ -149,6 +151,14 @@ describe("reporting failures never lose the job", () => {
       const url = String(input instanceof Request ? input.url : input);
       if (url.endsWith("/result")) {
         return Promise.reject(new Error("server went away"));
+      }
+      if (url.endsWith("/fetch")) {
+        // Claim-then-fetch: the payload arrives here, after admission.
+        return Promise.resolve(
+          new Response(JSON.stringify({ payload: { prompt: "hi" } }), {
+            headers: { "content-type": "application/json" },
+          }),
+        );
       }
       const body = url.endsWith("/claim")
         ? claimOne([])
@@ -190,6 +200,14 @@ describe("reporting failures never lose the job", () => {
           }),
         );
       }
+      if (url.endsWith("/fetch")) {
+        // Claim-then-fetch: the payload arrives here, after admission.
+        return Promise.resolve(
+          new Response(JSON.stringify({ payload: { prompt: "hi" } }), {
+            headers: { "content-type": "application/json" },
+          }),
+        );
+      }
       const body = url.endsWith("/claim")
         ? claimOne(oneJob)
         : url.endsWith("/result")
@@ -222,6 +240,14 @@ describe("reporting failures never lose the job", () => {
       const url = String(input instanceof Request ? input.url : input);
       if (url.endsWith("/release")) {
         return Promise.reject(new Error("gone"));
+      }
+      if (url.endsWith("/fetch")) {
+        // Claim-then-fetch: the payload arrives here, after admission.
+        return Promise.resolve(
+          new Response(JSON.stringify({ payload: { prompt: "hi" } }), {
+            headers: { "content-type": "application/json" },
+          }),
+        );
       }
       const body = url.endsWith("/claim")
         ? claimOne(oneJob)
@@ -277,6 +303,14 @@ describe("reporting failures never lose the job", () => {
             }),
             { headers: { "content-type": "application/json" } },
           ),
+        );
+      }
+      if (url.endsWith("/fetch")) {
+        // Claim-then-fetch: the payload arrives here, after admission.
+        return Promise.resolve(
+          new Response(JSON.stringify({ payload: { prompt: "hi" } }), {
+            headers: { "content-type": "application/json" },
+          }),
         );
       }
       const body = url.endsWith("/claim")

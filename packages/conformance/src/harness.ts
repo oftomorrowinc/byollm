@@ -6,7 +6,7 @@ import {
   signRequest,
   type StoredKeys,
   type Capability,
-  type ClaimedJob,
+  type ClaimedStub,
 } from "@byollm/protocol";
 import {
   Allowlist,
@@ -434,7 +434,7 @@ export async function advance(
 export async function claimOne(
   target: ConformanceTarget,
   daemon: HarnessDaemon,
-): Promise<ClaimedJob> {
+): Promise<ClaimedStub> {
   const capabilities = await daemon.runner.detectCapabilities();
   // Signed, not bearer. This helper predated signed requests and kept
   // sending a token: it 401'd the moment a check actually used it, which
@@ -466,7 +466,7 @@ export async function claimOne(
   if (response.status !== 200) {
     throw new Error(`claim answered ${String(response.status)}`);
   }
-  const parsed = (await response.json()) as { jobs: ClaimedJob[] };
+  const parsed = (await response.json()) as { jobs: ClaimedStub[] };
   const job = parsed.jobs[0];
   if (!job) throw new Error("claim returned no jobs");
   return job;
@@ -509,4 +509,44 @@ export async function releaseLease(
       body,
     }),
   );
+}
+
+/**
+ * Collect a payload for a lease, signed. Returns `null` when refused.
+ *
+ * A refusal is a normal answer here, not an error: the check asks both
+ * whether a held lease can fetch and whether an unheld one cannot.
+ */
+export async function fetchPayload(
+  target: ConformanceTarget,
+  daemon: HarnessDaemon,
+  jobId: string,
+  leaseId: string,
+): Promise<unknown> {
+  const body = JSON.stringify({
+    protocolVersion: PROTOCOL_VERSION,
+    runnerId: daemon.runnerId,
+    jobId,
+    leaseId,
+  });
+  const signature = signRequest(daemon.keys, {
+    endpoint: "fetch",
+    runnerId: daemon.runnerId,
+    issuedAt: Date.now(),
+    body,
+  });
+  const response = await target.fetch(
+    new Request(`${target.origin}/byollm/fetch`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-byollm-runner": signature.runnerId,
+        "x-byollm-issued-at": String(signature.issuedAt),
+        "x-byollm-signature": signature.signature,
+      },
+      body,
+    }),
+  );
+  //  for a refusal — a normal answer here, not an error.
+  return response.status === 200 ? await response.json() : null;
 }

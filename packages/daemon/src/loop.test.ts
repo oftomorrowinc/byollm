@@ -112,6 +112,7 @@ async function makeRunner(fetchImpl: typeof fetch, owner = "me") {
 function routed(responses: {
   heartbeat?: unknown;
   claim?: unknown;
+  fetch?: unknown;
   result?: unknown;
   release?: unknown;
 }): typeof fetch {
@@ -119,19 +120,22 @@ function routed(responses: {
     const url = String(input instanceof Request ? input.url : input);
     const endpoint = url.split("/").pop() ?? "";
     const body =
-      endpoint === "heartbeat"
-        ? (responses.heartbeat ?? {
-            revoked: false,
-            cancel: [],
-            leases: [],
-            lost: [],
-            serverTime: Date.now(),
-          })
-        : endpoint === "claim"
-          ? (responses.claim ?? { jobs: [], leaseMs: 60_000 })
-          : endpoint === "result"
-            ? (responses.result ?? { accepted: true, state: "ok" })
-            : (responses.release ?? { released: [] });
+      endpoint === "fetch"
+        ? // Claim-then-fetch: the stub arrives from `claim`, the work here.
+          (responses.fetch ?? { payload: { prompt: "hi" } })
+        : endpoint === "heartbeat"
+          ? (responses.heartbeat ?? {
+              revoked: false,
+              cancel: [],
+              leases: [],
+              lost: [],
+              serverTime: Date.now(),
+            })
+          : endpoint === "claim"
+            ? (responses.claim ?? { jobs: [], leaseMs: 60_000 })
+            : endpoint === "result"
+              ? (responses.result ?? { accepted: true, state: "ok" })
+              : (responses.release ?? { released: [] });
     return Promise.resolve(
       new Response(JSON.stringify(body), {
         headers: { "content-type": "application/json" },
@@ -173,9 +177,11 @@ describe("the loop", () => {
             {
               id: "job_1",
               kind: "llm.generate",
-              payload: { prompt: "hi" },
               audience: "self",
               owner: "me",
+              sizeClass: "small",
+              streaming: false,
+              deadlineAt: Date.now() + 60_000,
               lease: {
                 id: "lease_test",
                 runnerId: "runner_1",
@@ -200,9 +206,11 @@ describe("the loop", () => {
             {
               id: "job_1",
               kind: "llm.generate",
-              payload: { prompt: "hi" },
               audience: "self",
               owner: "me",
+              sizeClass: "small",
+              streaming: false,
+              deadlineAt: Date.now() + 60_000,
               lease: {
                 id: "lease_test",
                 runnerId: "runner_1",
@@ -228,9 +236,11 @@ describe("the loop", () => {
             {
               id: "job_1",
               kind: "llm.generate",
-              payload: { prompt: "hi" },
               audience: "public",
               owner: "stranger",
+              sizeClass: "small",
+              streaming: false,
+              deadlineAt: Date.now() + 60_000,
               lease: {
                 id: "lease_test",
                 runnerId: "runner_1",

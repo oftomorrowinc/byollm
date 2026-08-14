@@ -1,6 +1,7 @@
 import {
   AUDIENCES,
   OFFER_SCOPES,
+  ClaimedStub,
   PROTOCOL_VERSION,
   PublicIdentity,
   generateKeys,
@@ -12,6 +13,7 @@ import {
 import {
   advance,
   claimOne,
+  fetchPayload,
   releaseLease,
   ownerIdFor,
   pairDaemon,
@@ -1081,8 +1083,18 @@ export const CHECKS: readonly Check[] = [
         }
 
         if (!refused) {
+          // Under claim-then-fetch the payload no longer rides with the
+          // claim, so this now checks what `fetch` delivers — which is where
+          // a smuggled field would have to survive to reach a daemon.
           const claimed = await claimOne(target, daemon);
-          const payload = claimed.payload as Record<string, unknown>;
+          const delivered = (await fetchPayload(
+            target,
+            daemon,
+            claimed.id,
+            claimed.lease.id,
+          )) as { payload: Record<string, unknown> } | null;
+          assert(delivered !== null, "the runner could not fetch its payload");
+          const payload = delivered.payload;
           for (const smuggled of SMUGGLED) {
             assert(
               payload[smuggled] === undefined,
@@ -1410,6 +1422,80 @@ export const CHECKS: readonly Check[] = [
         assert(
           (await target.job(job.id))?.state === "queued",
           "releasing the current lease did not return the job to the queue",
+        );
+      } finally {
+        await daemon.dispose();
+      }
+    },
+  },
+
+  {
+    id: "C027_CLAIM_ANSWERS_WITH_STUBS",
+    title: "a claim carries routing metadata and no work",
+    musts: ["STUB_METADATA_EXHAUSTIVE"],
+    async run(target: ConformanceTarget): Promise<void> {
+      const daemon = await pairDaemon(target, { owner: "alice" });
+      try {
+        await target.enqueue({
+          kind: "llm.generate",
+          payload: prompt("this must not appear in a claim response"),
+          owner: "alice",
+          audience: "self",
+        });
+
+        const stub = await claimOne(target, daemon);
+        const asRecord = stub as unknown as Record<string, unknown>;
+
+        // 1. No work in the claim. This is the property: an upstream routes
+        //    without reading, so the payload cannot ride along with routing.
+        assert(
+          asRecord["payload"] === undefined,
+          "the claim response carried the payload",
+        );
+        assert(
+          !JSON.stringify(stub).includes("this must not appear"),
+          "the prompt text appeared somewhere in the claim response",
+        );
+
+        // 2. Exactly the enumerated fields, and nothing invented. A field an
+        //    upstream is not supposed to see is a leak whether or not anyone
+        //    reads it today.
+        const parsed = ClaimedStub.safeParse(stub);
+        assert(
+          parsed.success,
+          `the claim response is not a valid stub: ${parsed.success ? "" : parsed.error.issues.map((i) => i.path.join(".")).join(", ")}`,
+        );
+
+        // 3. The size class is a bucket, not a measurement.
+        assert(
+          ["small", "medium", "large", "unbounded"].includes(
+            String(asRecord["sizeClass"]),
+          ),
+          `sizeClass was "${String(asRecord["sizeClass"])}"`,
+        );
+
+        // 4. And the work is collectable by the device that holds the lease.
+        const fetched = await fetchPayload(
+          target,
+          daemon,
+          stub.id,
+          stub.lease.id,
+        );
+        assert(
+          JSON.stringify(fetched).includes("this must not appear"),
+          "fetch did not return the payload to the runner holding the lease",
+        );
+
+        // 5. But not under a lease that is not held.
+        const wrong = await fetchPayload(
+          target,
+          daemon,
+          stub.id,
+          "lease-that-does-not-exist",
+        );
+        assert(
+          wrong === null,
+          "fetch answered for a lease this runner does not hold",
         );
       } finally {
         await daemon.dispose();

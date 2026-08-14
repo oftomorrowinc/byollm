@@ -32,8 +32,33 @@ permissions:
   id-token: write
 
 jobs:
+  # byollm_010 §2: nothing publishes that has not been run on every platform
+  # we let people install it on. The alpha shipped a daemon that was unusable
+  # on Windows because the gate only ever ran on Linux — a blocking security
+  # suite that covers one of three platforms is not blocking on the other two.
+  platforms:
+    name: Daemon + adversarial (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run build
+      - run: pnpm run smoke
+      - run: pnpm run test:unit
+      - run: pnpm run adversarial
+
   release:
     name: Publish to npm
+    needs: platforms
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -64,8 +89,9 @@ jobs:
       # ---------------------------------------------------------------------
       - name: Full verification gate
         run: pnpm run verify
-      - name: Adversarial corpus (blocking security gate)
-        run: pnpm run adversarial
+      # The adversarial corpus ran on all three platforms in `platforms`,
+      # which this job depends on. Repeating it here on Linux only would add
+      # a minute and no information.
       - name: Conformance — reference server
         run: pnpm run conformance
 

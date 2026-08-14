@@ -1,0 +1,81 @@
+name: Bug report
+description: Something the daemon, server, or protocol does wrong
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting. The first two fields matter more than they look:
+        "it doesn't work on Windows", with no version attached, is the most
+        expensive sentence an open-source project receives.
+
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: Output of `byollm --version`, or the package version you installed.
+      placeholder: "0.1.0-alpha.3"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Platform
+      description: |
+        We run CI on Linux, macOS and Windows. If yours is not listed, say so
+        below — a platform CI does not run is one we do not claim to support.
+      options:
+        - macOS (Apple silicon)
+        - macOS (Intel)
+        - Linux
+        - Windows
+        - Other (say which below)
+    validations:
+      required: true
+
+  - type: input
+    id: node
+    attributes:
+      label: Node version
+      description: Output of `node --version`. We support >= 22.14.
+      placeholder: "v24.18.0"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: backend
+    attributes:
+      label: Which backend
+      options:
+        - Not backend-related
+        - Ollama / MLX / llama.cpp / vLLM / other local
+        - A hosted provider (OpenAI, Anthropic, Gemini, …)
+        - claude CLI
+        - Not sure
+    validations:
+      required: true
+
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: |
+        What you expected, what happened instead, and the exact command. If
+        the daemon printed a refusal, paste it verbatim — the wording is
+        deliberate and tells us which rule fired.
+    validations:
+      required: true
+
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      description: Smallest sequence that shows it. A failing test is ideal, never required.
+
+  - type: markdown
+    attributes:
+      value: |
+        **Please do not paste API keys, tokens, or the contents of
+        `~/.byollm/ingress.log`** — the log holds every prompt that has run on
+        your machine. Redact before pasting.

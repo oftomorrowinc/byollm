@@ -150,6 +150,9 @@ on; it belongs here regardless of whether one ever exists.
 - **`edges.test.ts` hardcodes POSIX separators** against a path the
   daemon builds with `join()`. A test bug, not a daemon bug.
 - **Issue templates by platform**, capturing `--version` output first.
+  Landed with a caveat worth stating: the template asks for
+  `byollm --version`, which today prints only a package version. It
+  gets materially more useful when §5 lands and that becomes a tuple.
 
 ## 7. What this does not cover
 

@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Security issue
+    url: https://github.com/oftomorrowinc/byollm/blob/main/docs/security.md
+    about: >-
+      Please do not open a public issue for a breakout, isolation, or key
+      handling problem. Read docs/security.md for what is claimed, then report
+      privately via the repository's security advisories.

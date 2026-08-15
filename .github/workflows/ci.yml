@@ -139,6 +139,46 @@ jobs:
       # keys — the protocol's first consumer that is neither endpoint.
       - run: pnpm run freeze-gate
 
+  freeze-gate-postgres:
+    name: Freeze gate — relay over Postgres
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run build
+      - uses: supabase/setup-cli@v1
+        with:
+          version: 2.114.0
+      - name: Start Supabase and export its credentials
+        working-directory: packages/server
+        run: |
+          supabase start
+          eval "$(supabase status -o env | sed 's/^/export /')"
+          echo "::add-mask::$SERVICE_ROLE_KEY"
+          {
+            echo "SUPABASE_URL=$API_URL"
+            echo "SUPABASE_SERVICE_ROLE_KEY=$SERVICE_ROLE_KEY"
+          } >> "$GITHUB_ENV"
+      # The pre-stamp gate. The `uuid` lease-id bug routed perfectly against
+      # MemoryStore and would have failed the first time a real site adopted
+      # a lease — caught by reading a migration, which is luck rather than
+      # process. REQUIRE_SUPABASE makes the run assert that it actually got
+      # Postgres, so a stack that failed to start cannot report the same
+      # green the bug already survived once.
+      - name: Freeze gate against Postgres
+        env:
+          REQUIRE_SUPABASE: "1"
+        run: pnpm run freeze-gate
+      - name: Stop Supabase
+        if: always()
+        working-directory: packages/server
+        run: supabase stop --no-backup
+
   conformance-supabase:
     name: Conformance — Supabase adapter
     runs-on: ubuntu-latest

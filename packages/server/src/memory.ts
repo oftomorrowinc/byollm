@@ -223,7 +223,7 @@ export class MemoryStore implements ByollmStore {
     if (job.state !== "queued" && job.state !== "claimed") {
       return Promise.resolve(null);
     }
-    if (job.lease && job.lease.runnerId !== args.runnerId) {
+    if (job.lease && job.lease.id !== args.leaseId) {
       return Promise.resolve(null);
     }
     const updated: JobRecord = {
@@ -231,7 +231,8 @@ export class MemoryStore implements ByollmStore {
       state: "claimed",
       lease: {
         id: args.leaseId,
-        runnerId: args.runnerId,
+        // No runner: this site never paired with the machine holding it.
+        runnerId: "",
         expiresAt: args.expiresAt,
       },
       updatedAt: args.now,
@@ -257,8 +258,13 @@ export class MemoryStore implements ByollmStore {
       return Promise.resolve({ accepted: false, job });
     }
     // A runner that lost its lease may not write a result
-    // ({@link MUSTS.LEASE_HONORED}).
-    if (job.lease?.runnerId !== args.runnerId) {
+    // ({@link MUSTS.LEASE_HONORED}). Named by lease id when the caller has
+    // one — off the direct plane there is no runner this site knows.
+    const holds =
+      args.leaseId === undefined
+        ? job.lease?.runnerId === args.runnerId
+        : job.lease?.id === args.leaseId;
+    if (!holds) {
       return Promise.resolve({ accepted: false, job });
     }
 

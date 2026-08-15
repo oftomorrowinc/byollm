@@ -120,7 +120,20 @@ export interface ClaimArgs {
 /** What an upstream tells a store it has granted. */
 export interface AdoptArgs {
   readonly jobId: string;
-  readonly runnerId: string;
+  /**
+   * The lease, by its own id — and deliberately **not** a runner id.
+   *
+   * A relayed device is not this site's runner. It never paired here, the
+   * site holds no token for it and cannot revoke it, and `byollm_runners` is
+   * a table of machines this site has a relationship with. Fabricating a row
+   * to satisfy a foreign key would manufacture a record the site cannot act
+   * on, which is worse than not having one.
+   *
+   * What the site legitimately knows is that the job is out on a lease
+   * granted by an upstream, and when that lease ends. Identity of the machine
+   * that ran it arrives with the result, proved by a signature — which is a
+   * stronger claim than a row anyway.
+   */
   readonly leaseId: string;
   readonly expiresAt: number;
   readonly now: number;
@@ -147,7 +160,22 @@ export interface RenewResult {
 
 export interface CompleteArgs {
   readonly jobId: string;
+  /**
+   * The runner writing the result, on a plane where the site knows runners.
+   *
+   * Empty in the cloud lane, where {@link CompleteArgs.leaseId} identifies
+   * the grant instead.
+   */
   readonly runnerId: string;
+  /**
+   * The lease being completed, when the caller has no runner to name.
+   *
+   * `LEASE_HONORED` is a statement about a *grant*, not about a machine —
+   * the same lesson the release endpoint learned when a replayed release
+   * yanked a later lease. Matching on the lease id is therefore the more
+   * exact check, and the only one available off the direct plane.
+   */
+  readonly leaseId?: string;
   readonly outcome: JobOutcome;
   readonly provenance: ResultProvenance;
   readonly now: number;

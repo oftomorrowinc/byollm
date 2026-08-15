@@ -10,6 +10,12 @@ const sourceAliases = {
   "@byollm/protocol": fileURLToPath(
     new URL("./packages/protocol/src/index.ts", import.meta.url),
   ),
+  // Before the bare `@byollm/server` entry, deliberately: these are prefix
+  // matches applied in order, so the shorter key would otherwise rewrite
+  // `@byollm/server/supabase` into `<server/src/index.ts>/supabase`.
+  "@byollm/server/supabase": fileURLToPath(
+    new URL("./packages/server/src/supabase/index.ts", import.meta.url),
+  ),
   "@byollm/server": fileURLToPath(
     new URL("./packages/server/src/index.ts", import.meta.url),
   ),

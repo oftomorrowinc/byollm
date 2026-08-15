@@ -170,7 +170,6 @@ export class CloudLane {
       // never gets sealed, which the relay's own timeout already resolves.
       await this.#store.adopt({
         jobId: claim.jobId,
-        runnerId: claim.runnerId,
         leaseId: claim.leaseId,
         expiresAt: claim.awaitingUntil,
         now: this.#now(),
@@ -189,6 +188,7 @@ export class CloudLane {
         envelope: SealedEnvelope;
         disposition: string;
         runnerId: string;
+        leaseId: string;
         device: PublicIdentity;
       }[];
     };
@@ -208,6 +208,10 @@ export class CloudLane {
       // relay is not more trustworthy for having travelled further.
       await this.#store.complete({
         jobId: done.jobId,
+        // The grant, not the machine: this site never paired with the device
+        // that ran it, and the signature it verified above is the stronger
+        // claim about who did.
+        leaseId: done.leaseId,
         runnerId: done.runnerId,
         outcome,
         provenance: provenanceFor({

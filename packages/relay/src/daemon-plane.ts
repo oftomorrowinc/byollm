@@ -95,8 +95,15 @@ export class DaemonPlane {
       return fail(403, "unauthorized", "no consent record for this user");
     }
 
+    // Minted here, not accepted from the device. The direct plane's server
+    // mints a runner id at approval and a device has never named itself; a
+    // relay that let one would take an identifier from the least trusted
+    // party in the exchange. A uuid because the stores that eventually
+    // record leases against it type their id columns that way.
+    const runnerId = randomUUID();
+
     this.#deps.state.seen({
-      runnerId: parsed.data.runnerId,
+      runnerId,
       owner: parsed.data.owner,
       device: parsed.data.device,
       lastSeenAt: this.#deps.now(),
@@ -104,7 +111,7 @@ export class DaemonPlane {
 
     return ok({
       protocolVersion: PROTOCOL_VERSION,
-      runnerId: parsed.data.runnerId,
+      runnerId,
       /** The *site's* key. See the note above — this is load-bearing. */
       site: consent.site,
     });
@@ -350,7 +357,6 @@ export class DaemonPlane {
 const PairFixtureRequest = z
   .object({
     protocolVersion: z.literal(PROTOCOL_VERSION),
-    runnerId: z.string().min(1),
     owner: z.string().min(1),
     device: PublicIdentity,
   })

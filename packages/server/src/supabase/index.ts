@@ -119,12 +119,14 @@ function toJob(row: JobRow): JobRecord {
     dependsOn: row.depends_on,
     state: row.state,
     lease:
-      row.lease_runner !== null &&
-      leaseExpires !== null &&
-      row.lease_id !== null
+      // Keyed on the lease id, not the runner. A relayed grant has no runner
+      // row to point at (see AdoptArgs), and reading the lease as absent
+      // because `lease_runner` is null would make an actively-held job look
+      // claimable — the exact bug `adopt` exists to prevent.
+      leaseExpires !== null && row.lease_id !== null
         ? {
             id: row.lease_id,
-            runnerId: row.lease_runner,
+            runnerId: row.lease_runner ?? "",
             expiresAt: leaseExpires,
           }
         : null,
@@ -345,7 +347,11 @@ export function supabaseStore(options: SupabaseStoreOptions): ByollmStore {
           .update({
             state: "claimed",
             lease_id: args.leaseId,
-            lease_runner: args.runnerId,
+            // Left null on purpose: `lease_runner` is a foreign key into
+            // `byollm_runners`, and a relayed device has no row there. See
+            // AdoptArgs — the site records the grant, not a machine it has
+            // no relationship with.
+            lease_runner: null,
             lease_expires_at: iso(args.expiresAt),
             updated_at: iso(args.now),
           })
@@ -369,22 +375,29 @@ export function supabaseStore(options: SupabaseStoreOptions): ByollmStore {
       // already reached a terminal state matches nothing, so the first
       // outcome wins ({@link MUSTS.RESULT_IDEMPOTENT}). The `lease_runner`
       // predicate is {@link MUSTS.LEASE_HONORED}.
-      const rows = unwrap<JobRow[]>(
-        await db
-          .from("byollm_jobs")
-          .update({
-            state,
-            lease_runner: null,
-            lease_expires_at: null,
-            outcome: args.outcome,
-            provenance: args.provenance,
-            updated_at: iso(args.now),
-          })
-          .eq("id", args.jobId)
-          .eq("lease_runner", args.runnerId)
-          .in("state", ["claimed", "running"])
-          .select(),
-      );
+      // The `in('state', ...)` predicate is the idempotency guard. The
+      // second predicate is LEASE_HONORED, and which column carries it
+      // depends on the plane: a direct runner is named by id, a relayed
+      // grant only by its lease. Built as a query rather than branched into
+      // two, so there is one update statement and no chance of the two
+      // drifting.
+      let update = db
+        .from("byollm_jobs")
+        .update({
+          state,
+          lease_runner: null,
+          lease_expires_at: null,
+          outcome: args.outcome,
+          provenance: args.provenance,
+          updated_at: iso(args.now),
+        })
+        .eq("id", args.jobId)
+        .in("state", ["claimed", "running"]);
+      update =
+        args.leaseId === undefined
+          ? update.eq("lease_runner", args.runnerId)
+          : update.eq("lease_id", args.leaseId);
+      const rows = unwrap<JobRow[]>(await update.select());
 
       const written = rows[0];
       if (written === undefined) {

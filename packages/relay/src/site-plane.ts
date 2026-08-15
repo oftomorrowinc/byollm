@@ -138,6 +138,8 @@ export class SitePlane {
       envelope: job.result,
       disposition: job.disposition,
       runnerId: job.claimedBy?.runnerId,
+      /** The grant the site adopted, so it can complete against it. */
+      leaseId: job.claimedBy?.leaseId,
       /**
        * Which device ran it, so the site can verify the signature against the
        * key it was told to seal to — and so `RESULT_PROVENANCE` can name a

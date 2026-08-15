@@ -100,6 +100,9 @@ importers:
       '@byollm/server':
         specifier: workspace:*
         version: link:../server
+      '@supabase/supabase-js':
+        specifier: ^2.112.2
+        version: 2.112.2
       byollm:
         specifier: workspace:*
         version: link:../daemon

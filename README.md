@@ -10,7 +10,7 @@
 > has production miles. Read it, take the ideas, tell us what's wrong — but
 > don't put it in front of your users.
 >
-> **`alpha.6` tightens who a machine is allowed to say it is.** A relay now
+> **`alpha.7` tightens who a machine is allowed to say it is.** A relay now
 > refuses to pair a device its owner has not approved in a control plane —
 > previously a daemon presented keys and the relay believed them, which made
 > the relay the authority on identity rather than the person who owns the

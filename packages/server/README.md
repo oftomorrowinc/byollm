@@ -13,7 +13,7 @@
 > not an npm deprecation, which would read as *abandoned* rather than *early*.
 > Ask for `@alpha` explicitly so your lockfile records that you meant to.
 >
-> **`alpha.6` breaks nobody who is not implementing a relay.** `@byollm/relay`'s
+> **`alpha.7` breaks nobody who is not implementing a relay.** `@byollm/relay`'s
 > projection gains `devices` — the device keys a control plane has approved —
 > and the relay refuses to pair a device that is not in it. `revoked` becomes
 > `{owner, siteId}` instead of a composite string. Sites, daemons, stores and

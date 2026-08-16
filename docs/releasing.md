@@ -19,7 +19,7 @@ Authorize the workflow once per package. Use the CLI — it is exact, it is
 reviewable in a diff, and it does not depend on finding a page:
 
 ```bash
-for pkg in "@byollm/protocol" "@byollm/server" byollm "@byollm/conformance"; do
+for pkg in "@byollm/protocol" "@byollm/server" byollm "@byollm/conformance" "@byollm/relay"; do
   npm trust github "$pkg" \
     --file release.yml \
     --repo oftomorrowinc/byollm \
@@ -29,6 +29,16 @@ done
 # Check what you did:
 npm trust list byollm
 ```
+
+**Every new package needs this before its first workflow release**, and the
+ordering is awkward on purpose: `npm trust` configures a publisher *for a
+package*, so the package has to exist first. A brand-new name therefore takes
+one manual publish, then this, and rides the workflow from then on.
+
+`@byollm/relay` went that way at `0.1.0-alpha.5` — which is why it is the one
+package without a provenance attestation. It gains one at its next
+workflow-published release, and the gap is worth knowing about rather than
+discovering while auditing the supply chain.
 
 Add `--dry-run` to see exactly what each call would set without changing
 anything; it prints the package, workflow file, repo and permissions back to

@@ -159,6 +159,22 @@ jobs:
             fi
           done
 
+          # 3b. Provenance needs `repository.url` to match the repo it was
+          #     built from, and npm rejects the publish with a 422 when it does
+          #     not. `@byollm/relay` shipped without one: it published by hand
+          #     at alpha.5, where nothing checks provenance, and failed on its
+          #     first workflow release — after three siblings had already gone
+          #     out, leaving a half-published version. Checked here, before
+          #     anything is published, because the cost of learning it mid-loop
+          #     is a version number nobody can reuse.
+          for pkg in $PKGS; do
+            URL="$(node -p "require('./packages/$pkg/package.json').repository?.url ?? ''")"
+            case "$URL" in
+              *oftomorrowinc/byollm*) ;;
+              *) echo "::error::packages/$pkg has no repository.url — npm will reject its provenance"; exit 1 ;;
+            esac
+          done
+
           # 4. A prerelease goes to its own dist-tag, never to `latest`.
           case "$VERSION" in
             *-alpha.*) TAG_NAME=alpha ;;

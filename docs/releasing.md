@@ -192,3 +192,27 @@ done
 `pnpm publish` (not `npm`) — it does the `workspace:*` rewriting. Expect a
 browser authentication per package, and again per `dist-tag`, because the
 account requires two-factor on writes and a passkey cannot be scripted.
+
+
+## When a release publishes some packages and then fails
+
+npm versions are immutable, so a mid-loop failure cannot be retried at the
+same number: the packages that already went out will fail the "already
+published" guard on the next attempt, and that guard is right to refuse.
+
+**Burn the version and release the next one.** Fix the cause, run
+`node scripts/bump-version.mjs <next>`, commit, move the tag. Version numbers
+are free; a half-published version that somebody later resolves to is not.
+
+This happened at `0.1.0-alpha.6`: `@byollm/protocol`, `@byollm/conformance`
+and `byollm` published, then `@byollm/relay` was rejected with a 422 because
+its manifest had no `repository.url` for provenance to match, and
+`@byollm/server` — which sorts after it — was never attempted. `alpha.6` is
+therefore a partial release that exists on the registry forever, and `alpha.7`
+is the real one.
+
+Two checks came out of it, both pre-flight, because the lesson is that a
+guard which only runs before the loop cannot save you from a failure inside
+it: every package's `repository.url` is verified before anything publishes,
+and `scripts/bump-version.mjs` exists so the version mismatch that preceded
+this cannot recur by hand.

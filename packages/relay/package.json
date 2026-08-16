@@ -1,9 +1,18 @@
 {
   "name": "@byollm/relay",
-  "version": "0.1.0-alpha.6",
+  "version": "0.1.0-alpha.7",
   "type": "module",
   "description": "The reference relay: routes sealed byollm jobs between sites and daemons, holding no decryption keys by construction.",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/oftomorrowinc/byollm.git",
+    "directory": "packages/relay"
+  },
+  "homepage": "https://github.com/oftomorrowinc/byollm/tree/main/packages/relay",
+  "bugs": {
+    "url": "https://github.com/oftomorrowinc/byollm/issues"
+  },
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "exports": {

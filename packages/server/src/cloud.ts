@@ -211,8 +211,7 @@ export class CloudLane {
         // The grant, not the machine: this site never paired with the device
         // that ran it, and the signature it verified above is the stronger
         // claim about who did.
-        leaseId: done.leaseId,
-        runnerId: done.runnerId,
+        holder: { by: "lease", leaseId: done.leaseId },
         outcome,
         provenance: provenanceFor({
           audience: record.audience,

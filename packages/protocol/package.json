@@ -1,6 +1,6 @@
 {
   "name": "@byollm/protocol",
-  "version": "0.1.0-alpha.4",
+  "version": "0.1.0-alpha.5",
   "description": "The BYOLLM wire contract — types, zod schemas, and the audience rules both the daemon and server enforce. ALPHA: under active development.",
   "license": "MIT",
   "type": "module",

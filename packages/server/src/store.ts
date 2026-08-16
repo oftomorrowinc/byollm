@@ -158,24 +158,31 @@ export interface RenewResult {
   readonly lost: readonly string[];
 }
 
+/**
+ * Which grant is being completed — the `LEASE_HONORED` guard, as a shape.
+ *
+ * A discriminated union rather than two optional fields, because the earlier
+ * version was safe only by data: it read "match the runner, unless a lease id
+ * was supplied", and a caller supplying neither would have matched
+ * `undefined === undefined` and written a result into a job it never held.
+ * Nothing did that, and nothing was going to — but the type permitted it, and
+ * this codebase has spent a week learning that a permitted mistake is a
+ * scheduled one.
+ *
+ * Two ways to name a holder because there are two planes. A direct runner
+ * paired with this site and is known by id. A relayed device never did, and
+ * is known only by the grant it holds — which is the more exact check anyway:
+ * `LEASE_HONORED` is a statement about a lease instance, the lesson the
+ * release endpoint learned when a replayed release yanked a later grant.
+ */
+export type CompleteHolder =
+  | { readonly by: "runner"; readonly runnerId: string }
+  | { readonly by: "lease"; readonly leaseId: string };
+
 export interface CompleteArgs {
   readonly jobId: string;
-  /**
-   * The runner writing the result, on a plane where the site knows runners.
-   *
-   * Empty in the cloud lane, where {@link CompleteArgs.leaseId} identifies
-   * the grant instead.
-   */
-  readonly runnerId: string;
-  /**
-   * The lease being completed, when the caller has no runner to name.
-   *
-   * `LEASE_HONORED` is a statement about a *grant*, not about a machine —
-   * the same lesson the release endpoint learned when a replayed release
-   * yanked a later lease. Matching on the lease id is therefore the more
-   * exact check, and the only one available off the direct plane.
-   */
-  readonly leaseId?: string;
+  /** Who claims to hold this job. Both variants are checked, never trusted. */
+  readonly holder: CompleteHolder;
   readonly outcome: JobOutcome;
   readonly provenance: ResultProvenance;
   readonly now: number;

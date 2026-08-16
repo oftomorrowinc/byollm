@@ -1,5 +1,5 @@
 > [!WARNING]
-> **Alpha (`0.1.0-alpha.4`) — under active development. Don't use this yet.**
+> **Alpha (`0.1.0-alpha.5`) — under active development. Don't use this yet.**
 >
 > Install it as `byollm@alpha`, deliberately. npm forces a `latest` tag onto a
 > package's first publish and will not let it be removed, so a bare install
@@ -10,8 +10,15 @@
 > has production miles. Read it, take the ideas, tell us what's wrong — but
 > don't put it in front of your users.
 >
-> **`alpha.4` is the breaking one. Every paired runner must pair again, and
-> there is no upgrade path — by design, and for the last time before there are
+> **`alpha.5` adds the reference relay and the cloud lane.** `app.enqueue(...)`
+> is identical whether a site talks to daemons directly or routes through a
+> relay — the lane is a config field. Breaking only if you wrote your own
+> `JobStore`: see [`@byollm/server`](packages/server) for the two methods that
+> changed. byollm_009 is **frozen** as of this release, after eight findings
+> that only a real consumer produced.
+>
+> **`alpha.4` was the breaking one. Every paired runner had to pair again, and
+> there was no upgrade path — by design, and for the last time before there are
 > real consumers.**
 >
 > Machines and sites now have cryptographic identities. Each daemon holds an

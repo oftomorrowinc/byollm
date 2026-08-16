@@ -46,7 +46,7 @@ describe("MemoryStore — edges", () => {
     const store = new MemoryStore();
     const result = await store.complete({
       jobId: "job_nope",
-      runnerId: "r",
+      holder: { by: "runner", runnerId: "r" },
       outcome: { outcome: "ok", text: "x" },
       provenance: {
         audience: "self",
@@ -68,7 +68,7 @@ describe("MemoryStore — edges", () => {
 
     const result = await store.complete({
       jobId: job.id,
-      runnerId: "r",
+      holder: { by: "runner", runnerId: "r" },
       outcome: { outcome: "ok", text: "too late" },
       provenance: {
         audience: "self",
@@ -331,7 +331,7 @@ describe("the push seam [byollm_009 §8.3]", () => {
 
     await store.complete({
       jobId: job.id,
-      runnerId: "r",
+      holder: { by: "runner", runnerId: "r" },
       outcome: { outcome: "ok", text: "done" },
       provenance: {
         untrusted: false,

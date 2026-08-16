@@ -1,5 +1,5 @@
 > [!WARNING]
-> **Alpha (`0.1.0-alpha.4`) — under active development. Don't use this yet.**
+> **Alpha (`0.1.0-alpha.5`) — under active development. Don't use this yet.**
 >
 > Install it deliberately: `npm install @byollm/server@alpha`.
 >
@@ -13,7 +13,14 @@
 > not an npm deprecation, which would read as *abandoned* rather than *early*.
 > Ask for `@alpha` explicitly so your lockfile records that you meant to.
 >
-> **`alpha.4` breaks every integration.** Three things changed for you:
+> **`alpha.5` breaks store adapters, and nothing else.** If you implement
+> `JobStore` yourself, two changes are required: a new `adopt(args)` method
+> (record a lease granted by an upstream this store does not own), and
+> `CompleteArgs.runnerId` is replaced by `holder` — a discriminated union
+> naming either a runner or a lease. Apps, daemons and the wire format are
+> unaffected; `@byollm/conformance` will tell you if you missed one.
+>
+> **`alpha.4` broke every integration.** Three things changed for you:
 >
 > 1. **`siteKeys` is required.** Run `npx @byollm/server@alpha keygen` once,
 >    set `BYOLLM_SITE_KEYS`, and pass it to `ByollmApp` and `createHandler`.

@@ -512,7 +512,7 @@ export class ByollmHandlers {
 
     const { accepted, job: updated } = await this.#store.complete({
       jobId: request.jobId,
-      runnerId: runner.id,
+      holder: { by: "runner", runnerId: runner.id },
       outcome: outcome.value,
       provenance,
       now,

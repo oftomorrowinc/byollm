@@ -261,9 +261,9 @@ export class MemoryStore implements ByollmStore {
     // ({@link MUSTS.LEASE_HONORED}). Named by lease id when the caller has
     // one — off the direct plane there is no runner this site knows.
     const holds =
-      args.leaseId === undefined
-        ? job.lease?.runnerId === args.runnerId
-        : job.lease?.id === args.leaseId;
+      args.holder.by === "runner"
+        ? job.lease?.runnerId === args.holder.runnerId
+        : job.lease?.id === args.holder.leaseId;
     if (!holds) {
       return Promise.resolve({ accepted: false, job });
     }

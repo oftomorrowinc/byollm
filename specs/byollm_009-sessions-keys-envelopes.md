@@ -1,10 +1,46 @@
 # byollm_009 — Sessions, keys, and sealed envelopes
 
-**Status: draft, 2026-08-13. Not frozen.** The freeze condition is
-deliberate and stated in §14: this design is not adopted until a real
-job has round-tripped through it between a real daemon and a real
-server. Protocol specs that freeze before their first consumer freeze
-the wrong things.
+**Status: FROZEN, 2026-08-15.** The condition stated below was met: a
+real job round-trips end to end between a real daemon and a real
+`@byollm/server` site, in both direct mode and through the reference
+relay, with the demonstrations running in CI (`freeze-gate` and
+`freeze-gate-postgres`).
+
+**Eight findings, none of which a review caught.** Every one came from
+a new real consumer, and each was an assumption the previous plane had
+hidden:
+
+1. `claim`-then-`fetch` assumed `fetch` always succeeds — true only
+   where the site *is* the upstream. The first relayed job was claimed,
+   answered `not-ready`, and abandoned while holding a good lease.
+2. `awaiting-payload` (§7) was unreachable on the direct plane and is
+   load-bearing off it, with a clock distinct from the lease and TTL.
+3. `complete` enforced `LEASE_HONORED` against a lease the site never
+   granted, so a relayed result could never be written.
+4. The same gap expired jobs a device was actively running.
+5. Relay lease ids were composite strings; `lease_id` is `uuid`.
+6. The relay let the daemon name itself; a device has never named
+   itself on the direct plane.
+7. `lease_runner` is a foreign key, and a relayed device has no row —
+   so the site records the **grant, not the machine**.
+8. Reading a lease from `lease_runner` made an actively-held job look
+   claimable once that column was correctly left null.
+
+Findings 5–8 appeared only against real Postgres, after the same code
+was green against the in-memory store. That is the argument for the
+freeze condition, restated as evidence: **a real-infrastructure path
+with no real-infrastructure test is a promise, not a property.**
+
+All eight were package-internal. Nothing in the wire surface moved —
+envelope, handshake, MUSTs and stub schema are as specified here — so
+a third-party daemon or server built to this document needs no change.
+That distinction is the freeze test: not "did anything change" but
+"would an independent implementation have to."
+
+*Original condition, for the record:* this design is not adopted until
+a real job has round-tripped through it between a real daemon and a
+real server. Protocol specs that freeze before their first consumer
+freeze the wrong things.
 
 This is the largest breaking change on the roadmap. It is taken while
 the protocol is v0 and says plainly that it will change without a

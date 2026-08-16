@@ -394,9 +394,9 @@ export function supabaseStore(options: SupabaseStoreOptions): ByollmStore {
         .eq("id", args.jobId)
         .in("state", ["claimed", "running"]);
       update =
-        args.leaseId === undefined
-          ? update.eq("lease_runner", args.runnerId)
-          : update.eq("lease_id", args.leaseId);
+        args.holder.by === "runner"
+          ? update.eq("lease_runner", args.holder.runnerId)
+          : update.eq("lease_id", args.holder.leaseId);
       const rows = unwrap<JobRow[]>(await update.select());
 
       const written = rows[0];

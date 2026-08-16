@@ -1,5 +1,5 @@
 > [!WARNING]
-> **Alpha (`0.1.0-alpha.5`) — under active development. Don't use this yet.**
+> **Alpha (`0.1.0-alpha.6`) — under active development. Don't use this yet.**
 >
 > Install it as `byollm@alpha`, deliberately. npm forces a `latest` tag onto a
 > package's first publish and will not let it be removed, so a bare install
@@ -10,7 +10,14 @@
 > has production miles. Read it, take the ideas, tell us what's wrong — but
 > don't put it in front of your users.
 >
-> **`alpha.5` adds the reference relay and the cloud lane.** `app.enqueue(...)`
+> **`alpha.6` tightens who a machine is allowed to say it is.** A relay now
+> refuses to pair a device its owner has not approved in a control plane —
+> previously a daemon presented keys and the relay believed them, which made
+> the relay the authority on identity rather than the person who owns the
+> machine. Breaking only if you operate a relay; direct-mode sites and daemons
+> are unaffected and nothing re-pairs.
+>
+> **`alpha.5` added the reference relay and the cloud lane.** `app.enqueue(...)`
 > is identical whether a site talks to daemons directly or routes through a
 > relay — the lane is a config field. Breaking only if you wrote your own
 > `JobStore`: see [`@byollm/server`](packages/server) for the two methods that

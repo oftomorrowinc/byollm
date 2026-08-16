@@ -1,5 +1,5 @@
 > [!WARNING]
-> **Alpha (`0.1.0-alpha.5`) — under active development. Don't use this yet.**
+> **Alpha (`0.1.0-alpha.6`) — under active development. Don't use this yet.**
 >
 > Install it deliberately: `npm install @byollm/server@alpha`.
 >
@@ -13,7 +13,13 @@
 > not an npm deprecation, which would read as *abandoned* rather than *early*.
 > Ask for `@alpha` explicitly so your lockfile records that you meant to.
 >
-> **`alpha.5` breaks store adapters, and nothing else.** If you implement
+> **`alpha.6` breaks nobody who is not implementing a relay.** `@byollm/relay`'s
+> projection gains `devices` — the device keys a control plane has approved —
+> and the relay refuses to pair a device that is not in it. `revoked` becomes
+> `{owner, siteId}` instead of a composite string. Sites, daemons, stores and
+> the wire format are all untouched; no runner re-pairs.
+>
+> **`alpha.5` broke store adapters, and nothing else.** If you implement
 > `JobStore` yourself, two changes are required: a new `adopt(args)` method
 > (record a lease granted by an upstream this store does not own), and
 > `CompleteArgs.runnerId` is replaced by `holder` — a discriminated union

@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -209,6 +210,7 @@ export class SiteConnector {
 /** Pair and build a real daemon against the relay. */
 export async function makeDaemon(
   relay: Relay,
+  fixture: RelayFixture,
   input: { owner: string; site: PublicIdentity },
 ): Promise<{
   runner: Runner;
@@ -237,6 +239,17 @@ export async function makeDaemon(
 
   const fetchImpl: typeof fetch = (i, init) =>
     relay.handle(new Request(i, init));
+
+  // The dashboard step, simulated: a human approved these keys, so the
+  // control plane knows them and the relay will accept them. Without this the
+  // pair call is refused — which is the property, not an inconvenience.
+  const approved = {
+    owner: input.owner,
+    runnerId: randomUUID(),
+    device: await identity.publicIdentity(Date.now()),
+  };
+  fixture.devices.push(approved);
+  relay.project(fixture);
 
   // Consent came from the fixture, so pairing is the key exchange alone. The
   // daemon-visible outcome is what a device-code flow produces: a runner id
@@ -340,6 +353,7 @@ export function fixtureFor(
 ): RelayFixture {
   return {
     consents: [{ owner: "alice", siteId: SITE_ID, site }],
+    devices: [],
     rosters: [],
     revoked: [],
     ...extra,

@@ -79,19 +79,55 @@ export const RosterRecord = z
   .strict();
 export type RosterRecord = z.infer<typeof RosterRecord>;
 
+/**
+ * A device its owner has approved — cloud_005 §7.1.
+ *
+ * The relay refuses a device that is not here, and that refusal is the point.
+ * byollm_009's seventh finding stopped a daemon from *naming* itself; this
+ * stops it from *keying* itself. A device that presents keys nobody approved
+ * is a device whose owner never saw a fingerprint, and pairing it would make
+ * the relay the authority on identity — which is exactly what it must not be.
+ *
+ * The three-party shape consent already has, applied to identity: the device
+ * asserts, a human confirms in the control plane, the relay checks.
+ */
+export const DeviceRecord = z
+  .object({
+    /** Who approved it. */
+    owner: z.string().min(1),
+    /** The id the control plane assigned — the device does not choose it. */
+    runnerId: z.string().min(1),
+    /** The keys a human compared a fingerprint of before approving. */
+    device: PublicIdentity,
+  })
+  .strict();
+export type DeviceRecord = z.infer<typeof DeviceRecord>;
+
+/** A revoked route, named by its parts. */
+export const RevocationRecord = z
+  .object({ owner: z.string().min(1), siteId: z.string().min(1) })
+  .strict();
+export type RevocationRecord = z.infer<typeof RevocationRecord>;
+
 export const RelayFixture = z
   .object({
     consents: z.array(ConsentRecord),
+    devices: z.array(DeviceRecord).default([]),
     rosters: z.array(RosterRecord).default([]),
     /**
-     * Owners whose routing is revoked, by `owner:siteId`.
+     * Routes that were revoked, as structured pairs.
      *
      * A separate list rather than deleting the consent record, because the
-     * freeze gate needs revocation to be a *fixture edit* observable within
-     * one heartbeat, and "the row is gone" and "the row was revoked" are
-     * different things to a reader debugging why routing stopped.
+     * freeze gate needs revocation to be an observable *event* rather than an
+     * absence — "the row is gone" and "the row was revoked" are different
+     * answers to someone debugging why routing stopped.
+     *
+     * `{owner, siteId}` and never the composite string `"owner:siteId"`. A
+     * composite key is a parser waiting to meet an id containing its
+     * separator, which is the lesson the composite lease ids taught against
+     * Postgres — applied here before it became a contract.
      */
-    revoked: z.array(z.string().min(1)).default([]),
+    revoked: z.array(RevocationRecord).default([]),
   })
   .strict();
 export type RelayFixture = z.infer<typeof RelayFixture>;
@@ -99,6 +135,7 @@ export type RelayFixture = z.infer<typeof RelayFixture>;
 /** An empty projection: nothing consented, so nothing routes. */
 export const EMPTY_FIXTURE: RelayFixture = {
   consents: [],
+  devices: [],
   rosters: [],
   revoked: [],
 };
@@ -123,9 +160,30 @@ export class Projection {
     this.#fixture = RelayFixture.parse(fixture);
   }
 
+  /**
+   * The device this runner id names, if a human approved it.
+   *
+   * Returns null for a device the control plane does not know, which is how
+   * the relay refuses to be the authority on identity.
+   */
+  deviceFor(runnerId: string): DeviceRecord | null {
+    return this.#fixture.devices.find((d) => d.runnerId === runnerId) ?? null;
+  }
+
+  /** The device approved for these exact keys, if any. */
+  deviceByFingerprint(identityPublic: string): DeviceRecord | null {
+    return (
+      this.#fixture.devices.find((d) => d.device.identity === identityPublic) ??
+      null
+    );
+  }
+
   /** The consent binding this owner to this site, if it exists and stands. */
   consentFor(owner: string, siteId: string): ConsentRecord | null {
-    if (this.#fixture.revoked.includes(`${owner}:${siteId}`)) return null;
+    const revoked = this.#fixture.revoked.some(
+      (r) => r.owner === owner && r.siteId === siteId,
+    );
+    if (revoked) return null;
     return (
       this.#fixture.consents.find(
         (c) => c.owner === owner && c.siteId === siteId,

@@ -113,12 +113,10 @@ describe.each(CASES)("the cloud lane over $name", (storeCase) => {
     const { store, owner } = await storeCase.make();
     const siteKeys = generateSiteKeys();
     const site = publicIdentityOf(siteKeys);
-    const relay = new Relay({
-      siteId: SITE_ID,
-      fixture: fixtureFor(site, {
-        consents: [{ owner, siteId: SITE_ID, site }],
-      }),
+    const fixture = fixtureFor(site, {
+      consents: [{ owner, siteId: SITE_ID, site }],
     });
+    const relay = new Relay({ siteId: SITE_ID, fixture });
 
     const app = new ByollmApp({
       store,
@@ -130,7 +128,7 @@ describe.each(CASES)("the cloud lane over $name", (storeCase) => {
       },
     });
 
-    const daemon = await makeDaemon(relay, {
+    const daemon = await makeDaemon(relay, fixture, {
       owner,
       site,
     });
@@ -178,12 +176,10 @@ describe.each(CASES)("the cloud lane over $name", (storeCase) => {
     const { store, owner } = await storeCase.make();
     const siteKeys = generateSiteKeys();
     const site = publicIdentityOf(siteKeys);
-    const relay = new Relay({
-      siteId: SITE_ID,
-      fixture: fixtureFor(site, {
-        consents: [{ owner, siteId: SITE_ID, site }],
-      }),
+    const fixture = fixtureFor(site, {
+      consents: [{ owner, siteId: SITE_ID, site }],
     });
+    const relay = new Relay({ siteId: SITE_ID, fixture });
     const app = new ByollmApp({
       store,
       siteKeys,
@@ -193,7 +189,7 @@ describe.each(CASES)("the cloud lane over $name", (storeCase) => {
         fetch: (input, init) => relay.handle(new Request(input, init)),
       },
     });
-    const daemon = await makeDaemon(relay, {
+    const daemon = await makeDaemon(relay, fixture, {
       owner,
       site,
     });
@@ -240,12 +236,10 @@ describe.each(CASES)("the cloud lane over $name", (storeCase) => {
     const { store, owner } = await storeCase.make();
     const siteKeys = generateSiteKeys();
     const site = publicIdentityOf(siteKeys);
-    const relay = new Relay({
-      siteId: SITE_ID,
-      fixture: fixtureFor(site, {
-        consents: [{ owner, siteId: SITE_ID, site }],
-      }),
+    const fixture = fixtureFor(site, {
+      consents: [{ owner, siteId: SITE_ID, site }],
     });
+    const relay = new Relay({ siteId: SITE_ID, fixture });
     const app = new ByollmApp({
       store,
       siteKeys,
@@ -255,7 +249,7 @@ describe.each(CASES)("the cloud lane over $name", (storeCase) => {
         fetch: (input, init) => relay.handle(new Request(input, init)),
       },
     });
-    const daemon = await makeDaemon(relay, {
+    const daemon = await makeDaemon(relay, fixture, {
       owner,
       site,
     });

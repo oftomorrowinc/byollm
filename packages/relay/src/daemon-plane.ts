@@ -95,12 +95,38 @@ export class DaemonPlane {
       return fail(403, "unauthorized", "no consent record for this user");
     }
 
-    // Minted here, not accepted from the device. The direct plane's server
-    // mints a runner id at approval and a device has never named itself; a
-    // relay that let one would take an identifier from the least trusted
-    // party in the exchange. A uuid because the stores that eventually
-    // record leases against it type their id columns that way.
-    const runnerId = randomUUID();
+    // The device must already be approved, by a human, in the control plane.
+    //
+    // It presented keys; that is an assertion, not an identity. Somebody had
+    // to look at a fingerprint and say yes, and this is where that decision is
+    // enforced. byollm_009's seventh finding stopped a daemon from *naming*
+    // itself and this stops it from *keying* itself — otherwise the relay
+    // would be the authority on who a machine is, which is precisely the role
+    // a blind relay must not hold.
+    //
+    // Matched on the identity key rather than a claimed id: the key is what
+    // the human approved and what every later signature is checked against.
+    const approved = this.#deps.projection.deviceByFingerprint(
+      parsed.data.device.identity,
+    );
+    if (!approved) {
+      return fail(
+        403,
+        "unauthorized",
+        "this device has not been approved by its owner",
+      );
+    }
+    if (approved.owner !== parsed.data.owner) {
+      // The device was approved by somebody else. Refused rather than
+      // re-owned: an approval is for a person, not a key in general.
+      return fail(403, "unauthorized", "this device belongs to another owner");
+    }
+
+    // The id comes from the control plane, not from the device and not from
+    // here — one authority for identity, and it is the one with the human in
+    // it. The relay's own uuid minting was a stopgap for a fixture with no
+    // devices in it.
+    const runnerId = approved.runnerId;
 
     this.#deps.state.seen({
       runnerId,

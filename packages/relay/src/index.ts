@@ -173,6 +173,8 @@ export { Projection, RelayState, debugPage };
 export type { RelayFixture };
 export {
   ConsentRecord,
+  DeviceRecord,
+  RevocationRecord,
   RosterRecord,
   RelayFixture as RelayFixtureSchema,
   EMPTY_FIXTURE,

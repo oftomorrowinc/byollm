@@ -98,6 +98,17 @@ records from a different direction: a check named after a property does not
 necessarily test that property. Read the name as a claim and ask what
 mutation would falsify it.
 
+## Verified 2026-08-16 — the relay's device gate
+
+| Check                        | File                                 | Mutation                                            | Result  |
+| ---------------------------- | ------------------------------------ | --------------------------------------------------- | ------- |
+| Freeze gate 10 (device gate) | `packages/relay/src/daemon-plane.ts` | Disable the `deviceByFingerprint` refusal in `pair` | ✓ bites |
+
+Lives in the relay's freeze gate rather than the conformance kit because it
+is a _cloud_ property, not a protocol MUST: a direct site has no projection
+and approves devices through its own pairing flow. The kit certifies the
+protocol; the gate certifies the relay.
+
 ## Not yet verified
 
 `C001`–`C004`, `C006`, `C008`–`C013`, `C016` predate this practice. They are

@@ -30,9 +30,10 @@ describe("the freeze gate — cloud_004 §14", () => {
   it("1. round-trips a sealed, signed job end to end", async () => {
     const siteKeys = generateKeys(Date.now());
     const site = publicIdentityOf(siteKeys);
-    const relay = new Relay({ siteId: SITE_ID, fixture: fixtureFor(site) });
+    const fixture = fixtureFor(site);
+    const relay = new Relay({ siteId: SITE_ID, fixture });
     const connector = new SiteConnector(relay, siteKeys);
-    const daemon = await makeDaemon(relay, {
+    const daemon = await makeDaemon(relay, fixture, {
       owner: "alice",
       site,
     });
@@ -58,9 +59,10 @@ describe("the freeze gate — cloud_004 §14", () => {
   it("2. the relay never holds a plaintext, and its state cannot express one", async () => {
     const siteKeys = generateKeys(Date.now());
     const site = publicIdentityOf(siteKeys);
-    const relay = new Relay({ siteId: SITE_ID, fixture: fixtureFor(site) });
+    const fixture = fixtureFor(site);
+    const relay = new Relay({ siteId: SITE_ID, fixture });
     const connector = new SiteConnector(relay, siteKeys);
-    const daemon = await makeDaemon(relay, {
+    const daemon = await makeDaemon(relay, fixture, {
       owner: "alice",
       site,
     });
@@ -90,9 +92,10 @@ describe("the freeze gate — cloud_004 §14", () => {
   it("3. refuses work sealed by a key the daemon never pinned", async () => {
     const siteKeys = generateKeys(Date.now());
     const site = publicIdentityOf(siteKeys);
-    const relay = new Relay({ siteId: SITE_ID, fixture: fixtureFor(site) });
+    const fixture = fixtureFor(site);
+    const relay = new Relay({ siteId: SITE_ID, fixture });
     const connector = new SiteConnector(relay, siteKeys);
-    const daemon = await makeDaemon(relay, {
+    const daemon = await makeDaemon(relay, fixture, {
       owner: "alice",
       site,
     });
@@ -140,13 +143,14 @@ describe("the freeze gate — cloud_004 §14", () => {
     // An offset from the real clock, not a fixed epoch: the daemon signs with
     // `Date.now()`, and a relay parked in 2027 fails every freshness check.
     let skew = 0;
+    const fixture = fixtureFor(site);
     const relay = new Relay({
       siteId: SITE_ID,
-      fixture: fixtureFor(site),
+      fixture,
       now: () => Date.now() + skew,
     });
     const connector = new SiteConnector(relay, siteKeys);
-    const daemon = await makeDaemon(relay, {
+    const daemon = await makeDaemon(relay, fixture, {
       owner: "alice",
       site,
     });
@@ -193,16 +197,20 @@ describe("the freeze gate — cloud_004 §14", () => {
   it("5. revocation kills routing within one heartbeat", async () => {
     const siteKeys = generateKeys(Date.now());
     const site = publicIdentityOf(siteKeys);
-    const relay = new Relay({ siteId: SITE_ID, fixture: fixtureFor(site) });
+    const fixture = fixtureFor(site);
+    const relay = new Relay({ siteId: SITE_ID, fixture });
     const connector = new SiteConnector(relay, siteKeys);
-    const daemon = await makeDaemon(relay, {
+    const daemon = await makeDaemon(relay, fixture, {
       owner: "alice",
       site,
     });
     disposers.push(daemon.dispose);
 
     // A fixture edit — the control plane withdrawing consent.
-    relay.project(fixtureFor(site, { revoked: [`alice:${SITE_ID}`] }));
+    relay.project({
+      ...fixture,
+      revoked: [{ owner: "alice", siteId: SITE_ID }],
+    });
 
     await connector.enqueue({ prompt: "after revocation", owner: "alice" });
     await daemon.runner.tick();
@@ -215,17 +223,16 @@ describe("the freeze gate — cloud_004 §14", () => {
   it("6. routes a named job to a roster device, showing the relay only a stub", async () => {
     const siteKeys = generateKeys(Date.now());
     const site = publicIdentityOf(siteKeys);
-    const relay = new Relay({
-      siteId: SITE_ID,
-      fixture: {
-        consents: [{ owner: "bob", siteId: SITE_ID, site }],
-        // Bob's machine runs work for his team, of which alice is a member.
-        rosters: [{ id: "team_1", owner: "bob", members: ["alice"] }],
-        revoked: [],
-      },
-    });
+    const fixture = {
+      consents: [{ owner: "bob", siteId: SITE_ID, site }],
+      devices: [],
+      // Bob's machine runs work for his team, of which alice is a member.
+      rosters: [{ id: "team_1", owner: "bob", members: ["alice"] }],
+      revoked: [],
+    };
+    const relay = new Relay({ siteId: SITE_ID, fixture });
     const connector = new SiteConnector(relay, siteKeys);
-    const daemon = await makeDaemon(relay, {
+    const daemon = await makeDaemon(relay, fixture, {
       owner: "bob",
       site,
     });
@@ -262,9 +269,10 @@ describe("the freeze gate — cloud_004 §14", () => {
     // this asserts the relay neither reads it nor drops it.
     const siteKeys = generateKeys(Date.now());
     const site = publicIdentityOf(siteKeys);
-    const relay = new Relay({ siteId: SITE_ID, fixture: fixtureFor(site) });
+    const fixture = fixtureFor(site);
+    const relay = new Relay({ siteId: SITE_ID, fixture });
     const connector = new SiteConnector(relay, siteKeys);
-    const daemon = await makeDaemon(relay, {
+    const daemon = await makeDaemon(relay, fixture, {
       owner: "alice",
       site,
     });
@@ -275,5 +283,68 @@ describe("the freeze gate — cloud_004 §14", () => {
 
     expect(relay.state.jobs()[0]?.stub.streaming).toBe(false);
     expect(relay.state.jobs()[0]?.state).toBe("done");
+  });
+});
+
+describe("identity is the control plane's to decide", () => {
+  it("10. refuses a device no human approved", async () => {
+    // The device presented keys. That is an assertion, not an identity —
+    // somebody had to look at a fingerprint and say yes. byollm_009's seventh
+    // finding stopped a daemon from *naming* itself; this stops it from
+    // *keying* itself, which is the same mistake one layer down.
+    //
+    // Without this the relay would be the authority on who a machine is, and
+    // a blind relay deciding identity is exactly the role it must not hold.
+    const siteKeys = generateKeys(Date.now());
+    const site = publicIdentityOf(siteKeys);
+    const fixture = fixtureFor(site);
+    const relay = new Relay({ siteId: SITE_ID, fixture });
+
+    const stranger = generateKeys(Date.now());
+    const response = await relay.handle(
+      new Request("http://relay.test/byollm/pair", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          protocolVersion: "0",
+          owner: "alice",
+          device: publicIdentityOf(stranger),
+        }),
+      }),
+    );
+    expect(response.status).toBe(403);
+
+    // And an approved device still pairs — so this is not a check that
+    // refuses everything.
+    const daemon = await makeDaemon(relay, fixture, { owner: "alice", site });
+    disposers.push(daemon.dispose);
+    expect(daemon.runnerId).toBeTruthy();
+  });
+
+  it("11. refuses a device approved for somebody else", async () => {
+    // An approval is for a person, not for a key in general. Bob cannot pair
+    // Alice's approved laptop by claiming to be its owner.
+    const siteKeys = generateKeys(Date.now());
+    const site = publicIdentityOf(siteKeys);
+    const fixture = fixtureFor(site);
+    const relay = new Relay({ siteId: SITE_ID, fixture });
+    const daemon = await makeDaemon(relay, fixture, { owner: "alice", site });
+    disposers.push(daemon.dispose);
+
+    const approvedKeys = fixture.devices[0]?.device;
+    expect(approvedKeys).toBeDefined();
+
+    const response = await relay.handle(
+      new Request("http://relay.test/byollm/pair", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          protocolVersion: "0",
+          owner: "bob",
+          device: approvedKeys,
+        }),
+      }),
+    );
+    expect(response.status).toBe(403);
   });
 });

@@ -106,9 +106,33 @@ jobs:
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "Releasing $VERSION"
 
-          # 1. All four packages move in lockstep. A stale one would publish a
+          # 0. Which packages ship, derived rather than listed.
+          #
+          #    This was hardcoded in four places, and `@byollm/relay` was
+          #    added to none of them: it carried a version, a public
+          #    `publishConfig` and no `private` flag, and a tagged release
+          #    published four packages and silently skipped it. One value in
+          #    four copies is the bug this repo keeps finding — here it cost
+          #    a package rather than a signature.
+          #
+          #    Anything under packages/ that is not `private` ships. To keep
+          #    a package out of a release, mark it private; there is no list
+          #    to forget to update.
+          PKGS="$(node -e '
+            const { readdirSync, existsSync } = require("node:fs");
+            const names = readdirSync("packages").filter((d) => {
+              const m = `packages/${d}/package.json`;
+              if (!existsSync(m)) return false;
+              return require(`./${m}`).private !== true;
+            });
+            process.stdout.write(names.join(" "));
+          ')"
+          echo "Publishable packages: $PKGS"
+          echo "packages=$PKGS" >> "$GITHUB_OUTPUT"
+
+          # 1. Every package moves in lockstep. A stale one would publish a
           #    version whose siblings do not exist at the version it names.
-          for pkg in protocol server daemon conformance; do
+          for pkg in $PKGS; do
             V="$(node -p "require('./packages/$pkg/package.json').version")"
             if [ "$V" != "$VERSION" ]; then
               echo "::error::packages/$pkg is $V but protocol is $VERSION — versions must match"
@@ -126,8 +150,9 @@ jobs:
           fi
 
           # 3. npm versions are immutable. Failing here beats failing halfway
-          #    through, with two of four packages published.
-          for name in "@byollm/protocol" "@byollm/server" "byollm" "@byollm/conformance"; do
+          #    through, with some of the set published and the rest not.
+          for pkg in $PKGS; do
+            name="$(node -p "require('./packages/$pkg/package.json').name")"
             if npm view "$name@$VERSION" version >/dev/null 2>&1; then
               echo "::error::$name@$VERSION is already published — bump the version"
               exit 1
@@ -156,7 +181,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p dist-tarballs
-          for pkg in protocol server daemon conformance; do
+          for pkg in ${{ steps.version.outputs.packages }}; do
             ( cd "packages/$pkg" && pnpm pack --pack-destination ../../dist-tarballs )
           done
           ls -la dist-tarballs
@@ -179,7 +204,7 @@ jobs:
           # and so sailed past a publish command npm could not even parse —
           # a rehearsal that does not invoke the thing proves the least
           # interesting part.
-          for pkg in protocol server daemon conformance; do
+          for pkg in ${{ steps.version.outputs.packages }}; do
             NAME="$(node -p "require('./packages/$pkg/package.json').name")"
             FILE="./dist-tarballs/$(printf '%s' "$NAME" | sed 's|^@||; s|/|-|')-$V.tgz"
             echo "==> would publish $NAME from $FILE"
@@ -203,7 +228,7 @@ jobs:
           # by pattern: the daemon's directory is `daemon` but its package is
           # `byollm`, so `byollm-0.1.0-….tgz` and `byollm-server-0.1.0-….tgz`
           # both match any glob loose enough to catch the first.
-          for pkg in protocol server daemon conformance; do
+          for pkg in ${{ steps.version.outputs.packages }}; do
             NAME="$(node -p "require('./packages/$pkg/package.json').name")"
             # The `./` is load-bearing. `npm publish <spec>` resolves a bare
             # `a/b` as the GitHub shorthand `github:a/b`, so a relative path
@@ -245,7 +270,8 @@ jobs:
           {
             echo "## Published \`$V\` under \`$TAG\`"
             echo ""
-            for n in "@byollm/protocol" "@byollm/server" "byollm" "@byollm/conformance"; do
+            for pkg in ${{ steps.version.outputs.packages }}; do
+              n="$(node -p "require('./packages/$pkg/package.json').name")"
               echo "- https://www.npmjs.com/package/$n/v/$V"
             done
             if [ "$TAG" != "latest" ]; then
@@ -257,7 +283,8 @@ jobs:
               echo "docs/releasing.md. Run locally (a passkey prompt per package):"
               echo ""
               echo '```bash'
-              for n in "@byollm/protocol" "@byollm/server" "byollm" "@byollm/conformance"; do
+              for pkg in ${{ steps.version.outputs.packages }}; do
+                n="$(node -p "require('./packages/$pkg/package.json').name")"
                 echo "npm dist-tag add $n@$V latest"
               done
               echo '```'

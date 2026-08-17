@@ -1,5 +1,6 @@
 import { fingerprintOf } from "./daemon-plane.js";
-import type { RelayState, RoutedJob } from "./state.js";
+import type { RoutedJob } from "./state.js";
+import type { RoutingStore } from "./store.js";
 
 /**
  * The debug page — cloud_004 §10.
@@ -50,7 +51,7 @@ function jobRow(job: RoutedJob, now: number): string {
 }
 
 export async function debugPage(
-  state: RelayState,
+  state: RoutingStore,
   now: number,
 ): Promise<string> {
   const jobs = await state.jobs();

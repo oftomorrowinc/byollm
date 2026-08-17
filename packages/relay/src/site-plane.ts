@@ -7,7 +7,7 @@ import {
 import { z } from "zod";
 import type { PlaneResult } from "./daemon-plane.js";
 import type { Projection } from "./fixture.js";
-import type { RelayState } from "./state.js";
+import type { RoutingStore } from "./store.js";
 
 /**
  * The plane a site talks to.
@@ -95,7 +95,7 @@ const fail = (status: number, error: string, message: string): PlaneResult => ({
 });
 
 export interface SitePlaneDeps {
-  readonly state: RelayState;
+  readonly state: RoutingStore;
   readonly projection: Projection;
   readonly now: () => number;
   /**

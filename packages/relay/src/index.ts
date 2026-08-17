@@ -3,6 +3,7 @@ import { debugPage } from "./debug.js";
 import { Projection, type RelayFixture } from "./fixture.js";
 import { SitePlane } from "./site-plane.js";
 import { RelayState } from "./state.js";
+import type { RoutingStore } from "./store.js";
 
 /**
  * `@byollm/relay` — the reference relay (cloud_004 §14).
@@ -46,11 +47,27 @@ export interface RelayOptions {
   readonly now?: () => number;
   /** Where the daemon plane is mounted. */
   readonly basePath?: string;
+  /**
+   * Where routing state lives — cloud_006.
+   *
+   * Defaults to an in-process {@link RelayState}, which is correct for one
+   * replica and is what this package ships. A hub running more than one
+   * replica supplies a shared implementation of {@link RoutingStore} instead;
+   * `packages/relay/test/two-replicas.test.ts` is why that is not optional.
+   *
+   * **The implementation is deliberately not in this package.** A Valkey
+   * client is a dependency every consumer would carry to get a feature only a
+   * multi-replica deployment uses, and the production hub is the closed piece
+   * (cloud_001). What ships here is the interface, the reference
+   * implementation, and the tests that say what an implementation must
+   * guarantee.
+   */
+  readonly store?: RoutingStore;
 }
 
 /** A running relay: one fetch handler, two planes, one debug page. */
 export class Relay {
-  readonly state: RelayState;
+  readonly state: RoutingStore;
   readonly projection: Projection;
   readonly #daemon: DaemonPlane;
   readonly #site: SitePlane;
@@ -58,7 +75,8 @@ export class Relay {
   readonly #basePath: string;
 
   constructor(options: RelayOptions) {
-    this.state = new RelayState({ now: options.now ?? Date.now });
+    this.state =
+      options.store ?? new RelayState({ now: options.now ?? Date.now });
     this.projection = new Projection(options.fixture);
     this.#now = options.now ?? Date.now;
     this.#basePath = (options.basePath ?? "/byollm").replace(/\/+$/, "");

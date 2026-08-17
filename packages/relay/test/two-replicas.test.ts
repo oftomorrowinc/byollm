@@ -1,6 +1,6 @@
 import { cryptoReady, generateKeys, publicIdentityOf } from "@byollm/protocol";
 import { afterEach, beforeAll, describe, expect, it } from "vitest";
-import { Relay } from "../src/index.js";
+import { Relay, RelayState } from "../src/index.js";
 import { SITE_ID, SiteConnector, fixtureFor, makeDaemon } from "./harness.js";
 
 /**
@@ -102,87 +102,105 @@ describe("two replicas, one load balancer", () => {
 });
 
 /**
- * The claim race — cloud_006 §3.2, written before the fix.
+ * The claim race, and what a shared store has to make true — cloud_006 §3.2.
  *
  * The test above demonstrates *split* state: two replicas that cannot see each
- * other. Shared routing state fixes that, and introduces the failure this file
- * did not previously describe — the one a careful port would ship.
+ * other. This is the failure a careful port introduces while fixing that one.
  *
- * `DaemonPlane.claim` scans `state.jobs()`, filters in JavaScript, and mutates
- * the winners. That is atomic today for one reason and one reason only:
- * **Node is single-threaded and the Maps are local**, so nothing can run
- * between the read and the write. Neither of those survives a store on a
- * network.
+ * `claim` used to be `jobs()` → filter → mutate in the plane, atomic for
+ * exactly one reason: **Node is single-threaded and the Maps are local.**
+ * `CLAIM_ATOMIC` is a MUST, and it held by accident of runtime rather than by
+ * design — so a naive port passes every existing test, because every existing
+ * test runs one replica.
  *
- * `CLAIM_ATOMIC` is a MUST. It currently holds by accident of runtime rather
- * than by design, which is the "true for an accidental reason" class — and the
- * dangerous property is that a naive port **passes every existing test**,
- * because every existing test runs one replica.
+ * ## Why this replaced an `it.fails`
  *
- * ## What a shared store means, modelled honestly
+ * It was first written as a failing assertion: two relays with separate
+ * stores, the same job id in both, and both claiming it. That modelled a
+ * shared store rather than using one, because there was no way to share.
  *
- * Sharing routing state means both replicas see the same job in the same
- * state. So: one job id, `queued` in both. Then a daemon claims on each.
+ * It could never have inverted. Two separate stores stay two separate stores
+ * no matter what backs them, so the "red test that goes green when fixed" was
+ * red about a situation the fix does not address. Now that `RelayOptions`
+ * takes a store, the assertion can be made directly, and a marker that cannot
+ * flip is worse than no marker — it looks like a tripwire and is a decoration.
  *
- * With a store that makes claiming a single operation, exactly one wins and
- * the other is told there is nothing to take. Today both win, and two devices
- * hold a lease on one job — which means two machines run it, two results come
- * back, and `RESULT_IDEMPOTENT` decides which one the site keeps by arrival
- * order rather than by anyone's intent.
+ * ## What this does and does not prove
+ *
+ * With a shared `RelayState` it proves the **seam and the contract**: two
+ * relays, one store, and a job granted to exactly one device.
+ *
+ * It does **not** prove atomicity under concurrency, and cannot. A memory
+ * store is atomic for free — one process, one thread, nothing runs between the
+ * read and the write. The assertion that matters is this same test against a
+ * store on a network, where those guarantees are gone; that is cloud_006 §4.2,
+ * and it belongs with the Valkey implementation rather than here.
  */
-describe("the claim race that shared state will introduce", () => {
-  it.fails(
-    "grants one job to exactly one device when both replicas can see it",
-    async () => {
-      const siteKeys = generateKeys(Date.now());
-      const site = publicIdentityOf(siteKeys);
-      const fixture = fixtureFor(site);
+describe("two replicas sharing one store", () => {
+  it("grants a job to exactly one device", async () => {
+    const siteKeys = generateKeys(Date.now());
+    const site = publicIdentityOf(siteKeys);
+    const fixture = fixtureFor(site);
 
-      const a = new Relay({ siteId: SITE_ID, fixture });
-      const b = new Relay({ siteId: SITE_ID, fixture });
+    // One store, two relays — which is what a load balancer in front of two
+    // pods looks like once routing state is shared.
+    const store = new RelayState();
+    const a = new Relay({ siteId: SITE_ID, fixture, store });
+    const b = new Relay({ siteId: SITE_ID, fixture, store });
 
-      // A daemon per replica, as a load balancer would produce. Both are
-      // approved devices belonging to the same consenting owner, so each
-      // replica is entitled to offer them work — the projection is shared and
-      // is not the problem.
-      const one = await makeDaemon(a, fixture, { owner: "alice", site });
-      disposers.push(one.dispose);
-      const two = await makeDaemon(b, fixture, { owner: "alice", site });
-      disposers.push(two.dispose);
-      // Both relays learn both devices: presence is routing state, so a shared
-      // store shares it too.
-      a.project(fixture);
-      b.project(fixture);
+    const one = await makeDaemon(a, fixture, { owner: "alice", site });
+    disposers.push(one.dispose);
+    const two = await makeDaemon(b, fixture, { owner: "alice", site });
+    disposers.push(two.dispose);
+    a.project(fixture);
+    b.project(fixture);
 
-      // One job, queued on both — which is what "shared routing state" means.
-      const stub = {
-        id: "job_contended",
-        kind: "llm.generate" as const,
-        owner: "alice",
-        audience: "self" as const,
-        sizeClass: "small" as const,
-        streaming: false,
-        deadlineAt: Date.now() + 300_000,
-      };
-      await a.state.enqueue({ id: stub.id, siteId: SITE_ID, stub });
-      await b.state.enqueue({ id: stub.id, siteId: SITE_ID, stub });
+    const stub = {
+      id: "job_contended",
+      kind: "llm.generate" as const,
+      owner: "alice",
+      audience: "self" as const,
+      sizeClass: "small" as const,
+      streaming: false,
+      deadlineAt: Date.now() + 300_000,
+    };
+    // Enqueued once. That is the difference: with a shared store there is one
+    // job, not one per replica.
+    await store.enqueue({ id: stub.id, siteId: SITE_ID, stub });
 
-      // Concurrent, as far as the daemons are concerned: neither waits for the
-      // other, and each talks to the replica the balancer gave it.
-      await Promise.all([one.runner.tick(), two.runner.tick()]);
-      await new Promise((r) => setTimeout(r, 30));
+    await Promise.all([one.runner.tick(), two.runner.tick()]);
+    await new Promise((r) => setTimeout(r, 30));
 
-      const holders = (
-        await Promise.all([a, b].map((relay) => relay.state.job(stub.id)))
-      )
-        .map((job) => job?.claimedBy?.runnerId)
-        .filter((runnerId): runnerId is string => runnerId !== undefined);
+    const holder = (await store.job(stub.id))?.claimedBy?.runnerId;
+    expect(holder).toBeDefined();
+    // Both daemons asked; one holds it. The other was told there was nothing,
+    // which is the answer that keeps two machines from running one job and
+    // sending two results home.
+    expect([one.runnerId, two.runnerId]).toContain(holder);
 
-      // The assertion `RoutingStore` must make true. It is red today, which is
-      // the point of writing it now: `it.fails` inverts the moment the claim
-      // becomes a single operation, so whoever lands that change is told to
-      // delete this marker rather than having to remember the test exists.
-      expect(new Set(holders).size).toBeLessThanOrEqual(1);
-    },
-  );
+    // And the second daemon holds nothing — asserted rather than implied,
+    // because "one holder" is also what you see if the other daemon never
+    // asked.
+    const jobs = await store.jobs();
+    expect(jobs.filter((job) => job.claimedBy !== undefined)).toHaveLength(1);
+  });
+
+  it("shows both daemons to both replicas", async () => {
+    // Presence is routing state, so a shared store shares it — and this is
+    // the half that breaks a *promise* rather than a job. A daemon that is
+    // plainly online must not read as offline to whichever pod is asked.
+    const siteKeys = generateKeys(Date.now());
+    const site = publicIdentityOf(siteKeys);
+    const fixture = fixtureFor(site);
+    const store = new RelayState();
+    const a = new Relay({ siteId: SITE_ID, fixture, store });
+    const b = new Relay({ siteId: SITE_ID, fixture, store });
+
+    const daemon = await makeDaemon(a, fixture, { owner: "alice", site });
+    disposers.push(daemon.dispose);
+
+    // Paired against A. B knows it too, because the store is the same one.
+    expect(await b.state.presence(daemon.runnerId)).toBeDefined();
+    expect(await b.state.everyone()).toHaveLength(1);
+  });
 });

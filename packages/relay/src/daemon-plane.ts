@@ -14,7 +14,8 @@ import {
 } from "@byollm/protocol";
 import { z } from "zod";
 import type { Projection } from "./fixture.js";
-import type { HolderRefusal, RelayState } from "./state.js";
+import type { HolderRefusal } from "./state.js";
+import type { RoutingStore } from "./store.js";
 
 /**
  * The plane a daemon talks to — cloud_004 §2.
@@ -81,7 +82,7 @@ const fail = (status: number, error: string, message: string): PlaneResult => ({
 });
 
 export interface DaemonPlaneDeps {
-  readonly state: RelayState;
+  readonly state: RoutingStore;
   readonly projection: Projection;
   readonly now: () => number;
   readonly leaseMs: number;

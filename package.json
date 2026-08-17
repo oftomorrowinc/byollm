@@ -8,7 +8,7 @@
   },
   "scripts": {
     "build": "pnpm -r --filter \"./packages/*\" run build",
-    "typecheck": "tsc --build --pretty",
+    "typecheck": "pnpm run build && tsc --build --pretty",
     "lint": "eslint . --max-warnings 0",
     "format": "prettier --write .",
     "format:check": "prettier --check .",

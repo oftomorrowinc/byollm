@@ -254,6 +254,20 @@ What exists: 421 tests, an adversarial corpus wired as a blocking CI gate, and a
 
 ## Contributing
 
+```sh
+pnpm install
+pnpm run verify     # format, build, smoke, lint, typecheck, tests, coverage, dead code
+```
+
+**Run `pnpm run build` before any bare `tsc`.** Every package resolves its
+neighbours through the `types` field in their `package.json`, which points at
+`dist/` — so on a clean checkout `tsc -p packages/daemon` reports that
+`@byollm/protocol` does not exist, and the wall of errors that follows reads
+exactly like a half-finished migration. It cost an external contributor a
+wrong diagnosis in a PR description, which is how this paragraph came to be
+here. `pnpm run typecheck` now builds first, so it is safe on its own;
+`pnpm exec tsc` still is not.
+
 The bar is CI-enforced, not review-vigilance: strict TypeScript, ≥90% coverage on the server and ≥85% on the daemon, zero-warning lint, no dead code, and the conformance kit green against both the reference server and Supabase on every PR. `@byollm/protocol` is gated by the conformance kit rather than a line-coverage number, which on a types-and-schemas package is trivially met or gamed. The adversarial corpus is a separate blocking gate, and the demo in [`examples/`](examples) runs in CI so it can't rot. See [`docs/standards.md`](docs/standards.md) and the specs in [`specs/`](specs).
 
 ## License

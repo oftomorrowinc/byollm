@@ -91,8 +91,9 @@ export class Relay {
    * site vanished should return to the queue without waiting for someone to
    * ask about it.
    */
-  sweep(): { requeued: string[] } {
-    return { requeued: this.state.sweep(this.#now()).map((j) => j.id) };
+  async sweep(): Promise<{ requeued: string[] }> {
+    const requeued = await this.state.sweep(this.#now());
+    return { requeued: requeued.map((j) => j.id) };
   }
 
   /** The whole HTTP surface. */
@@ -101,7 +102,7 @@ export class Relay {
     const path = url.pathname;
 
     if (path === "/debug" || path === `${this.#basePath}/debug`) {
-      return new Response(debugPage(this.state, this.#now()), {
+      return new Response(await debugPage(this.state, this.#now()), {
         headers: { "content-type": "text/html; charset=utf-8" },
       });
     }
@@ -126,19 +127,25 @@ export class Relay {
 
     // -- the site plane -----------------------------------------------------
     if (path === "/relay/site/enqueue") {
-      return json(this.#site.enqueue(siteAuth, body));
+      return json(await this.#site.enqueue(siteAuth, body));
     }
     if (path === "/relay/site/payload") {
-      return json(this.#site.payload(siteAuth, body));
+      return json(await this.#site.payload(siteAuth, body));
     }
     if (path === "/relay/site/pending") {
       return json(
-        this.#site.pending(siteAuth, url.searchParams.get("siteId") ?? ""),
+        await this.#site.pending(
+          siteAuth,
+          url.searchParams.get("siteId") ?? "",
+        ),
       );
     }
     if (path === "/relay/site/results") {
       return json(
-        this.#site.results(siteAuth, url.searchParams.get("siteId") ?? ""),
+        await this.#site.results(
+          siteAuth,
+          url.searchParams.get("siteId") ?? "",
+        ),
       );
     }
 
@@ -148,17 +155,17 @@ export class Relay {
     }
     switch (auth.endpoint) {
       case "pair":
-        return json(this.#daemon.pair(body));
+        return json(await this.#daemon.pair(body));
       case "claim":
-        return json(this.#daemon.claim(auth, body));
+        return json(await this.#daemon.claim(auth, body));
       case "fetch":
-        return json(this.#daemon.fetch(auth, body));
+        return json(await this.#daemon.fetch(auth, body));
       case "result":
-        return json(this.#daemon.result(auth, body));
+        return json(await this.#daemon.result(auth, body));
       case "heartbeat":
-        return json(this.#daemon.heartbeat(auth, body));
+        return json(await this.#daemon.heartbeat(auth, body));
       case "release":
-        return json(this.#daemon.release(auth, body));
+        return json(await this.#daemon.release(auth, body));
       default:
         return json({ status: 404, body: { error: "not-found" } });
     }

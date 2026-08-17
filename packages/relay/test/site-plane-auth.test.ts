@@ -81,7 +81,7 @@ describe("the site plane refuses anyone it cannot verify", () => {
     expect(response.status).toBe(401);
     // And nothing was routed: a refusal that still queued the work would be
     // an audit-log entry rather than a control.
-    expect(relay.state.jobs()).toHaveLength(0);
+    expect(await relay.state.jobs()).toHaveLength(0);
   });
 
   it("refuses an unsigned read of who is online", async () => {
@@ -124,7 +124,7 @@ describe("the site plane refuses anyone it cannot verify", () => {
       }),
     );
     expect(response.status).toBe(401);
-    expect(relay.state.jobs()).toHaveLength(0);
+    expect(await relay.state.jobs()).toHaveLength(0);
   });
 
   it("refuses a site the control plane never registered", async () => {
@@ -189,7 +189,7 @@ describe("the site plane refuses anyone it cannot verify", () => {
       }),
     );
     expect(response.status).toBe(403);
-    expect(relay.state.jobs()).toHaveLength(0);
+    expect(await relay.state.jobs()).toHaveLength(0);
   });
 
   it("never offers a daemon a job belonging to another site", async () => {
@@ -201,7 +201,7 @@ describe("the site plane refuses anyone it cannot verify", () => {
     // under test: this is the invariant `claim` has to hold on its own, so
     // that the boundary above it is defence in depth rather than the only
     // thing standing between a device and a payload it cannot open.
-    relay.state.enqueue({
+    await relay.state.enqueue({
       id: "job_foreign",
       siteId: "site_other",
       stub: stubFor("job_foreign"),
@@ -209,8 +209,8 @@ describe("the site plane refuses anyone it cannot verify", () => {
 
     await daemon.runner.tick();
     await new Promise((r) => setTimeout(r, 30));
-    expect(relay.state.job("job_foreign")?.state).toBe("queued");
-    expect(relay.state.job("job_foreign")?.claimedBy).toBeUndefined();
+    expect((await relay.state.job("job_foreign"))?.state).toBe("queued");
+    expect((await relay.state.job("job_foreign"))?.claimedBy).toBeUndefined();
   });
 
   it("refuses a request whose body names a site the signature does not", async () => {
@@ -306,8 +306,8 @@ describe("enqueue is idempotent per job id", () => {
     });
     await daemon.runner.tick();
     await new Promise((r) => setTimeout(r, 30));
-    const claimed = relay.state.job(jobId)?.claimedBy;
-    expect(relay.state.job(jobId)?.state).toBe("awaiting-payload");
+    const claimed = (await relay.state.job(jobId))?.claimedBy;
+    expect((await relay.state.job(jobId))?.state).toBe("awaiting-payload");
     expect(claimed?.leaseId).toBeDefined();
 
     // The site republishes its queue — a restart, a retry, or an attacker
@@ -317,8 +317,10 @@ describe("enqueue is idempotent per job id", () => {
     // it names; this is the write that was not, and it discarded a live lease.
     await connector.republish(jobId);
 
-    expect(relay.state.job(jobId)?.state).toBe("awaiting-payload");
-    expect(relay.state.job(jobId)?.claimedBy?.leaseId).toBe(claimed?.leaseId);
+    expect((await relay.state.job(jobId))?.state).toBe("awaiting-payload");
+    expect((await relay.state.job(jobId))?.claimedBy?.leaseId).toBe(
+      claimed?.leaseId,
+    );
   });
 });
 
@@ -374,7 +376,7 @@ describe("revocation does not wait for a heartbeat", () => {
     );
 
     expect(response.status).toBe(403);
-    expect(relay.state.jobs()[0]?.state).toBe("queued");
+    expect((await relay.state.jobs())[0]?.state).toBe("queued");
   });
 });
 

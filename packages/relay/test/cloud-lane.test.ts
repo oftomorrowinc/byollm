@@ -143,8 +143,8 @@ describe.each(CASES)("the cloud lane over $name", (storeCase) => {
 
     // The relay got a stub. The payload is still in the site's own store,
     // sealed at rest — direct mode's property inherited, not replaced.
-    expect(relay.state.job(handle.id)?.stub.kind).toBe("llm.generate");
-    expect(JSON.stringify(relay.state.jobs())).not.toContain(
+    expect((await relay.state.job(handle.id))?.stub.kind).toBe("llm.generate");
+    expect(JSON.stringify(await relay.state.jobs())).not.toContain(
       "through the relay",
     );
 
@@ -265,7 +265,7 @@ describe.each(CASES)("the cloud lane over $name", (storeCase) => {
     for (let i = 0; i < 80; i += 1) {
       await daemon.runner.tick();
       await app.cloud!.pump();
-      if (relay.state.job(handle.id)?.state === "done") break;
+      if ((await relay.state.job(handle.id))?.state === "done") break;
       await new Promise((r) => setTimeout(r, 20));
     }
 
@@ -273,7 +273,7 @@ describe.each(CASES)("the cloud lane over $name", (storeCase) => {
     // did not sign them. This is what keeps RELAY_BLIND from becoming
     // RELAY_TRUSTED, and it must hold identically on every store.
     const impostor = publicIdentityOf(generateKeys(Date.now()));
-    const routed = relay.state.job(handle.id);
+    const routed = await relay.state.job(handle.id);
     routed!.claimedBy = { ...routed!.claimedBy!, device: impostor };
 
     const report = await app.cloud!.pump();

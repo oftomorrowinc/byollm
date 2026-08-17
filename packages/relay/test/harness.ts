@@ -394,7 +394,7 @@ export async function route(
   }
   await daemon.runner.tick();
   for (let i = 0; i < 60; i += 1) {
-    const done = relay.state.jobs().some((j) => j.state === "done");
+    const done = (await relay.state.jobs()).some((j) => j.state === "done");
     if (done) break;
     await new Promise((r) => setTimeout(r, 10));
     await daemon.runner.tick();

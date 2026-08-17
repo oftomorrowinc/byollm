@@ -180,9 +180,13 @@ export class RelayState {
    * restarts and republishes its queue is the normal case, and it must not
    * disturb work in flight.
    */
-  enqueue(input: { id: string; siteId: string; stub: JobStub }): RoutedJob {
+  enqueue(input: {
+    id: string;
+    siteId: string;
+    stub: JobStub;
+  }): Promise<RoutedJob> {
     const existing = this.#jobs.get(input.id);
-    if (existing) return existing;
+    if (existing) return Promise.resolve(existing);
     const job: RoutedJob = {
       id: input.id,
       siteId: input.siteId,
@@ -190,27 +194,27 @@ export class RelayState {
       state: "queued",
     };
     this.#jobs.set(job.id, job);
-    return job;
+    return Promise.resolve(job);
   }
 
-  job(jobId: string): RoutedJob | undefined {
-    return this.#jobs.get(jobId);
+  job(jobId: string): Promise<RoutedJob | undefined> {
+    return Promise.resolve(this.#jobs.get(jobId));
   }
 
-  jobs(): RoutedJob[] {
-    return [...this.#jobs.values()];
+  jobs(): Promise<RoutedJob[]> {
+    return Promise.resolve([...this.#jobs.values()]);
   }
 
   /** Jobs a site must seal for, right now. */
-  awaiting(siteId: string): RoutedJob[] {
-    return this.jobs().filter(
+  async awaiting(siteId: string): Promise<RoutedJob[]> {
+    return (await this.jobs()).filter(
       (j) => j.siteId === siteId && j.state === "awaiting-payload",
     );
   }
 
   /** Sealed results waiting to go home. */
-  finished(siteId: string): RoutedJob[] {
-    return this.jobs().filter(
+  async finished(siteId: string): Promise<RoutedJob[]> {
+    return (await this.jobs()).filter(
       (j) =>
         j.siteId === siteId && j.state === "done" && j.result !== undefined,
     );
@@ -228,8 +232,8 @@ export class RelayState {
    * script: cheapest first, and `owners` last because it is the only one that
    * needed the projection.
    */
-  claim(input: ClaimInput): ClaimedStub[] {
-    this.sweep(input.now);
+  async claim(input: ClaimInput): Promise<ClaimedStub[]> {
+    await this.sweep(input.now);
 
     const granted: ClaimedStub[] = [];
     for (const job of this.#jobs.values()) {
@@ -284,19 +288,20 @@ export class RelayState {
     jobId: string;
     runnerId: string;
     leaseId: string;
-  }): { envelope: SealedEnvelope } | { refused: HolderRefusal } {
+  }): Promise<{ envelope: SealedEnvelope } | { refused: HolderRefusal }> {
     const job = this.#jobs.get(input.jobId);
-    if (!job) return { refused: "not-found" };
+    if (!job) return Promise.resolve({ refused: "not-found" });
     if (job.claimedBy?.runnerId !== input.runnerId) {
-      return { refused: "not-holder" };
+      return Promise.resolve({ refused: "not-holder" });
     }
     // LEASE_HONORED per *instance*: a stale lease id names a grant that is
     // over, and answering it would hand work to a previous holder.
-    if (job.claimedBy.leaseId !== input.leaseId)
-      return { refused: "stale-lease" };
-    if (!job.payload) return { refused: "not-ready" };
+    if (job.claimedBy.leaseId !== input.leaseId) {
+      return Promise.resolve({ refused: "stale-lease" });
+    }
+    if (!job.payload) return Promise.resolve({ refused: "not-ready" });
     job.state = "running";
-    return { envelope: job.payload };
+    return Promise.resolve({ envelope: job.payload });
   }
 
   /**
@@ -311,33 +316,37 @@ export class RelayState {
     runnerId: string;
     envelope: SealedEnvelope;
     disposition: "ok" | "error" | "canceled";
-  }): { accepted: boolean; state: RoutedState } | { refused: HolderRefusal } {
+  }): Promise<
+    { accepted: boolean; state: RoutedState } | { refused: HolderRefusal }
+  > {
     const job = this.#jobs.get(input.jobId);
-    if (!job) return { refused: "not-found" };
+    if (!job) return Promise.resolve({ refused: "not-found" });
     if (job.claimedBy?.runnerId !== input.runnerId) {
-      return { refused: "not-holder" };
+      return Promise.resolve({ refused: "not-holder" });
     }
-    if (job.state === "done") return { accepted: false, state: job.state };
+    if (job.state === "done") {
+      return Promise.resolve({ accepted: false, state: job.state });
+    }
     job.result = input.envelope;
     job.disposition = input.disposition;
     job.state = "done";
-    return { accepted: true, state: job.state };
+    return Promise.resolve({ accepted: true, state: job.state });
   }
 
   /** Give back leases this runner holds, naming each grant it means. */
   releaseLeases(input: {
     runnerId: string;
     leases: readonly { jobId: string; leaseId: string }[];
-  }): string[] {
+  }): Promise<string[]> {
     const released: string[] = [];
     for (const { jobId, leaseId } of input.leases) {
       const job = this.#jobs.get(jobId);
       if (!job || job.claimedBy?.runnerId !== input.runnerId) continue;
       if (job.claimedBy.leaseId !== leaseId) continue;
-      this.requeue(job);
+      this.#requeue(job);
       released.push(jobId);
     }
-    return released;
+    return Promise.resolve(released);
   }
 
   /**
@@ -350,51 +359,56 @@ export class RelayState {
     jobId: string;
     siteId: string;
     envelope: SealedEnvelope;
-  }):
+  }): Promise<
     | { state: RoutedState }
-    | { refused: "not-found" | "too-late"; was?: RoutedState } {
+    | { refused: "not-found" | "too-late"; was?: RoutedState }
+  > {
     const job = this.#jobs.get(input.jobId);
-    if (job?.siteId !== input.siteId) return { refused: "not-found" };
+    if (job?.siteId !== input.siteId) {
+      return Promise.resolve({ refused: "not-found" });
+    }
     if (job.state !== "awaiting-payload") {
-      return { refused: "too-late", was: job.state };
+      return Promise.resolve({ refused: "too-late", was: job.state });
     }
     job.payload = input.envelope;
     job.state = "ready";
     delete job.awaitingUntil;
-    return { state: job.state };
+    return Promise.resolve({ state: job.state });
   }
 
   /** Which of these leases this runner no longer holds. */
   lostLeases(
     runnerId: string,
     active: readonly { jobId: string; leaseId: string }[],
-  ): string[] {
+  ): Promise<string[]> {
     void runnerId;
-    return active
-      .filter(({ jobId, leaseId }) => {
-        const job = this.#jobs.get(jobId);
-        return job?.claimedBy?.leaseId !== leaseId;
-      })
-      .map(({ jobId }) => jobId);
+    return Promise.resolve(
+      active
+        .filter(({ jobId, leaseId }) => {
+          const job = this.#jobs.get(jobId);
+          return job?.claimedBy?.leaseId !== leaseId;
+        })
+        .map(({ jobId }) => jobId),
+    );
   }
 
-  seen(presence: Omit<Presence, "revoked">): Presence {
+  seen(presence: Omit<Presence, "revoked">): Promise<Presence> {
     const existing = this.#presence.get(presence.runnerId);
     if (existing) {
       existing.lastSeenAt = presence.lastSeenAt;
-      return existing;
+      return Promise.resolve(existing);
     }
     const fresh: Presence = { ...presence, revoked: false };
     this.#presence.set(presence.runnerId, fresh);
-    return fresh;
+    return Promise.resolve(fresh);
   }
 
-  presence(runnerId: string): Presence | undefined {
-    return this.#presence.get(runnerId);
+  presence(runnerId: string): Promise<Presence | undefined> {
+    return Promise.resolve(this.#presence.get(runnerId));
   }
 
-  everyone(): Presence[] {
-    return [...this.#presence.values()];
+  everyone(): Promise<Presence[]> {
+    return Promise.resolve([...this.#presence.values()]);
   }
 
   /**
@@ -404,7 +418,7 @@ export class RelayState {
    * why the awaiting-payload timeout is cheap to fire: the worst case is that
    * a device did nothing for ten seconds and another one gets a turn.
    */
-  requeue(job: RoutedJob): void {
+  #requeue(job: RoutedJob): void {
     job.state = "queued";
     delete job.claimedBy;
     delete job.awaitingUntil;
@@ -418,11 +432,11 @@ export class RelayState {
    * timeout that fires invisibly is indistinguishable from a job that was
    * never claimed, and those want very different debugging.
    */
-  sweep(now: number): RoutedJob[] {
+  sweep(now: number): Promise<RoutedJob[]> {
     const requeued: RoutedJob[] = [];
     for (const job of this.#jobs.values()) {
       if (job.state === "awaiting-payload" && (job.awaitingUntil ?? 0) <= now) {
-        this.requeue(job);
+        this.#requeue(job);
         requeued.push(job);
       }
       const lease = job.claimedBy;
@@ -431,10 +445,10 @@ export class RelayState {
         (job.state === "ready" || job.state === "running") &&
         lease.leaseExpiresAt <= now
       ) {
-        this.requeue(job);
+        this.#requeue(job);
         requeued.push(job);
       }
     }
-    return requeued;
+    return Promise.resolve(requeued);
   }
 }

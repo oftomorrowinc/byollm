@@ -112,7 +112,7 @@ export class DaemonPlane {
    * relay that substituted its own identity here could inject work — and would
    * need a private key to do it, which is why it has none.
    */
-  pair(body: unknown): PlaneResult {
+  async pair(body: unknown): Promise<PlaneResult> {
     const parsed = PairFixtureRequest.safeParse(body);
     if (!parsed.success) {
       return fail(400, "bad-request", "pair request failed schema validation");
@@ -171,7 +171,7 @@ export class DaemonPlane {
     // devices in it.
     const runnerId = approved.runnerId;
 
-    this.#deps.state.seen({
+    await this.#deps.state.seen({
       runnerId,
       owner: parsed.data.owner,
       device: parsed.data.device,
@@ -187,21 +187,21 @@ export class DaemonPlane {
   }
 
   /** Every authenticated call: signature first, then consent, then work. */
-  #authed<T>(
+  async #authed<T>(
     input: { endpoint: string; rawBody: string; signature: unknown },
     body: unknown,
     schema: { safeParse: (v: unknown) => { success: boolean; data?: T } },
     run: (
       request: T,
       device: { runnerId: string; owner: string; device: PublicIdentity },
-    ) => PlaneResult,
+    ) => Promise<PlaneResult>,
     options: { allowRevoked?: boolean } = {},
-  ): PlaneResult {
+  ): Promise<PlaneResult> {
     const signature = RequestSignature.safeParse(input.signature);
     if (!signature.success) {
       return fail(401, "unauthorized", "this request is not signed");
     }
-    const known = this.#deps.state.presence(signature.data.runnerId);
+    const known = await this.#deps.state.presence(signature.data.runnerId);
     if (!known) {
       return fail(401, "unauthorized", "this runner is not recognised");
     }
@@ -249,15 +249,15 @@ export class DaemonPlane {
   claim(
     auth: { endpoint: string; rawBody: string; signature: unknown },
     body: unknown,
-  ): PlaneResult {
-    return this.#authed(auth, body, ClaimRequest, (request, device) => {
+  ): Promise<PlaneResult> {
+    return this.#authed(auth, body, ClaimRequest, async (request, device) => {
       if (request.runnerId !== device.runnerId) {
         return fail(401, "unauthorized", "runner id does not match the key");
       }
       // One store call. The decision and its write are the store's, because a
       // caller that reads, filters and writes back cannot be made atomic once
       // the store is on a network (cloud_006 §3.2).
-      const granted = this.#deps.state.claim({
+      const granted = await this.#deps.state.claim({
         runnerId: device.runnerId,
         owner: device.owner,
         device: device.device,
@@ -288,9 +288,9 @@ export class DaemonPlane {
   fetch(
     auth: { endpoint: string; rawBody: string; signature: unknown },
     body: unknown,
-  ): PlaneResult {
-    return this.#authed(auth, body, FetchRequest, (request, device) => {
-      const taken = this.#deps.state.takePayload({
+  ): Promise<PlaneResult> {
+    return this.#authed(auth, body, FetchRequest, async (request, device) => {
+      const taken = await this.#deps.state.takePayload({
         jobId: request.jobId,
         runnerId: device.runnerId,
         leaseId: request.leaseId,
@@ -312,9 +312,9 @@ export class DaemonPlane {
   result(
     auth: { endpoint: string; rawBody: string; signature: unknown },
     body: unknown,
-  ): PlaneResult {
-    return this.#authed(auth, body, ResultRequest, (request, device) => {
-      const recorded = this.#deps.state.complete({
+  ): Promise<PlaneResult> {
+    return this.#authed(auth, body, ResultRequest, async (request, device) => {
+      const recorded = await this.#deps.state.complete({
         jobId: request.jobId,
         runnerId: device.runnerId,
         envelope: request.envelope,
@@ -328,16 +328,16 @@ export class DaemonPlane {
   heartbeat(
     auth: { endpoint: string; rawBody: string; signature: unknown },
     body: unknown,
-  ): PlaneResult {
+  ): Promise<PlaneResult> {
     return this.#authed(
       auth,
       body,
       HeartbeatRequest,
-      (request, device) => {
+      async (request, device) => {
         const now = this.#deps.now();
-        this.#deps.state.sweep(now);
+        await this.#deps.state.sweep(now);
 
-        const known = this.#deps.state.presence(device.runnerId);
+        const known = await this.#deps.state.presence(device.runnerId);
         // Revocation is a fixture edit, and this is where the daemon learns
         // of it — within one heartbeat, which is what the freeze gate times.
         const consent = this.#deps.projection.consentFor(
@@ -350,7 +350,7 @@ export class DaemonPlane {
         // Anything this runner thinks it holds that we no longer agree it
         // holds. A daemon must stop work on these rather than finish and
         // report into a lease that is gone.
-        const lost = this.#deps.state.lostLeases(
+        const lost = await this.#deps.state.lostLeases(
           device.runnerId,
           request.activeLeases,
         );
@@ -370,9 +370,9 @@ export class DaemonPlane {
   release(
     auth: { endpoint: string; rawBody: string; signature: unknown },
     body: unknown,
-  ): PlaneResult {
-    return this.#authed(auth, body, ReleaseRequest, (request, device) => {
-      const released = this.#deps.state.releaseLeases({
+  ): Promise<PlaneResult> {
+    return this.#authed(auth, body, ReleaseRequest, async (request, device) => {
+      const released = await this.#deps.state.releaseLeases({
         runnerId: device.runnerId,
         leases: request.leases,
       });

@@ -64,11 +64,11 @@ describe("two replicas, one load balancer", () => {
     await new Promise((r) => setTimeout(r, 30));
 
     // A knows the job is claimed and waiting to be sealed.
-    expect(a.state.job(jobId)?.state).toBe("awaiting-payload");
+    expect((await a.state.job(jobId))?.state).toBe("awaiting-payload");
 
     // B has never heard of it. Not an error — an absence, which is what makes
     // this hard to see in production.
-    expect(b.state.job(jobId)).toBeUndefined();
+    expect(await b.state.job(jobId)).toBeUndefined();
 
     // So a site whose next poll lands on B is told there is nothing to do,
     // while a device sits holding a lease waiting for exactly that seal.
@@ -77,7 +77,9 @@ describe("two replicas, one load balancer", () => {
 
     // And the daemon is not confused, which is the trap: it holds a valid
     // lease on a job that a healthy-looking relay says nothing about.
-    expect(a.state.job(jobId)?.claimedBy?.runnerId).toBe(daemon.runnerId);
+    expect((await a.state.job(jobId))?.claimedBy?.runnerId).toBe(
+      daemon.runnerId,
+    );
   });
 
   it("means presence answers differently depending on which replica is asked", async () => {
@@ -94,8 +96,8 @@ describe("two replicas, one load balancer", () => {
     const daemon = await makeDaemon(a, fixture, { owner: "alice", site });
     disposers.push(daemon.dispose);
 
-    expect(a.state.everyone()).toHaveLength(1);
-    expect(b.state.everyone()).toHaveLength(0);
+    expect(await a.state.everyone()).toHaveLength(1);
+    expect(await b.state.everyone()).toHaveLength(0);
   });
 });
 
@@ -162,16 +164,18 @@ describe("the claim race that shared state will introduce", () => {
         streaming: false,
         deadlineAt: Date.now() + 300_000,
       };
-      a.state.enqueue({ id: stub.id, siteId: SITE_ID, stub });
-      b.state.enqueue({ id: stub.id, siteId: SITE_ID, stub });
+      await a.state.enqueue({ id: stub.id, siteId: SITE_ID, stub });
+      await b.state.enqueue({ id: stub.id, siteId: SITE_ID, stub });
 
       // Concurrent, as far as the daemons are concerned: neither waits for the
       // other, and each talks to the replica the balancer gave it.
       await Promise.all([one.runner.tick(), two.runner.tick()]);
       await new Promise((r) => setTimeout(r, 30));
 
-      const holders = [a, b]
-        .map((relay) => relay.state.job(stub.id)?.claimedBy?.runnerId)
+      const holders = (
+        await Promise.all([a, b].map((relay) => relay.state.job(stub.id)))
+      )
+        .map((job) => job?.claimedBy?.runnerId)
         .filter((runnerId): runnerId is string => runnerId !== undefined);
 
       // The assertion `RoutingStore` must make true. It is red today, which is

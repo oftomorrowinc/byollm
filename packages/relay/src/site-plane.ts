@@ -139,13 +139,13 @@ export class SitePlane {
    * stranger presence, claims and lease ids, and "who is online right now" is
    * exactly the fact a blind relay is otherwise so careful not to reveal.
    */
-  #authed<T>(
+  async #authed<T>(
     auth: SiteAuth,
     body: unknown,
     schema: { safeParse: (v: unknown) => { success: boolean; data?: T } },
     siteIdOf: (request: T) => string,
-    run: (request: T, siteId: string) => PlaneResult,
-  ): PlaneResult {
+    run: (request: T, siteId: string) => Promise<PlaneResult>,
+  ): Promise<PlaneResult> {
     const signature = RequestSignature.safeParse(auth.signature);
     if (!signature.success) {
       return fail(401, "unauthorized", "this request is not signed");
@@ -191,14 +191,14 @@ export class SitePlane {
     return run(parsed.data, siteId);
   }
 
-  enqueue(auth: SiteAuth, body: unknown): PlaneResult {
+  enqueue(auth: SiteAuth, body: unknown): Promise<PlaneResult> {
     return this.#authed(
       auth,
       body,
       EnqueueRequest,
       (request) => request.siteId,
-      (request, siteId) => {
-        const job = this.#deps.state.enqueue({
+      async (request, siteId) => {
+        const job = await this.#deps.state.enqueue({
           id: request.stub.id,
           siteId,
           stub: request.stub,
@@ -221,15 +221,15 @@ export class SitePlane {
    * a participant: it tells the site an address, and what the site sends to
    * that address is unreadable on the way through.
    */
-  pending(auth: SiteAuth, siteId: string): PlaneResult {
+  pending(auth: SiteAuth, siteId: string): Promise<PlaneResult> {
     return this.#authed(
       auth,
       { siteId },
       QueryRequest,
       (request) => request.siteId,
-      (_request, site) => {
-        this.#deps.state.sweep(this.#deps.now());
-        const jobs = this.#deps.state.awaiting(site).map((job) => ({
+      async (_request, site) => {
+        await this.#deps.state.sweep(this.#deps.now());
+        const jobs = (await this.#deps.state.awaiting(site)).map((job) => ({
           jobId: job.id,
           // Non-null by construction: `awaiting` only returns claimed jobs.
           // The optional chain is here so a future state-machine edit that
@@ -246,17 +246,17 @@ export class SitePlane {
     );
   }
 
-  payload(auth: SiteAuth, body: unknown): PlaneResult {
+  payload(auth: SiteAuth, body: unknown): Promise<PlaneResult> {
     return this.#authed(
       auth,
       body,
       PayloadRequest,
       (request) => request.siteId,
-      (request, siteId) => {
+      async (request, siteId) => {
         // One store call: the check and the write together. A site that read
         // "awaiting-payload" and then wrote would be racing the timeout that
         // makes the state mean anything.
-        const sealed = this.#deps.state.seal({
+        const sealed = await this.#deps.state.seal({
           jobId: request.jobId,
           siteId,
           envelope: request.envelope,
@@ -276,14 +276,14 @@ export class SitePlane {
   }
 
   /** Sealed results, for the site to open and verify. */
-  results(auth: SiteAuth, siteId: string): PlaneResult {
+  results(auth: SiteAuth, siteId: string): Promise<PlaneResult> {
     return this.#authed(
       auth,
       { siteId },
       QueryRequest,
       (request) => request.siteId,
-      (_request, site) => {
-        const jobs = this.#deps.state.finished(site).map((job) => ({
+      async (_request, site) => {
+        const jobs = (await this.#deps.state.finished(site)).map((job) => ({
           jobId: job.id,
           envelope: job.result,
           disposition: job.disposition,

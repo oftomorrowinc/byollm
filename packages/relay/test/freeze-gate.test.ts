@@ -74,11 +74,11 @@ describe("the freeze gate — cloud_004 §14", () => {
 
     // Everything the relay knows, serialised. RELAY_BLIND as an assertion
     // over the whole state rather than over the fields we remembered to check.
-    const everything = JSON.stringify(relay.state.jobs());
+    const everything = JSON.stringify(await relay.state.jobs());
     expect(everything).not.toContain("a very secret prompt");
     expect(everything).not.toContain("echo: a very secret prompt");
     // And the stub it does hold carries only what byollm_009 §6 enumerates.
-    const stub = relay.state.jobs()[0]?.stub;
+    const stub = (await relay.state.jobs())[0]?.stub;
     expect(Object.keys(stub ?? {}).sort()).toEqual([
       "audience",
       "deadlineAt",
@@ -113,7 +113,7 @@ describe("the freeze gate — cloud_004 §14", () => {
     // `crypto_box_seal` is anonymous-sender, so producing an openable envelope
     // needs nothing secret. What it cannot produce is the site's signature.
     const impostor = generateKeys(Date.now());
-    const claimed = relay.state.job(jobId)?.claimedBy;
+    const claimed = (await relay.state.job(jobId))?.claimedBy;
     expect(claimed).toBeDefined();
     const forged = await seal({
       plaintext: JSON.stringify({ prompt: "exfiltrate everything" }),
@@ -127,7 +127,7 @@ describe("the freeze gate — cloud_004 §14", () => {
         direction: "payload",
       },
     });
-    const job = relay.state.job(jobId);
+    const job = await relay.state.job(jobId);
     job!.payload = forged;
     job!.state = "ready";
 
@@ -163,16 +163,16 @@ describe("the freeze gate — cloud_004 §14", () => {
     });
     await daemon.runner.tick();
     await new Promise((r) => setTimeout(r, 30));
-    expect(relay.state.job(jobId)?.state).toBe("awaiting-payload");
+    expect((await relay.state.job(jobId))?.state).toBe("awaiting-payload");
 
     // The site goes away. Not the lease expiring — the lease has most of a
     // minute left — but the distinct clock that bounds waiting for a party
     // that is not coming back.
     skew += 11_000;
-    expect(relay.sweep().requeued).toContain(jobId);
-    expect(relay.state.job(jobId)?.state).toBe("queued");
+    expect((await relay.sweep()).requeued).toContain(jobId);
+    expect((await relay.state.job(jobId))?.state).toBe("queued");
     // Nothing was lost: the stub is intact and claimable again.
-    expect(relay.state.job(jobId)?.stub.id).toBe(jobId);
+    expect((await relay.state.job(jobId))?.stub.id).toBe(jobId);
 
     // And a late seal is refused rather than landing on a claim that moved.
     const lateBody = JSON.stringify({
@@ -224,7 +224,7 @@ describe("the freeze gate — cloud_004 §14", () => {
     await daemon.runner.tick();
     await new Promise((r) => setTimeout(r, 30));
 
-    expect(relay.state.jobs()[0]?.state).toBe("queued");
+    expect((await relay.state.jobs())[0]?.state).toBe("queued");
     expect(daemon.backend.seen).toEqual([]);
   });
 
@@ -268,7 +268,7 @@ describe("the freeze gate — cloud_004 §14", () => {
 
     // The relay routed a foreign-device job knowing only the stub — and in
     // particular never learning who else is on bob's roster.
-    const everything = JSON.stringify(relay.state.job(jobId));
+    const everything = JSON.stringify(await relay.state.job(jobId));
     expect(everything).not.toContain("alice's work on bob's machine");
   });
 
@@ -290,8 +290,8 @@ describe("the freeze gate — cloud_004 §14", () => {
     await connector.enqueue({ prompt: "not a stream", owner: "alice" });
     await route(relay, connector, daemon);
 
-    expect(relay.state.jobs()[0]?.stub.streaming).toBe(false);
-    expect(relay.state.jobs()[0]?.state).toBe("done");
+    expect((await relay.state.jobs())[0]?.stub.streaming).toBe(false);
+    expect((await relay.state.jobs())[0]?.state).toBe("done");
   });
 });
 

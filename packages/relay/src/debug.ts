@@ -49,9 +49,12 @@ function jobRow(job: RoutedJob, now: number): string {
   </tr>`;
 }
 
-export function debugPage(state: RelayState, now: number): string {
-  const jobs = state.jobs();
-  const devices = state.everyone();
+export async function debugPage(
+  state: RelayState,
+  now: number,
+): Promise<string> {
+  const jobs = await state.jobs();
+  const devices = await state.everyone();
 
   return `<!doctype html>
 <html><head><meta charset="utf-8"><title>byollm relay — debug</title>

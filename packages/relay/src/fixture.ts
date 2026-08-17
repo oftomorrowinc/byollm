@@ -231,6 +231,38 @@ export class Projection {
   }
 
   /**
+   * Every owner whose work this device's owner may run, as a list.
+   *
+   * The same question {@link mayRunFor} answers, asked in the direction a
+   * *store* can use. That difference is the crux of making `claim` atomic
+   * (cloud_006 §3.2).
+   *
+   * Today `claim` scans every job and calls `mayRunFor` per candidate, which
+   * works because the projection is a local object. A shared routing store
+   * cannot do that: the filter has to travel to the store, and a predicate
+   * does not travel — you cannot send a closure to Valkey. So the projection
+   * is collapsed to **data** here and handed over as a set the store can
+   * match on.
+   *
+   * That the collapse is possible at all is a property of the design worth
+   * noticing: `mayRunFor` is a finite lookup over consent and rosters, not a
+   * computation over the jobs. If it ever became job-dependent — "may run
+   * work of this size", say — an atomic claim would stop being expressible,
+   * and that is the moment to argue rather than to add a parameter.
+   *
+   * The owner is always included: a device runs its owner's work, and the
+   * relay checks that before it checks a roster.
+   */
+  ownersRunnableBy(deviceOwner: string): string[] {
+    const owners = new Set([deviceOwner]);
+    for (const roster of this.#fixture.rosters) {
+      if (roster.owner !== deviceOwner) continue;
+      for (const member of roster.members) owners.add(member);
+    }
+    return [...owners];
+  }
+
+  /**
    * May this device's owner run work belonging to `jobOwner`?
    *
    * The relay's half of `AUDIENCE_BOTH_SIDES`. It is only ever a *narrowing*:

@@ -377,3 +377,56 @@ describe("revocation does not wait for a heartbeat", () => {
     expect(relay.state.jobs()[0]?.state).toBe("queued");
   });
 });
+
+describe("the projection, collapsed to data a store can match on", () => {
+  beforeAll(async () => {
+    const { cryptoReady } = await import("@byollm/protocol");
+    await cryptoReady();
+  });
+
+  /**
+   * `ownersRunnableBy` and `mayRunFor` must agree, always.
+   *
+   * They are the same question asked in two directions, and two answers to one
+   * question is this project's most-repeated bug — so the interesting test is
+   * not that either is right, but that they cannot disagree. `claim` will use
+   * the list because a store cannot take a predicate; everything else keeps
+   * using the predicate.
+   */
+  it("answers exactly what mayRunFor answers, for every pair", () => {
+    const site = publicIdentityOf(generateKeys(Date.now()));
+    const relay = new Relay({
+      siteId: SITE_ID,
+      fixture: {
+        sites: [{ siteId: SITE_ID, site }],
+        consents: [{ owner: "bob", siteId: SITE_ID }],
+        devices: [],
+        // bob runs for his team; carol runs for hers; dave owns nothing.
+        rosters: [
+          { id: "team_bob", owner: "bob", members: ["alice", "erin"] },
+          { id: "team_carol", owner: "carol", members: ["alice"] },
+        ],
+        revoked: [],
+      },
+    });
+
+    const people = ["alice", "bob", "carol", "dave", "erin"];
+    for (const deviceOwner of people) {
+      const listed = new Set(relay.projection.ownersRunnableBy(deviceOwner));
+      for (const jobOwner of people) {
+        expect(listed.has(jobOwner)).toBe(
+          relay.projection.mayRunFor(deviceOwner, jobOwner),
+        );
+      }
+    }
+
+    // And the shapes, named rather than left implicit in the loop above: an
+    // owner always runs their own work, a roster owner runs their members',
+    // and membership does not flow the other way.
+    expect(relay.projection.ownersRunnableBy("dave")).toEqual(["dave"]);
+    expect(new Set(relay.projection.ownersRunnableBy("bob"))).toEqual(
+      new Set(["bob", "alice", "erin"]),
+    );
+    expect(relay.projection.ownersRunnableBy("alice")).toEqual(["alice"]);
+  });
+});

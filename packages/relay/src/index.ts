@@ -230,4 +230,19 @@ export {
   EMPTY_FIXTURE,
 } from "./fixture.js";
 export { AWAITING_PAYLOAD_MS } from "./state.js";
-export type { RoutedJob, RoutedState, Presence } from "./state.js";
+/**
+ * Everything an implementer of {@link RoutingStore} needs.
+ *
+ * `ClaimInput` and `HolderRefusal` were missing from this list, which made the
+ * interface unimplementable outside this package — found by writing the second
+ * implementation, which is the only thing that could have found it. An
+ * exported interface whose parameter types are private is a contract nobody
+ * can sign.
+ */
+export type {
+  ClaimInput,
+  HolderRefusal,
+  Presence,
+  RoutedJob,
+  RoutedState,
+} from "./state.js";

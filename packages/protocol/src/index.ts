@@ -95,7 +95,9 @@ export {
   RequestSignature,
   canonicalRequest,
   signRequest,
+  signSiteRequest,
   verifyRequest,
+  verifySiteRequest,
   type SignatureFailure,
 } from "./signing.js";
 

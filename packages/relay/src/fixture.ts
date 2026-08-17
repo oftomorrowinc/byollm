@@ -35,6 +35,40 @@ import { z } from "zod";
  */
 
 /**
+ * A site the control plane registered and domain-verified — cloud_004 §5.
+ *
+ * **The one authority for a site's public identity.** It used to be inlined on
+ * every consent record, which meant a site's key had as many homes as it had
+ * users and nothing checked they agreed — the exact shape this project has now
+ * found in a version constant, a clock read, an envelope deadline, a reseal
+ * implementation, a package list and a docs page. Consents now reference a
+ * site by id and the key is looked up here.
+ *
+ * The relay needs it for two things it cannot do without:
+ *
+ * 1. **Telling a daemon who to pin** at pairing — the key that makes relayed
+ *    work unforgeable, since the relay holds no key that could produce it.
+ * 2. **Authenticating the site plane.** A site calls a relay the way a daemon
+ *    does, signing with this identity, and this is the key those signatures
+ *    are checked against.
+ */
+export const SiteRecord = z
+  .object({
+    /** How the control plane names the site. */
+    siteId: z.string().min(1),
+    /**
+     * The site's public identity.
+     *
+     * The relay distributes it and cannot use it: an identity key verifies
+     * signatures and seals nothing. This is the key-exchange half of consent
+     * (cloud_004 §3), and both endpoints pin what they receive.
+     */
+    site: PublicIdentity,
+  })
+  .strict();
+export type SiteRecord = z.infer<typeof SiteRecord>;
+
+/**
  * A user's decision to let one site use their compute — cloud_004 §3.
  *
  * `CONSENT_BEFORE_ROUTE`: with no record here, the relay refuses to route,
@@ -47,14 +81,6 @@ export const ConsentRecord = z
     owner: z.string().min(1),
     /** Which site this consent is for. Scoped: consent is never global. */
     siteId: z.string().min(1),
-    /**
-     * The site's public identity, as the relay will hand it to the daemon.
-     *
-     * The relay distributes it and cannot use it: an identity key verifies
-     * signatures and seals nothing. This is the key-exchange half of consent
-     * (cloud_004 §3), and both endpoints pin what they receive.
-     */
-    site: PublicIdentity,
   })
   .strict();
 export type ConsentRecord = z.infer<typeof ConsentRecord>;
@@ -111,6 +137,8 @@ export type RevocationRecord = z.infer<typeof RevocationRecord>;
 
 export const RelayFixture = z
   .object({
+    /** Registered sites, by id. A consent for a site absent here routes not. */
+    sites: z.array(SiteRecord).default([]),
     consents: z.array(ConsentRecord),
     devices: z.array(DeviceRecord).default([]),
     rosters: z.array(RosterRecord).default([]),
@@ -134,6 +162,7 @@ export type RelayFixture = z.infer<typeof RelayFixture>;
 
 /** An empty projection: nothing consented, so nothing routes. */
 export const EMPTY_FIXTURE: RelayFixture = {
+  sites: [],
   consents: [],
   devices: [],
   rosters: [],
@@ -158,6 +187,16 @@ export class Projection {
   /** Replace the projection wholesale — the control plane pushed a new one. */
   replace(fixture: RelayFixture): void {
     this.#fixture = RelayFixture.parse(fixture);
+  }
+
+  /**
+   * The site this id names, if the control plane registered it.
+   *
+   * The only source of a site's public identity in this package. Everything
+   * that pins, verifies or seals to a site starts here.
+   */
+  siteFor(siteId: string): SiteRecord | null {
+    return this.#fixture.sites.find((s) => s.siteId === siteId) ?? null;
   }
 
   /**

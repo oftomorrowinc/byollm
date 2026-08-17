@@ -9,6 +9,7 @@ import {
   open,
   publicIdentityOf,
   seal,
+  signSiteRequest,
   sizeClassOf,
   type JobStub,
   type PublicIdentity,
@@ -33,6 +34,32 @@ import { expect } from "vitest";
 import { type Relay, type RelayFixture } from "../src/index.js";
 
 export const SITE_ID = "site_demo";
+
+/**
+ * Sign as the site, exactly as `@byollm/server`'s cloud lane does.
+ *
+ * Exported rather than kept private to {@link SiteConnector} because tests
+ * that hand-build a site-plane request need it too — and a test that reached
+ * for an unsigned shortcut would be testing a plane the relay no longer has.
+ */
+export function siteHeaders(
+  keys: StoredKeys,
+  endpoint: string,
+  rawBody: string,
+  issuedAt: number = Date.now(),
+): Record<string, string> {
+  const signature = signSiteRequest(keys, {
+    endpoint,
+    siteId: SITE_ID,
+    issuedAt,
+    body: rawBody,
+  });
+  return {
+    "x-byollm-site": SITE_ID,
+    "x-byollm-issued-at": String(signature.issuedAt),
+    "x-byollm-signature": signature.signature,
+  };
+}
 
 export class EchoBackend implements Backend {
   readonly id = "openai-http" as const;
@@ -106,12 +133,28 @@ export class SiteConnector {
       streaming: false,
       deadlineAt: Date.now() + 300_000,
     };
-    await this.#post("/relay/site/enqueue", { siteId: SITE_ID, stub });
+    await this.#post("enqueue", { siteId: SITE_ID, stub });
     this.#pending.set(jobId, payload);
+    this.#stubs.set(jobId, stub);
     return { jobId, payload };
   }
 
+  readonly #stubs = new Map<string, JobStub>();
+
   readonly #pending = new Map<string, string>();
+
+  /**
+   * Publish a stub the relay already has — a restart, a retry, or a replay.
+   *
+   * Named for what a site is doing rather than for the bug it found: a site
+   * that comes back up and republishes its queue is the ordinary case, and it
+   * must not disturb work already in flight.
+   */
+  async republish(jobId: string): Promise<unknown> {
+    const stub = this.#stubs.get(jobId);
+    if (!stub) throw new Error(`nothing enqueued for ${jobId}`);
+    return this.#post("enqueue", { siteId: SITE_ID, stub });
+  }
 
   /**
    * Seal for every job the relay says has been claimed.
@@ -121,7 +164,7 @@ export class SiteConnector {
    * is holding work whose payload is not coming.
    */
   async sealPending(): Promise<number> {
-    const res = await this.#get(`/relay/site/pending?siteId=${SITE_ID}`);
+    const res = await this.#get("pending");
     const { jobs } = res as {
       jobs: { jobId: string; device: PublicIdentity }[];
     };
@@ -141,7 +184,7 @@ export class SiteConnector {
           direction: "payload",
         },
       });
-      await this.#post("/relay/site/payload", {
+      await this.#post("payload", {
         siteId: SITE_ID,
         jobId: job.jobId,
         envelope,
@@ -155,7 +198,7 @@ export class SiteConnector {
   async collect(): Promise<
     { jobId: string; outcome: JobOutcome | null; disposition: string }[]
   > {
-    const res = await this.#get(`/relay/site/results?siteId=${SITE_ID}`);
+    const res = await this.#get("results");
     const { jobs } = res as {
       jobs: {
         jobId: string;
@@ -188,20 +231,31 @@ export class SiteConnector {
     return out;
   }
 
-  async #post(path: string, body: unknown): Promise<unknown> {
+  #headers(endpoint: string, rawBody: string): Record<string, string> {
+    return siteHeaders(this.keys, endpoint, rawBody);
+  }
+
+  async #post(endpoint: string, body: unknown): Promise<unknown> {
+    const rawBody = JSON.stringify(body);
     const res = await this.#relay.handle(
-      new Request(`http://relay.test${path}`, {
+      new Request(`http://relay.test/relay/site/${endpoint}`, {
         method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify(body),
+        headers: {
+          "content-type": "application/json",
+          ...this.#headers(endpoint, rawBody),
+        },
+        body: rawBody,
       }),
     );
     return res.json();
   }
 
-  async #get(path: string): Promise<unknown> {
+  async #get(endpoint: string): Promise<unknown> {
     const res = await this.#relay.handle(
-      new Request(`http://relay.test${path}`),
+      new Request(
+        `http://relay.test/relay/site/${endpoint}?siteId=${SITE_ID}`,
+        { headers: this.#headers(endpoint, "") },
+      ),
     );
     return res.json();
   }
@@ -352,7 +406,8 @@ export function fixtureFor(
   extra: Partial<RelayFixture> = {},
 ): RelayFixture {
   return {
-    consents: [{ owner: "alice", siteId: SITE_ID, site }],
+    sites: [{ siteId: SITE_ID, site }],
+    consents: [{ owner: "alice", siteId: SITE_ID }],
     devices: [],
     rosters: [],
     revoked: [],

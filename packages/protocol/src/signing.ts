@@ -105,6 +105,69 @@ export function signRequest(
   };
 }
 
+/**
+ * The same scheme, for the party at the other end: a **site** calling a relay.
+ *
+ * A site talking to a relay is in exactly the daemon's position — an outbound
+ * caller with an identity keypair the other side already pins — so it gets the
+ * daemon's authentication rather than a second scheme. Bearer tokens for the
+ * site plane were the alternative, and they would have reintroduced the
+ * credential-in-a-file that §4.2 removed from the daemon plane, on the plane
+ * that carries *every* site's traffic.
+ *
+ * Two things make this safe to build on the same canonical string:
+ *
+ * 1. **The endpoint is namespaced.** Site endpoints sign `site/enqueue`, never
+ *    `enqueue`. The daemon plane's `result` and the site plane's `results` are
+ *    one character apart, and a naming collision between planes must not be
+ *    what stands between a signature and a replay onto the wrong handler. The
+ *    prefix is applied *inside* these helpers, so the two ends cannot disagree
+ *    about it — the alternative is two implementations of one bound value,
+ *    which is this project's most-repeated bug.
+ * 2. **The caller slot carries the site id.** `canonicalRequest` names that
+ *    field `runnerId` because the daemon plane got there first; here it holds
+ *    the site id, and the verifier looks the key up in the projection's site
+ *    registry rather than its device registry. The two registries never share
+ *    an entry, so a device signature cannot authenticate as a site.
+ *
+ * §4.2's replay argument carries over **only because the site plane's writes
+ * are idempotent per addressed instance**, which is a property that had to be
+ * built rather than found: `enqueue` reset a job of the same id, so a replayed
+ * enqueue inside the freshness window returned a claimed job to the queue and
+ * threw away a device's live lease. Identical in shape to the `release` bug
+ * above, on the other plane. Anything added to the site plane later must be
+ * idempotent by the instance it names, or this scheme does not cover it.
+ */
+export function signSiteRequest(
+  keys: StoredKeys,
+  input: { endpoint: string; siteId: string; issuedAt: number; body: string },
+): RequestSignature {
+  return signRequest(keys, {
+    endpoint: siteEndpoint(input.endpoint),
+    runnerId: input.siteId,
+    issuedAt: input.issuedAt,
+    body: input.body,
+  });
+}
+
+/** Verify a site's call against the identity the control plane registered. */
+export function verifySiteRequest(input: {
+  identityPublic: string;
+  endpoint: string;
+  body: string;
+  signature: RequestSignature;
+  now: number;
+  maxSkewMs?: number;
+}): SignatureFailure | null {
+  return verifyRequest({
+    ...input,
+    endpoint: siteEndpoint(input.endpoint),
+  });
+}
+
+/** The one place the site plane's domain separator is written. */
+const siteEndpoint = (endpoint: string): string => `site/${endpoint}`;
+
 /** Why a signed request was refused. Never returned to the caller verbatim. */
 export type SignatureFailure = "stale" | "bad-signature";
 

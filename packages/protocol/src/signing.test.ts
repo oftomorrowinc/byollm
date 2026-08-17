@@ -4,7 +4,9 @@ import {
   MAX_CLOCK_SKEW_MS,
   canonicalRequest,
   signRequest,
+  signSiteRequest,
   verifyRequest,
+  verifySiteRequest,
 } from "./signing.js";
 
 const NOW = 1_800_000_000_000;
@@ -104,5 +106,73 @@ describe("freshness is bounded in both directions", () => {
         now: NOW,
       }),
     ).toBe("stale");
+  });
+});
+
+describe("the site plane signs in its own namespace", () => {
+  const site = {
+    endpoint: "enqueue",
+    siteId: "site_demo",
+    issuedAt: NOW,
+    body: JSON.stringify({ siteId: "site_demo" }),
+  };
+
+  it("verifies against the site's registered identity", () => {
+    expect(
+      verifySiteRequest({
+        identityPublic: keys.identityPublic,
+        endpoint: site.endpoint,
+        body: site.body,
+        signature: signSiteRequest(keys, site),
+        now: NOW,
+      }),
+    ).toBe(null);
+  });
+
+  it("does not verify as a daemon call of the same name", () => {
+    // The property the `site/` prefix exists for, tested directly rather than
+    // through a scenario. Today's two planes share no endpoint name, so a
+    // staged replay could not fail — and an assertion that cannot fail is the
+    // shape this project keeps catching. So: same key, same endpoint name,
+    // same body, same second, and the two signatures must still differ.
+    expect(
+      verifyRequest({
+        identityPublic: keys.identityPublic,
+        endpoint: site.endpoint,
+        body: site.body,
+        signature: signSiteRequest(keys, site),
+        now: NOW,
+      }),
+    ).toBe("bad-signature");
+
+    expect(
+      verifySiteRequest({
+        identityPublic: keys.identityPublic,
+        endpoint: site.endpoint,
+        body: site.body,
+        signature: signRequest(keys, {
+          endpoint: site.endpoint,
+          runnerId: site.siteId,
+          issuedAt: site.issuedAt,
+          body: site.body,
+        }),
+        now: NOW,
+      }),
+    ).toBe("bad-signature");
+  });
+
+  it("binds the site id, so one site's signature is not another's", () => {
+    expect(
+      verifySiteRequest({
+        identityPublic: keys.identityPublic,
+        endpoint: site.endpoint,
+        body: site.body,
+        signature: {
+          ...signSiteRequest(keys, site),
+          runnerId: "site_someone_else",
+        },
+        now: NOW,
+      }),
+    ).toBe("bad-signature");
   });
 });

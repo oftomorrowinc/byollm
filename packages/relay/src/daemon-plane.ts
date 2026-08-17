@@ -94,6 +94,13 @@ export class DaemonPlane {
       // consent is a click somewhere else, and the relay only reads it.
       return fail(403, "unauthorized", "no consent record for this user");
     }
+    // The key comes from the site registry, which is its one home. It used to
+    // be inlined on the consent record, which gave a site's key one copy per
+    // consenting user and nothing to reconcile them against.
+    const site = this.#deps.projection.siteFor(this.#deps.siteId);
+    if (!site) {
+      return fail(403, "unauthorized", "this site is not registered");
+    }
 
     // The device must already be approved, by a human, in the control plane.
     //
@@ -139,7 +146,7 @@ export class DaemonPlane {
       protocolVersion: PROTOCOL_VERSION,
       runnerId,
       /** The *site's* key. See the note above — this is load-bearing. */
-      site: consent.site,
+      site: site.site,
     });
   }
 
@@ -205,6 +212,12 @@ export class DaemonPlane {
       for (const job of this.#deps.state.jobs()) {
         if (granted.length >= request.max) break;
         if (job.state !== "queued") continue;
+        // Only this relay's site. The device paired against one site's key and
+        // pinned it; a job from another site could only ever produce an
+        // envelope it refuses to open. The crypto contains it either way,
+        // which is why this went unnoticed — the cost is a burned job rather
+        // than a breach, and a burned job is still a routing bug.
+        if (job.siteId !== this.#deps.siteId) continue;
         if (!kinds.has(job.stub.kind)) continue;
         // The relay's half of AUDIENCE_BOTH_SIDES. The daemon re-checks its
         // own allowlist and may still refuse — this only narrows.

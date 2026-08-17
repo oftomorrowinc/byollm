@@ -114,7 +114,7 @@ describe.each(CASES)("the cloud lane over $name", (storeCase) => {
     const siteKeys = generateSiteKeys();
     const site = publicIdentityOf(siteKeys);
     const fixture = fixtureFor(site, {
-      consents: [{ owner, siteId: SITE_ID, site }],
+      consents: [{ owner, siteId: SITE_ID }],
     });
     const relay = new Relay({ siteId: SITE_ID, fixture });
 
@@ -177,7 +177,7 @@ describe.each(CASES)("the cloud lane over $name", (storeCase) => {
     const siteKeys = generateSiteKeys();
     const site = publicIdentityOf(siteKeys);
     const fixture = fixtureFor(site, {
-      consents: [{ owner, siteId: SITE_ID, site }],
+      consents: [{ owner, siteId: SITE_ID }],
     });
     const relay = new Relay({ siteId: SITE_ID, fixture });
     const app = new ByollmApp({
@@ -237,7 +237,7 @@ describe.each(CASES)("the cloud lane over $name", (storeCase) => {
     const siteKeys = generateSiteKeys();
     const site = publicIdentityOf(siteKeys);
     const fixture = fixtureFor(site, {
-      consents: [{ owner, siteId: SITE_ID, site }],
+      consents: [{ owner, siteId: SITE_ID }],
     });
     const relay = new Relay({ siteId: SITE_ID, fixture });
     const app = new ByollmApp({

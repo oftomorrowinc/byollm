@@ -111,8 +111,27 @@ export class RelayState {
   readonly #jobs = new Map<string, RoutedJob>();
   readonly #presence = new Map<string, Presence>();
 
-  /** Take a stub for routing. The payload is not here and will not be. */
+  /**
+   * Take a stub for routing. The payload is not here and will not be.
+   *
+   * **Idempotent by job id, and that is a security property rather than a
+   * convenience.** Site-plane calls are authenticated by signature, and
+   * byollm_009 §4.2's argument for signing the request instead of a
+   * server-issued nonce rests entirely on every write being idempotent per the
+   * instance it names. This one was not: re-enqueueing a known id built a
+   * fresh `queued` job over the top of the old one, discarding a live claim,
+   * its lease and any payload the site had already sealed to a device. A
+   * replayed enqueue inside the two-minute freshness window was therefore a
+   * way to yank a job back from the machine running it — the `release` bug of
+   * §4.2, rediscovered on the other plane.
+   *
+   * So a known id returns what is already routing, unchanged. A site that
+   * restarts and republishes its queue is the normal case, and it must not
+   * disturb work in flight.
+   */
   enqueue(input: { id: string; siteId: string; stub: JobStub }): RoutedJob {
+    const existing = this.#jobs.get(input.id);
+    if (existing) return existing;
     const job: RoutedJob = {
       id: input.id,
       siteId: input.siteId,

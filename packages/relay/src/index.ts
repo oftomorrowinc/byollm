@@ -69,7 +69,12 @@ export class Relay {
       leaseMs: options.leaseMs ?? 60_000,
       siteId: options.siteId,
     });
-    this.#site = new SitePlane({ state: this.state, now: this.#now });
+    this.#site = new SitePlane({
+      state: this.state,
+      projection: this.projection,
+      now: this.#now,
+      routesFor: options.siteId,
+    });
   }
 
   /** Replace the projection — a control-plane push, or a fixture edit. */
@@ -103,20 +108,38 @@ export class Relay {
 
     const rawBody = request.method === "POST" ? await request.text() : "";
     const body = rawBody === "" ? undefined : safeJson(rawBody);
+    const endpoint = path.slice(path.lastIndexOf("/") + 1);
     const auth = {
-      endpoint: path.slice(path.lastIndexOf("/") + 1),
+      endpoint,
       rawBody,
-      signature: signatureFrom(request.headers),
+      signature: signatureFrom(request.headers, "x-byollm-runner"),
+    };
+    // The caller header differs by plane, so a signature meant for one can
+    // never be presented to the other by moving the request. The endpoint's
+    // domain separator (`site/…`) already covers this; the header makes it
+    // true at parse time rather than at verification time.
+    const siteAuth = {
+      endpoint,
+      rawBody,
+      signature: signatureFrom(request.headers, "x-byollm-site"),
     };
 
     // -- the site plane -----------------------------------------------------
-    if (path === "/relay/site/enqueue") return json(this.#site.enqueue(body));
-    if (path === "/relay/site/payload") return json(this.#site.payload(body));
+    if (path === "/relay/site/enqueue") {
+      return json(this.#site.enqueue(siteAuth, body));
+    }
+    if (path === "/relay/site/payload") {
+      return json(this.#site.payload(siteAuth, body));
+    }
     if (path === "/relay/site/pending") {
-      return json(this.#site.pending(url.searchParams.get("siteId") ?? ""));
+      return json(
+        this.#site.pending(siteAuth, url.searchParams.get("siteId") ?? ""),
+      );
     }
     if (path === "/relay/site/results") {
-      return json(this.#site.results(url.searchParams.get("siteId") ?? ""));
+      return json(
+        this.#site.results(siteAuth, url.searchParams.get("siteId") ?? ""),
+      );
     }
 
     // -- the daemon plane ---------------------------------------------------
@@ -151,8 +174,8 @@ function safeJson(raw: string): unknown {
 }
 
 /** Rebuild the signature from headers, refusing anything partial. */
-function signatureFrom(headers: Headers): unknown {
-  const runnerId = headers.get("x-byollm-runner");
+function signatureFrom(headers: Headers, callerHeader: string): unknown {
+  const runnerId = headers.get(callerHeader);
   const issuedAt = headers.get("x-byollm-issued-at");
   const signature = headers.get("x-byollm-signature");
   // Checked before `Number()`, which turns a missing header into the epoch —
@@ -176,6 +199,7 @@ export {
   DeviceRecord,
   RevocationRecord,
   RosterRecord,
+  SiteRecord,
   RelayFixture as RelayFixtureSchema,
   EMPTY_FIXTURE,
 } from "./fixture.js";

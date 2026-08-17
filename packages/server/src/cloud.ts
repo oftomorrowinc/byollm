@@ -5,6 +5,7 @@ import {
   open,
   publicIdentityOf,
   provenanceFor,
+  signSiteRequest,
   type JobStub,
   type PublicIdentity,
   type StoredKeys,
@@ -116,7 +117,7 @@ export class CloudLane {
       // is worth carrying — never longer than the work could possibly matter.
       deadlineAt: record.deadlineAt ?? record.createdAt + ENVELOPE_TTL_FALLBACK,
     };
-    await this.#post("/relay/site/enqueue", {
+    await this.#post("enqueue", {
       siteId: this.#options.siteId,
       stub,
     });
@@ -135,7 +136,7 @@ export class CloudLane {
     const refused: string[] = [];
     const completed: string[] = [];
 
-    const pending = (await this.#get("/relay/site/pending")) as {
+    const pending = (await this.#get("pending")) as {
       jobs: {
         jobId: string;
         device: PublicIdentity;
@@ -174,7 +175,7 @@ export class CloudLane {
         expiresAt: claim.awaitingUntil,
         now: this.#now(),
       });
-      await this.#post("/relay/site/payload", {
+      await this.#post("payload", {
         siteId: this.#options.siteId,
         jobId: claim.jobId,
         envelope: resealed.envelope,
@@ -182,7 +183,7 @@ export class CloudLane {
       sealed.push(claim.jobId);
     }
 
-    const finished = (await this.#get("/relay/site/results")) as {
+    const finished = (await this.#get("results")) as {
       jobs: {
         jobId: string;
         envelope: SealedEnvelope;
@@ -270,18 +271,52 @@ export class CloudLane {
     return outcome.data;
   }
 
-  async #post(path: string, body: unknown): Promise<unknown> {
-    const response = await this.#fetch(`${this.#options.relayOrigin}${path}`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(body),
+  /**
+   * Sign a site-plane call with this site's identity key.
+   *
+   * The same scheme the daemon uses against an upstream, because the site is
+   * in the same position: an outbound caller whose key the relay already holds
+   * for other reasons. Nothing else authenticates this plane — a relay that
+   * took the `siteId` in a body at face value would let anyone enqueue work in
+   * a site's name and read who claimed it.
+   */
+  #headers(endpoint: string, rawBody: string): Record<string, string> {
+    const signature = signSiteRequest(this.#siteKeys, {
+      endpoint,
+      siteId: this.#options.siteId,
+      issuedAt: this.#now(),
+      body: rawBody,
     });
+    return {
+      "x-byollm-site": this.#options.siteId,
+      "x-byollm-issued-at": String(signature.issuedAt),
+      "x-byollm-signature": signature.signature,
+    };
+  }
+
+  async #post(endpoint: string, body: unknown): Promise<unknown> {
+    const rawBody = JSON.stringify(body);
+    const response = await this.#fetch(
+      `${this.#options.relayOrigin}/relay/site/${endpoint}`,
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          ...this.#headers(endpoint, rawBody),
+        },
+        body: rawBody,
+      },
+    );
     return response.json();
   }
 
-  async #get(path: string): Promise<unknown> {
-    const url = `${this.#options.relayOrigin}${path}?siteId=${encodeURIComponent(this.#options.siteId)}`;
-    const response = await this.#fetch(url);
+  async #get(endpoint: string): Promise<unknown> {
+    const url = `${this.#options.relayOrigin}/relay/site/${endpoint}?siteId=${encodeURIComponent(this.#options.siteId)}`;
+    // A read signs an empty body: the site id is in the query and in the
+    // signed caller slot, and the relay refuses the request unless they agree.
+    const response = await this.#fetch(url, {
+      headers: this.#headers(endpoint, ""),
+    });
     return response.json();
   }
 }

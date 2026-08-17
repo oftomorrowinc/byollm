@@ -14,6 +14,7 @@ import {
   fixtureFor,
   makeDaemon,
   route,
+  siteHeaders,
 } from "./harness.js";
 
 let disposers: (() => Promise<void>)[] = [];
@@ -174,21 +175,28 @@ describe("the freeze gate — cloud_004 §14", () => {
     expect(relay.state.job(jobId)?.stub.id).toBe(jobId);
 
     // And a late seal is refused rather than landing on a claim that moved.
+    const lateBody = JSON.stringify({
+      siteId: SITE_ID,
+      jobId,
+      envelope: {
+        ciphertext: "AAAA",
+        recipientKeyId: "x",
+        senderKeyId: "y",
+        direction: "payload",
+        deadlineAt: Date.now() + skew + 1000,
+      },
+    });
     const late = await relay.handle(
       new Request("http://relay.test/relay/site/payload", {
         method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          siteId: SITE_ID,
-          jobId,
-          envelope: {
-            ciphertext: "AAAA",
-            recipientKeyId: "x",
-            senderKeyId: "y",
-            direction: "payload",
-            deadlineAt: Date.now() + skew + 1000,
-          },
-        }),
+        headers: {
+          "content-type": "application/json",
+          // Signed by the real site, and still refused. The seal is late, not
+          // forged — the two are different failures and only one of them is
+          // what this demo is about.
+          ...siteHeaders(siteKeys, "payload", lateBody, Date.now() + skew),
+        },
+        body: lateBody,
       }),
     );
     expect(late.status).toBe(409);
@@ -224,7 +232,8 @@ describe("the freeze gate — cloud_004 §14", () => {
     const siteKeys = generateKeys(Date.now());
     const site = publicIdentityOf(siteKeys);
     const fixture = {
-      consents: [{ owner: "bob", siteId: SITE_ID, site }],
+      sites: [{ siteId: SITE_ID, site }],
+      consents: [{ owner: "bob", siteId: SITE_ID }],
       devices: [],
       // Bob's machine runs work for his team, of which alice is a member.
       rosters: [{ id: "team_1", owner: "bob", members: ["alice"] }],

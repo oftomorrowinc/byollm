@@ -72,7 +72,7 @@ export function checkProtocolVersion(body: unknown): VersionRefusal | null {
       error: "unsupported-protocol-version",
       message:
         "this request declared no protocol version. Upgrade the daemon: " +
-        "`npm i -g byollm@alpha`.",
+        `\`${UPGRADE_COMMAND}\`.`,
       supported: SUPPORTED_PROTOCOL_VERSIONS,
       minimum: MIN_PROTOCOL_VERSION,
     };
@@ -85,7 +85,7 @@ export function checkProtocolVersion(body: unknown): VersionRefusal | null {
         `this server speaks protocol ${SUPPORTED_PROTOCOL_VERSIONS.join(", ")} ` +
         `and the daemon asked for ${declared}. ` +
         (declared < MIN_PROTOCOL_VERSION
-          ? "Upgrade the daemon: `npm i -g byollm@alpha`."
+          ? `Upgrade the daemon: \`${UPGRADE_COMMAND}\`.`
           : "This daemon is newer than the server; the server needs upgrading."),
       supported: SUPPORTED_PROTOCOL_VERSIONS,
       minimum: MIN_PROTOCOL_VERSION,
@@ -94,6 +94,28 @@ export function checkProtocolVersion(body: unknown): VersionRefusal | null {
 
   return null;
 }
+
+/**
+ * How to upgrade a daemon, in one place.
+ *
+ * `@latest`, which is correct in both eras and therefore never has to be
+ * revisited: during a prerelease it resolves to the current alpha, and after
+ * one it resolves to the current stable.
+ *
+ * `@alpha` was considered and rejected. The argument for it was that `latest`
+ * is moved by hand — it needs a human with 2FA, deliberately — so it can lag
+ * the `alpha` tag. In practice that lag has been minutes, and the cost on the
+ * other side is permanent: the day this stops being a prerelease, `@alpha`
+ * starts meaning "the unstable one", and every user who followed this message
+ * is pinned to prereleases with nothing to tell them.
+ *
+ * Note this is deliberately *not* the rule `scripts/check-site.mjs` enforces
+ * on the docs, which requires `npx byollm@alpha`. That rule is about somebody
+ * choosing to install a prerelease knowingly, with the warning in front of
+ * them. This is an upgrade instruction handed to somebody who already has the
+ * daemon and needs a newer one — a different question with a different answer.
+ */
+export const UPGRADE_COMMAND = "npm i -g byollm@latest" as const;
 
 /** The path prefix all endpoints mount under. */
 export const PROTOCOL_PREFIX = "/byollm" as const;

@@ -3,6 +3,7 @@ import {
   MIN_PROTOCOL_VERSION,
   PROTOCOL_VERSION,
   SUPPORTED_PROTOCOL_VERSIONS,
+  UPGRADE_COMMAND,
   checkProtocolVersion,
 } from "./wire.js";
 
@@ -66,5 +67,31 @@ describe("checkProtocolVersion", () => {
     expect(checkProtocolVersion(body)?.error).toBe(
       "unsupported-protocol-version",
     );
+  });
+});
+
+describe("the upgrade command", () => {
+  /**
+   * It must never pin a prerelease tag.
+   *
+   * `@latest` is correct during a prerelease and after one, which is why it
+   * was chosen over `@alpha` — the alternative is right today and silently
+   * wrong the day the project ships stable, pinning everyone who followed it
+   * to prereleases forever.
+   *
+   * Asserted rather than left to the docstring, because "helpfully" changing
+   * this to `@alpha` during a beta is exactly the kind of edit that looks
+   * correct in review.
+   */
+  it("does not pin a prerelease dist-tag", () => {
+    expect(UPGRADE_COMMAND).toContain("byollm");
+    expect(UPGRADE_COMMAND).not.toMatch(/@(alpha|beta|next|canary)\b/);
+  });
+
+  it("is the command every version refusal hands over", () => {
+    // One home: a second copy in a message is a copy that keeps saying
+    // `@alpha` after this one is fixed.
+    const refusal = checkProtocolVersion({});
+    expect(refusal?.message).toContain(UPGRADE_COMMAND);
   });
 });

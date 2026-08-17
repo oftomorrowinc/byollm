@@ -200,6 +200,7 @@ const json = (result: PlaneResult): Response =>
   });
 
 export { Projection, RelayState, debugPage };
+export type { RoutingStore } from "./store.js";
 export type { RelayFixture };
 export {
   ConsentRecord,

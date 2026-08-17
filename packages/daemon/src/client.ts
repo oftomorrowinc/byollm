@@ -358,9 +358,13 @@ export class ProtocolClient {
       const serverTime = (body as { serverTime?: unknown }).serverTime;
       const drift =
         typeof serverTime === "number"
-          ? `; this machine is ${describeDrift(Date.now() - serverTime)}`
+          ? ` This machine is ${describeDrift(Date.now() - serverTime)}.`
           : "";
-      return new ClientError("clock-skew", `${message}${drift}`, retryAfter);
+      return new ClientError(
+        "clock-skew",
+        `${message}.${drift} ${syncTimeCommand()}`,
+        retryAfter,
+      );
     }
     switch (response.status) {
       case 401:
@@ -389,6 +393,28 @@ export class ProtocolClient {
  * "7 minutes ahead" tells a person to look at their clock. "clock skew
  * detected" tells them to search for the phrase.
  */
+/**
+ * How to fix it, for the machine this is running on.
+ *
+ * The upstream can say *how far off* — it knows its own time. It cannot say
+ * *what to run*, because it has no idea what this machine is. So the sentence
+ * is composed here, which is byollm_013's rule about which side names the fix.
+ *
+ * Turning on time sync rather than setting the clock once: a clock that
+ * drifted far enough to be refused will drift again, and `date -s` fixes today
+ * only. These are the commands that make it stop happening.
+ */
+function syncTimeCommand(): string {
+  switch (process.platform) {
+    case "darwin":
+      return "Turn on network time: `sudo sntp -sS time.apple.com`, or System Settings → General → Date & Time → Set automatically.";
+    case "win32":
+      return "Turn on network time: `w32tm /resync`, or Settings → Time & language → Set time automatically.";
+    default:
+      return "Turn on network time: `sudo timedatectl set-ntp true` (or install chrony/ntpd).";
+  }
+}
+
 function describeDrift(ms: number): string {
   const seconds = Math.round(Math.abs(ms) / 1000);
   const amount =

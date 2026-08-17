@@ -5,6 +5,7 @@ import type {
   SealedEnvelope,
 } from "@byollm/protocol";
 import { randomUUID } from "node:crypto";
+import type { RoutingStore } from "./store.js";
 
 /**
  * The relay's routing state — byollm_009 §7, reachable at last.
@@ -185,7 +186,7 @@ export type HolderRefusal =
  * returns to its site's queue — which is the behaviour a lapsed lease already
  * has to produce, so nothing new needs to be true for this to be safe.
  */
-export class RelayState {
+export class RelayState implements RoutingStore {
   readonly #jobs = new Map<string, RoutedJob>();
   readonly #presence = new Map<string, Presence>();
   readonly #now: () => number | Promise<number>;

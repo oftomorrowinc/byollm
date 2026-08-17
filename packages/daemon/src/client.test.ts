@@ -413,3 +413,53 @@ describe("Pairings", () => {
     expect(() => new Pairings("/nope").list()).toThrow(/before load/);
   });
 });
+
+describe("a clock-skew refusal tells you how to fix it", () => {
+  /**
+   * byollm_013's rule about which side composes the fix, as a test.
+   *
+   * The relay knows how far off this machine is and cannot know what to run;
+   * `sudo sntp -sS`, `w32tm /resync` and `timedatectl set-ntp` are three
+   * different sentences and only the daemon knows which applies. So the
+   * upstream hands over `serverTime` and the daemon turns it into an
+   * instruction.
+   */
+  it("names the drift and a command for this platform", async () => {
+    const upstream = new ProtocolClient({
+      origin: "https://app.test",
+      identity: TEST_SIGNER,
+      fetch: () =>
+        Promise.resolve(
+          new Response(
+            JSON.stringify({
+              error: "clock-skew",
+              message:
+                "this request's timestamp is too far from the server's clock",
+              // Ten minutes behind this machine.
+              serverTime: Date.now() - 600_000,
+              maxSkewMs: 120_000,
+            }),
+            { status: 401, headers: { "content-type": "application/json" } },
+          ),
+        ),
+    });
+
+    const error = await upstream
+      .heartbeat({
+        runnerId: "r1",
+        daemonVersion: "test",
+        capabilities: [],
+        paused: false,
+        activeLeases: [],
+      })
+      .then(() => null)
+      .catch((e: unknown) => e as { kind: string; message: string });
+
+    expect(error?.kind).toBe("clock-skew");
+    // How far off, in words rather than a timestamp difference.
+    expect(error?.message).toContain("minutes ahead of the server");
+    // And what to run. Which command depends on the platform this test is on,
+    // so the assertion is that there *is* one rather than which.
+    expect(error?.message).toContain("Turn on network time");
+  });
+});

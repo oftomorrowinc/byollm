@@ -98,3 +98,87 @@ describe("two replicas, one load balancer", () => {
     expect(b.state.everyone()).toHaveLength(0);
   });
 });
+
+/**
+ * The claim race — cloud_006 §3.2, written before the fix.
+ *
+ * The test above demonstrates *split* state: two replicas that cannot see each
+ * other. Shared routing state fixes that, and introduces the failure this file
+ * did not previously describe — the one a careful port would ship.
+ *
+ * `DaemonPlane.claim` scans `state.jobs()`, filters in JavaScript, and mutates
+ * the winners. That is atomic today for one reason and one reason only:
+ * **Node is single-threaded and the Maps are local**, so nothing can run
+ * between the read and the write. Neither of those survives a store on a
+ * network.
+ *
+ * `CLAIM_ATOMIC` is a MUST. It currently holds by accident of runtime rather
+ * than by design, which is the "true for an accidental reason" class — and the
+ * dangerous property is that a naive port **passes every existing test**,
+ * because every existing test runs one replica.
+ *
+ * ## What a shared store means, modelled honestly
+ *
+ * Sharing routing state means both replicas see the same job in the same
+ * state. So: one job id, `queued` in both. Then a daemon claims on each.
+ *
+ * With a store that makes claiming a single operation, exactly one wins and
+ * the other is told there is nothing to take. Today both win, and two devices
+ * hold a lease on one job — which means two machines run it, two results come
+ * back, and `RESULT_IDEMPOTENT` decides which one the site keeps by arrival
+ * order rather than by anyone's intent.
+ */
+describe("the claim race that shared state will introduce", () => {
+  it.fails(
+    "grants one job to exactly one device when both replicas can see it",
+    async () => {
+      const siteKeys = generateKeys(Date.now());
+      const site = publicIdentityOf(siteKeys);
+      const fixture = fixtureFor(site);
+
+      const a = new Relay({ siteId: SITE_ID, fixture });
+      const b = new Relay({ siteId: SITE_ID, fixture });
+
+      // A daemon per replica, as a load balancer would produce. Both are
+      // approved devices belonging to the same consenting owner, so each
+      // replica is entitled to offer them work — the projection is shared and
+      // is not the problem.
+      const one = await makeDaemon(a, fixture, { owner: "alice", site });
+      disposers.push(one.dispose);
+      const two = await makeDaemon(b, fixture, { owner: "alice", site });
+      disposers.push(two.dispose);
+      // Both relays learn both devices: presence is routing state, so a shared
+      // store shares it too.
+      a.project(fixture);
+      b.project(fixture);
+
+      // One job, queued on both — which is what "shared routing state" means.
+      const stub = {
+        id: "job_contended",
+        kind: "llm.generate" as const,
+        owner: "alice",
+        audience: "self" as const,
+        sizeClass: "small" as const,
+        streaming: false,
+        deadlineAt: Date.now() + 300_000,
+      };
+      a.state.enqueue({ id: stub.id, siteId: SITE_ID, stub });
+      b.state.enqueue({ id: stub.id, siteId: SITE_ID, stub });
+
+      // Concurrent, as far as the daemons are concerned: neither waits for the
+      // other, and each talks to the replica the balancer gave it.
+      await Promise.all([one.runner.tick(), two.runner.tick()]);
+      await new Promise((r) => setTimeout(r, 30));
+
+      const holders = [a, b]
+        .map((relay) => relay.state.job(stub.id)?.claimedBy?.runnerId)
+        .filter((runnerId): runnerId is string => runnerId !== undefined);
+
+      // The assertion `RoutingStore` must make true. It is red today, which is
+      // the point of writing it now: `it.fails` inverts the moment the claim
+      // becomes a single operation, so whoever lands that change is told to
+      // delete this marker rather than having to remember the test exists.
+      expect(new Set(holders).size).toBeLessThanOrEqual(1);
+    },
+  );
+});

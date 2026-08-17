@@ -1,6 +1,6 @@
 import { cryptoReady, generateKeys, publicIdentityOf } from "@byollm/protocol";
 import { beforeAll, describe, expect, it } from "vitest";
-import { RelayState } from "../src/index.js";
+import { AWAITING_PAYLOAD_MS, RelayState } from "../src/index.js";
 
 /**
  * The routing store's operations, each tested for the guard it carries.
@@ -50,7 +50,6 @@ const claimArgs = (over: Partial<Parameters<RelayState["claim"]>[0]> = {}) => ({
   owners: new Set(["alice"]),
   max: 10,
   leaseMs: 60_000,
-  now: Date.now(),
   ...over,
 });
 
@@ -103,18 +102,20 @@ describe("claim", () => {
     // until the timeout requeues it, and the requeue happens on somebody
     // else's claim rather than on a timer. Without the sweep the job is stuck
     // holding a grant nobody is using, and the queue silently shortens.
-    const state = new RelayState();
-    const now = 1_800_000_000_000;
+    // The clock is the store's now, so a test moves time by moving *it* —
+    // which is also the only way a test can, and is the property that makes a
+    // Valkey-backed store swap in without touching this file.
+    let clock = 1_800_000_000_000;
+    const state = new RelayState({ now: () => clock });
     await state.enqueue({ id: "a", siteId: SITE, stub: stub("a") });
 
-    const first = await state.claim(claimArgs({ now }));
+    const first = await state.claim(claimArgs());
     expect(first).toHaveLength(1);
 
     // The site never sealed. Past AWAITING_PAYLOAD_MS, a different device
     // asks — and gets it, because the claim swept the abandoned grant.
-    const second = await state.claim(
-      claimArgs({ runnerId: "runner_2", now: now + 11_000 }),
-    );
+    clock += 11_000;
+    const second = await state.claim(claimArgs({ runnerId: "runner_2" }));
 
     expect(second).toHaveLength(1);
     expect((await state.job("a"))?.claimedBy?.runnerId).toBe("runner_2");
@@ -128,6 +129,66 @@ describe("claim", () => {
     expect(
       await state.claim(claimArgs({ kinds: new Set(["llm.chat"]) })),
     ).toEqual([]);
+  });
+});
+
+describe("the store's clock", () => {
+  /**
+   * Every deadline is stamped from `state.now()` — cloud_006 §3.4.
+   *
+   * Asserted as exact arithmetic rather than through behaviour, because
+   * behaviour cannot tell these apart. A mutation replacing the store's clock
+   * with `Date.now()` survived every behavioural test: the deadlines still
+   * expired, still swept, still requeued — just measured against a different
+   * clock, which is precisely the bug that appears only when two replicas
+   * hold different ones and nothing looks wrong on either.
+   *
+   * A lease granted by a pod whose clock runs fast is short; the same lease
+   * swept by a pod whose clock runs slow outlives it. Neither pod is wrong,
+   * and the lease has no length. So the test has to be about the number.
+   */
+  const CLOCK = 1_800_000_000_000;
+
+  it("stamps a lease's expiry from its own clock", async () => {
+    const state = new RelayState({ now: () => CLOCK });
+    await state.enqueue({ id: "a", siteId: SITE, stub: stub("a") });
+
+    const [granted] = await state.claim(claimArgs({ leaseMs: 45_000 }));
+
+    expect(granted?.lease.expiresAt).toBe(CLOCK + 45_000);
+  });
+
+  it("stamps the awaiting-payload window from its own clock", async () => {
+    const state = new RelayState({ now: () => CLOCK });
+    await state.enqueue({ id: "a", siteId: SITE, stub: stub("a") });
+    await state.claim(claimArgs());
+
+    // The third clock byollm_009 §7.1 requires: how long we wait for a site,
+    // distinct from the lease and from the job's TTL.
+    expect((await state.job("a"))?.awaitingUntil).toBe(
+      CLOCK + AWAITING_PAYLOAD_MS,
+    );
+  });
+
+  it("stamps presence from its own clock", async () => {
+    const state = new RelayState({ now: () => CLOCK });
+    const seen = await state.seen({
+      runnerId: "runner_1",
+      owner: "alice",
+      device: KEYS(),
+    });
+    expect(seen.lastSeenAt).toBe(CLOCK);
+  });
+
+  it("accepts an async clock, which is what a shared store returns", async () => {
+    // Valkey answers `TIME` over the wire. The memory store's clock is
+    // synchronous and the interface takes either, so swapping one for the
+    // other touches no caller — which is the whole reason the clock moved
+    // into the store rather than staying a parameter.
+    const state = new RelayState({ now: () => Promise.resolve(CLOCK) });
+    await state.enqueue({ id: "a", siteId: SITE, stub: stub("a") });
+    const [granted] = await state.claim(claimArgs({ leaseMs: 1_000 }));
+    expect(granted?.lease.expiresAt).toBe(CLOCK + 1_000);
   });
 });
 

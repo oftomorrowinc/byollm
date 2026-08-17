@@ -228,7 +228,7 @@ export class SitePlane {
       QueryRequest,
       (request) => request.siteId,
       async (_request, site) => {
-        await this.#deps.state.sweep(this.#deps.now());
+        await this.#deps.state.sweep();
         const jobs = (await this.#deps.state.awaiting(site)).map((job) => ({
           jobId: job.id,
           // Non-null by construction: `awaiting` only returns claimed jobs.

@@ -142,7 +142,34 @@ export interface ClaimInput {
   readonly owners: ReadonlySet<string>;
   readonly max: number;
   readonly leaseMs: number;
-  readonly now: number;
+}
+
+/**
+ * Where the store's sense of time comes from — cloud_006 §3.4.
+ *
+ * **The store owns its clock; callers do not pass one.** Every deadline the
+ * relay decides — a lease's expiry, the `awaiting-payload` window, what a
+ * sweep considers due — is now stamped by one source, and it is the same
+ * source that will later stamp them for every replica.
+ *
+ * It used to be a parameter. `claim` took `now`, `sweep` took `now`, and each
+ * plane called its own `now()` before calling in — which is fine in one
+ * process and is the recurring bug the moment there are two. A lease granted
+ * by a pod whose clock runs fast is short; the same lease swept by a pod whose
+ * clock runs slow outlives it. Nobody is wrong and the lease has no length.
+ *
+ * A Valkey-backed store returns `TIME` here, so the deadline and the sweep
+ * that enforces it are read from the same server. The injected clock stays for
+ * tests, which is what lets them move time instead of sleeping.
+ *
+ * **What deliberately does not use this**: request-signature freshness. That
+ * is checked against the *local* clock on purpose — it is a question about the
+ * caller's clock versus this process's, `MAX_CLOCK_SKEW_MS` already tolerates
+ * two minutes of disagreement, and a network round trip to timestamp every
+ * inbound request would be a cost with no property behind it.
+ */
+export interface RelayStateOptions {
+  readonly now?: () => number | Promise<number>;
 }
 
 /** Why a lease-scoped operation was refused, in the caller's vocabulary. */
@@ -161,6 +188,16 @@ export type HolderRefusal =
 export class RelayState {
   readonly #jobs = new Map<string, RoutedJob>();
   readonly #presence = new Map<string, Presence>();
+  readonly #now: () => number | Promise<number>;
+
+  constructor(options: RelayStateOptions = {}) {
+    this.#now = options.now ?? Date.now;
+  }
+
+  /** The one clock every deadline in this store is stamped from. */
+  async now(): Promise<number> {
+    return this.#now();
+  }
 
   /**
    * Take a stub for routing. The payload is not here and will not be.
@@ -233,7 +270,8 @@ export class RelayState {
    * needed the projection.
    */
   async claim(input: ClaimInput): Promise<ClaimedStub[]> {
-    await this.sweep(input.now);
+    const now = await this.now();
+    await this.sweep();
 
     const granted: ClaimedStub[] = [];
     for (const job of this.#jobs.values()) {
@@ -259,11 +297,11 @@ export class RelayState {
         owner: input.owner,
         device: input.device,
         leaseId,
-        leaseExpiresAt: input.now + input.leaseMs,
+        leaseExpiresAt: now + input.leaseMs,
       };
       // Not the lease: this bounds how long we wait for a *site*, not how long
       // the device may work. byollm_009 §7.1's third clock.
-      job.awaitingUntil = input.now + AWAITING_PAYLOAD_MS;
+      job.awaitingUntil = now + AWAITING_PAYLOAD_MS;
 
       granted.push({
         ...job.stub,
@@ -392,15 +430,18 @@ export class RelayState {
     );
   }
 
-  seen(presence: Omit<Presence, "revoked">): Promise<Presence> {
+  async seen(
+    presence: Omit<Presence, "revoked" | "lastSeenAt">,
+  ): Promise<Presence> {
+    const lastSeenAt = await this.now();
     const existing = this.#presence.get(presence.runnerId);
     if (existing) {
-      existing.lastSeenAt = presence.lastSeenAt;
-      return Promise.resolve(existing);
+      existing.lastSeenAt = lastSeenAt;
+      return existing;
     }
-    const fresh: Presence = { ...presence, revoked: false };
+    const fresh: Presence = { ...presence, lastSeenAt, revoked: false };
     this.#presence.set(presence.runnerId, fresh);
-    return Promise.resolve(fresh);
+    return fresh;
   }
 
   presence(runnerId: string): Promise<Presence | undefined> {
@@ -432,7 +473,8 @@ export class RelayState {
    * timeout that fires invisibly is indistinguishable from a job that was
    * never claimed, and those want very different debugging.
    */
-  sweep(now: number): Promise<RoutedJob[]> {
+  async sweep(): Promise<RoutedJob[]> {
+    const now = await this.now();
     const requeued: RoutedJob[] = [];
     for (const job of this.#jobs.values()) {
       if (job.state === "awaiting-payload" && (job.awaitingUntil ?? 0) <= now) {
@@ -449,6 +491,6 @@ export class RelayState {
         requeued.push(job);
       }
     }
-    return Promise.resolve(requeued);
+    return requeued;
   }
 }

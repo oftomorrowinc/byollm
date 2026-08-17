@@ -58,7 +58,7 @@ export class Relay {
   readonly #basePath: string;
 
   constructor(options: RelayOptions) {
-    this.state = new RelayState();
+    this.state = new RelayState({ now: options.now ?? Date.now });
     this.projection = new Projection(options.fixture);
     this.#now = options.now ?? Date.now;
     this.#basePath = (options.basePath ?? "/byollm").replace(/\/+$/, "");
@@ -92,7 +92,7 @@ export class Relay {
    * ask about it.
    */
   async sweep(): Promise<{ requeued: string[] }> {
-    const requeued = await this.state.sweep(this.#now());
+    const requeued = await this.state.sweep();
     return { requeued: requeued.map((j) => j.id) };
   }
 

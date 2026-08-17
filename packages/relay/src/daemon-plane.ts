@@ -171,11 +171,12 @@ export class DaemonPlane {
     // devices in it.
     const runnerId = approved.runnerId;
 
+    // No timestamp: the store stamps `lastSeenAt` from its own clock, so
+    // presence and the deadlines that reason about it agree (cloud_006 §3.4).
     await this.#deps.state.seen({
       runnerId,
       owner: parsed.data.owner,
       device: parsed.data.device,
-      lastSeenAt: this.#deps.now(),
     });
 
     return ok({
@@ -268,7 +269,6 @@ export class DaemonPlane {
         owners: new Set(this.#deps.projection.ownersRunnableBy(device.owner)),
         max: request.max,
         leaseMs: this.#deps.leaseMs,
-        now: this.#deps.now(),
       });
 
       return ok({ jobs: granted, leaseMs: this.#deps.leaseMs });
@@ -335,7 +335,7 @@ export class DaemonPlane {
       HeartbeatRequest,
       async (request, device) => {
         const now = this.#deps.now();
-        await this.#deps.state.sweep(now);
+        await this.#deps.state.sweep();
 
         const known = await this.#deps.state.presence(device.runnerId);
         // Revocation is a fixture edit, and this is where the daemon learns

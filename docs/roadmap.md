@@ -68,6 +68,12 @@ excuses — the security posture depends on naming these out loud.
 5. Future: OS sandbox for process-class; `train.*` job kinds.
    Streaming (`byollm_006`) is unblocked by 009 §8 and waiting on a
    consumer, not on a design.
+6. Open, filed from the field: `byollm_013` (capability probe). A
+   Windows tester found `backends` reporting **2 of 2 healthy** with a
+   CLI that rejected the first job's flags. Detection confirmed a
+   binary existed and never confirmed it accepts the argv it will be
+   given — so the daemon advertised what it could not serve, while
+   passing the check written to forbid exactly that.
 
 ### Ordering, and why
 

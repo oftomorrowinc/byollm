@@ -210,3 +210,51 @@ establishing the cause is cargo-culting. Recorded because CI runs
 `supabase start` and certifies immediately, so if this is a cold-start race
 CI can hit it too, and the next person seeing a lone C004 failure should know
 it has been seen before rather than assume they broke leases.
+
+## The plane nobody could reach (2026-08-17)
+
+The freeze gate found eight things in byollm_009 and every one of them was
+about the *protocol*. Not one was about the **plane the protocol runs over**,
+because in every test that plane was a function call: `SiteConnector` held a
+reference to the `Relay` object and invoked `handle()` directly.
+
+So the site plane had no authentication, and nothing noticed for eight
+findings. Not a check that failed to bite — a check that was never written,
+in a place the test topology could not see. Reading the code before the first
+public deploy is what found it, and the deploy is exactly where cloud_001's
+Phase 2 plan said to look.
+
+Seven mutations, all killed, listed here because the *set* is the interesting
+part rather than any single one:
+
+| reverted | caught by |
+| --- | --- |
+| signature verification skipped | unsigned enqueue is refused |
+| an unregistered site accepted | a site the control plane never registered |
+| body-vs-signature site check dropped | a body naming a site the signature does not |
+| the routes-for check dropped | a registered site this relay does not serve |
+| `claim`'s siteId filter dropped | a daemon offered another site's job |
+| `enqueue` overwrites a known id | a republish that discarded a live lease |
+| the `site/` domain separator dropped | the same call signed for both planes |
+
+**The one that is a test rather than a scenario.** The domain separator's job
+is to stop a daemon-plane signature being replayed on a same-named site-plane
+endpoint. There is no such pair today — `result` and `results` differ — so
+any staged replay would fail with or without the prefix, and the test would
+have been decorative in exactly the way the section above describes. It is
+instead a unit test of the property: same key, same endpoint name, same body,
+same second, and the two signatures must differ. It fails the moment the
+prefix goes, which the scenario version never would.
+
+**The guard deliberately not written.** `enqueue` returning an existing job
+needs a collision check for the day two sites share a job id. This relay
+serves one site, so that branch cannot be reached and its test could not
+fail. It is a comment naming the condition, not code — the multi-tenant
+router adds both together.
+
+**The shape to remember:** a test harness that reaches the system under test
+by calling it directly cannot see anything about how the system is *reached*.
+Auth, transport framing, header parsing, and the difference between a caller
+who is authorised and one who merely knows a URL all live in that blind spot.
+The two-replica test has the same limitation and says so; this one did not
+know it had it.

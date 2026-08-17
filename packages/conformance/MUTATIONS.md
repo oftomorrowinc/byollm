@@ -258,3 +258,49 @@ Auth, transport framing, header parsing, and the difference between a caller
 who is authorised and one who merely knows a URL all live in that blind spot.
 The two-replica test has the same limitation and says so; this one did not
 know it had it.
+
+## Success reported for an unrelated reason (2026-08-17)
+
+The duplicated-value bug has a sibling, and one night produced three of it.
+Naming it, because it is now the more dangerous of the two: a duplicated value
+fails loudly the moment the copies disagree, and this one never fails at all.
+
+**A check reports success for a reason unrelated to the property it claims.**
+
+| what passed                           | why it passed                                                                | what it claimed             |
+| ------------------------------------- | ---------------------------------------------------------------------------- | --------------------------- |
+| the deployment posture audit, 6/7     | every probe got a 404 from a load balancer with no matching host rule        | "a stranger got nowhere"    |
+| a control-plane test file, "2 passed" | `it.runIf(available)` evaluates at collection time, so three tests never ran | the projection reader works |
+| a consent row, looking ordinary       | the disclosure was built from hidden form fields the submitter controls      | this person agreed to this  |
+
+Not one of these is a check that _cannot_ fail. Each can fail, and each was
+passing for a reason that had nothing to do with the thing under test — which
+is worse, because "it cannot fail" is visible on inspection and "it passed for
+another reason" looks exactly like working software.
+
+### How each was actually caught
+
+Worth recording, because none was caught by the suite:
+
+- The audit's 6/7 was caught by **running it against a deployment already
+  known to be broken**. A green result where a red one was expected.
+- The skipped tests were caught by **reading the skip count**, which was 3 when
+  it should have been 0.
+- The form-field disclosure was caught by **writing the sentence that
+  described it** — "the disclosure shown is the disclosure stored" — and
+  noticing the code did not say that.
+
+### The question this suggests
+
+For any check that passes: **name the thing that would have to be true for it
+to pass while the property is false.** If that thing is plausible — a
+misrouted host, an unrun suite, an attacker-chosen field — the check is
+measuring something adjacent to what it claims.
+
+The mechanical version, which caught the first two: a check whose failure mode
+is _absence_ (404, skip, empty result) must assert something **positive** about
+the thing it found, not merely that it did not find a problem. The posture
+audit now requires a refusal to be byollm's own JSON error rather than any
+4xx. The projection tests now assert `count(*) = 1` against a fixture with one
+visible and two hidden rows, so they fail against a policy that hides
+everything as well as one that hides nothing.

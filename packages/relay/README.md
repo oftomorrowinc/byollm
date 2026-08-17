@@ -1,5 +1,5 @@
 > [!WARNING]
-> **Alpha (`0.1.0-alpha.9`) — under active development. Don't use this yet.**
+> **Alpha (`0.1.0-alpha.10`) — under active development. Don't use this yet.**
 >
 > This is a walking skeleton. It routes real jobs between real daemons and real
 > sites, and it is the fixture byollm_009 freezes against — but it keeps its
@@ -80,7 +80,7 @@ daemons pin at pairing, verified against the `sites` half of the projection.
 Nothing here trusts a `siteId` in a body or a query string.
 
 That is newer than the rest of this package. The site plane took the caller's
-word for who it was until `0.1.0-alpha.9`, which on a relay reachable from the
+word for who it was until `0.1.0-alpha.10`, which on a relay reachable from the
 internet is an open enqueue endpoint into consenting users' machines and an
 open read of who is online. It was blind the whole time — nothing could open a
 payload — and blind is not the same as safe.

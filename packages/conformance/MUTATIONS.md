@@ -304,3 +304,53 @@ audit now requires a refusal to be byollm's own JSON error rather than any
 4xx. The projection tests now assert `count(*) = 1` against a fixture with one
 visible and two hidden rows, so they fail against a policy that hides
 everything as well as one that hides nothing.
+
+## An `operator` MUST whose subject an attacker chooses (2026-08-17)
+
+A refinement of the section above, and the case that motivated it deserves
+naming on its own.
+
+`SHARED_COMPUTE_DISCLOSED` — _"before a user's work first runs on compute they
+do not own, they MUST be told in plain language that the machine's owner can
+see it"_ — is `operator`-kind. byollm_009 §11 says why: **a consent screen's
+wording is not wire-observable, and a boolean saying "we disclosed" would be
+exactly the box-ticking the MUST exists to prevent.**
+
+That classification is honest and it carries an assumption nobody wrote down.
+`operator` means _no automated check can see this; a human audits it instead_.
+An audit works by looking at the thing once and knowing what it is — which
+requires the thing to be **stable, and ours**.
+
+In `byollm-cloud-web`, the consent screen built the sentence it stored from
+hidden form fields. So the audited value was chosen per request by whoever
+submitted the form. An auditor reading the code, the screen, or a stored row
+would have seen correct disclosure language every time and been right about
+nothing: the next submission could say anything, over a `site_id` pointing
+somewhere else, and the row would look entirely ordinary afterwards.
+
+**An `operator` MUST whose subject an adversary can vary is not
+operator-verified. It is unverified.** There is no layer left: no conformance
+check by classification, no wire observation by construction, and no audit
+because there is nothing stable to audit.
+
+### The rule
+
+For an `operator`-kind MUST, **the thing being audited must be something the
+operator controls.** If a request can change it, the classification is wrong or
+the code is — and here it was the code. The fix restores auditability rather
+than adding a check: the disclosure is built from the site row the
+authorisation used, so what an auditor reads is what every user gets.
+
+### Why this is worth its own entry
+
+The class above — success reported for an unrelated reason — is about checks
+that pass wrongly. This is about a MUST that has _no_ check by design, where
+the design was sound and one implementation detail removed the only remaining
+guarantee. The taxonomy did its job: it labelled the MUST unverifiable so
+nobody could think conformance covered it. What it could not do is notice that
+the unverifiable thing had become attacker-controlled.
+
+**Where to look for more:** every `operator`-kind MUST, asked one question —
+_can a request change what an auditor would be looking at?_ That is a short
+list and a cheap sweep, and it is the only list where a wrong answer has no
+second line of defence.

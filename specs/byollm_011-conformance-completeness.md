@@ -158,6 +158,33 @@ counts only `conformance`-kind gaps and reports zero;
 `formatReport` distinguishes "verified elsewhere" from "unverified";
 and the mutation list exists for every check the kit ships.
 
+## What `operator` assumes (2026-08-17)
+
+The taxonomy says `operator` means "a claim about how someone runs a
+deployment, verifiable only by audit or by reading source". True, and
+it carries an unstated premise: **an audit works by looking at
+something once and knowing what it is**, which requires that something
+to be stable and under the operator's control.
+
+`SHARED_COMPUTE_DISCLOSED` is `operator`-kind because a consent
+screen's wording is not wire-observable. In `byollm-cloud-web` that
+wording was built from hidden form fields — chosen per request by
+whoever submitted the form. An auditor would have read correct
+language every time and been right about nothing.
+
+**An `operator` MUST whose subject an adversary can vary is not
+operator-verified; it is unverified.** No conformance check by
+classification, no wire observation by construction, and no audit
+because nothing stable exists to audit.
+
+This does not change the taxonomy — the label did its job, which was
+to stop anyone believing conformance covered it. It adds a question to
+ask of every MUST carrying that label: *can a request change what an
+auditor would be looking at?* It is a short list, and the only one
+where a wrong answer has nothing behind it.
+
+Recorded in full in `packages/conformance/MUTATIONS.md`.
+
 ## The surface the kit could not see (2026-08-17)
 
 `certify` drives a real daemon against a `ConformanceTarget`, and the

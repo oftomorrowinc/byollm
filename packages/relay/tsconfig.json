@@ -6,5 +6,5 @@
     "tsBuildInfoFile": ".tsbuild/.tsbuildinfo"
   },
   "include": ["src/**/*.ts", "test/**/*.ts"],
-  "references": [{ "path": "../protocol" }]
+  "references": [{ "path": "../protocol" }, { "path": "../conformance" }]
 }

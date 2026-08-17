@@ -38,6 +38,7 @@
   "devDependencies": {
     "byollm": "workspace:*",
     "@byollm/server": "workspace:*",
-    "@supabase/supabase-js": "^2.112.2"
+    "@supabase/supabase-js": "^2.112.2",
+    "@byollm/conformance": "workspace:*"
   }
 }

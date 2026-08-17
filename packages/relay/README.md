@@ -111,4 +111,26 @@ const response = await relay.handle(request);
 `awaiting-payload` timer has left. It shows no prompt or result text — not
 because it filters them out, but because the relay does not have them.
 
+**Do not serve `/debug` on the internet.** It shows no payloads and it does
+show who is online, which device holds what, and every lease in flight — the
+same metadata the site plane's signatures exist to protect, through a
+different door. Whoever serves this package decides that, which is why the
+route is still here: refuse it at your gateway and reach it through an
+authenticated channel instead.
+
+## Auditing a deployment
+
+`@byollm/conformance` ships a posture audit that holds nothing but a URL,
+which is what an attacker has:
+
+```bash
+npx byollm-audit-deployment https://your-relay.example
+```
+
+It exists because eight of byollm_009's findings came from a suite in which
+nothing was ever a stranger — the site had a reference to the relay object and
+called it. A harness that invokes the system under test directly cannot see
+anything about how the system is *reached*, and the ninth finding was in that
+gap. Safe to run against production: nothing writes, nothing floods.
+
 MIT

@@ -97,6 +97,9 @@ importers:
         specifier: ^4.1.13
         version: 4.4.3
     devDependencies:
+      '@byollm/conformance':
+        specifier: workspace:*
+        version: link:../conformance
       '@byollm/server':
         specifier: workspace:*
         version: link:../server

@@ -157,3 +157,84 @@ covered; every MUST carries a verification kind; `uncoveredMusts()`
 counts only `conformance`-kind gaps and reports zero;
 `formatReport` distinguishes "verified elsewhere" from "unverified";
 and the mutation list exists for every check the kit ships.
+
+## The surface the kit could not see (2026-08-17)
+
+`certify` drives a real daemon against a `ConformanceTarget`, and the
+target's `fetch` "may hand requests to an in-process handler or to a
+real HTTP server. Both are certified the same way." That sentence is
+correct about the protocol and wrong about everything else, and it
+took eleven findings to see which.
+
+**A harness that reaches the system under test by calling it directly
+cannot test how the system is reached.** Authentication, transport
+framing, header parsing, path routing, and the difference between a
+caller who is authorised and one who merely knows a URL all live in
+that gap. Eight freeze-gate findings ran against a relay object held
+by reference. The site plane had no authentication at all, and nothing
+noticed, because nothing in the suite was ever a stranger.
+
+### `byollm-audit-deployment <url>`
+
+A second command, and deliberately not a second target type. It takes
+a URL and holds nothing else — no key the deployment knows, no
+reference to anything inside it — because that is what an attacker
+has. Seven checks, each asking a question that form of access makes
+available:
+
+| id | asks |
+| --- | --- |
+| `D001` | can I enqueue work into someone's machines? |
+| `D002` | can I read who is online and what they hold? |
+| `D003` | can I claim work? |
+| `D004` | is a *well-formed* signature from an unknown key enough? |
+| `D005` | is a debug surface served? |
+| `D006` | can I reach a handler by dressing a path up to look like one? |
+| `D007` | is this TLS, and is plaintext refused? |
+
+`D004` is the one the others cannot make: verifying a signature and
+identifying a signer are two steps, and the second is the one that
+gets skipped. `D007` fails loudly on an `http://` origin rather than
+passing quietly, because an audit that certifies posture over
+plaintext has certified the thing that matters least.
+
+### Why this is not a fifth `verifiedBy` kind
+
+The obvious move is a `deployment` verification kind beside
+`conformance`, `adversarial`, `construction` and `operator`. It was
+not taken, for the reason `miscoveredMusts()` exists: a kind with no
+MUST classified under it is a taxonomy entry that cannot be wrong.
+
+The posture checks instead **cite** MUSTs they exercise, and cite
+nothing where none applies. `REQUESTS_SIGNED_NOT_BEARER` is the same
+MUST `certify` already asserts in-process; these check it at the
+ingress, where an implementation can satisfy the first and fail the
+second. "The debug page is not public" cites nothing, because it is a
+deployment property of one relay and claiming a MUST for it would
+launder a local decision as a protocol requirement.
+
+If a MUST is ever written that *only* a deployment audit can verify,
+the kind gets added then, with something in it.
+
+### What it costs to be safe against production
+
+Nothing writes, nothing floods, and every request is one an ordinary
+scanner would make. That is a design constraint rather than a
+coincidence: a posture audit somebody is nervous about running against
+the live system is a posture audit nobody runs, and the live system is
+the only place the answer is real.
+
+### The suite must be able to fail
+
+`packages/relay/test/deployment-posture.test.ts` runs the audit twice:
+once against the reference relay served over HTTP, and once against a
+server that answers 200 to everything — the relay as it stood before
+`0.1.0-alpha.8`, reproduced. The second exists because a posture suite
+that passes against everything is the assertion-that-cannot-fail in
+its most dangerous form; it would have reported "posture good" against
+the exact state it exists to catch.
+
+The first run is also informative: the reference relay, served naked,
+**fails two checks**. It is plain HTTP, and it serves its own debug
+page. Both are right for a library and wrong for a deployment, and the
+audit is where somebody running it finds that out.

@@ -44,3 +44,14 @@ export {
 } from "./harness.js";
 
 export type { ConformanceTarget } from "./target.js";
+
+export {
+  POSTURE_CHECKS,
+  auditDeployment,
+  formatPostureReport,
+  type PostureCheck,
+  type PostureContext,
+  type PostureOutcome,
+  type PostureReport,
+  type PostureResult,
+} from "./deployment.js";

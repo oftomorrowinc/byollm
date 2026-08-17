@@ -5,7 +5,8 @@
   "license": "MIT",
   "type": "module",
   "bin": {
-    "byollm-certify": "./dist/cli.js"
+    "byollm-certify": "./dist/cli.js",
+    "byollm-audit-deployment": "./dist/audit-cli.js"
   },
   "exports": {
     ".": {
@@ -27,7 +28,8 @@
     "build": "tsup",
     "clean": "rm -rf dist .tsbuild",
     "certify:reference": "vitest run --project conformance --root ../..",
-    "certify:supabase": "node --experimental-strip-types targets/supabase.ts"
+    "certify:supabase": "node --experimental-strip-types targets/supabase.ts",
+    "audit:deployed": "node dist/audit-cli.js"
   },
   "dependencies": {
     "@byollm/protocol": "workspace:*",

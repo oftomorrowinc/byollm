@@ -142,31 +142,47 @@ export interface ClaudeLaunch {
 function findWindowsEntry(
   binary: string,
   source: NodeJS.ProcessEnv,
-): string | null {
+): ClaudeLaunch | null {
   const dirs = (source["PATH"] ?? "").split(delimiter).filter(Boolean);
 
   for (const dir of dirs) {
-    // The npm global layout: the shim sits beside the package it launches.
-    const direct = join(
-      dir,
-      "node_modules",
-      "@anthropic-ai",
-      "claude-code",
-      "cli.js",
-    );
-    if (existsSync(direct)) return direct;
+    const pkg = join(dir, "node_modules", "@anthropic-ai", "claude-code");
 
-    // Otherwise read the shim, which names its target script. Cheap, and it
-    // survives layouts we have not seen — pnpm and Volta both differ from npm.
+    // Claude Code 2.x ships a native executable rather than a script. Node
+    // spawns a real `.exe` without a shell, so this case needs none of the
+    // indirection below — and checking it first matters, because the 1.x
+    // layout it replaced is what the rest of this function looks for.
+    //
+    // Missing this is what made every route unhealthy the day the CLI updated:
+    // no `cli.js`, a shim naming an `.exe` rather than a script, and so a
+    // fallback to spawning `claude` bare — which on Windows is the extensionless
+    // shim Node refuses to run.
+    const exe = join(pkg, "bin", `${binary}.exe`);
+    if (existsSync(exe)) return { command: exe, prefixArgs: [] };
+
+    // The 1.x npm global layout: a JS entry beside the shim that launches it.
+    const direct = join(pkg, "cli.js");
+    if (existsSync(direct)) {
+      return { command: process.execPath, prefixArgs: [direct] };
+    }
+
+    // Otherwise read the shim, which names its target. Cheap, and it survives
+    // layouts we have not seen — pnpm and Volta both differ from npm.
     const shim = join(dir, `${binary}.cmd`);
     if (!existsSync(shim)) continue;
     try {
-      const match = /"?([A-Za-z]:\\[^"\r\n]*?\.js|%~dp0[^"\r\n]*?\.js)"?/.exec(
-        readFileSync(shim, "utf8"),
-      );
+      // Both spellings of the shim's own directory appear in the wild:
+      // `%~dp0` from npm's older template, `%dp0%` from the current one.
+      const match =
+        /"?([A-Za-z]:\\[^"\r\n]*?\.(?:js|exe)|%~?dp0%?[^"\r\n]*?\.(?:js|exe))"?/i.exec(
+          readFileSync(shim, "utf8"),
+        );
       if (!match?.[1]) continue;
-      const target = match[1].replace(/%~dp0\\?/i, `${dir}\\`);
-      if (existsSync(target)) return target;
+      const target = match[1].replace(/%~?dp0%?\\?/i, `${dir}\\`);
+      if (!existsSync(target)) continue;
+      return /\.exe$/i.test(target)
+        ? { command: target, prefixArgs: [] }
+        : { command: process.execPath, prefixArgs: [target] };
     } catch {
       // An unreadable shim is not an error worth failing over; try the next
       // directory and let health() report the honest "not installed".
@@ -232,10 +248,7 @@ function resolveUncached(
     return { command: binary, prefixArgs: [] };
   }
 
-  const entry = findWindowsEntry(binary, source);
-  return entry === null
-    ? { command: binary, prefixArgs: [] }
-    : { command: process.execPath, prefixArgs: [entry] };
+  return findWindowsEntry(binary, source) ?? { command: binary, prefixArgs: [] };
 }
 
 /**

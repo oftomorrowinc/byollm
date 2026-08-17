@@ -109,6 +109,34 @@ is a _cloud_ property, not a protocol MUST: a direct site has no projection
 and approves devices through its own pairing flow. The kit certifies the
 protocol; the gate certifies the relay.
 
+## The assertion that cannot fail, and its mirror
+
+Two shapes, met three times now, and worth naming because both read as
+perfectly good tests.
+
+**An assertion that cannot fail.** `C028`'s third assertion called `open()`
+directly, so it tested the primitive rather than the endpoint that was
+supposed to use it. Later, in `lean-customer-discovery`, a positive control
+reading "a learner reads their own call, `count(*) = 1`" could not fail
+either: the learner was — accidentally — the platform owner, and there was
+exactly one call row, so the count is 1 whether scoping works or is bypassed
+entirely.
+
+**An assertion that fails for the wrong reason.** The mirror, and the more
+dangerous one, because the fix looks obvious. Three checks in
+`apps/dashboard/tests/control_plane.test.sql` failed saying Alice could read
+Bob's devices. Not a policy hole: `handle_new_user` makes the first profile
+in a database an `owner`, and in a fresh transaction that was Alice. She was
+correctly permitted to do everything the test said she must not — and the
+obvious repair is to loosen the policy until the test goes green, which
+would have removed a real protection to satisfy a broken test.
+
+The check that catches both: **name the property the subject must lack, and
+assert it.** That test now asserts Alice's role really is `member` before it
+asserts anything about what she cannot see. A test whose subject is
+accidentally privileged proves the opposite of what it claims, and it proves
+it silently.
+
 ## Not yet verified
 
 `C001`–`C004`, `C006`, `C008`–`C013`, `C016` predate this practice. They are

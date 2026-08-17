@@ -1,6 +1,9 @@
 # byollm_014 — An example that a real `next build` compiles
 
-**Status: open. Filed 2026-08-17 from issue #5.**
+**Status: open. Filed 2026-08-17 from
+[issue #5](https://github.com/oftomorrowinc/byollm/issues/5), which exists
+because of Kevin Samsoe's (@KSamsoe) integration report in
+[#4](https://github.com/oftomorrowinc/byollm/issues/4).**
 
 ## What is missing
 
@@ -55,6 +58,18 @@ prove that Next can compile a file that uses it, because Next was never asked.
 Where that gets expensive — a framework whose build needs a long toolchain —
 the honest move is to record the gap rather than assert coverage from an
 adjacent test, the same way `MUTATIONS.md` records the checks that cannot bite.
+
+## Credit
+
+Both halves come from **Kevin Samsoe (@KSamsoe)**. #4 named the bug — the
+documented pattern building the store at module scope — and its closing note
+named this: *"probably wants an example that CI actually executes, since
+docs/standards.md says every example runs in CI."*
+
+Worth recording that the reporter identified the missing coverage in the same
+breath as the bug, and that the bug got fixed first while the coverage sat
+open for three days. The fix is the satisfying half; the example is the half
+that stops it coming back.
 
 ## Done when
 

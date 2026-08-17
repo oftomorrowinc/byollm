@@ -1,6 +1,7 @@
 # byollm_013 — Detection must run the thing
 
-**Status: open. Filed 2026-08-17 from a Windows field report (PR #6).**
+**Status: open. Filed 2026-08-17 from a Windows field report by Kevin Samsoe
+(@KSamsoe), alongside [PR #6](https://github.com/oftomorrowinc/byollm/pull/6).**
 **Amends `CAPABILITY_IS_DETECTED` (byollm_002 §Routing).**
 
 ## The MUST, and the hole in it
@@ -11,7 +12,7 @@
 `C021_CAPABILITY_IS_DETECTED` verifies it, and the daemon satisfies it. Both
 are wrong about what "healthy reality" means, and a real user found out how.
 
-Kevin, testing on Windows 11 with Claude Code `1.0.61` installed:
+Kevin Samsoe, testing on Windows 11 with Claude Code `1.0.61` installed:
 
 ```
 $ byollm backends
@@ -87,6 +88,17 @@ need, and the general point stands: **a detector that can be wrong needs an
 override.** Whether that is `binary`, or a fuller `command`/`args` escape
 hatch, is open — and it should be decided with the probe above, because a
 probe that fails is exactly when someone reaches for it.
+
+## Credit
+
+Found by **Kevin Samsoe (@KSamsoe)** on Windows 11, and reported alongside the
+resolver fix rather than folded into it — which is why it is a spec instead of
+a footnote in a diff. The daemon was doing exactly what the code said and
+exactly what the check verified, and only somebody running it on a machine we
+do not have could see that both were wrong. That is what an outside tester is
+*for*, and it is the second time this one has produced a finding the suite
+could not (see `byollm_010`, which exists because the same tester ran the
+daemon on Windows at all).
 
 ## Done when
 

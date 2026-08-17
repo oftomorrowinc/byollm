@@ -4,8 +4,8 @@
 rides with the session-layer work in byollm_009 because it threads
 through the handshake as well as CI.
 
-A contributor found the `claude-cli` backend completely non-functional
-on Windows within days of the repo going public. Not degraded —
+Kevin Samsoe (@KSamsoe) found the `claude-cli` backend completely
+non-functional on Windows within days of the repo going public. Not degraded —
 `spawn("claude")` failed with `ENOENT`, health reported the CLI as not
 installed, and `connect` correctly refused to pair with nothing to
 offer. A Claude-subscription user on Windows could not use the daemon

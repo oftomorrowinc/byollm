@@ -7,6 +7,7 @@ import {
   ResultRequest,
   RequestSignature,
   keyId,
+  MAX_CLOCK_SKEW_MS,
   verifyRequest,
   verifyPublicIdentity,
   PublicIdentity,
@@ -214,6 +215,7 @@ export class DaemonPlane {
       signature: signature.data,
       now: this.#deps.now(),
     });
+    if (failure === "stale") return this.#clockSkew();
     if (failure) return fail(401, "unauthorized", "signature check failed");
 
     // Asked of the projection, not of the cached flag.
@@ -245,6 +247,33 @@ export class DaemonPlane {
       return fail(400, "bad-request", "request failed schema validation");
     }
     return run(parsed.data, known);
+  }
+
+  /**
+   * A clock too far from ours, said plainly and with the number to fix it by.
+   *
+   * Its own error code rather than a generic `unauthorized`, because it is the
+   * one refusal a retry can never fix and an `ntpdate` always can — the same
+   * reasoning `version-unsupported` already carries on the daemon side. A
+   * daemon that reports this as a generic rejection sends its owner looking at
+   * their network.
+   *
+   * `serverTime` is included so the far side can say *how far off* rather than
+   * *that something is wrong*. It is not a disclosure: the heartbeat response
+   * returns the same value, and so does every `Date` header.
+   */
+  #clockSkew(): PlaneResult {
+    return {
+      status: 401,
+      body: {
+        error: "clock-skew",
+        message:
+          "this request's timestamp is too far from the server's clock; " +
+          "check the machine's time and try again",
+        serverTime: this.#deps.now(),
+        maxSkewMs: MAX_CLOCK_SKEW_MS,
+      },
+    };
   }
 
   claim(

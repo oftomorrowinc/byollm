@@ -38,6 +38,16 @@ export type ClientErrorKind =
    */
   | "version-unsupported"
   /**
+   * This machine's clock is too far from the upstream's.
+   *
+   * Its own kind for the same reason `version-unsupported` has one: a retry
+   * can never fix it and one command always can. Reported as a generic
+   * `unauthorized` it sends its owner looking at their keys or their pairing,
+   * neither of which is wrong — the signature was probably fine, and the
+   * timestamp inside it was not.
+   */
+  | "clock-skew"
+  /**
    * The upstream holds this job for us but has no payload to give yet.
    *
    * Only reachable off the direct plane. A direct site seals when asked,
@@ -337,6 +347,21 @@ export class ProtocolClient {
       // rather than paraphrasing it into something vaguer.
       return new ClientError("version-unsupported", message, retryAfter);
     }
+    if (
+      typeof body === "object" &&
+      body !== null &&
+      (body as { error?: unknown }).error === "clock-skew"
+    ) {
+      // The upstream sends its own time, so the message can name the drift
+      // rather than the symptom. A number a person can act on beats a
+      // sentence they have to interpret.
+      const serverTime = (body as { serverTime?: unknown }).serverTime;
+      const drift =
+        typeof serverTime === "number"
+          ? `; this machine is ${describeDrift(Date.now() - serverTime)}`
+          : "";
+      return new ClientError("clock-skew", `${message}${drift}`, retryAfter);
+    }
     switch (response.status) {
       case 401:
         return new ClientError("unauthorized", message, retryAfter);
@@ -356,4 +381,19 @@ export class ProtocolClient {
           : new ClientError("rejected", message, retryAfter);
     }
   }
+}
+
+/**
+ * How far off, in words somebody can act on.
+ *
+ * "7 minutes ahead" tells a person to look at their clock. "clock skew
+ * detected" tells them to search for the phrase.
+ */
+function describeDrift(ms: number): string {
+  const seconds = Math.round(Math.abs(ms) / 1000);
+  const amount =
+    seconds < 120
+      ? `${String(seconds)} seconds`
+      : `${String(Math.round(seconds / 60))} minutes`;
+  return `${amount} ${ms > 0 ? "ahead of" : "behind"} the server`;
 }

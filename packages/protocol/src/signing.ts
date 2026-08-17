@@ -168,7 +168,29 @@ export function verifySiteRequest(input: {
 /** The one place the site plane's domain separator is written. */
 const siteEndpoint = (endpoint: string): string => `site/${endpoint}`;
 
-/** Why a signed request was refused. Never returned to the caller verbatim. */
+/**
+ * Why a signed request was refused.
+ *
+ * **`bad-signature` is never returned verbatim; `stale` is, deliberately.**
+ * They are different kinds of refusal and conflating them costs a real user
+ * more than it costs an attacker.
+ *
+ * A bad signature is an authentication failure and the server says only
+ * "unauthorized" — telling a prober which part they got wrong is free help.
+ *
+ * A stale timestamp is a **precondition** failure: the signature may be
+ * perfectly valid and the caller's clock is simply wrong. Saying so reveals
+ * nothing, for two reasons that both have to hold. The server's time is
+ * already public — every response carries a `Date` header and the heartbeat
+ * response returns `serverTime` outright. And freshness is checked *before*
+ * the signature is verified, so a stale answer says nothing about whether the
+ * signature was any good.
+ *
+ * What conflating them costs: a machine whose clock has drifted gets
+ * `401 unauthorized` on every request, forever, with nothing anywhere pointing
+ * at the clock. That is the shape byollm_013 was filed about — a refusal that
+ * is correct, silent, and sends somebody to read our source.
+ */
 export type SignatureFailure = "stale" | "bad-signature";
 
 /**

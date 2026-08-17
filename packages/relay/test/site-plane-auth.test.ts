@@ -432,3 +432,121 @@ describe("the projection, collapsed to data a store can match on", () => {
     expect(relay.projection.ownersRunnableBy("alice")).toEqual(["alice"]);
   });
 });
+
+describe("a clock too far from the relay's", () => {
+  beforeAll(async () => {
+    const { cryptoReady } = await import("@byollm/protocol");
+    await cryptoReady();
+  });
+
+  /**
+   * A drifted clock says so, rather than answering `unauthorized` forever.
+   *
+   * Before this, a machine whose time was wrong got `401 unauthorized` on
+   * every request with nothing anywhere pointing at the clock — the shape
+   * byollm_013 was filed about: a refusal that is correct, silent, and sends
+   * somebody to read our source.
+   *
+   * Safe to say, and both halves have to hold. The server's time is already
+   * public (the heartbeat response returns `serverTime`; every response has a
+   * `Date` header). And freshness is checked *before* the signature, so a
+   * stale answer reveals nothing about whether the signature was any good —
+   * which is also why a stale request from a *stranger* gets the same answer.
+   */
+  it("names the clock, and hands back the time to fix it by", async () => {
+    const siteKeys = generateKeys(Date.now());
+    const site = publicIdentityOf(siteKeys);
+    const fixture = fixtureFor(site);
+    const relay = new Relay({ siteId: SITE_ID, fixture });
+    const daemon = await makeDaemon(relay, fixture, { owner: "alice", site });
+    disposers.push(daemon.dispose);
+
+    // Ten minutes ahead — well past MAX_CLOCK_SKEW_MS, and signed correctly.
+    // The signature is fine; the timestamp inside it is not.
+    const body = JSON.stringify({
+      protocolVersion: "0",
+      runnerId: daemon.runnerId,
+      max: 1,
+      capabilities: [{ kind: "llm.generate", models: ["echo-model"] }],
+    });
+    const drifted = Date.now() + 600_000;
+    const signature = signRequest(daemon.keys, {
+      endpoint: "claim",
+      runnerId: daemon.runnerId,
+      issuedAt: drifted,
+      body,
+    });
+    const response = await relay.handle(
+      new Request("http://relay.test/byollm/claim", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-byollm-runner": daemon.runnerId,
+          "x-byollm-issued-at": String(drifted),
+          "x-byollm-signature": signature.signature,
+        },
+        body,
+      }),
+    );
+
+    expect(response.status).toBe(401);
+    const answer = (await response.json()) as {
+      error: string;
+      message: string;
+      serverTime: number;
+      maxSkewMs: number;
+    };
+    // A distinct code, not `unauthorized`: this is the one refusal a retry can
+    // never fix and one command always can.
+    expect(answer.error).toBe("clock-skew");
+    expect(answer.message).toContain("time");
+    // The number to fix it by. Without this the far side can say something is
+    // wrong; with it, it can say how far.
+    expect(typeof answer.serverTime).toBe("number");
+    expect(answer.maxSkewMs).toBe(120_000);
+  });
+
+  it("still refuses a bad signature as plain unauthorized", async () => {
+    // The other half, and the reason the two are distinguished at all: a bad
+    // signature must NOT be described. Telling a prober which part they got
+    // wrong is free help, and this is what stops the change above from
+    // becoming that.
+    const siteKeys = generateKeys(Date.now());
+    const site = publicIdentityOf(siteKeys);
+    const fixture = fixtureFor(site);
+    const relay = new Relay({ siteId: SITE_ID, fixture });
+    const daemon = await makeDaemon(relay, fixture, { owner: "alice", site });
+    disposers.push(daemon.dispose);
+
+    const stranger = generateKeys(Date.now());
+    const body = JSON.stringify({
+      protocolVersion: "0",
+      runnerId: daemon.runnerId,
+      max: 1,
+      capabilities: [{ kind: "llm.generate", models: ["echo-model"] }],
+    });
+    const signature = signRequest(stranger, {
+      endpoint: "claim",
+      runnerId: daemon.runnerId,
+      issuedAt: Date.now(),
+      body,
+    });
+    const response = await relay.handle(
+      new Request("http://relay.test/byollm/claim", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-byollm-runner": daemon.runnerId,
+          "x-byollm-issued-at": String(signature.issuedAt),
+          "x-byollm-signature": signature.signature,
+        },
+        body,
+      }),
+    );
+
+    expect(response.status).toBe(401);
+    const answer = (await response.json()) as { error: string };
+    expect(answer.error).toBe("unauthorized");
+    expect(answer.error).not.toBe("clock-skew");
+  });
+});

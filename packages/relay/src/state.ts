@@ -1,4 +1,10 @@
-import type { JobStub, PublicIdentity, SealedEnvelope } from "@byollm/protocol";
+import type {
+  ClaimedStub,
+  JobStub,
+  PublicIdentity,
+  SealedEnvelope,
+} from "@byollm/protocol";
+import { randomUUID } from "node:crypto";
 
 /**
  * The relay's routing state — byollm_009 §7, reachable at last.
@@ -99,6 +105,51 @@ export interface Presence {
 }
 
 /**
+ * What a routing store must do, expressed as operations — cloud_006 §3.2.
+ *
+ * Every method below is a **decision plus its write**, never a read the caller
+ * follows with a mutation. That is the whole point, and it is the difference
+ * between an interface a shared store can implement and one it cannot.
+ *
+ * `claim` is the specimen. It used to live in `DaemonPlane` as
+ * `jobs()` → filter → mutate, which is atomic for exactly one reason: Node is
+ * single-threaded and these Maps are local, so nothing runs between the read
+ * and the write. Neither survives a store on a network, and
+ * `packages/relay/test/two-replicas.test.ts` holds the resulting race as a
+ * failing assertion.
+ *
+ * So the rule for anything added here: **if a caller has to read, decide, and
+ * write back, the operation is in the wrong place.** Move the decision in.
+ *
+ * ## Why the projection does not come with it
+ *
+ * `claim` takes `owners: string[]` rather than a projection or a predicate.
+ * A closure cannot travel to Valkey, and the projection replicates for free
+ * from the control plane — so the caller collapses it with
+ * `Projection.ownersRunnableBy` and hands over data the store can match on.
+ * That keeps the store ignorant of consent, which is also what keeps it
+ * replaceable.
+ */
+export interface ClaimInput {
+  readonly runnerId: string;
+  readonly owner: string;
+  readonly device: PublicIdentity;
+  /** The site this relay routes for. Multi-tenancy widens this to a set. */
+  readonly siteId: string;
+  /** Job kinds this device can actually run. */
+  readonly kinds: ReadonlySet<string>;
+  /** Whose work it may run — the projection, already collapsed to data. */
+  readonly owners: ReadonlySet<string>;
+  readonly max: number;
+  readonly leaseMs: number;
+  readonly now: number;
+}
+
+/** Why a lease-scoped operation was refused, in the caller's vocabulary. */
+export type HolderRefusal =
+  "not-found" | "not-holder" | "stale-lease" | "not-ready";
+
+/**
  * In-memory routing state.
  *
  * Deliberately not durable. The skeleton proves the protocol, and the
@@ -163,6 +214,168 @@ export class RelayState {
       (j) =>
         j.siteId === siteId && j.state === "done" && j.result !== undefined,
     );
+  }
+
+  /**
+   * Claim work — one operation, because it has to be.
+   *
+   * Moved here wholesale from `DaemonPlane`, where it was a scan followed by
+   * per-job mutation. Nothing about the *decision* changed; what changed is
+   * that a store can now implement it, because the filter and the write are
+   * one call rather than a loop the caller drives.
+   *
+   * The order of the guards is worth preserving as-is when this becomes a Lua
+   * script: cheapest first, and `owners` last because it is the only one that
+   * needed the projection.
+   */
+  claim(input: ClaimInput): ClaimedStub[] {
+    this.sweep(input.now);
+
+    const granted: ClaimedStub[] = [];
+    for (const job of this.#jobs.values()) {
+      if (granted.length >= input.max) break;
+      if (job.state !== "queued") continue;
+      // Only this relay's site. A device paired against one site's key and
+      // pinned it; a job from another site could only ever produce an envelope
+      // it refuses to open — contained by the crypto, and still a burned job.
+      if (job.siteId !== input.siteId) continue;
+      if (!input.kinds.has(job.stub.kind)) continue;
+      // The relay's half of AUDIENCE_BOTH_SIDES. The daemon re-checks its own
+      // allowlist and may still refuse — this only ever narrows.
+      if (!input.owners.has(job.stub.owner)) continue;
+
+      // A UUID, not a readable composite. The direct plane's lease ids are
+      // UUIDs and the Supabase adapter's `lease_id` column is typed `uuid`, so
+      // a relay minting `lease_<job>_<time>` would route perfectly against a
+      // memory store and fail the moment a real site adopted the lease.
+      const leaseId = randomUUID();
+      job.state = "awaiting-payload";
+      job.claimedBy = {
+        runnerId: input.runnerId,
+        owner: input.owner,
+        device: input.device,
+        leaseId,
+        leaseExpiresAt: input.now + input.leaseMs,
+      };
+      // Not the lease: this bounds how long we wait for a *site*, not how long
+      // the device may work. byollm_009 §7.1's third clock.
+      job.awaitingUntil = input.now + AWAITING_PAYLOAD_MS;
+
+      granted.push({
+        ...job.stub,
+        lease: {
+          id: leaseId,
+          runnerId: input.runnerId,
+          expiresAt: job.claimedBy.leaseExpiresAt,
+        },
+      });
+    }
+    return granted;
+  }
+
+  /**
+   * Hand over the sealed payload to the device that holds the lease.
+   *
+   * The read and the state transition are one operation for the same reason
+   * `claim` is: `running` must be set by whoever was told the envelope, or two
+   * replicas can both hand out the same work and both believe they were first.
+   */
+  takePayload(input: {
+    jobId: string;
+    runnerId: string;
+    leaseId: string;
+  }): { envelope: SealedEnvelope } | { refused: HolderRefusal } {
+    const job = this.#jobs.get(input.jobId);
+    if (!job) return { refused: "not-found" };
+    if (job.claimedBy?.runnerId !== input.runnerId) {
+      return { refused: "not-holder" };
+    }
+    // LEASE_HONORED per *instance*: a stale lease id names a grant that is
+    // over, and answering it would hand work to a previous holder.
+    if (job.claimedBy.leaseId !== input.leaseId)
+      return { refused: "stale-lease" };
+    if (!job.payload) return { refused: "not-ready" };
+    job.state = "running";
+    return { envelope: job.payload };
+  }
+
+  /**
+   * Record a finished job.
+   *
+   * `RESULT_IDEMPOTENT` lives here rather than in the caller: a replayed
+   * result must be a no-op decided by the same operation that would have
+   * written it, or two replicas can both decide they were the first.
+   */
+  complete(input: {
+    jobId: string;
+    runnerId: string;
+    envelope: SealedEnvelope;
+    disposition: "ok" | "error" | "canceled";
+  }): { accepted: boolean; state: RoutedState } | { refused: HolderRefusal } {
+    const job = this.#jobs.get(input.jobId);
+    if (!job) return { refused: "not-found" };
+    if (job.claimedBy?.runnerId !== input.runnerId) {
+      return { refused: "not-holder" };
+    }
+    if (job.state === "done") return { accepted: false, state: job.state };
+    job.result = input.envelope;
+    job.disposition = input.disposition;
+    job.state = "done";
+    return { accepted: true, state: job.state };
+  }
+
+  /** Give back leases this runner holds, naming each grant it means. */
+  releaseLeases(input: {
+    runnerId: string;
+    leases: readonly { jobId: string; leaseId: string }[];
+  }): string[] {
+    const released: string[] = [];
+    for (const { jobId, leaseId } of input.leases) {
+      const job = this.#jobs.get(jobId);
+      if (!job || job.claimedBy?.runnerId !== input.runnerId) continue;
+      if (job.claimedBy.leaseId !== leaseId) continue;
+      this.requeue(job);
+      released.push(jobId);
+    }
+    return released;
+  }
+
+  /**
+   * Take a site's sealed payload for a claimed job.
+   *
+   * Refuses anything not `awaiting-payload`, which is what makes the timeout
+   * mean something: a late seal must not land on a claim that has moved.
+   */
+  seal(input: {
+    jobId: string;
+    siteId: string;
+    envelope: SealedEnvelope;
+  }):
+    | { state: RoutedState }
+    | { refused: "not-found" | "too-late"; was?: RoutedState } {
+    const job = this.#jobs.get(input.jobId);
+    if (job?.siteId !== input.siteId) return { refused: "not-found" };
+    if (job.state !== "awaiting-payload") {
+      return { refused: "too-late", was: job.state };
+    }
+    job.payload = input.envelope;
+    job.state = "ready";
+    delete job.awaitingUntil;
+    return { state: job.state };
+  }
+
+  /** Which of these leases this runner no longer holds. */
+  lostLeases(
+    runnerId: string,
+    active: readonly { jobId: string; leaseId: string }[],
+  ): string[] {
+    void runnerId;
+    return active
+      .filter(({ jobId, leaseId }) => {
+        const job = this.#jobs.get(jobId);
+        return job?.claimedBy?.leaseId !== leaseId;
+      })
+      .map(({ jobId }) => jobId);
   }
 
   seen(presence: Omit<Presence, "revoked">): Presence {

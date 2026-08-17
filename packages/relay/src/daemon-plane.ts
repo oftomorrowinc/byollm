@@ -10,12 +10,10 @@ import {
   verifyRequest,
   verifyPublicIdentity,
   PublicIdentity,
-  type ClaimedStub,
 } from "@byollm/protocol";
-import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import type { Projection } from "./fixture.js";
-import { AWAITING_PAYLOAD_MS, type RelayState } from "./state.js";
+import type { HolderRefusal, RelayState } from "./state.js";
 
 /**
  * The plane a daemon talks to — cloud_004 §2.
@@ -38,6 +36,44 @@ export interface PlaneResult {
 }
 
 const ok = (body: unknown): PlaneResult => ({ status: 200, body });
+
+/**
+ * A store refusal, in HTTP.
+ *
+ * The store says *why* in its own vocabulary and this decides what a daemon is
+ * told, which keeps the two independent: a store that grows a reason does not
+ * get to invent a status code, and a status code that changes does not reach
+ * into the store.
+ *
+ * `not-ready` is the one that matters. It means claimed-but-not-yet-sealed, and
+ * a daemon must retry rather than abandon — the job is legitimately still
+ * theirs until the lease or the awaiting-payload clock says otherwise. It was
+ * the protocol gap that produced the 409 in the first place.
+ */
+const REFUSALS: Record<HolderRefusal, PlaneResult> = {
+  "not-found": {
+    status: 404,
+    body: { error: "not-found", message: "unknown job" },
+  },
+  "not-holder": {
+    status: 403,
+    body: {
+      error: "unauthorized",
+      message: "this runner does not hold the job",
+    },
+  },
+  "stale-lease": {
+    status: 403,
+    body: { error: "unauthorized", message: "that lease is no longer current" },
+  },
+  "not-ready": {
+    status: 409,
+    body: {
+      error: "not-ready",
+      message: "the site has not sealed this job yet",
+    },
+  },
+};
 const fail = (status: number, error: string, message: string): PlaneResult => ({
   status,
   body: { error, message },
@@ -218,57 +254,22 @@ export class DaemonPlane {
       if (request.runnerId !== device.runnerId) {
         return fail(401, "unauthorized", "runner id does not match the key");
       }
-      const now = this.#deps.now();
-      this.#deps.state.sweep(now);
-
-      const kinds = new Set(request.capabilities.map((c) => c.kind));
-      const granted: ClaimedStub[] = [];
-
-      for (const job of this.#deps.state.jobs()) {
-        if (granted.length >= request.max) break;
-        if (job.state !== "queued") continue;
-        // Only this relay's site. The device paired against one site's key and
-        // pinned it; a job from another site could only ever produce an
-        // envelope it refuses to open. The crypto contains it either way,
-        // which is why this went unnoticed — the cost is a burned job rather
-        // than a breach, and a burned job is still a routing bug.
-        if (job.siteId !== this.#deps.siteId) continue;
-        if (!kinds.has(job.stub.kind)) continue;
-        // The relay's half of AUDIENCE_BOTH_SIDES. The daemon re-checks its
-        // own allowlist and may still refuse — this only narrows.
-        if (!this.#deps.projection.mayRunFor(device.owner, job.stub.owner)) {
-          continue;
-        }
-
-        // A UUID, not a readable composite. The direct plane's lease ids are
-        // UUIDs and the Supabase adapter's `lease_id` column is typed `uuid`
-        // — so a relay minting `lease_<job>_<time>` would route perfectly
-        // against a memory store and fail the moment a real site adopted the
-        // lease into Postgres. Same shape as the `job_<uuid>` bug: an id that
-        // is only a string until something declares what kind of string.
-        const leaseId = randomUUID();
-        job.state = "awaiting-payload";
-        job.claimedBy = {
-          runnerId: device.runnerId,
-          owner: device.owner,
-          device: device.device,
-          leaseId,
-          leaseExpiresAt: now + this.#deps.leaseMs,
-        };
-        // The clock §7 requires and the direct plane never needed. It is not
-        // the lease: it bounds how long we wait for a site, not how long the
-        // device may work.
-        job.awaitingUntil = now + AWAITING_PAYLOAD_MS;
-
-        granted.push({
-          ...job.stub,
-          lease: {
-            id: leaseId,
-            runnerId: device.runnerId,
-            expiresAt: job.claimedBy.leaseExpiresAt,
-          },
-        });
-      }
+      // One store call. The decision and its write are the store's, because a
+      // caller that reads, filters and writes back cannot be made atomic once
+      // the store is on a network (cloud_006 §3.2).
+      const granted = this.#deps.state.claim({
+        runnerId: device.runnerId,
+        owner: device.owner,
+        device: device.device,
+        siteId: this.#deps.siteId,
+        kinds: new Set(request.capabilities.map((c) => c.kind)),
+        // The projection, collapsed to data the store can match on — a
+        // predicate does not travel.
+        owners: new Set(this.#deps.projection.ownersRunnableBy(device.owner)),
+        max: request.max,
+        leaseMs: this.#deps.leaseMs,
+        now: this.#deps.now(),
+      });
 
       return ok({ jobs: granted, leaseMs: this.#deps.leaseMs });
     });
@@ -289,21 +290,13 @@ export class DaemonPlane {
     body: unknown,
   ): PlaneResult {
     return this.#authed(auth, body, FetchRequest, (request, device) => {
-      const job = this.#deps.state.job(request.jobId);
-      if (!job) return fail(404, "not-found", "unknown job");
-      if (job.claimedBy?.runnerId !== device.runnerId) {
-        return fail(403, "unauthorized", "this runner does not hold the job");
-      }
-      if (job.claimedBy.leaseId !== request.leaseId) {
-        // LEASE_HONORED per *instance*: a stale lease id names a grant that
-        // is over, and answering it would hand work to a previous holder.
-        return fail(403, "unauthorized", "that lease is no longer current");
-      }
-      if (!job.payload) {
-        return fail(409, "not-ready", "the site has not sealed this job yet");
-      }
-      job.state = "running";
-      return ok({ envelope: job.payload });
+      const taken = this.#deps.state.takePayload({
+        jobId: request.jobId,
+        runnerId: device.runnerId,
+        leaseId: request.leaseId,
+      });
+      if ("refused" in taken) return REFUSALS[taken.refused];
+      return ok({ envelope: taken.envelope });
     });
   }
 
@@ -321,18 +314,14 @@ export class DaemonPlane {
     body: unknown,
   ): PlaneResult {
     return this.#authed(auth, body, ResultRequest, (request, device) => {
-      const job = this.#deps.state.job(request.jobId);
-      if (!job) return fail(404, "not-found", "unknown job");
-      if (job.claimedBy?.runnerId !== device.runnerId) {
-        return fail(403, "unauthorized", "this runner does not hold the job");
-      }
-      if (job.state === "done") {
-        return ok({ accepted: false, state: job.state });
-      }
-      job.result = request.envelope;
-      job.disposition = request.disposition;
-      job.state = "done";
-      return ok({ accepted: true, state: job.state });
+      const recorded = this.#deps.state.complete({
+        jobId: request.jobId,
+        runnerId: device.runnerId,
+        envelope: request.envelope,
+        disposition: request.disposition,
+      });
+      if ("refused" in recorded) return REFUSALS[recorded.refused];
+      return ok(recorded);
     });
   }
 
@@ -361,12 +350,10 @@ export class DaemonPlane {
         // Anything this runner thinks it holds that we no longer agree it
         // holds. A daemon must stop work on these rather than finish and
         // report into a lease that is gone.
-        const lost = request.activeLeases
-          .filter(({ jobId, leaseId }) => {
-            const job = this.#deps.state.job(jobId);
-            return job?.claimedBy?.leaseId !== leaseId;
-          })
-          .map(({ jobId }) => jobId);
+        const lost = this.#deps.state.lostLeases(
+          device.runnerId,
+          request.activeLeases,
+        );
 
         return ok({
           revoked,
@@ -385,14 +372,10 @@ export class DaemonPlane {
     body: unknown,
   ): PlaneResult {
     return this.#authed(auth, body, ReleaseRequest, (request, device) => {
-      const released: string[] = [];
-      for (const { jobId, leaseId } of request.leases) {
-        const job = this.#deps.state.job(jobId);
-        if (!job || job.claimedBy?.runnerId !== device.runnerId) continue;
-        if (job.claimedBy.leaseId !== leaseId) continue;
-        this.#deps.state.requeue(job);
-        released.push(jobId);
-      }
+      const released = this.#deps.state.releaseLeases({
+        runnerId: device.runnerId,
+        leases: request.leases,
+      });
       return ok({ released });
     });
   }

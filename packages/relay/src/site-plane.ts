@@ -253,24 +253,24 @@ export class SitePlane {
       PayloadRequest,
       (request) => request.siteId,
       (request, siteId) => {
-        const job = this.#deps.state.job(request.jobId);
-        if (job?.siteId !== siteId) {
-          return fail(404, "not-found", "unknown job");
+        // One store call: the check and the write together. A site that read
+        // "awaiting-payload" and then wrote would be racing the timeout that
+        // makes the state mean anything.
+        const sealed = this.#deps.state.seal({
+          jobId: request.jobId,
+          siteId,
+          envelope: request.envelope,
+        });
+        if ("refused" in sealed) {
+          return sealed.refused === "not-found"
+            ? fail(404, "not-found", "unknown job")
+            : fail(
+                409,
+                "too-late",
+                `job is ${sealed.was ?? "gone"}, not awaiting payload`,
+              );
         }
-        if (job.state !== "awaiting-payload") {
-          // The timeout fired and the job went back to the queue, or another
-          // device already has it. Refusing is what makes the timeout mean
-          // something: a late seal must not land on a claim that has moved.
-          return fail(
-            409,
-            "too-late",
-            `job is ${job.state}, not awaiting payload`,
-          );
-        }
-        job.payload = request.envelope;
-        job.state = "ready";
-        delete job.awaitingUntil;
-        return ok({ jobId: job.id, state: job.state });
+        return ok({ jobId: request.jobId, state: sealed.state });
       },
     );
   }

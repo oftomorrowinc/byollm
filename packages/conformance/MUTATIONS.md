@@ -354,3 +354,55 @@ the unverifiable thing had become attacker-controlled.
 _can a request change what an auditor would be looking at?_ That is a short
 list and a cheap sweep, and it is the only list where a wrong answer has no
 second line of defence.
+
+## The second implementation nobody certified (2026-08-17)
+
+Moving `claim`, `takePayload`, `complete`, `seal` and `releaseLeases` out of
+the relay's planes and into its store changed no behaviour — every test stayed
+green. A mutation run over the moved code killed three of eight.
+
+The five survivors had never been tested **in either location**. Moving them
+did not weaken anything; it made a gap visible that had been there since the
+relay was written. Four of the five are protocol MUSTs:
+
+| guard                               | MUST                          |
+| ----------------------------------- | ----------------------------- |
+| `claim` respects the owners set     | `AUDIENCE_BOTH_SIDES`         |
+| `takePayload` checks the lease id   | `LEASE_HONORED`               |
+| `complete` is a no-op when done     | `RESULT_IDEMPOTENT`           |
+| `releaseLeases` checks the lease id | `LEASE_HONORED`, per instance |
+
+### Why the kit did not catch them
+
+**The conformance kit certifies a _target_, and its target has always been
+`@byollm/server`.** The relay is a second implementation of the same daemon
+plane — a different upstream that daemons claim, fetch, report and heartbeat
+against — and it has never been run through the kit.
+
+So `C015_LEASE_HONORED` is green, and has always been green, about the server.
+The relay's own `LEASE_HONORED` was enforced by a line of code with nothing
+behind it. Reverting that line kept every suite passing, including the one
+whose name says it covers the MUST.
+
+This is the week's recurring class again, at the level of a whole suite rather
+than one check: **the kit reports a MUST as covered for a reason unrelated to
+the implementation you are actually shipping.** Coverage is counted per MUST,
+and a MUST can have more than one implementation.
+
+### What was done, and what was not
+
+Seven guards now have tests in `packages/relay/test/store-operations.test.ts`,
+each mutation-verified. That is the floor, not the answer.
+
+**The answer is to run the kit against the relay**, which it is shaped to
+allow — a `ConformanceTarget` is a `fetch` plus setup hooks, and the relay has
+both. It is not done here because the relay's setup half differs (a site seals
+through the site plane rather than answering `fetch` itself), and inventing
+that adapter at the end of a refactor is how a target gets written to pass
+rather than to test. Filed as work, not attempted as a footnote.
+
+### The question this suggests
+
+For any MUST the registry counts as covered: **how many implementations of it
+do we ship, and how many does the kit run against?** If those numbers differ,
+the count is measuring one of them and reporting all.

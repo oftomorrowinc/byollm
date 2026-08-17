@@ -158,6 +158,37 @@ counts only `conformance`-kind gaps and reports zero;
 `formatReport` distinguishes "verified elsewhere" from "unverified";
 and the mutation list exists for every check the kit ships.
 
+## One MUST, more than one implementation (2026-08-17)
+
+The kit certifies a **target**, and its target has always been
+`@byollm/server`. `@byollm/relay` is a second implementation of the
+same daemon plane — an upstream that daemons claim, fetch, report and
+heartbeat against — and it has never been run through the kit.
+
+Found by a mutation run after the relay's routing logic moved into its
+store: five guards survived, four of them protocol MUSTs
+(`AUDIENCE_BOTH_SIDES`, `LEASE_HONORED` twice, `RESULT_IDEMPOTENT`).
+`C015_LEASE_HONORED` was green throughout, correctly, about the server.
+
+**Coverage is counted per MUST, and a MUST can have more than one
+implementation.** The registry's number answers "is this checked
+somewhere", and reads as "is this checked everywhere we ship it".
+
+Running the kit against the relay is the fix and it is shaped to
+allow it — a `ConformanceTarget` is a `fetch` plus setup hooks, and the
+relay has both. What differs is the setup half: a relayed site seals
+through the site plane rather than answering `fetch` itself, so the
+target's `enqueue` has to drive the three-beat exchange. That adapter
+is real work and writing it at the end of a refactor is how a target
+ends up shaped to pass.
+
+Until it exists, `packages/relay/test/store-operations.test.ts` is the
+floor — the same guards asserted locally, mutation-verified.
+
+The standing question, beside the `operator` one below: **for every
+MUST the registry counts as covered, how many implementations do we
+ship and how many does the kit run against?**
+
 ## What `operator` assumes (2026-08-17)
 
 The taxonomy says `operator` means "a claim about how someone runs a

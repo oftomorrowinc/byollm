@@ -1,5 +1,5 @@
 > [!WARNING]
-> **Alpha (`0.1.0-alpha.7`) — under active development. Don't use this yet.**
+> **Alpha (`0.1.0-alpha.8`) — under active development. Don't use this yet.**
 >
 > This is a walking skeleton. It routes real jobs between real daemons and real
 > sites, and it is the fixture byollm_009 freezes against — but it keeps its
@@ -72,6 +72,22 @@ The shape is deliberately small, because it is a contract: anything added to it
 has to be something a control plane can actually know, and a decision rather
 than something the relay could observe for itself.
 
+## Both callers sign
+
+A daemon signs every request with its device key. **A site signs every request
+with its site key** — the same key the control plane registered, the same key
+daemons pin at pairing, verified against the `sites` half of the projection.
+Nothing here trusts a `siteId` in a body or a query string.
+
+That is newer than the rest of this package. The site plane took the caller's
+word for who it was until `0.1.0-alpha.8`, which on a relay reachable from the
+internet is an open enqueue endpoint into consenting users' machines and an
+open read of who is online. It was blind the whole time — nothing could open a
+payload — and blind is not the same as safe.
+
+If you are running this: the site plane is authenticated but this is still a
+single-tenant relay with in-memory state. One site, one replica.
+
 ## Running it
 
 ```ts
@@ -80,7 +96,10 @@ import { Relay } from "@byollm/relay";
 const relay = new Relay({
   siteId: "site_demo",
   fixture: {
-    consents: [{ owner: "alice", siteId: "site_demo", site: sitePublicKeys }],
+    // The site registry: one home for a site's public identity, used both to
+    // tell daemons who to pin and to check the site's own signatures.
+    sites: [{ siteId: "site_demo", site: sitePublicKeys }],
+    consents: [{ owner: "alice", siteId: "site_demo" }],
   },
 });
 

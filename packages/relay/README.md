@@ -1,5 +1,5 @@
 > [!WARNING]
-> **Alpha (`0.1.0-alpha.11`) — under active development. Don't use this yet.**
+> **Alpha (`0.1.0-alpha.12`) — under active development. Don't use this yet.**
 >
 > This is a walking skeleton. It routes real jobs between real daemons and real
 > sites, and it is the fixture byollm_009 freezes against — but it keeps its
@@ -80,13 +80,31 @@ daemons pin at pairing, verified against the `sites` half of the projection.
 Nothing here trusts a `siteId` in a body or a query string.
 
 That is newer than the rest of this package. The site plane took the caller's
-word for who it was until `0.1.0-alpha.11`, which on a relay reachable from the
+word for who it was until `0.1.0-alpha.12`, which on a relay reachable from the
 internet is an open enqueue endpoint into consenting users' machines and an
 open read of who is online. It was blind the whole time — nothing could open a
 payload — and blind is not the same as safe.
 
 If you are running this: the site plane is authenticated but this is still a
 single-tenant relay with in-memory state. One site, one replica.
+
+## Breaking in `0.1.0-alpha.12`: `RelayState` is async
+
+Every method on `RelayState` now returns a `Promise`, and `Relay.sweep()` and
+`debugPage()` with it. `RelayState.requeue` is private — it was only ever a
+step inside another operation.
+
+Nothing about the behaviour changed. The shape did, and it had to before
+routing state can live anywhere but this process: a store on a network cannot
+offer a synchronous read, and — more importantly — cannot offer a *read the
+caller follows with a write*. So the operations are now decisions plus their
+writes (`claim`, `takePayload`, `complete`, `releaseLeases`, `seal`) rather
+than scans the caller mutates.
+
+`claim` is the one that matters. It was atomic for exactly one reason — Node
+is single-threaded and the Maps are local — and `CLAIM_ATOMIC` is a MUST. See
+`packages/relay/test/two-replicas.test.ts`, where the resulting race is a
+failing assertion waiting for the fix.
 
 ## Running it
 

@@ -178,7 +178,17 @@ function findWindowsEntry(
           readFileSync(shim, "utf8"),
         );
       if (!match?.[1]) continue;
-      const target = match[1].replace(/%~?dp0%?\\?/i, `${dir}\\`);
+      // Rebuilt with `join` rather than string substitution, and split on
+      // either separator: a shim names its target relative to itself, and the
+      // separator it uses is whichever npm happened to write. Concatenating
+      // produced a mixed-separator path that resolves on Windows and nowhere
+      // else — which is precisely the shape a cross-platform test needs.
+      const target = /^[A-Za-z]:/.test(match[1])
+        ? match[1]
+        : join(
+            dir,
+            ...match[1].replace(/^%~?dp0%?[\\/]?/i, "").split(/[\\/]+/),
+          );
       if (!existsSync(target)) continue;
       return /\.exe$/i.test(target)
         ? { command: target, prefixArgs: [] }
@@ -248,7 +258,9 @@ function resolveUncached(
     return { command: binary, prefixArgs: [] };
   }
 
-  return findWindowsEntry(binary, source) ?? { command: binary, prefixArgs: [] };
+  return (
+    findWindowsEntry(binary, source) ?? { command: binary, prefixArgs: [] }
+  );
 }
 
 /**

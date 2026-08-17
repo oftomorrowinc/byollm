@@ -2,7 +2,10 @@ import { describe, expect, it } from "vitest";
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { resetClaudeLaunchCache, resolveClaudeLaunch } from "./backends/claude-cli.js";
+import {
+  resetClaudeLaunchCache,
+  resolveClaudeLaunch,
+} from "./backends/claude-cli.js";
 
 /**
  * Claude Code 2.x ships a native `bin/claude.exe` where 1.x shipped `cli.js`.
@@ -28,7 +31,13 @@ function fixture(prefix: string): string {
 describe("resolveClaudeLaunch against the 2.x layout", () => {
   it("spawns the native binary directly, with no Node in front", () => {
     const dir = fixture("byollm-claude2-");
-    const bin = join(dir, "node_modules", "@anthropic-ai", "claude-code", "bin");
+    const bin = join(
+      dir,
+      "node_modules",
+      "@anthropic-ai",
+      "claude-code",
+      "bin",
+    );
     mkdirSync(bin, { recursive: true });
     writeFileSync(join(bin, "claude.exe"), "MZ");
 
@@ -78,7 +87,7 @@ describe("resolveClaudeLaunch against the 2.x layout", () => {
     writeFileSync(target, "MZ");
     writeFileSync(
       join(dir, "claude.cmd"),
-      ['@ECHO off', '"%dp0%\\tools\\claude.exe"   %*', ''].join("\r\n"),
+      ["@ECHO off", '"%dp0%\\tools\\claude.exe"   %*', ""].join("\r\n"),
     );
 
     resetClaudeLaunchCache();
@@ -95,7 +104,7 @@ describe("resolveClaudeLaunch against the 2.x layout", () => {
     writeFileSync(target, "#!/usr/bin/env node");
     writeFileSync(
       join(dir, "claude.cmd"),
-      ['@ECHO off', 'node  "%~dp0\\tools\\cli.js" %*', ''].join("\r\n"),
+      ["@ECHO off", 'node  "%~dp0\\tools\\cli.js" %*', ""].join("\r\n"),
     );
 
     resetClaudeLaunchCache();

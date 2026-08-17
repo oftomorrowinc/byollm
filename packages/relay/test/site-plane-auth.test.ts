@@ -321,3 +321,59 @@ describe("enqueue is idempotent per job id", () => {
     expect(relay.state.job(jobId)?.claimedBy?.leaseId).toBe(claimed?.leaseId);
   });
 });
+
+describe("revocation does not wait for a heartbeat", () => {
+  beforeAll(async () => {
+    const { cryptoReady } = await import("@byollm/protocol");
+    await cryptoReady();
+  });
+
+  it("refuses a claim from a runner that never heartbeats", async () => {
+    const siteKeys = generateKeys(Date.now());
+    const site = publicIdentityOf(siteKeys);
+    const fixture = fixtureFor(site);
+    const relay = new Relay({ siteId: SITE_ID, fixture });
+    const connector = new SiteConnector(relay, siteKeys);
+    const daemon = await makeDaemon(relay, fixture, { owner: "alice", site });
+    disposers.push(daemon.dispose);
+
+    await connector.enqueue({ prompt: "after revocation", owner: "alice" });
+    relay.project({
+      ...fixture,
+      revoked: [{ owner: "alice", siteId: SITE_ID }],
+    });
+
+    // A claim signed correctly by a device whose consent was just withdrawn,
+    // sent without a heartbeat first. The freeze gate's demo 5 drives a real
+    // daemon, which beats every tick — so enforcing on the flag heartbeat sets
+    // passed there while leaving revocation optional for any client that chose
+    // not to call it.
+    const body = JSON.stringify({
+      protocolVersion: "0",
+      runnerId: daemon.runnerId,
+      max: 1,
+      capabilities: [{ kind: "llm.generate", models: ["echo-model"] }],
+    });
+    const signature = signRequest(daemon.keys, {
+      endpoint: "claim",
+      runnerId: daemon.runnerId,
+      issuedAt: Date.now(),
+      body,
+    });
+    const response = await relay.handle(
+      new Request("http://relay.test/byollm/claim", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-byollm-runner": daemon.runnerId,
+          "x-byollm-issued-at": String(signature.issuedAt),
+          "x-byollm-signature": signature.signature,
+        },
+        body,
+      }),
+    );
+
+    expect(response.status).toBe(403);
+    expect(relay.state.jobs()[0]?.state).toBe("queued");
+  });
+});

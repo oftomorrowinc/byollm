@@ -179,10 +179,25 @@ export class DaemonPlane {
     });
     if (failure) return fail(401, "unauthorized", "signature check failed");
 
-    // Revocation reaches the daemon through heartbeat, so heartbeat itself
-    // must be answerable by a revoked runner — bouncing it with a 403 would
-    // read to the daemon as a transport problem and it would keep trying.
-    if (known.revoked && options.allowRevoked !== true) {
+    // Asked of the projection, not of the cached flag.
+    //
+    // `known.revoked` is set by `heartbeat`, and enforcing on it made
+    // revocation depend on the client calling an endpoint: a daemon that
+    // simply never heartbeats would go on claiming after its consent was
+    // withdrawn, forever. A well-behaved daemon beats every few seconds, which
+    // is why the freeze gate's "within one heartbeat" demo passed and why this
+    // was invisible — the guarantee held for every client that wanted it to.
+    //
+    // The cached flag survives as what heartbeat *reports* to the daemon. It
+    // is a message, not an authority, and the authority is the projection.
+    // Two copies of one value where one is a stale mirror of the other is this
+    // project's most-repeated bug; here it was also an enforcement hole.
+    const revoked =
+      this.#deps.projection.consentFor(known.owner, this.#deps.siteId) === null;
+    if (revoked && options.allowRevoked !== true) {
+      // Revocation reaches the daemon through heartbeat too, so heartbeat
+      // itself must be answerable by a revoked runner — bouncing it with a 403
+      // would read as a transport problem and it would keep trying.
       return fail(403, "revoked", "routing for this runner has been revoked");
     }
 

@@ -92,6 +92,54 @@ const STUB = {
 /** Refused, for any reason a server is entitled to refuse a stranger. */
 const REFUSED = new Set([401, 403, 404]);
 
+/**
+ * Refused **by a byollm relay**, rather than by nothing being there.
+ *
+ * The distinction is the whole difference between a posture audit and a
+ * connectivity check, and this suite shipped without it for an hour. Running
+ * against `hub.byollm.cloud` before its Ingress had a matching host rule, the
+ * load balancer answered 404 to everything from its own error page — and the
+ * audit reported 6/7, because 404 is a refusal and every probe got one.
+ *
+ * A completely dead deployment scored better than a working one. That is the
+ * assertion-that-cannot-fail wearing its most convincing disguise: not a check
+ * that never fails, but one that passes for a reason unrelated to the property
+ * it claims.
+ *
+ * So a refusal has to be *byollm's* refusal: the protocol answers errors as
+ * JSON with an `error` field, and Google's `backend NotFound` page does not.
+ */
+async function refusedByByollm(
+  response: Response,
+): Promise<{ ok: boolean; why: string }> {
+  if (!REFUSED.has(response.status)) {
+    return { ok: false, why: `answered ${String(response.status)}` };
+  }
+  let body: unknown;
+  try {
+    body = await response.json();
+  } catch {
+    return {
+      ok: false,
+      why:
+        `answered ${String(response.status)} but not as byollm — ` +
+        `something else is serving this path`,
+    };
+  }
+  const shaped =
+    typeof body === "object" &&
+    body !== null &&
+    typeof (body as { error?: unknown }).error === "string";
+  return shaped
+    ? { ok: true, why: `answered ${String(response.status)}` }
+    : {
+        ok: false,
+        why:
+          `answered ${String(response.status)} with a body byollm would not ` +
+          `send — something else is serving this path`,
+      };
+}
+
 const outcome = (passed: boolean, detail: string): PostureOutcome => ({
   passed,
   detail,
@@ -113,10 +161,8 @@ export const POSTURE_CHECKS: readonly PostureCheck[] = Object.freeze([
       // is sealed by the real site or not at all, so nothing forged *runs* —
       // and dispatch to someone's machine is a breach whatever the
       // ciphertext does.
-      return outcome(
-        REFUSED.has(response.status),
-        `POST /relay/site/enqueue answered ${String(response.status)}`,
-      );
+      const refusal = await refusedByByollm(response);
+      return outcome(refusal.ok, `POST /relay/site/enqueue ${refusal.why}`);
     },
   },
   {
@@ -124,22 +170,21 @@ export const POSTURE_CHECKS: readonly PostureCheck[] = Object.freeze([
     title: "an anonymous caller cannot read who is online",
     cites: ["REQUESTS_SIGNED_NOT_BEARER"],
     async run({ origin, fetch: f }) {
-      const paths = ["pending", "results"];
-      const statuses: number[] = [];
-      for (const path of paths) {
-        const response = await f(
-          `${origin}/relay/site/${path}?siteId=any-site`,
-        );
-        statuses.push(response.status);
-      }
       // Reads matter as much as writes here. A blind relay's whole claim is
       // that it holds routing metadata and nothing else — which makes that
       // metadata the entire prize, and "who is online right now, on which
       // device, holding which lease" is the shape of it.
-      return outcome(
-        statuses.every((status) => REFUSED.has(status)),
-        `pending/results answered ${statuses.map(String).join("/")}`,
-      );
+      const why: string[] = [];
+      let ok = true;
+      for (const path of ["pending", "results"]) {
+        const response = await f(
+          `${origin}/relay/site/${path}?siteId=any-site`,
+        );
+        const refusal = await refusedByByollm(response);
+        ok &&= refusal.ok;
+        why.push(`${path} ${refusal.why}`);
+      }
+      return outcome(ok, why.join("; "));
     },
   },
   {
@@ -157,10 +202,8 @@ export const POSTURE_CHECKS: readonly PostureCheck[] = Object.freeze([
           capabilities: [{ kind: "llm.generate", models: ["any"] }],
         }),
       });
-      return outcome(
-        REFUSED.has(response.status),
-        `POST ${basePath}/claim answered ${String(response.status)}`,
-      );
+      const refusal = await refusedByByollm(response);
+      return outcome(refusal.ok, `POST ${basePath}/claim ${refusal.why}`);
     },
   },
   {
@@ -218,9 +261,11 @@ export const POSTURE_CHECKS: readonly PostureCheck[] = Object.freeze([
         body: daemonBody,
       });
 
+      const siteRefusal = await refusedByByollm(site);
+      const daemonRefusal = await refusedByByollm(daemon);
       return outcome(
-        REFUSED.has(site.status) && REFUSED.has(daemon.status),
-        `signed-by-a-stranger answered ${String(site.status)} (site) and ${String(daemon.status)} (daemon)`,
+        siteRefusal.ok && daemonRefusal.ok,
+        `signed by a stranger: site ${siteRefusal.why}, daemon ${daemonRefusal.why}`,
       );
     },
   },
@@ -259,9 +304,10 @@ export const POSTURE_CHECKS: readonly PostureCheck[] = Object.freeze([
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ protocolVersion: "0", max: 1 }),
       });
+      const refusal = await refusedByByollm(response);
       return outcome(
-        response.status === 404,
-        `POST /literally/anything/claim answered ${String(response.status)}`,
+        refusal.ok && response.status === 404,
+        `POST /literally/anything/claim ${refusal.why}`,
       );
     },
   },

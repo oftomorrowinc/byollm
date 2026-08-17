@@ -171,6 +171,77 @@ describe("the deployment posture audit", () => {
     expect(failed).toContain("D006_NO_PATH_DISPATCH");
   });
 
+  it("fails against a deployment that is not there at all", async () => {
+    // The hole this suite shipped with, for about an hour.
+    //
+    // Run against `hub.byollm.cloud` before its Ingress had a matching host
+    // rule, the load balancer answered 404 to everything from Google's own
+    // error page — and the audit reported 6/7. A completely unrouted
+    // deployment scored better than a working one, because 404 is a refusal
+    // and every probe got one.
+    //
+    // That is the assertion-that-cannot-fail in its most convincing disguise:
+    // not a check that never fails, but one that passes for a reason
+    // unrelated to the property it claims. So a refusal now has to be
+    // *byollm's* refusal, and this is a gateway that refuses everything while
+    // knowing nothing about byollm.
+    const origin = await serve(() =>
+      Promise.resolve(
+        new Response(
+          "<html><h2>Error: Not Found</h2><p>backend NotFound</p></html>",
+          { status: 404, headers: { "content-type": "text/html" } },
+        ),
+      ),
+    );
+
+    const report = await auditDeployment({ url: origin });
+    expect(report.passed).toBe(false);
+
+    const failed = new Set(
+      report.results.filter((r) => !r.passed).map((r) => r.id),
+    );
+    // Everything that claims to have observed a refusal must fail here,
+    // because none of these refusals came from byollm.
+    expect(failed).toContain("D001_SITE_ENQUEUE_REFUSES_UNSIGNED");
+    expect(failed).toContain("D002_SITE_READS_REFUSE_UNSIGNED");
+    expect(failed).toContain("D003_DAEMON_PLANE_REFUSES_UNSIGNED");
+    expect(failed).toContain("D004_REFUSES_A_STRANGER_S_VALID_SIGNATURE");
+    expect(failed).toContain("D006_NO_PATH_DISPATCH");
+
+    // `D005` still passes, and correctly: no debug page is being served. It
+    // is the one check whose question a dead deployment genuinely answers.
+    const debug = report.results.find(
+      (result) => result.id === "D005_NO_DEBUG_SURFACE",
+    );
+    expect(debug?.passed).toBe(true);
+  });
+
+  it("fails against a gateway that refuses in JSON of its own", async () => {
+    // The HTML case above does not exercise the whole check: an HTML body
+    // fails to parse, so the shape test is never reached, and a mutation that
+    // accepted *any* JSON survived. Plenty of gateways answer errors in JSON.
+    //
+    // So: 404, valid JSON, and not byollm's — a body with `message` where the
+    // protocol sends `error`. Close enough to look right in a log, which is
+    // exactly why the check reads the field rather than the content type.
+    const origin = await serve(() =>
+      Promise.resolve(
+        new Response(JSON.stringify({ message: "no route matched" }), {
+          status: 404,
+          headers: { "content-type": "application/json" },
+        }),
+      ),
+    );
+
+    const report = await auditDeployment({ url: origin });
+    const failed = new Set(
+      report.results.filter((r) => !r.passed).map((r) => r.id),
+    );
+    expect(failed).toContain("D001_SITE_ENQUEUE_REFUSES_UNSIGNED");
+    expect(failed).toContain("D003_DAEMON_PLANE_REFUSES_UNSIGNED");
+    expect(failed).toContain("D006_NO_PATH_DISPATCH");
+  });
+
   it("fails a probe it cannot complete rather than skipping it", async () => {
     // An audit that silently drops a check it could not run reports a posture
     // nobody measured, which reads identically to one that was measured and

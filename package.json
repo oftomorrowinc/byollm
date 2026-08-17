@@ -22,7 +22,8 @@
     "smoke": "pnpm --filter byollm run smoke",
     "check:site": "node scripts/check-site.mjs",
     "test:unit": "vitest run --project unit",
-    "freeze-gate": "vitest run --project relay"
+    "freeze-gate": "vitest run --project relay",
+    "release:check": "node scripts/release-check.mjs"
   },
   "devDependencies": {
     "@changesets/cli": "^2.31.1",

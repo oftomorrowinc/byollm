@@ -261,6 +261,23 @@ jobs:
           done
 
       # ---------------------------------------------------------------------
+      # Verify the artifact, not the run.
+      #
+      # `set -e` already fails this job if a publish fails — that is how
+      # `alpha.6` went red. What it did not tell anyone is that four packages
+      # were live by then. A partial release is the dangerous state: some
+      # packages at the new version, others behind, and every one of them
+      # resolvable by anyone who installs.
+      #
+      # So the last word on a release comes from the registry rather than from
+      # this job's own exit code. It is also the only form of the question that
+      # cannot be answered about the wrong release — there is no run to match.
+      # ---------------------------------------------------------------------
+      - name: Verify the registry actually has it
+        if: ${{ !inputs.dry_run }}
+        run: node scripts/release-check.mjs "${{ steps.version.outputs.version }}"
+
+      # ---------------------------------------------------------------------
       # The `latest` retag — deliberately NOT attempted here.
       #
       # npm forces `latest` onto a first publish and will not let it be

@@ -216,3 +216,28 @@ guard which only runs before the loop cannot save you from a failure inside
 it: every package's `repository.url` is verified before anything publishes,
 and `scripts/bump-version.mjs` exists so the version mismatch that preceded
 this cannot recur by hand.
+
+## Confirming a release, without watching the run
+
+```sh
+pnpm release:check              # the version in the repo
+pnpm release:check 0.1.0-alpha.11
+```
+
+It asks npm, not GitHub. That is the point rather than a convenience.
+
+Watching the Release workflow is the obvious way to answer "did it go out",
+and it is answerable about the wrong release: polling `gh run list` for
+`alpha.11` matched the still-listed `alpha.10` run, reported success, and npm
+was serving the older version the whole time. *A* Release run had succeeded.
+Not that one.
+
+The registry has no such ambiguity. A version is there or it is not, and the
+`alpha` tag points at it or it does not. The release workflow now runs this as
+its final step, so a partial publish — the `alpha.6` state, four packages live
+and one missing, every one of them resolvable — fails the job with the name of
+the package that is missing.
+
+`latest` is reported and never asserted: moving it needs a human with 2FA, on
+purpose, so a `latest` behind `alpha` is a decision nobody has made yet rather
+than a broken release.

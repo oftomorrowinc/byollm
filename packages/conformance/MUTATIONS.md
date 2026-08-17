@@ -406,3 +406,56 @@ rather than to test. Filed as work, not attempted as a footnote.
 For any MUST the registry counts as covered: **how many implementations of it
 do we ship, and how many does the kit run against?** If those numbers differ,
 the count is measuring one of them and reporting all.
+
+## The green that was about a different build (2026-08-17)
+
+A two-line consumer update, four attempts, and **every failed attempt reported
+success**. Worth recording as a set, because no single step is surprising and
+the sequence is the thing.
+
+1. `pnpm install` failed — a script had versioned every devDependency,
+   including `@types/pg`, so npm had no matching version. Its output was
+   redirected, so nothing said so.
+2. `tsc` then passed and **11 of 11 tests passed** — against a dependency
+   three versions stale and still synchronous. Entirely self-consistent, and
+   about software nobody was shipping.
+3. After fixing the install, `tsc` _still_ passed. A cached `.tsbuildinfo` was
+   answering about the previous build.
+4. `rm -rf .tsbuild` surfaced the real error: production code destructuring a
+   Promise. `const { requeued } = relay.sweep()` yields `undefined`, and
+   `requeued.length` throws — inside a `setInterval`, on a timer nobody
+   watches.
+
+### Two rules
+
+**A build cache makes "typecheck passes" a claim about the last build, not
+this one.** Incremental compilation is a performance feature that quietly
+converts a verification into a memory of a verification. When a dependency
+changes underneath, the memory is the wrong answer and is indistinguishable
+from the right one.
+
+**`await` on a synchronous value is invisible.** `await 5` is legal in both
+TypeScript and JavaScript, so a half-finished sync→async migration typechecks
+and passes every behavioural test — the behaviour is identical either way.
+This bit twice in one day: once making `RelayState` async, where two separate
+attempts left methods unconverted and stayed green, and once here.
+`@typescript-eslint/await-thenable` is the only thing in the toolchain that
+sees it.
+
+### What actually worked, both times
+
+Reading the artefact rather than the report:
+
+```sh
+node -p "require('./node_modules/@byollm/relay/package.json').version"
+grep -nE "^  \w+\(" src/state.ts | grep -v "Promise<"
+```
+
+A version out of `node_modules`, and a grep for a method whose return type is
+not a `Promise`. Neither consults a tool that might be remembering.
+
+Same move as `scripts/release-check.mjs` asking npm instead of watching the
+Release workflow, and as the deployment posture audit requiring a refusal to
+be _byollm's_ rather than any 404. **Verify the artifact, not the process** is
+now the third distinct place this rule has paid for itself, which is enough to
+call it a rule rather than an anecdote.

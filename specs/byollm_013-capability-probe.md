@@ -1,6 +1,8 @@
 # byollm_013 — Detection must run the thing
 
-**Status: open. Filed 2026-08-17 from a Windows field report by Kevin Samsoe
+**Status: open. Scheduled after `cloud_006` (Valkey), the container-kill
+live-fire, and lease recovery across a pod death.**
+**Filed 2026-08-17 from a Windows field report by Kevin Samsoe
 (@KSamsoe), alongside [PR #6](https://github.com/oftomorrowinc/byollm/pull/6).**
 **Amends `CAPABILITY_IS_DETECTED` (byollm_002 §Routing).**
 
@@ -88,6 +90,61 @@ need, and the general point stands: **a detector that can be wrong needs an
 override.** Whether that is `binary`, or a fuller `command`/`args` escape
 hatch, is open — and it should be decided with the probe above, because a
 probe that fails is exactly when someone reaches for it.
+
+## The wider rule: a refusal names its fix
+
+The probe above is one instance of something this project keeps rediscovering,
+and it is worth stating once so the rest can be swept for it.
+
+**A refusal a person can act on must say what to do, not only what happened.**
+
+The specimen that already gets it right is `version-unsupported`. It does not
+say "unsupported protocol version"; it says *"Upgrade the daemon:
+`npm i -g byollm@alpha`"* — the command, in the message, composed by the side
+that knows which versions it speaks.
+
+### The sweep, and what each one currently says
+
+| refusal | says what happened | says what to do |
+| --- | --- | --- |
+| `version-unsupported` | yes | **yes** — names the upgrade command |
+| `clock-skew` | yes, with the drift in words | **no** — "check the machine's time" |
+| health-check failure (§ above) | no — a route silently vanishes | no |
+| `not-installed` for a backend | yes | no |
+
+### Where the fix has to be composed
+
+`clock-skew` shows the rule that decides this. The relay can say *how far off*,
+because it knows its own time; it cannot say *how to fix it*, because it does
+not know what the far machine runs. `sudo sntp -sS time.apple.com`,
+`timedatectl set-ntp true` and `w32tm /resync` are three different sentences,
+and only the daemon knows which one applies.
+
+So: **the side that knows the fix composes it.** The server names the
+condition and hands over whatever the client needs to describe it — for
+`clock-skew` that is `serverTime` and `maxSkewMs`, which is why they are on
+the wire. The daemon turns that into a platform-specific instruction. That
+split is the reason `version-unsupported` can be composed server-side (the
+server knows the versions and the package name is universal) and this one
+cannot.
+
+### Surfacing, which is the half that is missing
+
+The daemon has a `clock-skew` error kind today and **nothing puts it in front
+of a person**. It reaches `ClientError` and stops. Same for the health probe
+above: `backends` reports `0 of 2 healthy` and not why.
+
+So the work is one shape in two places:
+
+- `byollm status` and `byollm run` report a `clock-skew` refusal with the
+  drift and the platform's command.
+- `byollm backends` names the failing probe and what it was told.
+
+**Ordering.** After Valkey (`cloud_006`), after the container-kill live-fire
+and lease recovery across a pod death. Recorded here rather than done now
+because it is a day's work in the daemon's output surface and none of it is
+urgent — but it *is* the difference between a user fixing their own clock in a
+minute and filing an issue about pairing being broken.
 
 ## Credit
 

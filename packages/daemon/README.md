@@ -1,5 +1,5 @@
 > [!WARNING]
-> **Alpha (`0.1.0-alpha.15`) — under active development. Don't use this yet.**
+> **Alpha (`0.1.0-alpha.16`) — under active development. Don't use this yet.**
 >
 > Install it deliberately: `npx byollm@alpha`, or `npm install byollm@alpha`.
 >
@@ -24,7 +24,21 @@
 > `leases`, which nothing read; `WireErrorCode` gains `not-ready`,
 > `clock-skew` and `forbidden`, and `403` is `forbidden` rather than
 > `unauthorized`. `RESULT_PROVENANCE` is superseded by
-> `PROVENANCE_NAMES_DEVICE`. See `byollm_009` Amendment A.
+> `PROVENANCE_NAMES_DEVICE`. See `byollm_009` Amendment A.>
+> **`alpha.16` is a breaking wire change — daemons and relays again, not app
+> authors.** `app.enqueue(...)` and reading results are unchanged. All five
+> packages move together: both ends parse `.strict()`, so a mixed pair
+> refuses.
+>
+> What moved, all of it Tier 2 of `cloud_008`: `model`, `backendClass` and
+> `durationMs` come off `ResultRequest` and are sealed **inside** the result
+> envelope as `SealedOutcome = { outcome, ran }` — so a daemon can no longer
+> declare a model it did not sign, and a relay carries neither.
+> `HeartbeatResponse` loses `leases` (nothing read it) and now reports real
+> cancellations instead of an empty list. `WireErrorCode` gains `forbidden`
+> for 403, leaving `unauthorized` at exactly 401. The relay gained a
+> site-plane `cancel` endpoint, honours `stub.deadlineAt`, honours
+> `stub.audience`, and remembers a refusal.
 >
 > **`alpha.3` is a breaking change.** A config naming `openai-http` with a
 > remote base URL and an offer scope wider than `self` is narrowed to `self`

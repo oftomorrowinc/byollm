@@ -1,5 +1,5 @@
 > [!WARNING]
-> **Alpha (`0.1.0-alpha.15`) — under active development. Don't use this yet.**
+> **Alpha (`0.1.0-alpha.16`) — under active development. Don't use this yet.**
 >
 > This is a walking skeleton. It routes real jobs between real daemons and real
 > sites, and it is the fixture byollm_009 freezes against — but it keeps its
@@ -17,7 +17,21 @@
 > `leases`, which nothing read; `WireErrorCode` gains `not-ready`,
 > `clock-skew` and `forbidden`, and `403` is `forbidden` rather than
 > `unauthorized`. `RESULT_PROVENANCE` is superseded by
-> `PROVENANCE_NAMES_DEVICE`. See `byollm_009` Amendment A.
+> `PROVENANCE_NAMES_DEVICE`. See `byollm_009` Amendment A.>
+> **`alpha.16` is a breaking wire change — daemons and relays again, not app
+> authors.** `app.enqueue(...)` and reading results are unchanged. All five
+> packages move together: both ends parse `.strict()`, so a mixed pair
+> refuses.
+>
+> What moved, all of it Tier 2 of `cloud_008`: `model`, `backendClass` and
+> `durationMs` come off `ResultRequest` and are sealed **inside** the result
+> envelope as `SealedOutcome = { outcome, ran }` — so a daemon can no longer
+> declare a model it did not sign, and a relay carries neither.
+> `HeartbeatResponse` loses `leases` (nothing read it) and now reports real
+> cancellations instead of an empty list. `WireErrorCode` gains `forbidden`
+> for 403, leaving `unauthorized` at exactly 401. The relay gained a
+> site-plane `cancel` endpoint, honours `stub.deadlineAt`, honours
+> `stub.audience`, and remembers a refusal.
 
 # `@byollm/relay`
 
@@ -94,7 +108,7 @@ daemons pin at pairing, verified against the `sites` half of the projection.
 Nothing here trusts a `siteId` in a body or a query string.
 
 That is newer than the rest of this package. The site plane took the caller's
-word for who it was until `0.1.0-alpha.15`, which on a relay reachable from the
+word for who it was until `0.1.0-alpha.16`, which on a relay reachable from the
 internet is an open enqueue endpoint into consenting users' machines and an
 open read of who is online. It was blind the whole time — nothing could open a
 payload — and blind is not the same as safe.
@@ -102,7 +116,7 @@ payload — and blind is not the same as safe.
 If you are running this: the site plane is authenticated but this is still a
 single-tenant relay with in-memory state. One site, one replica.
 
-## Breaking in `0.1.0-alpha.15`: `RelayState` is async
+## Breaking in `0.1.0-alpha.16`: `RelayState` is async
 
 Every method on `RelayState` now returns a `Promise`, and `Relay.sweep()` and
 `debugPage()` with it. `RelayState.requeue` is private — it was only ever a

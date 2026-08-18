@@ -1795,10 +1795,27 @@ export const CHECKS: readonly Check[] = [
           "the harness could not claim its own named job",
         );
 
-        // Read by serialising rather than by naming a field: the property is
-        // that the names are not there. A check reading `stub.audienceAllow`
-        // would stop compiling when the field was removed, which is not the
-        // same as proving the names never travel.
+        // The enforcement, and it is target-agnostic: a claimed stub parses
+        // as `ClaimedStub`, which is `.strict()` and has no field for
+        // membership. There is nowhere to put a roster, so there is no
+        // decision an implementation could get wrong.
+        const asRecord = claimed as unknown as Record<string, unknown>;
+        assert(
+          asRecord["audienceAllow"] === undefined,
+          "a claimed stub carried audienceAllow",
+        );
+        const parsed = ClaimedStub.safeParse(claimed);
+        assert(
+          parsed.success,
+          "the claim response is not a valid stub, so its fields prove nothing",
+        );
+
+        // And a scan for the names themselves, which is the weaker check and
+        // is honest about why: a target may translate owner identifiers on
+        // the way in — the Supabase adapter maps names to user rows — so
+        // finding nothing here does not prove much on its own. It costs
+        // nothing and catches a target that passes the names through under
+        // some other key.
         const wire = JSON.stringify(claimed);
         for (const member of ["carol", "erin"]) {
           assert(
@@ -1807,11 +1824,18 @@ export const CHECKS: readonly Check[] = [
           );
         }
 
-        // And the stub is otherwise intact — "send nothing" would pass the
-        // assertions above and break every route.
+        // The stub is otherwise intact — "send nothing" would pass every
+        // assertion above and break every route. Asserted on the fields
+        // routing actually needs rather than on the owner's spelling, which
+        // is a target's business: the harness asked for `named`, and a
+        // claimed job must still say so.
         assert(
-          claimed.owner === "alice" && claimed.audience === "named",
-          "the stub lost the metadata routing needs",
+          claimed.audience === "named",
+          "the stub lost the audience routing decides on",
+        );
+        assert(
+          typeof claimed.owner === "string" && claimed.owner.length > 0,
+          "the stub lost the owner",
         );
       } finally {
         await daemon.dispose();

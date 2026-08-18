@@ -280,6 +280,38 @@ async function runLoop(
       ingress,
       onEvent: (event) => {
         report(origin, event, io);
+        // Revocation drops the pairing — cloud_008 §2.3, finding 24.
+        //
+        // The daemon stopped and said so, and left the pinned site key on
+        // disk. So `byollm run` came back tomorrow and tried to reconnect to
+        // a site that had withdrawn consent: refused, correctly, but the
+        // machine still held a key for a relationship that had ended, and the
+        // user's own `byollm list` still showed the pairing.
+        //
+        // Revocation is the site saying the relationship is over. Making that
+        // durable on this side is the daemon's half of
+        // `REVOCATION_IMMEDIATE`, and re-connecting is a re-pair — which is a
+        // consent screen, which is the point.
+        //
+        // Not awaited: an event handler that throws would take down a runner
+        // that has already stopped, and a pairing file that cannot be written
+        // is worth a message rather than a crash.
+        if (event.type === "revoked") {
+          void pairings
+            .remove(origin)
+            .then(() => {
+              io.out(
+                `${new URL(origin).host} pairing dropped — ` +
+                  "reconnect with `byollm connect`\n",
+              );
+            })
+            .catch((error: unknown) => {
+              io.err(
+                `could not drop the pairing for ${origin}: ` +
+                  `${error instanceof Error ? error.message : "unknown error"}\n`,
+              );
+            });
+        }
       },
     });
     runners.push(runner);

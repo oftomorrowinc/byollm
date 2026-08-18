@@ -73,6 +73,7 @@ export class Relay {
   readonly #site: SitePlane;
   readonly #now: () => number;
   readonly #basePath: string;
+  readonly #siteId: string;
 
   constructor(options: RelayOptions) {
     this.state =
@@ -80,6 +81,7 @@ export class Relay {
     this.projection = new Projection(options.fixture);
     this.#now = options.now ?? Date.now;
     this.#basePath = (options.basePath ?? "/byollm").replace(/\/+$/, "");
+    this.#siteId = options.siteId;
     this.#daemon = new DaemonPlane({
       state: this.state,
       projection: this.projection,
@@ -120,9 +122,14 @@ export class Relay {
     const path = url.pathname;
 
     if (path === "/debug" || path === `${this.#basePath}/debug`) {
-      return new Response(await debugPage(this.state, this.#now()), {
-        headers: { "content-type": "text/html; charset=utf-8" },
-      });
+      return new Response(
+        await debugPage(this.state, this.#now(), {
+          siteId: this.#siteId,
+          consents: (owner) =>
+            this.projection.consentFor(owner, this.#siteId) !== null,
+        }),
+        { headers: { "content-type": "text/html; charset=utf-8" } },
+      );
     }
 
     const rawBody = request.method === "POST" ? await request.text() : "";

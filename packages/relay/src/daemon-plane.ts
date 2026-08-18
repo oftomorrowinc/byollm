@@ -358,7 +358,6 @@ export class DaemonPlane {
         const now = this.#deps.now();
         await this.#deps.state.sweep();
 
-        const known = await this.#deps.state.presence(device.runnerId);
         // Revocation is a fixture edit, and this is where the daemon learns
         // of it — within one heartbeat, which is what the freeze gate times.
         const consent = this.#deps.projection.consentFor(
@@ -366,7 +365,6 @@ export class DaemonPlane {
           this.#deps.siteId,
         );
         const revoked = consent === null;
-        if (known) known.revoked = revoked;
 
         // A revoked runner renews nothing and is told it holds nothing, so it
         // abandons the queue rather than finishing it. Identical to the direct

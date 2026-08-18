@@ -167,7 +167,7 @@ export interface RoutingStore {
   cancelRequests(runnerId: string): Promise<string[]>;
 
   /** Record a device as present. The store stamps when. */
-  seen(presence: Omit<Presence, "revoked" | "lastSeenAt">): Promise<Presence>;
+  seen(presence: Omit<Presence, "lastSeenAt">): Promise<Presence>;
   presence(runnerId: string): Promise<Presence | undefined>;
   everyone(): Promise<Presence[]>;
 

@@ -126,8 +126,21 @@ export interface Presence {
   readonly owner: string;
   readonly device: PublicIdentity;
   lastSeenAt: number;
-  /** Set on revocation so the next request is refused rather than routed. */
-  revoked: boolean;
+  // `revoked` is deliberately absent — cloud_008 §2.3.
+  //
+  // It was a boolean on the *runner*, written at heartbeat and read by
+  // nothing but the debug page. Enforcement had already moved to the
+  // projection, because enforcing on this flag made revocation depend on the
+  // client calling an endpoint: a daemon that simply never heartbeat went on
+  // claiming forever. What survived was the cache, which is a stored copy of
+  // a derived fact — this project's most-repeated bug, kept alive here as a
+  // display value.
+  //
+  // It is also a concept multi-tenancy cannot express. Revocation is a fact
+  // about an (owner, site) pair; a daemon serving two sites and revoked at
+  // one is not "a revoked runner", and a boolean on the device has nowhere to
+  // put the difference. Deleting it now is what stops cloud_009 inheriting a
+  // field it would have to contradict.
 }
 
 /**
@@ -549,16 +562,14 @@ export class RelayState implements RoutingStore {
     return { renewed, lost };
   }
 
-  async seen(
-    presence: Omit<Presence, "revoked" | "lastSeenAt">,
-  ): Promise<Presence> {
+  async seen(presence: Omit<Presence, "lastSeenAt">): Promise<Presence> {
     const lastSeenAt = await this.now();
     const existing = this.#presence.get(presence.runnerId);
     if (existing) {
       existing.lastSeenAt = lastSeenAt;
       return existing;
     }
-    const fresh: Presence = { ...presence, lastSeenAt, revoked: false };
+    const fresh: Presence = { ...presence, lastSeenAt };
     this.#presence.set(presence.runnerId, fresh);
     return fresh;
   }

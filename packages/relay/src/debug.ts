@@ -53,6 +53,15 @@ function jobRow(job: RoutedJob, now: number): string {
 export async function debugPage(
   state: RoutingStore,
   now: number,
+  /**
+   * Asked whether each device's owner still consents — cloud_008 §2.3.
+   *
+   * The page used to read a `revoked` boolean off presence. That flag was a
+   * stored copy of a fact the projection owns, and it is gone; the page asks
+   * the authority instead, which is also the only thing that stays correct
+   * when one daemon serves several sites.
+   */
+  routesFor?: { siteId: string; consents: (owner: string) => boolean },
 ): Promise<string> {
   const jobs = await state.jobs();
   const devices = await state.everyone();
@@ -97,7 +106,11 @@ ${
   <td>${escape(d.owner)}</td>
   <td><code>${escape(fingerprintOf(d.device))}</code></td>
   <td>${String(Math.max(0, now - d.lastSeenAt))}ms ago</td>
-  <td>${d.revoked ? "<b style='color:#c00'>revoked</b>" : "active"}</td>
+  <td>${
+    routesFor && !routesFor.consents(d.owner)
+      ? "<b style='color:#c00'>no consent</b>"
+      : "active"
+  }</td>
 </tr>`,
         )
         .join("\n")

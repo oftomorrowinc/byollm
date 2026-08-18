@@ -732,6 +732,73 @@ describe("result [RESULT_IDEMPOTENT, PROVENANCE_NAMES_DEVICE]", () => {
     expect(job?.lease?.id).toBe(second.lease.id);
   });
 
+  it("takes the model from the envelope, not from beside it [PROVENANCE_NAMES_DEVICE]", async () => {
+    // cloud_008 §2.5. `model`, `backendClass` and `durationMs` used to travel
+    // in the clear on `ResultRequest`, so a site recorded unauthenticated
+    // fields next to an authenticated answer — a daemon could seal one result
+    // and declare it came from something else, and only the unsigned half
+    // reached the app.
+    //
+    // They are inside the envelope now, which makes them the device's signed
+    // statement about its own run. The check is that the *sealed* value wins,
+    // so this seals one model and puts another in the request body: the
+    // schema is `.strict()`, so the extra field is refused outright rather
+    // than silently preferred — which is the stronger of the two outcomes and
+    // the one worth pinning.
+    const h = createHarness();
+    const runner = await h.pair();
+    const handle = await h.app.enqueue({
+      kind: "llm.generate",
+      payload: { prompt: "hi" },
+      owner: "alice",
+    });
+    await claimOne(h, runner);
+
+    const honest = await h.resultBody({
+      jobId: handle.id,
+      runner,
+      outcome: { outcome: "ok", text: "sealed by a real model" },
+      model: "the-model-that-ran",
+    });
+    const res = await h.call(
+      "result",
+      { ...honest, model: "a-model-nobody-ran" },
+      runner,
+    );
+
+    expect(res.status).toBe(400);
+    expect(await h.store.get(handle.id)).toMatchObject({ state: "claimed" });
+  });
+
+  it("records the model the device sealed [PROVENANCE_NAMES_DEVICE]", async () => {
+    // The positive control, and the half that actually reaches the app: the
+    // provenance an app reads is the one the device signed.
+    const h = createHarness();
+    const runner = await h.pair();
+    const handle = await h.app.enqueue({
+      kind: "llm.generate",
+      payload: { prompt: "hi" },
+      owner: "alice",
+    });
+    await claimOne(h, runner);
+
+    await h.call(
+      "result",
+      await h.resultBody({
+        jobId: handle.id,
+        runner,
+        outcome: { outcome: "ok", text: "done" },
+        model: "gemma4:26b",
+        backendClass: "process",
+      }),
+      runner,
+    );
+
+    const job = await h.store.get(handle.id);
+    expect(job?.provenance?.model).toBe("gemma4:26b");
+    expect(job?.provenance?.backendClass).toBe("process");
+  });
+
   it("404s an unknown job", async () => {
     const h = createHarness();
     const runner = await h.pair();

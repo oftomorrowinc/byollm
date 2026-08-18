@@ -615,7 +615,11 @@ export async function postResult(
   const keys = await daemon.identityKeys();
   const sealer = input.sealWith ?? keys;
   const envelope = await seal({
-    plaintext: JSON.stringify(input.outcome),
+    // `{ outcome, ran }` — cloud_008 §2.5.
+    plaintext: JSON.stringify({
+      outcome: input.outcome,
+      ran: { model: "test-model", backendClass: "http", durationMs: 1 },
+    }),
     senderKeys: sealer,
     recipientEncryptionPublic: daemon.sitePinned.encryption,
     context: {
@@ -637,9 +641,6 @@ export async function postResult(
     leaseId: input.leaseId,
     envelope,
     disposition: input.disposition ?? input.outcome.outcome,
-    model: "conformance-model",
-    backendClass: "http",
-    durationMs: 1,
   });
   const signature = signRequest(daemon.keys, {
     endpoint: "result",

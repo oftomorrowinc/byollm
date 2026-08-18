@@ -161,6 +161,32 @@ export function provenanceFor(input: {
   };
 }
 
+/**
+ * What the daemon did, sealed with the answer — cloud_008 §2.5.
+ *
+ * These travelled in the clear on `ResultRequest`, which meant two things at
+ * once. On the direct plane the site believed unauthenticated fields beside
+ * an authenticated envelope — a daemon could seal one answer and *declare* it
+ * came from a different model, and only the field it did not sign would be
+ * recorded. Through a relay they reached a third party that acts on none of
+ * them, and `model` in particular is the kind of detail Amendment A's rule
+ * keeps off the wire.
+ *
+ * Sealed, they are the daemon's signed statement about its own run: the site
+ * opens them, nothing in between sees them, and the disposition check that
+ * already compares clear-text against ciphertext extends to cover them.
+ */
+export const RunMetadata = z
+  .object({
+    /** Which model actually served it. */
+    model: z.string().min(1),
+    backendClass: BackendClass,
+    /** Wall-clock milliseconds the backend call took. */
+    durationMs: z.number().int().nonnegative(),
+  })
+  .strict();
+export type RunMetadata = z.infer<typeof RunMetadata>;
+
 /** Successful outcome. */
 export const JobResultOk = z
   .object({
@@ -195,6 +221,19 @@ export const JobOutcome = z.discriminatedUnion("outcome", [
   JobResultCanceled,
 ]);
 export type JobOutcome = z.infer<typeof JobOutcome>;
+
+/**
+ * The plaintext inside a result envelope.
+ *
+ * The outcome and how it was produced, together, because they are one
+ * statement by one signer. A site that opened only the outcome would be
+ * trusting the envelope for the answer and the request body for everything
+ * about it.
+ */
+export const SealedOutcome = z
+  .object({ outcome: JobOutcome, ran: RunMetadata })
+  .strict();
+export type SealedOutcome = z.infer<typeof SealedOutcome>;
 
 /** A completed job as delivered to the app, provenance attached. */
 export const DeliveredResult = z

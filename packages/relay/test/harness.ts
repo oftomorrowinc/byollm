@@ -4,7 +4,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   ENVELOPE_MAX_AGE_MS,
-  JobOutcome,
+  type JobOutcome,
+  SealedOutcome,
   keyId,
   open,
   publicIdentityOf,
@@ -229,7 +230,7 @@ export class SiteConnector {
       out.push({
         jobId: job.jobId,
         outcome: opened.ok
-          ? JobOutcome.parse(JSON.parse(opened.plaintext))
+          ? SealedOutcome.parse(JSON.parse(opened.plaintext)).outcome
           : null,
         disposition: job.disposition,
       });

@@ -242,9 +242,6 @@ export class ProtocolClient {
     leaseId: string;
     envelope: SealedEnvelope;
     disposition: ResultDisposition;
-    model: string;
-    backendClass: "http" | "process";
-    durationMs: number;
   }): Promise<ResultResponse> {
     return this.#post("result", ResultResponse, {
       protocolVersion: PROTOCOL_VERSION,

@@ -59,6 +59,8 @@ export {
   ClaimedJob,
   DeliveredResult,
   JobOutcome,
+  RunMetadata,
+  SealedOutcome,
   JobPayload,
   JobResultCanceled,
   JobResultError,

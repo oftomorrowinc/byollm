@@ -1,5 +1,5 @@
 import {
-  JobOutcome,
+  SealedOutcome,
   type SealedEnvelope,
   keyId,
   open,
@@ -277,7 +277,7 @@ export class CloudLane {
         // that ran it, and the signature it verified above is the stronger
         // claim about who did.
         holder: { by: "lease", leaseId: done.leaseId },
-        outcome,
+        outcome: outcome.outcome,
         provenance: provenanceFor({
           audience: record.audience,
           runnerId: done.runnerId,
@@ -289,8 +289,12 @@ export class CloudLane {
           // signature was verified against, above; that is a different
           // question from whose machine it is.
           runnerOwner: done.runnerOwner,
-          backendClass: "http",
-          model: "unknown",
+          // From the envelope, not invented — cloud_008 §2.5. These were
+          // hardcoded `"http"` and `"unknown"` because the daemon's declared
+          // values stopped at the relay, which is right: a blind relay acts
+          // on neither. Sealing them carries them past it untouched.
+          backendClass: outcome.ran.backendClass,
+          model: outcome.ran.model,
         }),
         now: this.#now(),
       });
@@ -313,7 +317,7 @@ export class CloudLane {
     envelope: SealedEnvelope;
     disposition: string;
     device: PublicIdentity;
-  }): Promise<JobOutcome | null> {
+  }): Promise<SealedOutcome | null> {
     const opened = await open({
       envelope: done.envelope,
       recipientKeys: this.#siteKeys,
@@ -333,13 +337,13 @@ export class CloudLane {
     } catch {
       return null;
     }
-    const outcome = JobOutcome.safeParse(parsed);
-    if (!outcome.success) return null;
+    const sealed = SealedOutcome.safeParse(parsed);
+    if (!sealed.success) return null;
     // The clear-text disposition is a routing hint the relay acted on. This
     // is the only place it can be checked, because this is the only party
     // that can open the envelope (byollm_009 §6.1).
-    if (outcome.data.outcome !== done.disposition) return null;
-    return outcome.data;
+    if (sealed.data.outcome.outcome !== done.disposition) return null;
+    return sealed.data;
   }
 
   /**

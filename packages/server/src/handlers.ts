@@ -1,6 +1,6 @@
 import {
   FetchRequest,
-  JobOutcome,
+  SealedOutcome,
   keyId,
   open,
   publicIdentityOf,
@@ -526,8 +526,11 @@ export class ByollmHandlers {
       audience: job.audience,
       runnerId: runner.id,
       runnerOwner: runner.owner,
-      backendClass: request.backendClass,
-      model: request.model,
+      // From the envelope the device signed, not from the request beside it
+      // — cloud_008 §2.5. A daemon can no longer seal one answer and declare
+      // it came from a different model.
+      backendClass: outcome.value.ran.backendClass,
+      model: outcome.value.ran.model,
     });
 
     const { accepted, job: updated } = await this.#store.complete({
@@ -536,7 +539,7 @@ export class ByollmHandlers {
       // docstring already called the lease "the more exact check anyway";
       // this plane simply had no lease id to give it until now.
       holder: { by: "lease", leaseId: request.leaseId },
-      outcome: outcome.value,
+      outcome: outcome.value.outcome,
       provenance,
       now,
     });
@@ -566,7 +569,7 @@ export class ByollmHandlers {
     request: ResultRequestType,
     runner: RunnerRecord,
   ): Promise<
-    { ok: true; value: JobOutcome } | { ok: false; failure: HandlerResult }
+    { ok: true; value: SealedOutcome } | { ok: false; failure: HandlerResult }
   > {
     const refuse = (why: string) =>
       ({ ok: false as const, failure: fail("bad-request", why) }) as const;
@@ -592,13 +595,13 @@ export class ByollmHandlers {
     } catch {
       return refuse("the sealed result was not valid JSON");
     }
-    const outcome = JobOutcome.safeParse(parsed);
-    if (!outcome.success) return refuse("the sealed result was not an outcome");
+    const sealed = SealedOutcome.safeParse(parsed);
+    if (!sealed.success) return refuse("the sealed result was not an outcome");
 
-    if (outcome.data.outcome !== request.disposition) {
+    if (sealed.data.outcome.outcome !== request.disposition) {
       return refuse("the declared disposition is not the one that was sealed");
     }
-    return { ok: true, value: outcome.data };
+    return { ok: true, value: sealed.data };
   }
 
   // -- 5. release -----------------------------------------------------------

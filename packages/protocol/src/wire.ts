@@ -411,11 +411,20 @@ export const ResultRequest = z
      * sealing an error, and only the app would ever find out.
      */
     disposition: ResultDisposition,
-    /** Which model actually served it, for the result's provenance. */
-    model: z.string().min(1),
-    backendClass: BackendClass,
-    /** Wall-clock milliseconds the backend call took. */
-    durationMs: z.number().int().nonnegative(),
+    // `model`, `backendClass` and `durationMs` are **inside the envelope** —
+    // cloud_008 §2.5. See {@link RunMetadata}.
+    //
+    // They were here, in the clear, and that was two problems wearing one
+    // coat. On the direct plane the site recorded unauthenticated fields
+    // beside an authenticated answer: a daemon could seal one result and
+    // declare a different model, and only the unsigned half would reach the
+    // app. Through a relay they reached a third party that acts on none of
+    // them — `model` in particular being the sort of detail Amendment A's
+    // rule keeps off the wire.
+    //
+    // `disposition` stays, and the difference is the test: a relay *routes*
+    // on it, so it is a class a routing party consumes. Nobody between the
+    // two ends consumes these.
   })
   .strict();
 export type ResultRequest = z.infer<typeof ResultRequest>;

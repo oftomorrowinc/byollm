@@ -14,6 +14,8 @@ import {
   matchAudience,
   type Capability,
   type ClaimedJob,
+  type RunMetadata,
+  type SealedOutcome,
   type JobOutcome,
 } from "@byollm/protocol";
 import type { Allowlist } from "./allowlist.js";
@@ -546,7 +548,11 @@ export class Runner {
     const route = this.#routeFor(job.kind);
     const outcome = await this.runJob({ ...job, payload });
 
-    const envelope = await this.#sealOutcome(job, outcome);
+    const envelope = await this.#sealOutcome(job, outcome, {
+      model: route?.model ?? "unknown",
+      backendClass: route?.backendClass ?? "http",
+      durationMs: 0,
+    });
 
     await this.#safely(() =>
       this.#options.client.result({
@@ -558,9 +564,6 @@ export class Runner {
         leaseId: job.lease.id,
         envelope,
         disposition: outcome.outcome,
-        model: route?.model ?? "unknown",
-        backendClass: route?.backendClass ?? "http",
-        durationMs: 0,
       }),
     );
   }
@@ -581,6 +584,7 @@ export class Runner {
   async #sealOutcome(
     job: ClaimedStub,
     outcome: JobOutcome,
+    ran: RunMetadata,
   ): Promise<SealedEnvelope> {
     const identity = this.#options.identity;
     if (!identity) {
@@ -593,7 +597,11 @@ export class Runner {
     }
     const keys = await identity.keys();
     return seal({
-      plaintext: JSON.stringify(outcome),
+      // The outcome **and how it was produced**, as one signed statement —
+      // cloud_008 §2.5. Sealing only the outcome would leave the site
+      // trusting the envelope for the answer and an unsigned request body for
+      // everything about it.
+      plaintext: JSON.stringify({ outcome, ran } satisfies SealedOutcome),
       senderKeys: keys,
       recipientEncryptionPublic: identity.sitePinned.encryption,
       context: {

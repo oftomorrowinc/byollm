@@ -269,7 +269,16 @@ export function createHarness(
     leaseId?: string;
   }): Promise<Record<string, unknown>> {
     const envelope = await seal({
-      plaintext: JSON.stringify(input.outcome),
+      // The sealed shape is `{ outcome, ran }` — cloud_008 §2.5. A daemon
+      // signs how it ran alongside what it produced.
+      plaintext: JSON.stringify({
+        outcome: input.outcome,
+        ran: {
+          model: input.model ?? "test-model",
+          backendClass: input.backendClass ?? "http",
+          durationMs: 1,
+        },
+      }),
       senderKeys: input.runner.keys,
       recipientEncryptionPublic: publicIdentityOf(siteKeys).encryption,
       context: {
@@ -290,9 +299,6 @@ export function createHarness(
         "no-lease",
       envelope,
       disposition: input.outcome.outcome,
-      model: input.model ?? "test-model",
-      backendClass: input.backendClass ?? "http",
-      durationMs: 1,
     };
   }
 

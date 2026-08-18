@@ -486,7 +486,7 @@ export class RelayState implements RoutingStore {
     // Scoped to the caller's site for the same reason every other site-plane
     // operation is: a site must not be able to cancel somebody else's work by
     // guessing an id.
-    if (!job || job.siteId !== input.siteId) return Promise.resolve(false);
+    if (job?.siteId !== input.siteId) return Promise.resolve(false);
     job.cancelled = true;
     // Not deleted, and not requeued. If a device holds it, that device has to
     // hear about it — which is what `cancelRequests` below is for.

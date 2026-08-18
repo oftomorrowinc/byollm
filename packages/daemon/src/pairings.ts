@@ -35,14 +35,40 @@ export const Pairing = z
   .strict();
 export type Pairing = z.infer<typeof Pairing>;
 
+/**
+ * The file's shape, with its rows left unparsed — cloud_008 §2.3a.
+ *
+ * `z.array(z.unknown())` on purpose. This used to be `z.array(Pairing)`, and
+ * `safeParse` is all-or-nothing: **one malformed row silently disconnected
+ * the daemon from every site it had paired with.** The CLI then said "not
+ * paired with <origin>" — a true sentence about a state nobody intended — and
+ * `byollm list` showed nothing rather than showing a problem.
+ *
+ * Third instance of the shape in this brief. §0.1 was the control-plane
+ * projection, where one bad device row froze revocation for everyone; §2.1a
+ * was the routing store, where two stubs written by an older version denied
+ * every claim on the hub. This is the same lesson on the daemon's own disk:
+ * **parse per row, skip what you cannot read, and say which one.**
+ *
+ * A bad row here is one pairing's problem. It was never everyone's.
+ */
 const PairingFile = z
-  .object({ version: z.literal(1), pairings: z.array(Pairing) })
+  .object({ version: z.literal(1), pairings: z.array(z.unknown()) })
   .strict();
+
+/** A row that would not parse, for the caller to report. */
+export interface SkippedPairing {
+  /** Whatever the row called its origin, when it had a usable one. */
+  readonly origin: string;
+  /** Which fields failed, never their values. */
+  readonly problem: string;
+}
 
 /** The daemon's paired servers, on disk. */
 export class Pairings {
   readonly #path: string;
   #pairings: Pairing[] = [];
+  #skipped: SkippedPairing[] = [];
   #loaded = false;
 
   constructor(path: string) {
@@ -50,15 +76,56 @@ export class Pairings {
   }
 
   async load(): Promise<void> {
+    this.#pairings = [];
+    this.#skipped = [];
+    let file: unknown;
     try {
-      const parsed = PairingFile.safeParse(
-        JSON.parse(await readFile(this.#path, "utf8")),
-      );
-      this.#pairings = parsed.success ? parsed.data.pairings : [];
+      file = JSON.parse(await readFile(this.#path, "utf8"));
     } catch {
-      this.#pairings = [];
+      // No file, or not JSON at all. Nothing to salvage row by row, and a
+      // daemon that has never paired is the ordinary case rather than an
+      // error — so this stays silent where a bad *row* does not.
+      this.#loaded = true;
+      return;
+    }
+
+    const parsed = PairingFile.safeParse(file);
+    if (!parsed.success) {
+      this.#skipped.push({
+        origin: this.#path,
+        problem: "the pairings file is not in a shape this version can read",
+      });
+      this.#loaded = true;
+      return;
+    }
+
+    for (const row of parsed.data.pairings) {
+      const pairing = Pairing.safeParse(row);
+      if (pairing.success) {
+        this.#pairings.push(pairing.data);
+        continue;
+      }
+      const origin = (row as { origin?: unknown }).origin;
+      this.#skipped.push({
+        origin: typeof origin === "string" ? origin : "an unnamed entry",
+        // Paths, not values: a pairing row holds a bearer token and a key,
+        // and a diagnostic that quotes the row would put both in a log.
+        problem: pairing.error.issues.map((i) => i.path.join(".")).join(", "),
+      });
     }
     this.#loaded = true;
+  }
+
+  /**
+   * Rows the last {@link load} could not read.
+   *
+   * Exposed rather than logged from here: this class has no opinion about
+   * where a message goes, and the CLI is the thing with a user in front of
+   * it. Empty on a healthy file, which is what makes it worth checking.
+   */
+  get skipped(): readonly SkippedPairing[] {
+    this.#assertLoaded();
+    return [...this.#skipped];
   }
 
   list(): readonly Pairing[] {

@@ -197,6 +197,7 @@ async function commandConnect(
 
   const pairings = new Pairings(paths.pairings);
   await pairings.load();
+  reportSkipped(pairings, io);
   await pairings.put(result.pairing);
 
   io.out(
@@ -217,6 +218,7 @@ async function commandRun(
 ): Promise<ExitCode> {
   const pairings = new Pairings(paths.pairings);
   await pairings.load();
+  reportSkipped(pairings, io);
 
   const target = args[0];
   const origins =
@@ -231,6 +233,24 @@ async function commandRun(
   return runLoop(paths, origins, io, signal);
 }
 
+/**
+ * Say so when a pairing row could not be read — cloud_008 §2.3a.
+ *
+ * `load` skips what it cannot parse instead of discarding the whole file, and
+ * a skip nobody mentions is the same silence in a smaller box: the user would
+ * see one connection missing and no reason for it. Named on stderr, by origin
+ * and failing field, never by value — a pairing row holds a bearer token and
+ * a key.
+ */
+function reportSkipped(pairings: Pairings, io: CliIo): void {
+  for (const row of pairings.skipped) {
+    io.err(
+      `could not read the pairing for ${row.origin} (${row.problem}) — ` +
+        "it was skipped; re-pair with `byollm connect` to restore it\n",
+    );
+  }
+}
+
 async function runLoop(
   paths: DaemonPaths,
   origins: readonly string[],
@@ -241,6 +261,7 @@ async function runLoop(
   const identity = new DeviceIdentity(paths.keys);
   const pairings = new Pairings(paths.pairings);
   await pairings.load();
+  reportSkipped(pairings, io);
 
   const controller = new AbortController();
   signal?.addEventListener(
@@ -398,6 +419,7 @@ async function commandStatus(paths: DaemonPaths, io: CliIo): Promise<ExitCode> {
   const { loaded, ingress, allowlist, budgets, spend } = await context(paths);
   const pairings = new Pairings(paths.pairings);
   await pairings.load();
+  reportSkipped(pairings, io);
 
   const paused = await isPaused(paths);
   const now = Date.now();
@@ -834,6 +856,7 @@ async function commandForget(
   }
   const pairings = new Pairings(paths.pairings);
   await pairings.load();
+  reportSkipped(pairings, io);
   const removed = await pairings.remove(normalizeOrigin(target));
   io.out(
     removed

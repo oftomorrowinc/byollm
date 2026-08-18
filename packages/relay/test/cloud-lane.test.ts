@@ -281,6 +281,77 @@ describe.each(CASES)("the cloud lane over $name", (storeCase) => {
   });
 });
 
+describe("the site's own row decides whether to seal", () => {
+  /**
+   * cloud_008 §2.2 — `adopt()` returned `null` and the cloud lane ignored it.
+   *
+   * `adopt` refuses a job that is terminal or already leased, and its own
+   * comment says why: that means the relay and this store disagree about
+   * reality, and the store's row is not the place to resolve it. The return
+   * value was discarded, so the site sealed the payload anyway.
+   *
+   * Sealing is the irreversible half. Once the ciphertext is at the relay a
+   * device can fetch and run it — so a job the app had already cancelled, or
+   * whose deadline had passed, was handed out because the pump did not read
+   * an answer it had already asked for.
+   */
+  it("does not seal for a job its own store refuses to lend out", async () => {
+    const { store, owner } = await CASES[0]!.make();
+    const siteKeys = generateSiteKeys();
+    const site = publicIdentityOf(siteKeys);
+    const fixture = fixtureFor(site, {
+      consents: [{ owner, siteId: SITE_ID }],
+    });
+    const relay = new Relay({ siteId: SITE_ID, fixture });
+
+    const app = new ByollmApp({
+      store,
+      siteKeys,
+      lane: {
+        relayOrigin: "http://relay.test",
+        siteId: SITE_ID,
+        fetch: (i, init) => relay.handle(new Request(i, init)),
+      },
+    });
+
+    const job = await app.enqueue({
+      kind: "llm.generate",
+      owner,
+      audience: "self",
+      payload: { prompt: "cancelled before anyone ran it" },
+    });
+
+    // A device claims at the relay — which knows nothing about cancellation,
+    // and that is the whole point of the case.
+    const device = publicIdentityOf(generateSiteKeys());
+    relay.project({
+      ...fixture,
+      devices: [{ owner, runnerId: "runner_x", device }],
+    });
+    await relay.state.claim({
+      runnerId: "runner_x",
+      owner,
+      device,
+      siteId: SITE_ID,
+      kinds: new Set(["llm.generate"]),
+      owners: new Set([owner]),
+      max: 1,
+      leaseMs: 60_000,
+    });
+
+    // Meanwhile the app cancels. The site's own row is now terminal.
+    await app.cancel(job.id);
+
+    const report = await app.cloud!.pump();
+
+    expect(report.refused).toContain(job.id);
+    expect(report.sealed).not.toContain(job.id);
+    // And nothing was handed to the relay — the assertion that matters, since
+    // a payload there is a payload a device can run.
+    expect((await relay.state.job(job.id))?.payload).toBeUndefined();
+  });
+});
+
 describe("what the relay is told, and what it is not", () => {
   /**
    * cloud_008 §0.2 — `audienceAllow` reaches nobody.

@@ -266,6 +266,113 @@ describe("a refusal is remembered", () => {
   });
 });
 
+describe("the deadline, which the relay never read", () => {
+  /**
+   * cloud_008 §2.2 — `TTL_EXPIRY` on the relay plane.
+   *
+   * `stub.deadlineAt` travelled on every stub and nothing in the relay ever
+   * looked at it. Not wrong arithmetic — no arithmetic. A job whose deadline
+   * had passed went on being offered to devices forever, and its sealed
+   * payload sat in the relay for as long as the process lived.
+   *
+   * That is two guarantees at once: work that is pointless is not run, and a
+   * ciphertext is not carried past the point it could matter. byollm_009 §6
+   * describes `deadlineAt` as exactly the second one.
+   */
+  const CLOCK = 1_800_000_000_000;
+
+  it("stops offering a job whose deadline has passed", async () => {
+    let clock = CLOCK;
+    const state = new RelayState({ now: () => clock });
+    await state.enqueue({
+      id: "late",
+      siteId: SITE,
+      stub: { ...stub("late"), deadlineAt: CLOCK + 1_000 },
+    });
+
+    // Before: claimable.
+    expect((await state.claim(claimArgs())).map((j) => j.id)).toEqual(["late"]);
+    await state.releaseLeases({
+      runnerId: "runner_1",
+      leases: [
+        {
+          jobId: "late",
+          leaseId: (await state.job("late"))!.claimedBy!.leaseId,
+        },
+      ],
+    });
+
+    clock += 2_000;
+    expect(await state.claim(claimArgs())).toEqual([]);
+  });
+
+  it("drops the job, and the ciphertext with it", async () => {
+    // The retention half. A tombstone would keep the sealed payload, which is
+    // the thing `deadlineAt` exists to bound — so an expired job leaves
+    // nothing behind.
+    let clock = CLOCK;
+    const state = new RelayState({ now: () => clock });
+    await state.enqueue({
+      id: "late",
+      siteId: SITE,
+      stub: { ...stub("late"), deadlineAt: CLOCK + 1_000 },
+    });
+    await state.claim(claimArgs());
+    await state.seal({ jobId: "late", siteId: SITE, envelope: ENVELOPE });
+    expect((await state.job("late"))?.payload).toBeDefined();
+
+    clock += 2_000;
+    const swept = await state.sweep();
+
+    expect(swept.map((job) => job.id)).toContain("late");
+    expect(await state.job("late")).toBeUndefined();
+    expect(JSON.stringify(await state.jobs())).not.toContain(
+      ENVELOPE.ciphertext,
+    );
+  });
+
+  it("leaves a job whose deadline has not passed alone", async () => {
+    // The positive control. "Delete everything on sweep" passes both tests
+    // above and empties the queue on the first heartbeat.
+    const state = new RelayState({ now: () => CLOCK });
+    await state.enqueue({
+      id: "fine",
+      siteId: SITE,
+      stub: { ...stub("fine"), deadlineAt: CLOCK + 60_000 },
+    });
+
+    await state.sweep();
+
+    expect((await state.job("fine"))?.state).toBe("queued");
+  });
+
+  it("tells a device mid-flight that its job is gone", async () => {
+    // A daemon holding a lease on an expired job learns through the path that
+    // already exists for a grant that ended: `renewLeases` reports a job the
+    // store no longer holds as `lost`, and a daemon abandons what it is told
+    // it lost. No new signal, and nothing for a daemon to special-case.
+    let clock = CLOCK;
+    const state = new RelayState({ now: () => clock });
+    await state.enqueue({
+      id: "late",
+      siteId: SITE,
+      stub: { ...stub("late"), deadlineAt: CLOCK + 1_000 },
+    });
+    const [granted] = await state.claim(claimArgs());
+
+    clock += 2_000;
+    await state.sweep();
+
+    const { renewed, lost } = await state.renewLeases({
+      runnerId: "runner_1",
+      leases: [{ jobId: "late", leaseId: granted!.lease.id }],
+      leaseMs: 60_000,
+    });
+    expect(renewed).toEqual([]);
+    expect(lost).toEqual(["late"]);
+  });
+});
+
 describe("the store's clock", () => {
   /**
    * Every deadline is stamped from `state.now()` — cloud_006 §3.4.

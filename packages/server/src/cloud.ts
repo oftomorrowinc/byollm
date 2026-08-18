@@ -198,12 +198,30 @@ export class CloudLane {
       // happened to every job slower than the shorter clock — the site expired
       // the lease, the device finished anyway, and `complete` refused the
       // result the device had correctly produced.
-      await this.#store.adopt({
+      const adopted = await this.#store.adopt({
         jobId: claim.jobId,
         leaseId: claim.leaseId,
         expiresAt: claim.leaseExpiresAt,
         now: this.#now(),
       });
+      // `null` means this store will not lend the job out — cloud_008 §2.2.
+      //
+      // Its own comment says why it refuses: a terminal or already-leased job
+      // means the relay and this store disagree about reality. **And the
+      // return value was being discarded**, so the site went on to seal the
+      // payload to the claiming device anyway — for a job the app had already
+      // cancelled, or whose deadline had passed, or that another lease
+      // already owned.
+      //
+      // Sealing is the irreversible half: once the ciphertext is with the
+      // relay, a device can fetch and run it. Refusing here is what makes
+      // `adopt` a decision rather than a formality, and the job is reported
+      // as refused so a site operator sees it rather than a device waiting
+      // for work that will never be sealed.
+      if (!adopted) {
+        refused.push(claim.jobId);
+        continue;
+      }
       await this.#post("payload", {
         siteId: this.#options.siteId,
         jobId: claim.jobId,

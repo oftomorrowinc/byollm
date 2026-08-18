@@ -558,7 +558,28 @@ export class RelayState implements RoutingStore {
   async sweep(): Promise<RoutedJob[]> {
     const now = await this.now();
     const requeued: RoutedJob[] = [];
+    const expired: RoutedJob[] = [];
     for (const job of this.#jobs.values()) {
+      // Past its deadline — cloud_008 §2.2, and `TTL_EXPIRY` on this plane.
+      //
+      // The relay never read `stub.deadlineAt`. Not "read it and got the
+      // arithmetic wrong": the field travelled on every stub, byollm_009 §6
+      // describes it as the bound on how long a ciphertext is worth carrying,
+      // and nothing here ever looked at it. A job whose deadline passed went
+      // on being offered to devices forever, and its sealed payload sat in
+      // the relay for as long as the process lived.
+      //
+      // Dropped rather than marked terminal. The relay is a router and the
+      // site holds the authoritative record; a stub nobody may run is not
+      // routing state, and keeping a tombstone would be keeping the ciphertext
+      // with it. A daemon mid-flight learns through `renewLeases`, which
+      // reports a job the store no longer holds as `lost` — the path that
+      // already exists for a lease that ended.
+      if (job.stub.deadlineAt <= now) {
+        this.#jobs.delete(job.id);
+        expired.push(job);
+        continue;
+      }
       if (job.state === "awaiting-payload" && (job.awaitingUntil ?? 0) <= now) {
         this.#requeue(job);
         requeued.push(job);
@@ -573,6 +594,8 @@ export class RelayState implements RoutingStore {
         requeued.push(job);
       }
     }
-    return requeued;
+    // Both, because a caller that logs "requeued" and never mentions expiry
+    // would report a shrinking queue with no reason for it.
+    return [...requeued, ...expired];
   }
 }

@@ -544,8 +544,11 @@ describe("result [RESULT_IDEMPOTENT, RESULT_PROVENANCE]", () => {
     h: ReturnType<typeof createHarness>,
     runner: PairedRunner,
   ) {
+    // The lease travels with the stub, and tests about `LEASE_HONORED` need
+    // the grant they were given rather than whatever is current when they ask.
     const res = await h.call("claim", claim(runner.runnerId), runner);
-    return (res.body as { jobs: { id: string }[] }).jobs[0]!;
+    return (res.body as { jobs: { id: string; lease: { id: string } }[] })
+      .jobs[0]!;
   }
 
   it("records the first outcome and discards the second", async () => {
@@ -676,6 +679,51 @@ describe("result [RESULT_IDEMPOTENT, RESULT_PROVENANCE]", () => {
       runner,
     );
     expect((res.body as { accepted: boolean }).accepted).toBe(false);
+  });
+
+  it("refuses a result from the grant before this one [LEASE_HONORED]", async () => {
+    // The case the test above cannot see, and the one that actually happens.
+    //
+    // After a sweep the job has no holder at all, so "match the runner" and
+    // "match the lease" both refuse — the check passes identically whichever
+    // rule is in force, which is why reverting `result` to the runner id broke
+    // nothing. The distinguishing case is a **re-claim by the same runner**:
+    // the id still matches, and only the grant has changed.
+    //
+    // It is not hypothetical. Tracing a mutation in cloud_008 §0.6 produced
+    // exactly this sequence — lease lapsed, sweep requeued, same daemon
+    // claimed again, and the original run finished and posted under the old
+    // grant.
+    const h = createHarness({ leaseMs: 10_000 });
+    const runner = await h.pair();
+    const handle = await h.app.enqueue({
+      kind: "llm.generate",
+      payload: { prompt: "hi" },
+      owner: "alice",
+    });
+    const first = await claimOne(h, runner);
+
+    h.clock.advance(11_000);
+    await h.app.sweep();
+    const second = await claimOne(h, runner);
+    expect(second.lease.id).not.toBe(first.lease.id);
+
+    const res = await h.call(
+      "result",
+      await h.resultBody({
+        jobId: handle.id,
+        runner,
+        outcome: { outcome: "ok", text: "from the grant that ended" },
+        leaseId: first.lease.id,
+      }),
+      runner,
+    );
+
+    expect((res.body as { accepted: boolean }).accepted).toBe(false);
+    // And the job is still the current grant's to finish.
+    const job = await h.store.get(handle.id);
+    expect(job?.outcome).toBeNull();
+    expect(job?.lease?.id).toBe(second.lease.id);
   });
 
   it("404s an unknown job", async () => {

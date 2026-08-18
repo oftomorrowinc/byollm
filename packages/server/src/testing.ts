@@ -120,6 +120,8 @@ export interface Harness {
     outcome: JobOutcome;
     model?: string;
     backendClass?: "http" | "process";
+    /** The grant the result was produced under — cloud_008 §1.4a. */
+    leaseId?: string;
   }): Promise<Record<string, unknown>>;
 }
 
@@ -256,6 +258,15 @@ export function createHarness(
     outcome: JobOutcome;
     model?: string;
     backendClass?: "http" | "process";
+    /**
+     * The grant this result was produced under — cloud_008 §1.4a.
+     *
+     * Defaults to the job's current lease, because for most tests here the
+     * lease is not the subject and "the grant I hold" is what a daemon would
+     * send. Tests *about* `LEASE_HONORED` pass a stale id explicitly, which
+     * is the only way this default could hide anything.
+     */
+    leaseId?: string;
   }): Promise<Record<string, unknown>> {
     const envelope = await seal({
       plaintext: JSON.stringify(input.outcome),
@@ -273,6 +284,10 @@ export function createHarness(
       protocolVersion: "0",
       runnerId: input.runner.runnerId,
       jobId: input.jobId,
+      leaseId:
+        input.leaseId ??
+        (await store.get(input.jobId))?.lease?.id ??
+        "no-lease",
       envelope,
       disposition: input.outcome.outcome,
       model: input.model ?? "test-model",

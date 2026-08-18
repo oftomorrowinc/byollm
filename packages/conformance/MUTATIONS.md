@@ -508,3 +508,32 @@ nothing suspicious to notice.
   daemon acts on `lost` and ignores `leases` entirely. Two answers to one
   question, one of them unread — the `audienceAllow` shape again. Recorded as
   finding 16, Tier 1: the daemon should act on it or it comes off the wire.
+
+---
+
+## A `[LEASE_HONORED]` test that could not tell the two rules apart — §1.4a
+
+Making `result` name its lease came with a mutation check: revert the direct
+plane to `holder: { by: "runner" }` and see what fails. **Nothing did**, past a
+test whose name is `refuses a result from a runner that no longer holds the
+lease [LEASE_HONORED]`.
+
+It sweeps an expired lease and then posts a result. After a sweep the job has
+no holder at all, so "match the runner" and "match the lease" both refuse — the
+test passes identically under either rule, and cites a MUST it cannot observe.
+The relay's own store test had the same gap for the same operation, while
+`takePayload` and `releaseLeases` were both covered.
+
+The distinguishing case is a **re-claim by the same runner**: the id still
+matches and only the grant has changed. It is not hypothetical — it is the
+exact sequence the §0.6 mutation trace produced, and it is the sequence under
+which a result was accepted for a job its sender no longer held.
+
+Both planes now have it, and both mutants die.
+
+**The rule this suggests:** when a test cites a MUST, ask what _other_ rule
+would also make it pass. If the answer is "the rule we are replacing", the test
+is about the outcome and not about the MUST — and it will keep passing through
+the regression it was written to catch. Finding 42 in cloud_008 names the same
+shape in the conformance kit (`C004`/`C001` counting MUSTs they never exercise);
+this is the same audit applied one layer down.

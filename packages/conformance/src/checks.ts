@@ -1684,6 +1684,7 @@ export const CHECKS: readonly Check[] = [
         const relay = generateKeys(Date.now());
         const forged = await postResult(target, daemon, {
           jobId: job.id,
+          leaseId: claimed.lease.id,
           outcome: { outcome: "ok", text: "an answer the device never gave" },
           sealWith: relay,
         });
@@ -1703,6 +1704,7 @@ export const CHECKS: readonly Check[] = [
         // a check that refuses everything.
         const real = await postResult(target, daemon, {
           jobId: job.id,
+          leaseId: claimed.lease.id,
           outcome: { outcome: "ok", text: "the genuine answer" },
         });
         assert(
@@ -1715,6 +1717,7 @@ export const CHECKS: readonly Check[] = [
         // let the wire contradict the envelope.
         const lying = await postResult(target, daemon, {
           jobId: job.id,
+          leaseId: claimed.lease.id,
           outcome: {
             outcome: "error",
             code: "backend-error",

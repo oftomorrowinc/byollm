@@ -226,6 +226,8 @@ export class ProtocolClient {
   async result(input: {
     runnerId: string;
     jobId: string;
+    /** The grant the work was done under — cloud_008 §1.4a. */
+    leaseId: string;
     envelope: SealedEnvelope;
     disposition: ResultDisposition;
     model: string;

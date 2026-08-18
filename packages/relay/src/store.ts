@@ -84,6 +84,14 @@ export interface RoutingStore {
   complete(input: {
     jobId: string;
     runnerId: string;
+    /**
+     * The grant the result was produced under — cloud_008 §1.4a.
+     *
+     * `takePayload` and `releaseLeases` have always checked this and said why;
+     * the operation that *writes* checked only the runner, which survives a
+     * claim-release-reclaim cycle.
+     */
+    leaseId: string;
     envelope: SealedEnvelope;
     disposition: "ok" | "error" | "canceled";
   }): Promise<

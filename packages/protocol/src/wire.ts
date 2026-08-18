@@ -362,6 +362,29 @@ export const ResultRequest = z
     runnerId: z.string().min(1),
     jobId: z.string().min(1),
     /**
+     * The grant this result was produced under — cloud_008 §1.4a.
+     *
+     * `fetch` has always named its lease, with the reasoning written beside
+     * it: a request that names only the job would be answerable for whatever
+     * lease exists when it arrives. **The operation that writes the result did
+     * not**, on either plane, and checked only the runner id — which survives
+     * a claim-release-reclaim cycle, so a device whose grant had been swept
+     * and reissued could still land a result for a job it no longer held.
+     *
+     * Found by tracing a mutation that survived in §0.6: the lease lapsed, the
+     * sweep requeued, the daemon re-claimed under a new grant, and the
+     * original run finished and posted anyway. The relay marked the job done
+     * with a result the site cannot open — it verifies the envelope against
+     * the *current* holder's device, so the crypto contains the substitution —
+     * and then refused the real holder's result as a replay. A lost job, in
+     * silence.
+     *
+     * `LEASE_HONORED` is a statement about a lease *instance*. That was
+     * learned once already, when a replayed release yanked a later grant, and
+     * it applies here for the same reason.
+     */
+    leaseId: z.string().min(1),
+    /**
      * The outcome, sealed to the site and signed by the device.
      *
      * The return leg of the payload envelope, and sealed for the same reason:

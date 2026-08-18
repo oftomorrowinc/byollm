@@ -337,6 +337,7 @@ export class DaemonPlane {
       const recorded = await this.#deps.state.complete({
         jobId: request.jobId,
         runnerId: device.runnerId,
+        leaseId: request.leaseId,
         envelope: request.envelope,
         disposition: request.disposition,
       });

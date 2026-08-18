@@ -552,6 +552,10 @@ export class Runner {
       this.#options.client.result({
         runnerId: this.#options.runnerId,
         jobId: job.id,
+        // The grant this work was done under, not merely who did it. A runner
+        // id survives a claim-release-reclaim cycle; a lease id is the thing
+        // that ended.
+        leaseId: job.lease.id,
         envelope,
         disposition: outcome.outcome,
         model: route?.model ?? "unknown",

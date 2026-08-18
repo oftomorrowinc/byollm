@@ -353,6 +353,7 @@ export class RelayState implements RoutingStore {
   complete(input: {
     jobId: string;
     runnerId: string;
+    leaseId: string;
     envelope: SealedEnvelope;
     disposition: "ok" | "error" | "canceled";
   }): Promise<
@@ -362,6 +363,14 @@ export class RelayState implements RoutingStore {
     if (!job) return Promise.resolve({ refused: "not-found" });
     if (job.claimedBy?.runnerId !== input.runnerId) {
       return Promise.resolve({ refused: "not-holder" });
+    }
+    // LEASE_HONORED per instance — cloud_008 §1.4a. The idempotency check
+    // below comes *after* this deliberately: a result under a grant that
+    // ended is not a replay of this job's result, it is a different device's
+    // work arriving late, and calling it `accepted: false` would tell the
+    // sender its result had already been recorded.
+    if (job.claimedBy.leaseId !== input.leaseId) {
+      return Promise.resolve({ refused: "stale-lease" });
     }
     if (job.state === "done") {
       return Promise.resolve({ accepted: false, state: job.state });

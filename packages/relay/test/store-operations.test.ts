@@ -247,17 +247,22 @@ describe("complete", () => {
     // the state machine.
     const state = new RelayState();
     await state.enqueue({ id: "a", siteId: SITE, stub: stub("a") });
-    await state.claim(claimArgs());
+    const [granted] = await state.claim(claimArgs());
+    const leaseId = granted!.lease.id;
 
     const first = await state.complete({
       jobId: "a",
       runnerId: "runner_1",
+      leaseId,
       envelope: ENVELOPE,
       disposition: "ok",
     });
+    // The same grant, replayed — which is what idempotency is about. A
+    // *different* grant is the case below, and it is not a replay.
     const replay = await state.complete({
       jobId: "a",
       runnerId: "runner_1",
+      leaseId,
       envelope: { ...ENVELOPE, ciphertext: "a-different-result" },
       disposition: "error",
     });
@@ -268,6 +273,33 @@ describe("complete", () => {
     // not the boolean.
     expect((await state.job("a"))?.result).toEqual(ENVELOPE);
     expect((await state.job("a"))?.disposition).toBe("ok");
+  });
+
+  it("refuses a result produced under a grant that ended", async () => {
+    // LEASE_HONORED per instance — cloud_008 §1.4a, the gap `takePayload` and
+    // `releaseLeases` never had. `complete` checked the runner id, which
+    // survives a claim-release-reclaim cycle, so a device whose lease had been
+    // swept and reissued could still write the result.
+    //
+    // Refused rather than reported as a replay: the sender's work was real and
+    // is being rejected because its grant ended, and `accepted: false` would
+    // tell it the result had already been recorded.
+    const state = new RelayState();
+    await state.enqueue({ id: "a", siteId: SITE, stub: stub("a") });
+    await state.claim(claimArgs());
+
+    const late = await state.complete({
+      jobId: "a",
+      runnerId: "runner_1",
+      leaseId: "a-grant-that-ended",
+      envelope: ENVELOPE,
+      disposition: "ok",
+    });
+
+    expect(late).toEqual({ refused: "stale-lease" });
+    // And the job is untouched: the current holder can still finish it.
+    expect((await state.job("a"))?.state).toBe("awaiting-payload");
+    expect((await state.job("a"))?.result).toBeUndefined();
   });
 });
 

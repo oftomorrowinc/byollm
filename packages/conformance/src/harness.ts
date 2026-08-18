@@ -608,6 +608,8 @@ export async function postResult(
     outcome: JobOutcome;
     sealWith?: StoredKeys;
     disposition?: "ok" | "error" | "canceled";
+    /** The grant the work was done under — cloud_008 §1.4a. */
+    leaseId: string;
   },
 ): Promise<Response> {
   const keys = await daemon.identityKeys();
@@ -632,6 +634,7 @@ export async function postResult(
     protocolVersion: PROTOCOL_VERSION,
     runnerId: daemon.runnerId,
     jobId: input.jobId,
+    leaseId: input.leaseId,
     envelope,
     disposition: input.disposition ?? input.outcome.outcome,
     model: "conformance-model",

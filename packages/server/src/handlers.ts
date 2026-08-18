@@ -521,7 +521,10 @@ export class ByollmHandlers {
 
     const { accepted, job: updated } = await this.#store.complete({
       jobId: request.jobId,
-      holder: { by: "runner", runnerId: runner.id },
+      // The grant, not the runner — cloud_008 §1.4a. `CompleteHolder`'s own
+      // docstring already called the lease "the more exact check anyway";
+      // this plane simply had no lease id to give it until now.
+      holder: { by: "lease", leaseId: request.leaseId },
       outcome: outcome.value,
       provenance,
       now,

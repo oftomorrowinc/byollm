@@ -34,6 +34,15 @@ import { removeTemp } from "./test-support.js";
  * over plaintext would test nothing about the property that matters.
  */
 const TEST_SITE_KEYS = generateKeys(1_800_000_000_000);
+/**
+ * The site a stub names — Amendment A §A.3.
+ *
+ * Derived from the same keys the daemon pins rather than written as a
+ * literal, because the daemon now refuses a stub naming a site it did not
+ * pair with. A fixed string here would refuse every job in this file, which
+ * is the check doing exactly what it is for.
+ */
+const TEST_SITE_ID = keyId(publicIdentityOf(TEST_SITE_KEYS).identity);
 const TEST_DEVICE_KEYS = generateKeys(1_800_000_000_000);
 const TEST_IDENTITY = {
   keys: () => Promise.resolve(TEST_DEVICE_KEYS),
@@ -243,6 +252,7 @@ describe("the loop", () => {
               kind: "llm.generate",
               audience: "self",
               owner: "me",
+              site: TEST_SITE_ID,
               sizeClass: "small",
               streaming: false,
               deadlineAt: Date.now() + 60_000,
@@ -263,6 +273,64 @@ describe("the loop", () => {
     expect(backend.seen).toEqual([]);
   });
 
+  it("refuses a stub naming a site it did not pair with", async () => {
+    // Amendment A §A.3's daemon half. `stub.site` is the site's identity key
+    // id precisely so a daemon can check it against the key it pinned, with no
+    // lookup and without trusting whoever routed the job.
+    //
+    // Redundant with one pinned key — `open` would refuse the envelope anyway
+    // — and the redundancy is the reason to test it now rather than later.
+    // With two pinned keys (cloud_009) the wrong one is the *silent* failure:
+    // a payload from site B verified against site A's key fails to open and
+    // reports as a corrupt envelope, which sends somebody looking at their
+    // crypto instead of their routing. This is what turns that into a
+    // sentence naming both sites.
+    const runner = await makeRunner(
+      routed({
+        claim: {
+          jobs: [
+            {
+              id: "job_1",
+              kind: "llm.generate",
+              audience: "self",
+              owner: "me",
+              site: "BYOLLM-A-SITE-THIS-MACHINE-NEVER-PAIRED-WITH",
+              sizeClass: "small",
+              streaming: false,
+              deadlineAt: Date.now() + 60_000,
+              lease: {
+                id: "lease_test",
+                runnerId: "runner_1",
+                identity: TEST_IDENTITY,
+                expiresAt: Date.now() + 60_000,
+              },
+            },
+          ],
+          leaseMs: 60_000,
+        },
+      }),
+    );
+
+    await runner.tick();
+    await settles(
+      () => events.some((e) => e.type === "error"),
+      "the daemon to refuse the job",
+    );
+
+    // The backend never saw it — a refusal that still ran the work would be
+    // no refusal at all.
+    expect(backend.seen).toEqual([]);
+    // And the message names both sites, because "refused" alone is what makes
+    // this class of failure take an afternoon.
+    const error =
+      events.find(
+        (e): e is RunnerEvent & { type: "error"; message: string } =>
+          e.type === "error",
+      )?.message ?? "";
+    expect(error).toContain("BYOLLM-A-SITE-THIS-MACHINE-NEVER-PAIRED-WITH");
+    expect(error).toContain(TEST_SITE_ID);
+  });
+
   it("runs a claimed job and reports it", async () => {
     const runner = await makeRunner(
       routed({
@@ -273,6 +341,7 @@ describe("the loop", () => {
               kind: "llm.generate",
               audience: "self",
               owner: "me",
+              site: TEST_SITE_ID,
               sizeClass: "small",
               streaming: false,
               deadlineAt: Date.now() + 60_000,
@@ -310,6 +379,7 @@ describe("the loop", () => {
               kind: "llm.generate",
               audience: "public",
               owner: "stranger",
+              site: TEST_SITE_ID,
               sizeClass: "small",
               streaming: false,
               deadlineAt: Date.now() + 60_000,

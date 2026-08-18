@@ -94,6 +94,7 @@ describe("publishing a stub", () => {
       "id",
       "kind",
       "owner",
+      "site",
       "sizeClass",
       "streaming",
     ]);

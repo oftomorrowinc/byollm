@@ -130,6 +130,8 @@ export class ByollmHandlers {
   readonly #pollIntervalMs: number;
   readonly #now: () => number;
   readonly #siteKeys: StoredKeys;
+  /** This site's identity key id — Amendment A's `stub.site`. Derived once. */
+  readonly #siteKeyId: string;
 
   constructor(config: HandlerConfig) {
     this.#store = config.store;
@@ -143,6 +145,7 @@ export class ByollmHandlers {
       );
     }
     this.#siteKeys = config.siteKeys;
+    this.#siteKeyId = keyId(publicIdentityOf(config.siteKeys).identity);
     this.#verificationUrl = config.verificationUrl;
     this.#leaseMs = config.leaseMs ?? DEFAULTS.leaseMs;
     this.#pairingTtlMs = config.pairingTtlMs ?? DEFAULTS.pairingTtlMs;
@@ -406,6 +409,13 @@ export class ByollmHandlers {
         kind: job.kind,
         audience: job.audience,
         owner: job.owner,
+        // This site, named by its identity key id — Amendment A §A.3. The
+        // daemon pinned this exact value at pairing, so it can check the stub
+        // against the envelope it later opens rather than taking our word for
+        // which site sent it. On this plane that is redundant, which is the
+        // point: the direct and relayed stubs are the same shape, and a daemon
+        // serving both cannot tell which upstream it is talking to.
+        site: this.#siteKeyId,
         // Bucketed, not measured: an exact size is a stronger fingerprint
         // than routing needs (byollm_009 §6).
         sizeClass: job.sizeClass,

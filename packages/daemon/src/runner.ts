@@ -674,13 +674,33 @@ export class Runner {
       );
     }
     const keys = await identity.keys();
+
+    // The stub said which site this is; this machine pinned that site's key at
+    // pairing. Amendment A §A.3 makes `stub.site` a key id precisely so this
+    // comparison is possible without a lookup — the stub describes itself
+    // rather than pointing into somebody else's table.
+    //
+    // Redundant today, and deliberately kept: with one pinned key the `open`
+    // below already refuses anything else. It stops being redundant the moment
+    // a daemon serves two sites (cloud_009), where the wrong pinned key is the
+    // silent failure — a payload from site B verified against site A's key
+    // fails to open and reports as a corrupt envelope. Naming the mismatch
+    // here turns that into a sentence somebody can act on.
+    const pinnedKeyId = keyId(identity.sitePinned.identity);
+    if (job.site !== pinnedKeyId) {
+      throw new Error(
+        `refusing job ${job.id}: it names site ${job.site}, but this machine ` +
+          `is paired with ${pinnedKeyId}`,
+      );
+    }
+
     const opened = await open({
       envelope,
       recipientKeys: keys,
       senderIdentityPublic: identity.sitePinned.identity,
       expected: {
         jobId: job.id,
-        senderKeyId: keyId(identity.sitePinned.identity),
+        senderKeyId: pinnedKeyId,
         recipientKeyId: keyId(publicIdentityOf(keys).identity),
         direction: "payload",
       },

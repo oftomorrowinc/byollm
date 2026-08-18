@@ -219,7 +219,7 @@ The core change. A job becomes two things instead of one.
 **Phase 1 — the stub.** The site enqueues routing metadata only:
 
 ```
-{ jobId, user, site, kind, sizeClass, deadlineAt, streaming }
+{ jobId, user, site, kind, audience, sizeClass, deadlineAt, streaming }
 ```
 
 This list is **exhaustive and normative**. It is what an upstream can
@@ -227,6 +227,13 @@ see, stated as a commitment rather than left as an accident of
 implementation. `kind` is visible because capability matching happens
 upstream; if a later revision moves matching to the daemon, `kind`
 moves into the ciphertext.
+
+`audience` was added by **Amendment A** (below), which also fixes what
+`site` contains — the site's identity key id — and records why
+`audienceAllow` was never on this list and is now off the schema too.
+The rule Amendment A leaves behind, for every field proposed after it:
+
+> **A class the router acts on may travel. Membership never does.**
 
 **Phase 2 — claim, then fetch.** A device claims the stub (audience,
 capability and budget checks daemon-side exactly as today). The
@@ -687,14 +694,12 @@ upstream can see, stated as a list rather than a reassurance.
 
 ---
 
-# Amendment A — the stub's enumerated list (PROPOSED, NOT RATIFIED)
+# Amendment A — the stub's enumerated list (RATIFIED)
 
-**Status: drafted 2026-08-18 by CC, for Todd and Cowork to read before
-this spec is called amended. cloud_009 §4.1 requires the decision be
-recorded here as an amendment rather than in a commit message, and
-cloud_001's "Governance — slow by design" makes the default answer *not
-yet*. Nothing in this block is in force. The code changes it describes
-are unwritten, deliberately, until it is read.**
+**Status: RATIFIED 2026-08-18 by Todd and Cowork, drafted by CC. Read
+before ratification per cloud_009 §4.1 and cloud_001's "Governance — slow
+by design", which makes the default answer *not yet*. This amendment is
+in force; §6's enumerated list is amended as below.**
 
 §6 declares the stub's field list "exhaustive and normative… what an
 upstream can see, stated as a commitment rather than left as an accident
@@ -750,8 +755,8 @@ it cannot, and the failure is silent — it would verify a payload from
 site B against site A's key, fail to open it, and report what looks like
 a corrupt envelope.
 
-**The open question is what `site` contains, and it is the one thing in
-this amendment CC is not ruling on.** Two candidates:
+**What `site` contains: the site's identity key id.** Ratified. Two
+candidates were weighed:
 
 | | **the site's identity key id** | **an opaque relay-assigned id** |
 | --- | --- | --- |
@@ -761,24 +766,42 @@ this amendment CC is not ruling on.** Two candidates:
 | what a hostile relay can do | claim site A and seal as B → the daemon can *notice*, not merely fail | claim site A and seal as B → the daemon fails to open and reports a corrupt envelope |
 | direct plane | works unchanged: a site knows its own key id | needs an id a direct site does not have |
 
-CC's recommendation is **the key id**, on three grounds: it is
+The ruling is **the key id**, on three grounds: it is
 self-describing, so nothing has to distribute a registry; it makes the
 stub's claim checkable against the envelope rather than trusted; and it
 avoids inventing a second namespace, which is the shape of cloud_008
 finding 41 (two owner namespaces compared for equality) and of finding
 fourteen before it.
 
-The argument against, stated fairly: a key id changes when a site
-rotates its identity key, so every daemon's pinned map must be updated
-at rotation. That is true of the *key* either way — a rotation already
-requires re-pinning — but with an opaque id the map's keys survive the
-rotation and only their values change. Whether that matters depends on
-how rotation is designed, which is unwritten (byollm_009 §3 covers
-device keys, not site keys).
+### A.3.1 Rotation, which the key id makes a designed transition
 
-**So this is the decision to make.** It is small, it is load-bearing for
-cloud_009, and it is exactly the kind of thing that is cheap now and
-expensive after a fleet has pinned something.
+The objection to the key id is real and is answered here rather than
+left as a table row: a key id changes when a site rotates its identity
+key, so a daemon's pinned map is re-keyed rather than merely updated.
+
+**Site key rotation is a first-class event, on the mechanism §3 already
+establishes.** §3 pins an identity key and requires the encryption key
+to be signed by it. Rotation extends that one link into a chain:
+
+- A site publishes a new identity key **signed by the outgoing one**.
+- Both keys are valid through an **overlap window**. Stubs may name
+  either; a daemon accepts a payload sealed under either.
+- Consents and pins migrate **by that signature**, not by an
+  administrator's assertion: a daemon presented with a new key id and a
+  signature from a key it already pinned can re-key its own map without
+  asking anyone, because the old key vouched for the new one.
+- After the window, only the new key id appears.
+
+This is the same trust step the daemon already performs at pairing —
+verify a signature against a key it holds — applied to the site's own
+succession. It turns "the map's keys move" from a cost into a
+transition somebody designed, and it is strictly stronger than an
+opaque id, under which a rotation is invisible to the daemon and
+therefore unverifiable by it.
+
+The rotation flow itself is not specified here beyond this shape; it is
+the natural home of a later revision, and nothing in cloud_009 depends
+on it existing first.
 
 ## A.4 What §12 does and does not gain
 

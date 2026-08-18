@@ -33,6 +33,15 @@ import { removeTemp } from "./test-support.js";
  * over plaintext would test nothing about the property that matters.
  */
 const TEST_SITE_KEYS = generateKeys(1_800_000_000_000);
+/**
+ * The site a stub names — Amendment A §A.3.
+ *
+ * Derived from the same keys the daemon pins rather than written as a
+ * literal, because the daemon now refuses a stub naming a site it did not
+ * pair with. A fixed string here would refuse every job in this file, which
+ * is the check doing exactly what it is for.
+ */
+const TEST_SITE_ID = keyId(publicIdentityOf(TEST_SITE_KEYS).identity);
 const TEST_DEVICE_KEYS = generateKeys(1_800_000_000_000);
 const TEST_IDENTITY = {
   keys: () => Promise.resolve(TEST_DEVICE_KEYS),
@@ -195,6 +204,7 @@ const oneJob = [
     kind: "llm.generate",
     audience: "self",
     owner: "me",
+    site: TEST_SITE_ID,
     sizeClass: "small",
     streaming: false,
     deadlineAt: Date.now() + 60_000,

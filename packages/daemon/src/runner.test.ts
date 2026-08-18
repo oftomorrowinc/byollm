@@ -153,6 +153,7 @@ const job = (
   payload: { prompt: "hello" },
   audience: "self",
   owner: "me",
+  site: "BYOLLM-TEST-SITE-KEY-ID",
   sizeClass: "small",
   streaming: false,
   deadlineAt: Date.now() + 60_000,

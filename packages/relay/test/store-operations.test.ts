@@ -31,10 +31,14 @@ import { AWAITING_PAYLOAD_MS, RelayState } from "../src/index.js";
 const KEYS = () => publicIdentityOf(generateKeys(Date.now()));
 const SITE = "site_store";
 
+/** A site's identity key id, standing in for a real one — Amendment A §A.3. */
+const SITE_KEY_ID = "BYOLLM-TEST-SITE-KEY-ID";
+
 const stub = (id: string, owner = "alice") => ({
   id,
   kind: "llm.generate" as const,
   owner,
+  site: SITE_KEY_ID,
   audience: "self" as const,
   sizeClass: "small" as const,
   streaming: false,

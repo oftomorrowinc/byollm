@@ -273,6 +273,30 @@ export const JobStub = z
     kind: JobKind,
     /** The app's id for the user who enqueued it. */
     owner: z.string().min(1),
+    /**
+     * Which site this job belongs to — byollm_009 Amendment A §A.3.
+     *
+     * **The site's identity key id**, not an id somebody assigned it. §6 has
+     * listed `site` since this spec was frozen; the schema never carried it,
+     * which is the drift the amendment closes.
+     *
+     * A key id rather than an opaque handle for one reason above the others:
+     * it makes the stub *self-describing* instead of a pointer into somebody
+     * else's table. A daemon holds this key id already, from pinning, so it
+     * can check `stub.site` against the payload envelope's `senderKeyId`
+     * without a lookup and without trusting the party that routed it. An
+     * opaque id can only be believed.
+     *
+     * It also avoids inventing a second namespace for a thing that has a
+     * canonical one — the shape of finding 41 (two owner namespaces compared
+     * for equality) and of finding fourteen before it.
+     *
+     * Rotation is a designed transition rather than a cost: a site publishes a
+     * new identity signed by the outgoing one, both are valid through an
+     * overlap window, and a daemon re-keys its own map by verifying that
+     * signature against the key it already pinned (§A.3.1).
+     */
+    site: z.string().min(1),
     audience: Audience,
     // `audienceAllow` is **not** here, and its absence is the enforcement —
     // cloud_008 §0.2.

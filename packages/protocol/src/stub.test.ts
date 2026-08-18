@@ -5,6 +5,7 @@ const stub = {
   id: "job_1",
   kind: "llm.generate" as const,
   owner: "alice",
+  site: "BYOLLM-TEST-SITE-KEY-ID",
   audience: "self" as const,
   sizeClass: "small" as const,
   streaming: false,
@@ -50,6 +51,7 @@ describe("the stub is exhaustive", () => {
       "id",
       "kind",
       "owner",
+      "site",
       "sizeClass",
       "streaming",
     ]);

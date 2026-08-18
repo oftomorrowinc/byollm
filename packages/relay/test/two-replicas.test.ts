@@ -1,4 +1,9 @@
-import { cryptoReady, generateKeys, publicIdentityOf } from "@byollm/protocol";
+import {
+  cryptoReady,
+  generateKeys,
+  keyId,
+  publicIdentityOf,
+} from "@byollm/protocol";
 import { afterEach, beforeAll, describe, expect, it } from "vitest";
 import { Relay, RelayState } from "../src/index.js";
 import { SITE_ID, SiteConnector, fixtureFor, makeDaemon } from "./harness.js";
@@ -163,6 +168,7 @@ describe("two replicas sharing one store", () => {
       sizeClass: "small" as const,
       streaming: false,
       deadlineAt: Date.now() + 300_000,
+      site: keyId(site.identity),
     };
     // Enqueued once. That is the difference: with a shared store there is one
     // job, not one per replica.

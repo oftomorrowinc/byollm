@@ -126,6 +126,9 @@ export class SiteConnector {
       id: jobId,
       kind: "llm.generate",
       owner: input.owner,
+      // The real key id, because the relay now checks it against the site the
+      // signature named — a fixed string here would test nothing and fail.
+      site: keyId(this.identity.identity),
       audience: input.audience ?? "self",
       sizeClass: sizeClassOf(payload.length),
       streaming: false,

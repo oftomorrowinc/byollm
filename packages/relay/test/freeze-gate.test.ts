@@ -85,6 +85,9 @@ describe("the freeze gate — cloud_004 §14", () => {
       "id",
       "kind",
       "owner",
+      // Amendment A §A.3: the site's identity key id, which the relay knows
+      // by construction — it is the site that signed the enqueue.
+      "site",
       "sizeClass",
       "streaming",
     ]);

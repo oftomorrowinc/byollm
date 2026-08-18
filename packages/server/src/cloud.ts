@@ -106,6 +106,11 @@ export class CloudLane {
       id: record.id,
       kind: record.kind,
       owner: record.owner,
+      // This site, by its identity key id — Amendment A §A.3. The relay
+      // already knows which site it is routing for, so this discloses nothing
+      // new to it; what it adds is that the *daemon* can check the stub
+      // against the envelope's `senderKeyId` without asking the relay.
+      site: keyId(publicIdentityOf(this.#siteKeys).identity),
       audience: record.audience,
       // `audienceAllow` is deliberately **not** published — cloud_008 §0.2.
       //

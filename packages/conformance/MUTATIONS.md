@@ -5,6 +5,32 @@ one: it reports a gap as covered. This file records, for every check the kit
 ships, the smallest change to the reference server or daemon that **must**
 make it fail.
 
+## The rule, first, because everything below is an instance of it
+
+> **When a test cites a MUST, ask what other rule would also make it pass.
+> If the answer is "the rule you are replacing", the test is about the
+> outcome and not about the MUST — and it will keep passing through the
+> regression it exists to catch.**
+
+Six instances in one week, and the sixth is the one that earns this a place
+at the top rather than an entry at the bottom. A test for lease renewal
+asserted the outcome — one execution, a collected result, final state `done`
+— and **passed against a relay that renewed nothing**. The lease lapsed, the
+sweep requeued the job, the daemon re-claimed it under a new grant, and the
+original run finished and posted its result at the end. Every end-state
+assertion was satisfied by a sequence that was wrong in every step between
+them.
+
+That is the first time in this series that the wrong sequence produced the
+_right_ answer rather than a vacuous one, and it is why the rule has to be
+mechanical. There is nothing suspicious to notice, so no amount of reading
+finds it. Only mutating does.
+
+The corollary, for anything whose subject is a property of a job's _life_
+rather than its end: sample it while it runs. Collect every lease id observed
+during the job and assert there was exactly one. A second id means the grant
+was taken away and given back, however the job happens to finish.
+
 Not in CI — mutating a package and rebuilding per check is slow, and a
 mutation suite that takes ten minutes gets skipped. The point is that "does
 this check bite?" has an answer written down rather than living in whoever

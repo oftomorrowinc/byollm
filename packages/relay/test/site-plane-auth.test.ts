@@ -33,10 +33,11 @@ import {
  * Every test below fails if the corresponding check is removed.
  */
 
-const stubFor = (jobId: string): JobStub => ({
+const stubFor = (jobId: string, site = "BYOLLM-TEST-SITE-KEY-ID"): JobStub => ({
   id: jobId,
   kind: "llm.generate",
   owner: "alice",
+  site,
   audience: "self",
   sizeClass: "small",
   streaming: false,

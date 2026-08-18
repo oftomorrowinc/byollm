@@ -1,4 +1,5 @@
 import {
+  keyId,
   JobStub,
   RequestSignature,
   SealedEnvelope,
@@ -209,6 +210,28 @@ export class SitePlane {
       EnqueueRequest,
       (request) => request.siteId,
       async (request, siteId) => {
+        // The stub names a site; the signature says who is asking. They have
+        // to agree — Amendment A §A.3.
+        //
+        // Same rule the `siteId` in the body already follows, applied one
+        // level in: a caller that could publish stubs naming *another* site
+        // would be handing that site's daemons work sealed by the wrong key,
+        // and every one of them would report a corrupt envelope rather than an
+        // impersonation. `siteFor` is non-null here — `#authed` resolved the
+        // caller through it — and the optional chain is what makes a later
+        // edit to that invariant produce a refusal instead of a crash.
+        const registered = this.#deps.projection.siteFor(siteId);
+        if (
+          !registered ||
+          keyId(registered.site.identity) !== request.stub.site
+        ) {
+          return fail(
+            403,
+            "unauthorized",
+            "that stub does not name the site that signed it",
+          );
+        }
+
         const job = await this.#deps.state.enqueue({
           id: request.stub.id,
           siteId,

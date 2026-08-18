@@ -457,6 +457,20 @@ export const WireErrorCode = z.enum([
   "unauthorized",
   "revoked",
   "not-found",
+  // Claimed, but the site has not sealed the payload yet — cloud_008 §1.4.
+  //
+  // A daemon must retry rather than abandon: the job is legitimately still
+  // its own until the lease or the awaiting-payload clock says otherwise.
+  // That is why it cannot be `not-found` or `server-error`, and why it was
+  // the protocol gap that produced a bare 409 in the first place.
+  "not-ready",
+  // The caller's clock is too far from ours to judge a signature's freshness.
+  //
+  // Split out from `unauthorized` because the remedy is completely different
+  // and only the server can tell them apart: a bad signature means the key is
+  // wrong, this means the machine's time is wrong. A daemon reporting it as a
+  // generic rejection sends its owner looking at their network.
+  "clock-skew",
   "rate-limited",
   "server-error",
 ]);
@@ -468,8 +482,40 @@ export const WireError = z
     message: z.string().min(1),
     /** Seconds; mirrors Retry-After for `rate-limited` and `server-error`. */
     retryAfter: z.number().int().nonnegative().optional(),
+    /**
+     * The server's clock, and the window it allows. `clock-skew` only.
+     *
+     * So the far side can say *how far off* rather than *that something is
+     * wrong* — the difference between "adjust your clock by four minutes" and
+     * "something is wrong with your connection". Not a disclosure: the
+     * heartbeat response returns the same value, and so does every `Date`
+     * header.
+     */
+    serverTime: z.number().int().positive().optional(),
+    maxSkewMs: z.number().int().positive().optional(),
   })
-  .strict();
+  .strict()
+  .superRefine((error, ctx) => {
+    // Present exactly when they mean something. Optional fields that *may*
+    // appear anywhere are a third state — the same shape `audience` is being
+    // held to in §1.2 — and a daemon reading `serverTime` off an
+    // `unauthorized` would be reading a number nobody promised.
+    const skew = error.error === "clock-skew";
+    const carried =
+      error.serverTime !== undefined || error.maxSkewMs !== undefined;
+    if (skew && !carried) {
+      ctx.addIssue({
+        code: "custom",
+        message: "clock-skew must carry serverTime and maxSkewMs",
+      });
+    }
+    if (!skew && carried) {
+      ctx.addIssue({
+        code: "custom",
+        message: `${error.error} must not carry serverTime or maxSkewMs`,
+      });
+    }
+  });
 export type WireError = z.infer<typeof WireError>;
 
 /** HTTP status each error code is served with. */
@@ -480,6 +526,11 @@ export const ERROR_STATUS: Readonly<Record<WireErrorCode, number>> =
     unauthorized: 401,
     revoked: 403,
     "not-found": 404,
+    // 409, not 404: the job exists and is yours, it is simply not ready.
+    "not-ready": 409,
+    // 401 alongside `unauthorized`, because that is what it is — the
+    // signature could not be judged. The code is what carries the remedy.
+    "clock-skew": 401,
     "rate-limited": 429,
     "server-error": 500,
   });

@@ -7,6 +7,7 @@ import {
 import { z } from "zod";
 import type { PlaneResult } from "./daemon-plane.js";
 import type { Projection } from "./fixture.js";
+import { clockSkewRefusal } from "./refusals.js";
 import type { RoutingStore } from "./store.js";
 
 /**
@@ -167,6 +168,16 @@ export class SitePlane {
       signature: signature.data,
       now: this.#deps.now(),
     });
+    // `stale` is not a bad signature — cloud_008 §1.4, finding 17.
+    //
+    // `verifySiteRequest` distinguishes the two and this used to throw the
+    // distinction away, so a site whose clock had drifted was told its
+    // signature was wrong. The daemon plane had said so correctly for weeks;
+    // the site plane three files over had not, which is what two
+    // implementations of one refusal looks like from the inside.
+    // Ordered so a failure kind added later reports `unauthorized` rather
+    // than claiming a clock problem nobody diagnosed.
+    if (failure === "stale") return clockSkewRefusal(this.#deps.now());
     if (failure) return fail(401, "unauthorized", "signature check failed");
 
     const parsed = schema.safeParse(body);

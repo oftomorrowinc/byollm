@@ -7,7 +7,6 @@ import {
   ResultRequest,
   RequestSignature,
   keyId,
-  MAX_CLOCK_SKEW_MS,
   verifyRequest,
   verifyPublicIdentity,
   PublicIdentity,
@@ -15,6 +14,7 @@ import {
 import { z } from "zod";
 import type { Projection } from "./fixture.js";
 import type { HolderRefusal } from "./state.js";
+import { clockSkewRefusal } from "./refusals.js";
 import type { RoutingStore } from "./store.js";
 
 /**
@@ -264,17 +264,7 @@ export class DaemonPlane {
    * returns the same value, and so does every `Date` header.
    */
   #clockSkew(): PlaneResult {
-    return {
-      status: 401,
-      body: {
-        error: "clock-skew",
-        message:
-          "this request's timestamp is too far from the server's clock; " +
-          "check the machine's time and try again",
-        serverTime: this.#deps.now(),
-        maxSkewMs: MAX_CLOCK_SKEW_MS,
-      },
-    };
+    return clockSkewRefusal(this.#deps.now());
   }
 
   claim(

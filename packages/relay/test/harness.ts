@@ -271,6 +271,10 @@ export async function makeDaemon(
   keys: StoredKeys;
   runnerId: string;
   allowlist: Allowlist;
+  signedFetch: (
+    endpoint: string,
+    body: Record<string, unknown>,
+  ) => Promise<Response>;
   dispose: () => Promise<void>;
 }> {
   const home = await mkdtemp(join(tmpdir(), "byollm-relay-"));
@@ -337,6 +341,44 @@ export async function makeDaemon(
   });
   const backend = new EchoBackend();
 
+  /**
+   * One signed daemon-plane request, for tests about the *response*.
+   *
+   * `Runner` is the right way to drive the relay and the wrong way to inspect
+   * a refusal: it catches, retries and translates, so the wire body never
+   * reaches the assertion. Anything checking what the relay actually served —
+   * a status, an error code, the fields on it — has to make the call itself,
+   * signed exactly as the daemon does.
+   */
+  const signedFetch = async (
+    endpoint: string,
+    body: Record<string, unknown>,
+  ): Promise<Response> => {
+    const rawBody = JSON.stringify({
+      protocolVersion: "0",
+      runnerId: approval.runnerId,
+      ...body,
+    });
+    const issuedAt = Date.now();
+    return relay.handle(
+      new Request(`http://relay.test/byollm/${endpoint}`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-byollm-runner": approval.runnerId,
+          "x-byollm-issued-at": String(issuedAt),
+          "x-byollm-signature": await identity.signRequest({
+            endpoint,
+            runnerId: approval.runnerId,
+            issuedAt,
+            body: rawBody,
+          }),
+        },
+        body: rawBody,
+      }),
+    );
+  };
+
   const runner = new Runner({
     client: new ProtocolClient({
       origin: "http://relay.test",
@@ -368,6 +410,7 @@ export async function makeDaemon(
     backend,
     runnerId: approval.runnerId,
     allowlist,
+    signedFetch,
     home,
     keys: await identity.load(Date.now()),
     dispose: async () => {

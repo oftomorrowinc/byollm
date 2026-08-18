@@ -248,11 +248,19 @@ export { AWAITING_PAYLOAD_MS } from "./state.js";
  * implementation, which is the only thing that could have found it. An
  * exported interface whose parameter types are private is a contract nobody
  * can sign.
+ *
+ * It happened again with `ReleaseReason` (cloud_008 §2.1), added to
+ * `releaseLeases` and not to this list, and found the same way: the hub
+ * failed to compile. A docstring recording a lesson is not a check, which is
+ * why `store-contract.test-d.ts` now implements `RoutingStore` from the
+ * package entry point alone — a parameter type left private fails to build
+ * rather than waiting for the next consumer to notice.
  */
 export type {
   ClaimInput,
   HolderRefusal,
   Presence,
+  ReleaseReason,
   RoutedJob,
   RoutedState,
 } from "./state.js";

@@ -684,3 +684,109 @@ one heartbeat; a store adapter that has not implemented the
 subscription seam fails the kit rather than passing quietly; and
 `docs/security.md` carries §12's threat model including what an
 upstream can see, stated as a list rather than a reassurance.
+
+---
+
+# Amendment A — the stub's enumerated list (PROPOSED, NOT RATIFIED)
+
+**Status: drafted 2026-08-18 by CC, for Todd and Cowork to read before
+this spec is called amended. cloud_009 §4.1 requires the decision be
+recorded here as an amendment rather than in a commit message, and
+cloud_001's "Governance — slow by design" makes the default answer *not
+yet*. Nothing in this block is in force. The code changes it describes
+are unwritten, deliberately, until it is read.**
+
+§6 declares the stub's field list "exhaustive and normative… what an
+upstream can see, stated as a commitment rather than left as an accident
+of implementation." Three things have drifted from it, in both
+directions, and the drift is why this is one amendment rather than three
+fixes.
+
+## A.1 `audience` joins the list
+
+The schema has always carried it; §6 never named it. It is **not** an
+accident of implementation and should not be removed: the relay narrows
+on it, and Tier 2.1 makes that narrowing correct (today a roster
+member's `self` job is offered to the owner's daemon and ping-pongs).
+A routing party that acts on a field is the definition of metadata this
+list is for.
+
+The rule that settles this and the next one, and which should decide
+every future field:
+
+> **A class the router acts on may travel. Membership never does.**
+
+`audience` is a class — self, named, public. It says what *kind* of
+routing decision this job is, and the router makes that decision.
+
+## A.2 `audienceAllow` leaves, and cannot come back
+
+A list of *which people* may run the job. It was on the schema, never on
+§6's list, and travelled to every routing party on every `named` job.
+
+byollm_001 Rev 1 §B settled who decides `named` before this spec
+existed: *the daemon's own list decides, not the server's.*
+`allowlist.predicateFor(origin)` is the enforcement in both lanes. So
+this field was a second answer to a question the daemon already owned —
+able only to agree, in which case it was redundant, or to disagree, in
+which case nothing was written down about which wins.
+
+It is membership, and it is gone (cloud_008 §0.2, shipped in alpha.14).
+`JobStub.strict()` is what keeps it gone, and `stub.test.ts` now refuses
+it by name. **`ROSTER_NOT_DISCLOSED` holds on this path by absence**,
+which is the strongest way for a MUST to hold: there is no field to
+leak, so there is no check to get wrong.
+
+## A.3 `site` gains a schema field — and the open question
+
+§6's list already reads `{ jobId, user, site, kind, sizeClass,
+deadlineAt, streaming }`. The schema has no `site`. This half is a
+conformance fix, not protocol evolution: the spec has said it since it
+was frozen.
+
+It is also what cloud_009 stands on. A daemon serving two sites needs a
+pinned key per site and must know which site each claimed job came from;
+it cannot, and the failure is silent — it would verify a payload from
+site B against site A's key, fail to open it, and report what looks like
+a corrupt envelope.
+
+**The open question is what `site` contains, and it is the one thing in
+this amendment CC is not ruling on.** Two candidates:
+
+| | **the site's identity key id** | **an opaque relay-assigned id** |
+| --- | --- | --- |
+| daemon's lookup | direct, into the map pairing built | direct, same |
+| verifiable locally? | **yes** — the payload envelope's `senderKeyId` must equal it | no; the daemon takes the relay's word for which site this is |
+| namespaces | one: the id *is* the key's id | two: a control-plane UUID beside a key id |
+| what a hostile relay can do | claim site A and seal as B → the daemon can *notice*, not merely fail | claim site A and seal as B → the daemon fails to open and reports a corrupt envelope |
+| direct plane | works unchanged: a site knows its own key id | needs an id a direct site does not have |
+
+CC's recommendation is **the key id**, on three grounds: it is
+self-describing, so nothing has to distribute a registry; it makes the
+stub's claim checkable against the envelope rather than trusted; and it
+avoids inventing a second namespace, which is the shape of cloud_008
+finding 41 (two owner namespaces compared for equality) and of finding
+fourteen before it.
+
+The argument against, stated fairly: a key id changes when a site
+rotates its identity key, so every daemon's pinned map must be updated
+at rotation. That is true of the *key* either way — a rotation already
+requires re-pinning — but with an opaque id the map's keys survive the
+rotation and only their values change. Whether that matters depends on
+how rotation is designed, which is unwritten (byollm_009 §3 covers
+device keys, not site keys).
+
+**So this is the decision to make.** It is small, it is load-bearing for
+cloud_009, and it is exactly the kind of thing that is cheap now and
+expensive after a fleet has pinned something.
+
+## A.4 What §12 does and does not gain
+
+Nothing. §12 enumerates what a hostile upstream observes, and a relay
+already knows which site it is routing for — routing *is* that
+knowledge. `audience` likewise: the relay acts on it, so it observes it
+by construction.
+
+The list §12 carries gets **shorter**, because `audienceAllow` was on
+the wire and is not enumerated anywhere. That is the honest direction
+for a threat model to move.

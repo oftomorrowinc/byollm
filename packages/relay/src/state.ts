@@ -58,6 +58,10 @@ export type RoutedState =
 export const AWAITING_PAYLOAD_MS = 10_000;
 
 /** A job the relay is routing. Metadata and ciphertext, nothing else. */
+/** Why a daemon gave a job back. Only `refused` means "not me, ever". */
+export type ReleaseReason =
+  "shutdown" | "pause" | "revoked" | "backend-down" | "refused";
+
 export interface RoutedJob {
   readonly id: string;
   /** Which site enqueued it — the party that will be asked to seal. */
@@ -78,6 +82,17 @@ export interface RoutedJob {
   };
   /** When {@link AWAITING_PAYLOAD_MS} runs out for this claim. */
   awaitingUntil?: number;
+  /**
+   * Runners that released this job with reason `refused` — cloud_008 §2.1.
+   *
+   * `REFUSAL_NOT_REOFFERED`, which the relay did not implement: it dropped
+   * `ReleaseRequest.reason` on the floor. The field's own docstring says why
+   * that is not cosmetic — an upstream cannot evaluate a daemon's *local*
+   * `named` allowlist, so it may legitimately offer work the daemon then
+   * declines, and without a record the two spin between claim and release
+   * forever. The direct plane has always kept this list.
+   */
+  refusedBy: string[];
   /** Sealed to the claiming device by the site. Opaque here. */
   payload?: SealedEnvelope;
   /** Sealed to the site by the device. Opaque here. */
@@ -230,6 +245,7 @@ export class RelayState implements RoutingStore {
       siteId: input.siteId,
       stub: input.stub,
       state: "queued",
+      refusedBy: [],
     };
     this.#jobs.set(job.id, job);
     return Promise.resolve(job);
@@ -283,9 +299,25 @@ export class RelayState implements RoutingStore {
       // it refuses to open — contained by the crypto, and still a burned job.
       if (job.siteId !== input.siteId) continue;
       if (!input.kinds.has(job.stub.kind)) continue;
+      // Already declined by this device — `REFUSAL_NOT_REOFFERED`, §2.1.
+      if (job.refusedBy.includes(input.runnerId)) continue;
       // The relay's half of AUDIENCE_BOTH_SIDES. The daemon re-checks its own
       // allowlist and may still refuse — this only ever narrows.
       if (!input.owners.has(job.stub.owner)) continue;
+      // `self` means the owner's own machines, and `owners` cannot express
+      // that — cloud_008 §2.1.
+      //
+      // `owners` is `ownersRunnableBy(deviceOwner)`: every person whose work
+      // this device may run, which for a Team owner's machine includes every
+      // roster member. Correct for `public` and `named`, and wrong for
+      // `self`: a roster member's private job was offered to the owner's
+      // daemon, which refused it locally and released it, and the relay
+      // offered it straight back. The ping-pong was the visible symptom; the
+      // invisible one is that `self` — the audience a user picks *because*
+      // they want their own machine — was the audience the relay ignored.
+      if (job.stub.audience === "self" && job.stub.owner !== input.owner) {
+        continue;
+      }
 
       // A UUID, not a readable composite. The direct plane's lease ids are
       // UUIDs and the Supabase adapter's `lease_id` column is typed `uuid`, so
@@ -385,12 +417,24 @@ export class RelayState implements RoutingStore {
   releaseLeases(input: {
     runnerId: string;
     leases: readonly { jobId: string; leaseId: string }[];
+    reason?: ReleaseReason;
   }): Promise<string[]> {
     const released: string[] = [];
     for (const { jobId, leaseId } of input.leases) {
       const job = this.#jobs.get(jobId);
       if (!job || job.claimedBy?.runnerId !== input.runnerId) continue;
       if (job.claimedBy.leaseId !== leaseId) continue;
+      // Recorded before the requeue, so the job goes back to the queue
+      // already knowing not to come back here. A daemon releasing for
+      // `shutdown` or `backend-down` is saying "not now"; `refused` is the
+      // only one that means "not me, ever" — the others must stay claimable
+      // by the same device or a restart would strand its own work.
+      if (
+        input.reason === "refused" &&
+        !job.refusedBy.includes(input.runnerId)
+      ) {
+        job.refusedBy.push(input.runnerId);
+      }
       this.#requeue(job);
       released.push(jobId);
     }

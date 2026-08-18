@@ -136,6 +136,136 @@ describe("claim", () => {
   });
 });
 
+describe("audience, which the relay was ignoring", () => {
+  /**
+   * cloud_008 §2.1 — the relay's `claim` never looked at `stub.audience`.
+   *
+   * `owners` is `ownersRunnableBy(deviceOwner)`: everyone whose work this
+   * device may run, which for a Team owner's machine is the whole roster.
+   * Right for `public` and `named`, wrong for `self` — and `self` is the
+   * audience a user picks *because* they want their own machine.
+   *
+   * The visible symptom was a ping-pong: the owner's daemon was offered a
+   * member's private job, refused it against its local allowlist, released
+   * it, and was offered it straight back. The invisible one is worse, and it
+   * is the reason this is Tier 2 rather than Tier 4 — the relay was routing
+   * work to a machine the job's owner had never chosen, and only the
+   * daemon's own refusal stopped it.
+   */
+  const rosterClaim = (over = {}) =>
+    claimArgs({
+      // The Team owner's machine: it may run its own work and every roster
+      // member's — which is exactly the projection this test is about.
+      owner: "owner",
+      owners: new Set(["owner", "alice"]),
+      ...over,
+    });
+
+  it("does not offer a member's `self` job to the roster owner's machine", async () => {
+    const state = new RelayState();
+    await state.enqueue({
+      id: "private",
+      siteId: SITE,
+      stub: { ...stub("private", "alice"), audience: "self" },
+    });
+
+    expect(await state.claim(rosterClaim())).toEqual([]);
+    // Still queued, not consumed — the owner's machine simply is not a
+    // candidate for it.
+    expect((await state.job("private"))?.state).toBe("queued");
+  });
+
+  it("offers that same job to the owner's own machine", async () => {
+    // The positive control. Without it, "refuse every `self` job" passes the
+    // test above and breaks the most common audience in the product.
+    const state = new RelayState();
+    await state.enqueue({
+      id: "private",
+      siteId: SITE,
+      stub: { ...stub("private", "alice"), audience: "self" },
+    });
+
+    const granted = await state.claim(
+      claimArgs({ owner: "alice", owners: new Set(["alice"]) }),
+    );
+    expect(granted.map((job) => job.id)).toEqual(["private"]);
+  });
+
+  it("still offers a roster member's `public` job to the owner's machine", async () => {
+    // The other positive control, and the one that says the fix narrowed
+    // exactly one audience rather than breaking shared compute outright.
+    const state = new RelayState();
+    await state.enqueue({
+      id: "shared",
+      siteId: SITE,
+      stub: { ...stub("shared", "alice"), audience: "public" },
+    });
+
+    expect((await state.claim(rosterClaim())).map((j) => j.id)).toEqual([
+      "shared",
+    ]);
+  });
+});
+
+describe("a refusal is remembered", () => {
+  /**
+   * `REFUSAL_NOT_REOFFERED`, unimplemented on the relay — §2.1.
+   *
+   * `ReleaseRequest.reason` reached the handler and was dropped. Its own
+   * docstring says why that matters: an upstream cannot evaluate a daemon's
+   * *local* `named` allowlist, so it may legitimately offer work the daemon
+   * declines, and without a record the two spin between claim and release
+   * forever.
+   */
+  it("does not offer a job back to the runner that refused it", async () => {
+    const state = new RelayState();
+    await state.enqueue({ id: "a", siteId: SITE, stub: stub("a") });
+    const [granted] = await state.claim(claimArgs());
+
+    await state.releaseLeases({
+      runnerId: "runner_1",
+      leases: [{ jobId: "a", leaseId: granted!.lease.id }],
+      reason: "refused",
+    });
+
+    expect(await state.claim(claimArgs())).toEqual([]);
+    // Queued, not gone: somebody else may still run it.
+    expect((await state.job("a"))?.state).toBe("queued");
+  });
+
+  it("offers it to a different runner", async () => {
+    const state = new RelayState();
+    await state.enqueue({ id: "a", siteId: SITE, stub: stub("a") });
+    const [granted] = await state.claim(claimArgs());
+    await state.releaseLeases({
+      runnerId: "runner_1",
+      leases: [{ jobId: "a", leaseId: granted!.lease.id }],
+      reason: "refused",
+    });
+
+    const second = await state.claim(claimArgs({ runnerId: "runner_2" }));
+    expect(second.map((job) => job.id)).toEqual(["a"]);
+  });
+
+  it("keeps a job claimable by a runner that only went away", async () => {
+    // `shutdown`, `pause`, `backend-down` and `revoked` all mean "not now".
+    // Treating them as refusals would strand a daemon's own work across a
+    // restart — the failure mode is silent and permanent, which is why the
+    // reason is checked rather than the fact of a release.
+    const state = new RelayState();
+    await state.enqueue({ id: "a", siteId: SITE, stub: stub("a") });
+    const [granted] = await state.claim(claimArgs());
+
+    await state.releaseLeases({
+      runnerId: "runner_1",
+      leases: [{ jobId: "a", leaseId: granted!.lease.id }],
+      reason: "shutdown",
+    });
+
+    expect((await state.claim(claimArgs())).map((j) => j.id)).toEqual(["a"]);
+  });
+});
+
 describe("the store's clock", () => {
   /**
    * Every deadline is stamped from `state.now()` — cloud_006 §3.4.

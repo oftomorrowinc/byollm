@@ -415,6 +415,10 @@ export class DaemonPlane {
       const released = await this.#deps.state.releaseLeases({
         runnerId: device.runnerId,
         leases: request.leases,
+        // Was dropped here — cloud_008 §2.1. `reason` is on the wire, the
+        // schema's own docstring says an upstream MUST record `refused`, and
+        // this handler read every other field.
+        reason: request.reason,
       });
       return ok({ released });
     });

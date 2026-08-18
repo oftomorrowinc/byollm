@@ -3,6 +3,7 @@ import type {
   ClaimInput,
   HolderRefusal,
   Presence,
+  ReleaseReason,
   RoutedJob,
   RoutedState,
 } from "./state.js";
@@ -102,6 +103,13 @@ export interface RoutingStore {
   releaseLeases(input: {
     runnerId: string;
     leases: readonly { jobId: string; leaseId: string }[];
+    /**
+     * Why — cloud_008 §2.1. `refused` MUST be remembered and that job MUST
+     * NOT be offered to that runner again (`REFUSAL_NOT_REOFFERED`); every
+     * other reason means "not now" and must leave the job claimable by the
+     * same device, or a restart would strand its own work.
+     */
+    reason?: ReleaseReason;
   }): Promise<string[]>;
 
   /** Take a site's sealed payload for a claimed job. */

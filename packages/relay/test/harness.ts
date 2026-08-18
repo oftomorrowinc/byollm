@@ -195,6 +195,11 @@ export class SiteConnector {
     return sealed;
   }
 
+  /** Withdraw a job, as `@byollm/server`'s cloud lane does. */
+  async cancel(jobId: string): Promise<unknown> {
+    return this.#post("cancel", { siteId: SITE_ID, jobId });
+  }
+
   /** Collect results and verify each against the device that claimed it. */
   async collect(): Promise<
     { jobId: string; outcome: JobOutcome | null; disposition: string }[]

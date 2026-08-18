@@ -93,6 +93,16 @@ export interface RoutedJob {
    * forever. The direct plane has always kept this list.
    */
   refusedBy: string[];
+  /**
+   * The site withdrew this job — cloud_008 §2.2.
+   *
+   * A flag rather than a state, because a cancelled job that a device is
+   * *running* is not finished: the daemon has to be told, abort its backend
+   * call and report `canceled`, and the ordinary `complete` path then closes
+   * it. Making it a state would strand the in-flight case between two
+   * machines' ideas of what happened.
+   */
+  cancelled?: boolean;
   /** Sealed to the claiming device by the site. Opaque here. */
   payload?: SealedEnvelope;
   /** Sealed to the site by the device. Opaque here. */
@@ -301,6 +311,8 @@ export class RelayState implements RoutingStore {
       if (!input.kinds.has(job.stub.kind)) continue;
       // Already declined by this device — `REFUSAL_NOT_REOFFERED`, §2.1.
       if (job.refusedBy.includes(input.runnerId)) continue;
+      // Withdrawn by the site — §2.2. Cheap, and before every other check.
+      if (job.cancelled) continue;
       // The relay's half of AUDIENCE_BOTH_SIDES. The daemon re-checks its own
       // allowlist and may still refuse — this only ever narrows.
       if (!input.owners.has(job.stub.owner)) continue;
@@ -466,6 +478,31 @@ export class RelayState implements RoutingStore {
     job.state = "ready";
     delete job.awaitingUntil;
     return Promise.resolve({ state: job.state });
+  }
+
+  /** {@link RoutingStore.cancel} — the site withdraws a job. */
+  cancel(input: { jobId: string; siteId: string }): Promise<boolean> {
+    const job = this.#jobs.get(input.jobId);
+    // Scoped to the caller's site for the same reason every other site-plane
+    // operation is: a site must not be able to cancel somebody else's work by
+    // guessing an id.
+    if (!job || job.siteId !== input.siteId) return Promise.resolve(false);
+    job.cancelled = true;
+    // Not deleted, and not requeued. If a device holds it, that device has to
+    // hear about it — which is what `cancelRequests` below is for.
+    return Promise.resolve(true);
+  }
+
+  /** {@link RoutingStore.cancelRequests} — cancelled jobs this runner holds. */
+  cancelRequests(runnerId: string): Promise<string[]> {
+    return Promise.resolve(
+      [...this.#jobs.values()]
+        .filter(
+          (job) =>
+            job.cancelled === true && job.claimedBy?.runnerId === runnerId,
+        )
+        .map((job) => job.id),
+    );
   }
 
   /** {@link RoutingStore.renewLeases} — extend what is still held, name what is not. */

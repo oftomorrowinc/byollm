@@ -148,6 +148,24 @@ export interface RoutingStore {
     lost: readonly string[];
   }>;
 
+  /**
+   * The site withdraws a job — cloud_008 §2.2.
+   *
+   * Returns false when the job is not this site's, which is the same scoping
+   * every other site-plane operation carries: a site must not cancel
+   * somebody else's work by guessing an id.
+   */
+  cancel(input: { jobId: string; siteId: string }): Promise<boolean>;
+
+  /**
+   * Cancelled jobs this runner is holding, for the heartbeat to report.
+   *
+   * The relay answered `cancel: []` unconditionally, so a site could not stop
+   * a job it had already withdrawn — a device went on running work whose
+   * result nobody would accept, on somebody's own machine, at their expense.
+   */
+  cancelRequests(runnerId: string): Promise<string[]>;
+
   /** Record a device as present. The store stamps when. */
   seen(presence: Omit<Presence, "revoked" | "lastSeenAt">): Promise<Presence>;
   presence(runnerId: string): Promise<Presence | undefined>;

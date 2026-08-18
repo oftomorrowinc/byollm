@@ -39,6 +39,74 @@ async function routed() {
   return { relay, connector, daemon };
 }
 
+describe("cancel, which never reached the relay at all", () => {
+  /**
+   * cloud_008 §2.2. The relay answered `cancel: []` unconditionally, and the
+   * site plane had no cancel endpoint — so a site could not stop a job it had
+   * already withdrawn. The device went on running work whose result nobody
+   * would accept, on somebody's own machine and at their expense.
+   *
+   * Driven over the wire for the reason `refusal.test.ts` exists at all: the
+   * store could carry a cancellation before any of this, and the field was
+   * being dropped in the plane above it.
+   */
+  it("names a cancelled job to the device holding it", async () => {
+    const { relay, connector, daemon } = await routed();
+    const { jobId } = await connector.enqueue({
+      prompt: "stop this one",
+      owner: "alice",
+    });
+    await daemon.runner.tick();
+    expect((await relay.state.job(jobId))?.claimedBy).toBeDefined();
+
+    await connector.cancel(jobId);
+
+    const beat = await daemon.signedFetch("heartbeat", {
+      daemonVersion: "test",
+      capabilities: await daemon.runner.detectCapabilities(),
+      activeLeases: [
+        { jobId, leaseId: (await relay.state.job(jobId))!.claimedBy!.leaseId },
+      ],
+      paused: false,
+    });
+    const body = (await beat.json()) as { cancel: string[] };
+
+    expect(body.cancel).toEqual([jobId]);
+  });
+
+  it("stops offering a cancelled job to anyone else", async () => {
+    const { relay, connector, daemon } = await routed();
+    const { jobId } = await connector.enqueue({
+      prompt: "withdrawn before anyone took it",
+      owner: "alice",
+    });
+
+    await connector.cancel(jobId);
+    await daemon.runner.tick();
+
+    expect((await relay.state.job(jobId))?.claimedBy).toBeUndefined();
+    expect((await relay.state.job(jobId))?.state).toBe("queued");
+  });
+
+  it("refuses to cancel a job belonging to another site", async () => {
+    // Same scoping every site-plane operation carries: a site must not reach
+    // another site's work by guessing an id.
+    const { relay, connector } = await routed();
+    const { jobId } = await connector.enqueue({
+      prompt: "not yours",
+      owner: "alice",
+    });
+
+    const cancelled = await relay.state.cancel({
+      jobId,
+      siteId: "some_other_site",
+    });
+
+    expect(cancelled).toBe(false);
+    expect((await relay.state.job(jobId))?.cancelled).toBeUndefined();
+  });
+});
+
 describe("release, through the plane a daemon actually calls", () => {
   it("stops offering a job to the runner that refused it", async () => {
     const { relay, connector, daemon } = await routed();

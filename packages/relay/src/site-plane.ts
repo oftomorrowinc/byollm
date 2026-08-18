@@ -88,6 +88,11 @@ const PayloadRequest = z
   .strict();
 
 /** A read: the site id arrives in the query and is signed as an empty body. */
+/** What a site sends to withdraw a job. */
+const CancelRequest = z
+  .object({ siteId: z.string().min(1), jobId: z.string().min(1) })
+  .strict();
+
 const QueryRequest = z.object({ siteId: z.string().min(1) }).strict();
 
 const ok = (body: unknown): PlaneResult => ({ status: 200, body });
@@ -286,6 +291,33 @@ export class SitePlane {
           leaseExpiresAt: job.claimedBy?.leaseExpiresAt,
         }));
         return ok({ jobs });
+      },
+    );
+  }
+
+  /**
+   * The site withdraws a job — cloud_008 §2.2.
+   *
+   * Signed and site-scoped like every other site-plane call. A cancellation
+   * is not a delete: a device already running the job has to be told, and it
+   * hears at its next heartbeat.
+   */
+  cancel(auth: SiteAuth, body: unknown): Promise<PlaneResult> {
+    return this.#authed(
+      auth,
+      body,
+      CancelRequest,
+      (request) => request.siteId,
+      async (request, siteId) => {
+        const cancelled = await this.#deps.state.cancel({
+          jobId: request.jobId,
+          siteId,
+        });
+        // Idempotent, and quiet about what it did not find: a site asking
+        // twice is ordinary, and answering differently for "already
+        // cancelled" and "never existed" would tell an unrelated caller
+        // whether an id is real.
+        return ok({ cancelled });
       },
     );
   }

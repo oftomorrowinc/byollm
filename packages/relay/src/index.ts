@@ -150,6 +150,9 @@ export class Relay {
     if (path === "/relay/site/payload") {
       return json(await this.#site.payload(siteAuth, body));
     }
+    if (path === "/relay/site/cancel") {
+      return json(await this.#site.cancel(siteAuth, body));
+    }
     if (path === "/relay/site/pending") {
       return json(
         await this.#site.pending(

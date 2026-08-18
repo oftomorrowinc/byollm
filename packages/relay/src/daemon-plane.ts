@@ -390,6 +390,12 @@ export class DaemonPlane {
         // The renewal is the fix; reporting it back was not. §1.4b took that
         // field off the wire — no daemon ever read it, and `lost` answers the
         // same question in the direction a daemon can act on.
+        // What the site withdrew — cloud_008 §2.2. This was the literal
+        // `cancel: []`, so a site could not stop a job it had already
+        // cancelled: the device went on running work whose result nobody
+        // would accept, on somebody's own machine and at their expense.
+        const cancel = await this.#deps.state.cancelRequests(device.runnerId);
+
         const { lost } = await this.#deps.state.renewLeases({
           runnerId: device.runnerId,
           leases: request.activeLeases,
@@ -398,7 +404,7 @@ export class DaemonPlane {
 
         return ok({
           revoked,
-          cancel: [],
+          cancel,
           lost,
           serverTime: now,
         });

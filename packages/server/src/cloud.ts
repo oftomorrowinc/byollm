@@ -143,6 +143,22 @@ export class CloudLane {
   }
 
   /**
+   * Withdraw a job at the relay — cloud_008 §2.2.
+   *
+   * `app.cancel()` marks the site's own row terminal, which stops the *next*
+   * seal. It cannot stop a device that is already running the work, because
+   * on this lane the site is not the upstream: only the relay talks to the
+   * daemon, and it answered `cancel: []` unconditionally.
+   *
+   * So the cancellation has to travel. The relay marks the job, stops
+   * offering it, and names it to the holding device at its next heartbeat —
+   * the same path the direct plane has always had, arriving one hop later.
+   */
+  async cancel(jobId: string): Promise<void> {
+    await this.#post("cancel", { siteId: this.#options.siteId, jobId });
+  }
+
+  /**
    * One cycle: seal for anything claimed, collect anything finished.
    *
    * Idempotent and safe to call as often as you like. Exposed as a single

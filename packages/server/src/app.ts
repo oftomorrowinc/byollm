@@ -315,7 +315,20 @@ export class ByollmApp {
 
   /** Ask a runner to stop. Queued jobs cancel at once; held jobs at the next heartbeat. */
   async cancel(jobId: string): Promise<JobRecord | null> {
-    return this.#store.cancel(jobId, this.#now());
+    const cancelled = await this.#store.cancel(jobId, this.#now());
+    // On the cloud lane the relay is the only party talking to the daemon, so
+    // a cancellation that stops at this store stops a *future* seal and
+    // nothing else — cloud_008 §2.2. Told after the row is terminal, so the
+    // two can only disagree in the safe direction: the relay may briefly
+    // still offer a job this site will now refuse to seal for.
+    //
+    // Not awaited into the caller's error path: an app cancelling a job has
+    // cancelled it, and a relay that is unreachable must not turn that into a
+    // thrown error. The relay's own deadline sweep is the backstop.
+    if (cancelled && this.cloud) {
+      await this.cloud.cancel(jobId).catch(() => undefined);
+    }
+    return cancelled;
   }
 
   /**

@@ -44,7 +44,10 @@ function fieldsFromSpec(): string[] {
   if (start === -1) {
     throw new Error(`byollm_009 §6 no longer contains ${marker}`);
   }
-  const fence = /```\n\{([^}]+)\}\n```/.exec(text.slice(start));
+  // `\r?\n`, because a Windows checkout has CRLF and this regex did not.
+  // Caught by CI on windows-latest, which is the second time this month that
+  // runner has found something every macOS and Linux job agreed was fine.
+  const fence = /```\r?\n\{([^}]+)\}\r?\n```/.exec(text.slice(start));
   if (!fence) {
     throw new Error("byollm_009 §6's stub list is no longer a fenced block");
   }

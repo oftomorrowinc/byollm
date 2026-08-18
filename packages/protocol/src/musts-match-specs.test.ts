@@ -38,7 +38,9 @@ function declaredInSpecs(): Map<string, string[]> {
   const found = new Map<string, string[]>();
   for (const file of readdirSync(SPECS).filter((f) => f.endsWith(".md"))) {
     const text = readFileSync(`${SPECS}/${file}`, "utf8");
-    for (const line of text.split("\n")) {
+    // Split on either ending — a Windows checkout is CRLF, and a stray `\r`
+    // at the end of a row is invisible until an id lands beside it.
+    for (const line of text.split(/\r?\n/)) {
       const row = /^\|\s*`([A-Z][A-Z0-9_]{4,})`\s*\|/.exec(line);
       if (!row) continue;
       const id = row[1]!;

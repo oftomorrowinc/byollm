@@ -107,9 +107,23 @@ export class CloudLane {
       kind: record.kind,
       owner: record.owner,
       audience: record.audience,
-      ...(record.audienceAllow === undefined
-        ? {}
-        : { audienceAllow: [...record.audienceAllow] }),
+      // `audienceAllow` is deliberately **not** published — cloud_008 §0.2.
+      //
+      // It is a list of the people who may run this job, and on the direct
+      // plane that is unremarkable: the site authored the list and the site is
+      // the upstream, so the party receiving it already has it. Through a
+      // relay it is a third party, and byollm_009 §6's enumerated metadata —
+      // "exhaustive and normative… what an upstream can see, stated as a
+      // commitment" — does not include it. It was reaching the relay on every
+      // named-audience job.
+      //
+      // Nothing is lost by withholding it, which is why this is a Tier 0 fix
+      // rather than a trade. `matchAudience` treats it as a *narrowing*:
+      // `job.audienceAllow !== undefined && !includes(daemon.owner)` refuses,
+      // and its absence simply falls through to the checks that actually
+      // enforce — the daemon's own allowlist (`NAMED_LOCAL_ALLOWLIST`) and the
+      // backend's offer scope. On this lane the relay narrows too, from the
+      // control plane's rosters. The enforcement was never here.
       sizeClass: record.sizeClass,
       streaming: false,
       // The relay needs *a* deadline to bound routing. A job without one gets

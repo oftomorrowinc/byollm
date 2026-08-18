@@ -280,3 +280,84 @@ describe.each(CASES)("the cloud lane over $name", (storeCase) => {
     expect(report.completed).not.toContain(handle.id);
   });
 });
+
+describe("what the relay is told, and what it is not", () => {
+  /**
+   * cloud_008 §0.2 — `audienceAllow` never reaches a relay.
+   *
+   * It is a list of the people who may run a job. On the direct plane that is
+   * unremarkable: the site authored the list and the site *is* the upstream.
+   * Through a relay the recipient is a third party, and byollm_009 §6's
+   * enumerated stub metadata — "exhaustive and normative… what an upstream can
+   * see, stated as a commitment" — does not include it.
+   *
+   * It was being sent on every named-audience job, and nothing read it: the
+   * relay filters on the projection's rosters. An unenumerated disclosure with
+   * no consumer.
+   *
+   * Asserted against the *stub the relay stored*, not against the publisher's
+   * argument — the question is what the third party holds, and only its own
+   * copy answers that.
+   */
+  it("never receives audienceAllow, on any lane", async () => {
+    const { store, owner } = await CASES[0]!.make();
+    const siteKeys = generateSiteKeys();
+    const site = publicIdentityOf(siteKeys);
+    const fixture = fixtureFor(site, {
+      consents: [{ owner, siteId: SITE_ID }],
+    });
+    const relay = new Relay({ siteId: SITE_ID, fixture });
+
+    const app = new ByollmApp({
+      store,
+      siteKeys,
+      lane: {
+        relayOrigin: "http://relay.test",
+        siteId: SITE_ID,
+        fetch: (i, init) => relay.handle(new Request(i, init)),
+      },
+    });
+
+    const job = await app.enqueue({
+      kind: "llm.generate",
+      owner,
+      audience: "named",
+      // The site restricts the job to two named people…
+      audienceAllow: ["carol", "erin"],
+      payload: { prompt: "who may run this" },
+    });
+
+    const routed = await relay.state.job(job.id);
+    expect(routed).toBeDefined();
+    // …and the relay is told none of it.
+    expect(routed?.stub.audienceAllow).toBeUndefined();
+    expect(JSON.stringify(routed?.stub)).not.toContain("carol");
+    expect(JSON.stringify(routed?.stub)).not.toContain("erin");
+
+    // The rest of the enumerated list is still there — "sends nothing" would
+    // pass this test and break routing.
+    expect(routed?.stub.owner).toBe(owner);
+    expect(routed?.stub.kind).toBe("llm.generate");
+    expect(routed?.stub.audience).toBe("named");
+  });
+
+  it("still records it on the site's own row, where enforcement reads it", async () => {
+    // The other half. Withholding it from the relay must not mean losing it:
+    // the direct plane sends it to the daemon, where `matchAudience` uses it
+    // as a narrowing check beside the daemon's own allowlist.
+    const { store, owner } = await CASES[0]!.make();
+    const siteKeys = generateSiteKeys();
+    const app = new ByollmApp({ store, siteKeys });
+
+    const job = await app.enqueue({
+      kind: "llm.generate",
+      owner,
+      audience: "named",
+      audienceAllow: ["carol"],
+      payload: { prompt: "still known here" },
+    });
+
+    const record = await store.get(job.id);
+    expect(record?.audienceAllow).toEqual(["carol"]);
+  });
+});

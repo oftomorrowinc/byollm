@@ -459,3 +459,52 @@ Release workflow, and as the deployment posture audit requiring a refusal to
 be _byollm's_ rather than any 404. **Verify the artifact, not the process** is
 now the third distinct place this rule has paid for itself, which is enough to
 call it a rule rather than an anecdote.
+
+---
+
+## An outcome test that passed against the wrong sequence — cloud_008 §0.6
+
+The relay never renewed a lease. Its heartbeat returned the literal
+`leases: []`, so any job slower than `leaseMs` was swept out from under the
+device running it. The test written to prove the fix asserted the outcome:
+one execution, a collected result, final state `done`.
+
+**It passed against the unfixed relay.** All three assertions were true, via a
+sequence that was wrong in every step between them:
+
+| tick | state              | lease          |
+| ---- | ------------------ | -------------- |
+| 0    | `running`          | `1d37fa99`     |
+| 1    | `awaiting-payload` | **`e6f285b0`** |
+| …    | `awaiting-payload` | `e6f285b0`     |
+| 7    | `done`             | `e6f285b0`     |
+
+The lease lapsed, the sweep requeued the job, the daemon re-claimed it under a
+new grant, and the original run — still going — posted its result at the end
+and was accepted. One execution because the requeued copy never got a payload;
+`done` because the old holder's write landed anyway.
+
+**Renewal is a property of a job's whole life, so end-state assertions cannot
+see it.** The fix was to sample: collect every lease id observed while the job
+runs and assert there was exactly one, and assert the recorded expiry moves
+forward. A second lease id means the grant was taken away and given back,
+however the job happens to end.
+
+This is the fourth instance of _a check that is green for a reason unrelated
+to the property it names_, and the first where the wrong sequence produced a
+**right** answer rather than a vacuous one — which is worse, because there is
+nothing suspicious to notice.
+
+### Two findings the mutation trace produced on its own
+
+- **`complete` does not check the lease id.** `takePayload` and
+  `releaseLeases` both do, each citing `LEASE_HONORED` per instance;
+  `complete`, the operation that writes the result, checks only `runnerId`.
+  That is how the old holder's result landed above. `ResultRequest` carries no
+  `leaseId` on either plane, so closing it is a wire change — recorded as
+  cloud_008 finding 15, Tier 1.
+- **`HeartbeatResponse.leases` is read by nobody.** A mutation returning
+  `leases: []` while renewing the store correctly _survives_, and honestly: the
+  daemon acts on `lost` and ignores `leases` entirely. Two answers to one
+  question, one of them unread — the `audienceAllow` shape again. Recorded as
+  finding 16, Tier 1: the daemon should act on it or it comes off the wire.

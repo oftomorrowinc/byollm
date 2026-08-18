@@ -415,20 +415,48 @@ export class RelayState implements RoutingStore {
     return Promise.resolve({ state: job.state });
   }
 
-  /** Which of these leases this runner no longer holds. */
-  lostLeases(
-    runnerId: string,
-    active: readonly { jobId: string; leaseId: string }[],
-  ): Promise<string[]> {
-    void runnerId;
-    return Promise.resolve(
-      active
-        .filter(({ jobId, leaseId }) => {
-          const job = this.#jobs.get(jobId);
-          return job?.claimedBy?.leaseId !== leaseId;
-        })
-        .map(({ jobId }) => jobId),
-    );
+  /** {@link RoutingStore.renewLeases} — extend what is still held, name what is not. */
+  async renewLeases(input: {
+    runnerId: string;
+    leases: readonly { jobId: string; leaseId: string }[];
+    leaseMs: number;
+  }): Promise<{
+    renewed: { jobId: string; expiresAt: number }[];
+    lost: string[];
+  }> {
+    // The store's clock, not the caller's — cloud_006 §3.4. A lease extended
+    // against one replica's `Date.now()` and swept against another's is a
+    // lease with no length.
+    const now = await this.now();
+    const renewed: { jobId: string; expiresAt: number }[] = [];
+    const lost: string[] = [];
+
+    for (const { jobId, leaseId } of input.leases) {
+      const job = this.#jobs.get(jobId);
+      const held = job?.claimedBy;
+      // The lease id *and* the runner. A lease id is a UUID so the runner
+      // check is belt and braces, but "this grant, held by you" is the
+      // sentence every other operation in this file checks, and a renewal is
+      // the one that extends a hold rather than ending it.
+      if (
+        !job ||
+        held?.leaseId !== leaseId ||
+        held.runnerId !== input.runnerId
+      ) {
+        lost.push(jobId);
+        continue;
+      }
+      // Replaced rather than mutated: the grant is a readonly record, which
+      // is what stops any other operation here from quietly extending it.
+      const expiresAt = now + input.leaseMs;
+      job.claimedBy = { ...held, leaseExpiresAt: expiresAt };
+      renewed.push({ jobId, expiresAt });
+    }
+
+    // `awaitingUntil` is deliberately untouched. That clock bounds how long we
+    // wait for a *site* to seal, and a busy device has no bearing on it —
+    // byollm_009 §7.1's third clock stays third.
+    return { renewed, lost };
   }
 
   async seen(

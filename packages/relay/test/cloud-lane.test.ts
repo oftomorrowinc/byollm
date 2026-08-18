@@ -283,17 +283,23 @@ describe.each(CASES)("the cloud lane over $name", (storeCase) => {
 
 describe("what the relay is told, and what it is not", () => {
   /**
-   * cloud_008 §0.2 — `audienceAllow` never reaches a relay.
+   * cloud_008 §0.2 — `audienceAllow` reaches nobody.
    *
-   * It is a list of the people who may run a job. On the direct plane that is
-   * unremarkable: the site authored the list and the site *is* the upstream.
-   * Through a relay the recipient is a third party, and byollm_009 §6's
-   * enumerated stub metadata — "exhaustive and normative… what an upstream can
-   * see, stated as a commitment" — does not include it.
+   * It is a list of the people who may run a job, and it was on the stub: sent
+   * to the relay on every `named` job, and sent to the daemon on the direct
+   * plane. byollm_009 §6 calls the stub's metadata "exhaustive and normative…
+   * what an upstream can see, stated as a commitment", and this was not on the
+   * list.
    *
-   * It was being sent on every named-audience job, and nothing read it: the
-   * relay filters on the projection's rosters. An unenumerated disclosure with
-   * no consumer.
+   * The ruling went further than withholding it from the relay. byollm_001
+   * Rev 1 §B settled who decides `named` before any of this existed — *the
+   * daemon's own list decides, not the server's* — so the field was a second
+   * answer to a question the daemon already owned, able only to agree or to
+   * disagree with nothing written down about which wins. It is off the schema
+   * entirely, and `JobStub.strict()` is what keeps it off.
+   *
+   * The rule it leaves: **a class the router acts on may travel; membership
+   * never does.**
    *
    * Asserted against the *stub the relay stored*, not against the publisher's
    * argument — the question is what the third party holds, and only its own
@@ -329,8 +335,10 @@ describe("what the relay is told, and what it is not", () => {
 
     const routed = await relay.state.job(job.id);
     expect(routed).toBeDefined();
-    // …and the relay is told none of it.
-    expect(routed?.stub.audienceAllow).toBeUndefined();
+    // …and the relay is told none of it. Checked by serialising the stub
+    // rather than by reading a field that no longer exists: the property is
+    // that the names are not there, and a test naming the removed field would
+    // stop compiling instead of stopping the leak.
     expect(JSON.stringify(routed?.stub)).not.toContain("carol");
     expect(JSON.stringify(routed?.stub)).not.toContain("erin");
 
@@ -342,9 +350,11 @@ describe("what the relay is told, and what it is not", () => {
   });
 
   it("still records it on the site's own row, where enforcement reads it", async () => {
-    // The other half. Withholding it from the relay must not mean losing it:
-    // the direct plane sends it to the daemon, where `matchAudience` uses it
-    // as a narrowing check beside the daemon's own allowlist.
+    // The other half. Taking it off the wire must not mean losing it: the
+    // site's own `claim` filters candidates with this list before offering a
+    // job, which is legitimate — the party holding the list authored it, and
+    // it never leaves. What ended was sending a second copy to somebody else
+    // to check.
     const { store, owner } = await CASES[0]!.make();
     const siteKeys = generateSiteKeys();
     const app = new ByollmApp({ store, siteKeys });

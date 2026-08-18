@@ -377,18 +377,35 @@ export class DaemonPlane {
         const revoked = consent === null;
         if (known) known.revoked = revoked;
 
-        // Anything this runner thinks it holds that we no longer agree it
-        // holds. A daemon must stop work on these rather than finish and
-        // report into a lease that is gone.
-        const lost = await this.#deps.state.lostLeases(
-          device.runnerId,
-          request.activeLeases,
-        );
+        // A revoked runner renews nothing and is told it holds nothing, so it
+        // abandons the queue rather than finishing it. Identical to the direct
+        // plane's revoked branch, deliberately: the daemon cannot see which
+        // upstream it is talking to and the rule must not depend on that.
+        if (revoked) {
+          return ok({
+            revoked,
+            cancel: [],
+            leases: [],
+            lost: request.activeLeases.map((lease) => lease.jobId),
+            serverTime: now,
+          });
+        }
+
+        // Renewal and loss, from one read — cloud_008 §0.6. This used to
+        // return `leases: []` unconditionally, which told a working daemon
+        // every few seconds that nothing it held had been renewed while the
+        // sweep requeued its work at `leaseMs`. Any job slower than a lease
+        // was handed to a second device mid-flight.
+        const { renewed, lost } = await this.#deps.state.renewLeases({
+          runnerId: device.runnerId,
+          leases: request.activeLeases,
+          leaseMs: this.#deps.leaseMs,
+        });
 
         return ok({
           revoked,
           cancel: [],
-          leases: [],
+          leases: renewed,
           lost,
           serverTime: now,
         });

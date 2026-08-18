@@ -157,6 +157,7 @@ export class CloudLane {
         runnerId: string;
         leaseId: string;
         awaitingUntil: number;
+        leaseExpiresAt: number;
       }[];
     };
     for (const claim of pending.jobs) {
@@ -183,10 +184,19 @@ export class CloudLane {
       // and the expiry sweep expires a job a device is in the middle of.
       // Adopting first means the worst case is a lease recorded for work that
       // never gets sealed, which the relay's own timeout already resolves.
+      //
+      // **The lease's clock, not the payload's** — cloud_008 §0.6. This
+      // adopted `awaitingUntil`, which is how long the relay waits for *this
+      // site to seal* (byollm_009 §7.1's third clock, ten seconds), and used
+      // it as the expiry of a grant the device holds for a minute and renews
+      // for as long as it works. Both of the breakages listed above then
+      // happened to every job slower than the shorter clock — the site expired
+      // the lease, the device finished anyway, and `complete` refused the
+      // result the device had correctly produced.
       await this.#store.adopt({
         jobId: claim.jobId,
         leaseId: claim.leaseId,
-        expiresAt: claim.awaitingUntil,
+        expiresAt: claim.leaseExpiresAt,
         now: this.#now(),
       });
       await this.#post("payload", {

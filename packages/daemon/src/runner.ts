@@ -247,7 +247,11 @@ export class Runner {
       {
         owner: job.owner,
         audience: job.audience,
-        audienceAllow: job.audienceAllow,
+        // No `audienceAllow`: it is not on the wire any more (cloud_008
+        // §0.2), and this is the branch that made it look load-bearing. It
+        // narrowed a decision `locallyAllows` below already owns — the site
+        // could only ever agree with the daemon's own list or contradict it,
+        // and nothing wrote down which won.
       },
       {
         owner: this.#options.owner,

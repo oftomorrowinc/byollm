@@ -415,9 +415,18 @@ export class ByollmHandlers {
         // keeping, so it is always present — falling back to the TTL window
         // when the app named no absolute one.
         deadlineAt: job.deadlineAt ?? (job.claimableAt ?? now) + job.ttlMs,
-        ...(job.audienceAllow === undefined
-          ? {}
-          : { audienceAllow: [...job.audienceAllow] }),
+        // `audienceAllow` is not sent — cloud_008 §0.2. The list stays on
+        // `JobRecord`, where `claim` already filtered candidates with it; the
+        // daemon's own allowlist is what decides `named` (byollm_001 Rev 1
+        // §B) and always was.
+        //
+        // Removing it from `JobStub` did **not** make this line a type error.
+        // A conditional spread is not excess-property-checked, so the field
+        // would have gone on being sent to a daemon whose `.strict()` parse
+        // now rejects the entire claim response — every daemon on the version
+        // pair, refusing all work, for a field nobody read. Worth stating
+        // where it happened: the schema is the contract, and the compiler
+        // does not enforce it through a spread.
         // No fallback. A job returned from `claim` holds a lease by
         // definition, and synthesising one here would hand the daemon a lease
         // id the store has never heard of — every later release naming it

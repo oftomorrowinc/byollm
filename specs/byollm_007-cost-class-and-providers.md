@@ -49,15 +49,37 @@ no setting changes that.
 **The generic `openai-http` backend**: `cost` is **inferred from the
 base URL**, and the inference is the enforcement:
 
-- base URL resolves to loopback or a private range → `free`
-- anything else → `metered`
+- base URL's host **is** a loopback or private-range address, or is
+  `localhost` (RFC 6761) → `free`
+- anything else, including every other name → `metered`
 
 An owner therefore **cannot declare a remote endpoint free**. This is
 checkable, cheap, and closes the obvious bypass — reaching a paid API
-through the generic backend to escape the metered rules. It reuses the
-locality logic already in `checkBaseUrl` (byollm_004 Rev 1), which
-allows loopback and RFC1918 precisely because that is the product's
-main path.
+through the generic backend to escape the metered rules.
+
+It does not resolve the name, on purpose: DNS can answer differently
+between the check and the request, and a cost decision that depends on
+a lookup is a cost decision an attacker can move. A name that is not
+`localhost` is metered whatever it points at. Metered is the safe side
+of being wrong here — it costs a local owner a ceiling they did not
+need, where the other direction costs a remote owner money.
+
+**Correction (cloud_008 §0.5).** This section used to say the rule
+"reuses the locality logic already in `checkBaseUrl`". It never did,
+and the sentence hid a live bug for as long as it stood: `isLocalHost`
+ran its prefix tests against the raw hostname, so `10.example.com` was
+private, and `/^f[cd]/` — written for `fc00::/7` — matched **any name
+beginning with the letters f-c or f-d**. `fchat.ai` was free compute.
+`checkBaseUrl` had guarded its own prefix tests with `isIP` from the
+start, which is exactly why a reviewer reading this paragraph would
+not have gone looking.
+
+The two functions answer different questions — `checkBaseUrl` asks
+whether an address is a forbidden destination, `isLocalHost` asks
+whether it is on the owner's own machine or LAN — and they are not
+merged, because merging them would mean one rule serving two purposes.
+What they share is the guard: neither hand-parses an address, and both
+decide `isIP` first and match prefixes second.
 
 The daemon is the enforcing side, as always. The server applies the
 same rule as defence in depth, from the capability matrix.

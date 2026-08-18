@@ -257,7 +257,6 @@ describe("the freeze gate — cloud_004 §14", () => {
       prompt: "alice's work on bob's machine",
       owner: "alice",
       audience: "named",
-      audienceAllow: ["bob"],
     });
     await route(relay, connector, daemon);
 

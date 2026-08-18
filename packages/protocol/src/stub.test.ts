@@ -28,6 +28,11 @@ describe("the stub is exhaustive", () => {
     ["a model", { model: "claude-opus-5" }],
     ["a result", { outcome: { outcome: "ok", text: "answer" } }],
     ["a base URL", { baseUrl: "http://evil.test/v1" }],
+    // Membership, which is the rule this list now carries: a class the
+    // router acts on may travel, a list of people never does (cloud_008
+    // §0.2). It used to be a field here, and `.strict()` is what makes its
+    // removal enforcement rather than a decision to keep making.
+    ["who may run it", { audienceAllow: ["carol"] }],
     ["anything else at all", { note: "harmless-looking" }],
   ])("refuses a stub carrying %s", (_label, extra) => {
     // A chatty site stuffing metadata into stubs is the leak C022 closed one
@@ -41,7 +46,6 @@ describe("the stub is exhaustive", () => {
     // pass this assertion on purpose.
     expect(Object.keys(JobStub.shape).sort()).toEqual([
       "audience",
-      "audienceAllow",
       "deadlineAt",
       "id",
       "kind",

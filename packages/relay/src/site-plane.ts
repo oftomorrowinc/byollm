@@ -240,6 +240,16 @@ export class SitePlane {
           leaseId: job.claimedBy?.leaseId,
           /** So a site can decline to seal for a claim about to expire. */
           awaitingUntil: job.awaitingUntil,
+          /**
+           * When the *grant* ends — cloud_008 §0.6.
+           *
+           * Distinct from `awaitingUntil`, which bounds how long this relay
+           * waits for the site to seal. A site adopting the lease into its own
+           * records needs the lease's clock; given the other one it recorded a
+           * grant that expired in seconds, then refused the device's own
+           * result for want of a matching lease.
+           */
+          leaseExpiresAt: job.claimedBy?.leaseExpiresAt,
         }));
         return ok({ jobs });
       },

@@ -1,3 +1,4 @@
+import { isIP } from "node:net";
 import { z } from "zod";
 
 /**
@@ -282,15 +283,51 @@ export function backendDescriptor(id: BackendId): BackendDescriptor {
  */
 export function isLocalHost(hostname: string): boolean {
   const host = hostname.toLowerCase().replace(/^\[|\]$/g, "");
+
+  // RFC 6761 reserves `localhost` and everything under it for the loopback
+  // interface. The only names that are local; every other name is a name.
   if (host === "localhost" || host.endsWith(".localhost")) return true;
-  if (host === "::1") return true;
+
+  // Everything below is a prefix test on an address, so it only runs on an
+  // address — cloud_008 §0.5.
+  //
+  // These used to run on the raw string. `startsWith("10.")` matched
+  // `10.example.com`, `startsWith("192.168.")` matched `192.168.example.com`,
+  // and `/^f[cd]/` — meant for `fc00::/7` — matched **any hostname beginning
+  // with the letters f-c or f-d**: `fdapi.example.com`, `fchat.ai`,
+  // `fc-inference.io`. A paid remote endpoint at such a name resolved to
+  // `free`, which is `REMOTE_IS_NEVER_FREE` inverted: no ceiling, no metering,
+  // and eligible for a `public` offer. The worst of them needs no attacker and
+  // no unusual config — just a vendor whose domain happens to start with two
+  // particular letters.
+  //
+  // `isIP` is `node:net`'s, the same guard `checkBaseUrl` uses. Two questions,
+  // one technique: that file asks whether an address is a forbidden
+  // destination, this one asks whether it is on the owner's own machine or
+  // LAN. Neither reuses the other's *rule* — cloud_007 §2 said it did, which
+  // was never true — but nothing hand-parses an address in either.
+  const version = isIP(host);
+
+  // A DNS name is remote. It might resolve to loopback, and this deliberately
+  // does not find out: the alternative is a DNS lookup inside a cost decision,
+  // where the answer can change between the check and the request. Metered is
+  // the safe side of being wrong — it costs a local user a ceiling they did
+  // not need, where the other direction costs a remote user money.
+  if (version === 0) return false;
+
+  if (version === 6) {
+    if (host === "::1") return true;
+    // Unique local addresses (fc00::/7), now that this can only see an
+    // address. An IPv4-mapped form like `::ffff:127.0.0.1` is not matched and
+    // classes as metered — the safe side again, and rare enough that guessing
+    // at it would add more surface than it removes.
+    return /^f[cd]/.test(host);
+  }
+
   if (host.startsWith("127.")) return true;
   if (host.startsWith("10.")) return true;
   if (host.startsWith("192.168.")) return true;
-  if (/^172\.(1[6-9]|2\d|3[01])\./.test(host)) return true;
-  // Unique local addresses (fc00::/7).
-  if (/^f[cd]/.test(host)) return true;
-  return false;
+  return /^172\.(1[6-9]|2\d|3[01])\./.test(host);
 }
 
 /**

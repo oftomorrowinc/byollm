@@ -107,8 +107,6 @@ export const ClaimedJob = z
     audience: Audience,
     /** The app's id for the user who enqueued it. */
     owner: z.string().min(1),
-    /** Runner owners the app restricted a `named` job to, if any. */
-    audienceAllow: z.array(z.string().min(1)).optional(),
     lease: Lease,
   })
   .strict();
@@ -276,7 +274,26 @@ export const JobStub = z
     /** The app's id for the user who enqueued it. */
     owner: z.string().min(1),
     audience: Audience,
-    audienceAllow: z.array(z.string().min(1)).optional(),
+    // `audienceAllow` is **not** here, and its absence is the enforcement —
+    // cloud_008 §0.2.
+    //
+    // It was a list of the people who may run a job, travelling to every
+    // routing party on every `named` job. byollm_001 Rev 1 §B settled who
+    // decides that long before this schema existed: *the daemon's own list
+    // decides, not the server's*, and `allowlist.predicateFor(origin)` is the
+    // enforcement in both lanes. So this was a second answer to a question the
+    // daemon already owned — able only to agree, in which case it was
+    // redundant, or to disagree, in which case nothing said which wins.
+    //
+    // The rule it leaves behind, which decides the next field too: **a class
+    // the router acts on may travel; membership never does.** `audience` stays
+    // for exactly that reason — the relay narrows on it. A roster does not
+    // travel, so `ROSTER_NOT_DISCLOSED` holds here by absence, which is the
+    // strongest way for a MUST to hold.
+    //
+    // The site keeps its own copy on `JobRecord` and still filters candidates
+    // with it before offering. That is server-internal, where the party
+    // holding the list authored it.
     sizeClass: SizeClass,
     /** Reserved for byollm_006. False until streaming exists. */
     streaming: z.boolean(),

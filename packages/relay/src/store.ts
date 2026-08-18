@@ -106,11 +106,31 @@ export interface RoutingStore {
     | { refused: "not-found" | "too-late"; was?: RoutedState }
   >;
 
-  /** Which of these leases this runner no longer holds. */
-  lostLeases(
-    runnerId: string,
-    active: readonly { jobId: string; leaseId: string }[],
-  ): Promise<string[]>;
+  /**
+   * Extend the leases this runner still holds, and name the ones it does not.
+   *
+   * One call because it is one question — cloud_008 §0.6. This was
+   * `lostLeases`, which answered only the second half, and the relay's
+   * heartbeat answered the first half with the literal `leases: []`. A daemon
+   * was therefore told, every few seconds, that none of its work had been
+   * renewed; the sweep requeued at `leaseMs` regardless of how alive the
+   * device was, and any job that took longer than a lease was handed to
+   * somebody else while the first device was still running it. The direct
+   * plane has always renewed here (`handlers.ts` §3), so this was also the two
+   * upstreams disagreeing about a rule the daemon cannot see.
+   *
+   * Renewal and loss come from one read of one state: asked separately they
+   * are two answers to "who holds this now", and under two replicas they can
+   * differ.
+   */
+  renewLeases(input: {
+    runnerId: string;
+    leases: readonly { jobId: string; leaseId: string }[];
+    leaseMs: number;
+  }): Promise<{
+    renewed: readonly { jobId: string; expiresAt: number }[];
+    lost: readonly string[];
+  }>;
 
   /** Record a device as present. The store stamps when. */
   seen(presence: Omit<Presence, "revoked" | "lastSeenAt">): Promise<Presence>;

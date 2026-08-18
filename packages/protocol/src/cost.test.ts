@@ -301,3 +301,67 @@ describe("the audience matrix across all three cost classes", () => {
     }
   });
 });
+
+describe("locality is decided on addresses, never on names", () => {
+  /**
+   * cloud_008 §0.5. Every case here returned `true` before the fix, and each
+   * one is `REMOTE_IS_NEVER_FREE` inverted: `free` means no ceiling, no
+   * metering, and eligible to be offered `public`.
+   *
+   * The last two need no attacker and no unusual configuration. `/^f[cd]/`
+   * was meant for `fc00::/7` and ran against the raw hostname, so any vendor
+   * whose domain begins with the letters f-c or f-d was "local" — a paid API
+   * at `fchat.ai` was free, and the owner's first hint would be the bill.
+   */
+  it.each([
+    ["10.example.com", "an ordinary domain under a private-range prefix"],
+    ["127.example.com", "the same trick with loopback"],
+    ["192.168.evil.com", "and with the LAN range"],
+    ["172.16.example.com", "and with the carve-out range"],
+    ["fdapi.example.com", "a name starting fd — the fc00::/7 test"],
+    ["fchat.ai", "a real product's name would have matched"],
+  ])("%s is remote (%s)", (host) => {
+    expect(isLocalHost(host)).toBe(false);
+    // The property, not the helper: a paid endpoint at this address is
+    // metered, so it carries a ceiling and cannot be offered as free compute.
+    expect(resolveCost("openai-http", `https://${host}/v1`)).toBe("metered");
+  });
+
+  it.each([
+    "127.0.0.1",
+    "10.0.0.5",
+    "192.168.1.7",
+    "172.16.0.1",
+    "172.31.255.254",
+    "::1",
+    "fc00::1",
+    "fd12:3456::1",
+    "localhost",
+    "ollama.localhost",
+  ])("%s is local", (host) => {
+    // The positive control. Without it the fix could be "return false" and
+    // every negative above would still pass — while breaking the default
+    // Ollama path, which is the entire product.
+    expect(isLocalHost(host)).toBe(true);
+  });
+
+  it("keeps the bracketed IPv6 form working", () => {
+    expect(isLocalHost("[::1]")).toBe(true);
+    expect(resolveCost("openai-http", "http://[::1]:11434/v1")).toBe("free");
+  });
+
+  it("treats an IPv4-mapped IPv6 loopback as metered, not free", () => {
+    // Documented rather than fixed: the safe side of a rare case. If this
+    // ever changes it should change because somebody hit it, not because a
+    // regex grew.
+    expect(isLocalHost("::ffff:127.0.0.1")).toBe(false);
+  });
+
+  it("does not resolve names to find out", () => {
+    // A DNS lookup inside a cost decision can answer differently between the
+    // check and the request. `localhost` is local because RFC 6761 says so,
+    // not because anything looked.
+    expect(isLocalHost("localhost.evil.com")).toBe(false);
+    expect(isLocalHost("notlocalhost")).toBe(false);
+  });
+});

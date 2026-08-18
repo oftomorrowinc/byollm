@@ -118,7 +118,6 @@ export class SiteConnector {
     prompt: string;
     owner: string;
     audience?: "self" | "named" | "public";
-    audienceAllow?: string[];
   }): Promise<{ jobId: string; payload: string }> {
     this.#next += 1;
     const jobId = `job_relay_${String(this.#next)}`;
@@ -128,7 +127,6 @@ export class SiteConnector {
       kind: "llm.generate",
       owner: input.owner,
       audience: input.audience ?? "self",
-      ...(input.audienceAllow ? { audienceAllow: input.audienceAllow } : {}),
       sizeClass: sizeClassOf(payload.length),
       streaming: false,
       deadlineAt: Date.now() + 300_000,

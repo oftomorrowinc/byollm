@@ -317,15 +317,26 @@ export const HeartbeatResponse = z
      * in-flight backend calls and reports them `canceled`.
      */
     cancel: z.array(z.string().min(1)),
-    /** Jobs whose leases were renewed, with their new expiry. */
-    leases: z.array(
-      z
-        .object({
-          jobId: z.string().min(1),
-          expiresAt: z.number().int().positive(),
-        })
-        .strict(),
-    ),
+    // `leases` is deliberately absent — cloud_008 §1.4b, finding 16.
+    //
+    // It carried "these leases were renewed, and here is the new expiry", and
+    // **no daemon ever read it.** A mutation returning an empty list while
+    // renewing correctly survived every test, which is what made it visible.
+    //
+    // It is neither a class nor membership, so Amendment A's rule does not
+    // decide it — the older test does: nothing reads it, so it is dead wire.
+    // §6's exhaustiveness is a commitment about what an upstream can see, and
+    // it applies to every message rather than only to the stub.
+    //
+    // `lost` is the actionable signal and always was: a daemon stops work on
+    // a lease it no longer holds. "Renewed" was the same question answered a
+    // second time, and a second answer can only agree or contradict.
+    //
+    // Renewal itself is untouched — the upstream still extends the grants a
+    // heartbeat names, which is what §0.6 fixed. What ended is telling the
+    // daemon about it in a field it ignored. If an upstream ever needs to
+    // push lease decisions, that is a new field with a reader, added on
+    // purpose.
     /**
      * Jobs the daemon thinks it holds but the server has reassigned or
      * expired. The daemon must stop work on these and not report results.
@@ -477,7 +488,24 @@ export type ReleaseResponse = z.infer<typeof ReleaseResponse>;
 export const WireErrorCode = z.enum([
   "bad-request",
   "unsupported-protocol-version",
+  // "We do not know who you are." Exactly 401, and only that — cloud_008
+  // §1.4d.
   "unauthorized",
+  /**
+   * "We know exactly who you are, and the answer is no." Exactly 403.
+   *
+   * Five refusals across both planes served 403 with `unauthorized`, whose
+   * table entry is 401: a revoked device, a site claiming another site's
+   * stub, a job you do not hold, a device belonging to another owner, a
+   * relay that does not route for you. Every one of them is an *identified*
+   * caller being refused.
+   *
+   * Collapsing the two loses a distinction that matters everywhere it is
+   * read: a revoked daemon would look like an unsigned one in every log and
+   * every client branch, and "check your keys" is the wrong advice for both
+   * of them in opposite directions.
+   */
+  "forbidden",
   "revoked",
   "not-found",
   // Claimed, but the site has not sealed the payload yet — cloud_008 §1.4.
@@ -547,6 +575,7 @@ export const ERROR_STATUS: Readonly<Record<WireErrorCode, number>> =
     "bad-request": 400,
     "unsupported-protocol-version": 400,
     unauthorized: 401,
+    forbidden: 403,
     revoked: 403,
     "not-found": 404,
     // 409, not 404: the job exists and is yours, it is simply not ready.

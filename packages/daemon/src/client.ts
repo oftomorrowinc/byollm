@@ -56,6 +56,18 @@ export type ClientErrorKind =
    * it as a refusal drops work the daemon legitimately still holds.
    */
   | "not-ready"
+  /**
+   * The upstream knows exactly who this daemon is, and is refusing anyway.
+   *
+   * Distinct from `unauthorized` (it does not know us) and from `revoked`
+   * (this pairing is over). A device asking about a job it does not hold, or
+   * an upstream that does not route for the site named, is neither of those —
+   * and this client used to report all three as `revoked`, because it
+   * dispatched on the 403 rather than on the code beside it. A daemon told it
+   * was revoked stops for good; that is the wrong response to a refusal that
+   * is about one request.
+   */
+  | "forbidden"
   | "rate-limited"
   | "server-error"
   | "malformed-response";
@@ -372,7 +384,11 @@ export class ProtocolClient {
       case 401:
         return new ClientError("unauthorized", message, retryAfter);
       case 403:
-        return new ClientError("revoked", message, retryAfter);
+        // `revoked` is decided by the code above, never by the status —
+        // cloud_008 §1.4d. Every 403 used to land here and be reported as a
+        // revocation, so a site-plane refusal about a single request looked
+        // to a daemon exactly like its pairing being torn up.
+        return new ClientError("forbidden", message, retryAfter);
       case 409:
         return new ClientError("not-ready", message, retryAfter);
       case 429:

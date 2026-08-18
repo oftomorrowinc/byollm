@@ -431,6 +431,8 @@ describe("heartbeat", () => {
       owner: "alice",
     });
     const claimed = await h.call("claim", claim(runner.runnerId), runner);
+    const [held] = leasesFrom(claimed);
+    const before = (await h.store.get(held!.jobId))?.lease?.expiresAt;
 
     h.clock.advance(30_000);
     const res = await h.call(
@@ -445,12 +447,16 @@ describe("heartbeat", () => {
       },
       runner,
     );
-    const body = res.body as {
-      leases: { jobId: string; expiresAt: number }[];
-      lost: string[];
-    };
-    expect(body.leases).toHaveLength(1);
-    expect(body.lost).toEqual([]);
+
+    // Asserted against the stored grant, not against a field in the response
+    // — `leases` came off the wire in §1.4b because no daemon read it, and
+    // this test was reading it too. That is the better test regardless: the
+    // property is that the lease was extended, and a response saying so is
+    // one step removed from it. The long-job specimen in MUTATIONS.md is the
+    // same lesson: renewal is a property of the grant, so check the grant.
+    expect((res.body as { lost: string[] }).lost).toEqual([]);
+    const after = (await h.store.get(held!.jobId))?.lease?.expiresAt;
+    expect(after).toBe(before! + 30_000);
   });
 
   it("reports a job as lost once its lease was reclaimed", async () => {

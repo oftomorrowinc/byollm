@@ -130,14 +130,14 @@ export class DaemonPlane {
     if (!consent) {
       // CONSENT_BEFORE_ROUTE. There is no discovery path that creates one:
       // consent is a click somewhere else, and the relay only reads it.
-      return fail(403, "unauthorized", "no consent record for this user");
+      return fail(403, "forbidden", "no consent record for this user");
     }
     // The key comes from the site registry, which is its one home. It used to
     // be inlined on the consent record, which gave a site's key one copy per
     // consenting user and nothing to reconcile them against.
     const site = this.#deps.projection.siteFor(this.#deps.siteId);
     if (!site) {
-      return fail(403, "unauthorized", "this site is not registered");
+      return fail(403, "forbidden", "this site is not registered");
     }
 
     // The device must already be approved, by a human, in the control plane.
@@ -164,7 +164,7 @@ export class DaemonPlane {
     if (approved.owner !== parsed.data.owner) {
       // The device was approved by somebody else. Refused rather than
       // re-owned: an approval is for a person, not a key in general.
-      return fail(403, "unauthorized", "this device belongs to another owner");
+      return fail(403, "forbidden", "this device belongs to another owner");
     }
 
     // The id comes from the control plane, not from the device and not from
@@ -376,7 +376,6 @@ export class DaemonPlane {
           return ok({
             revoked,
             cancel: [],
-            leases: [],
             lost: request.activeLeases.map((lease) => lease.jobId),
             serverTime: now,
           });
@@ -387,7 +386,11 @@ export class DaemonPlane {
         // every few seconds that nothing it held had been renewed while the
         // sweep requeued its work at `leaseMs`. Any job slower than a lease
         // was handed to a second device mid-flight.
-        const { renewed, lost } = await this.#deps.state.renewLeases({
+        //
+        // The renewal is the fix; reporting it back was not. §1.4b took that
+        // field off the wire — no daemon ever read it, and `lost` answers the
+        // same question in the direction a daemon can act on.
+        const { lost } = await this.#deps.state.renewLeases({
           runnerId: device.runnerId,
           leases: request.activeLeases,
           leaseMs: this.#deps.leaseMs,
@@ -396,7 +399,6 @@ export class DaemonPlane {
         return ok({
           revoked,
           cancel: [],
-          leases: renewed,
           lost,
           serverTime: now,
         });

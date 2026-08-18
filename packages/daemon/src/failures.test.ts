@@ -241,7 +241,6 @@ describe("reporting failures never lose the job", () => {
         : JSON.stringify({
             revoked: false,
             cancel: [],
-            leases: [],
             lost: [],
             serverTime: Date.now(),
           });
@@ -293,7 +292,6 @@ describe("reporting failures never lose the job", () => {
           : JSON.stringify({
               revoked: false,
               cancel: [],
-              leases: [],
               lost: [],
               serverTime: Date.now(),
             });
@@ -335,7 +333,6 @@ describe("reporting failures never lose the job", () => {
           : JSON.stringify({
               revoked: false,
               cancel: [],
-              leases: [],
               lost: [],
               serverTime: Date.now(),
             });
@@ -375,7 +372,6 @@ describe("reporting failures never lose the job", () => {
             JSON.stringify({
               revoked: false,
               cancel: [],
-              leases: [],
               // On the second heartbeat the server says the job is gone.
               lost: heartbeats > 1 ? ["job_1"] : [],
               serverTime: Date.now(),

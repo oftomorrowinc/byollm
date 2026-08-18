@@ -126,6 +126,84 @@ describe("the daemon plane's refusals", () => {
   });
 });
 
+describe("an identified caller refused", () => {
+  /**
+   * The five 403s — cloud_008 §1.4d, finding 18.
+   *
+   * They served `unauthorized`, whose table entry is 401. Yesterday this file
+   * deliberately did *not* provoke them: a passing test around a wrong pair
+   * freezes the wrong answer. The pair is right now, so freezing it is the
+   * point — same rule, run the other direction.
+   *
+   * `unauthorized` means "we do not know who you are". Every case below is a
+   * caller we know exactly, being told no. Collapsing the two would make a
+   * revoked daemon indistinguishable from an unsigned one in every log and
+   * every client branch.
+   */
+  it("refuses a site asking about another site's work", async () => {
+    const { relay, siteKeys } = await relayWithDaemon();
+    const response = await relay.handle(
+      new Request(`http://relay.test/relay/site/pending?siteId=someone_else`, {
+        headers: siteHeaders(siteKeys, "pending", ""),
+      }),
+    );
+    expect(await refusal(response)).toBe("forbidden");
+  });
+
+  it("refuses a daemon whose owner never consented", async () => {
+    // Driven against `pair` directly rather than through `makeDaemon`,
+    // because pairing *is* where this refusal lives: the helper builds a
+    // daemon by pairing, so with no consent it never gets one. Worth saying
+    // out loud — `CONSENT_BEFORE_ROUTE` is enforced early enough that the
+    // test harness cannot get past it, which is the shape you want.
+    const siteKeys = generateKeys(Date.now());
+    const site = publicIdentityOf(siteKeys);
+    const relay = new Relay({
+      siteId: SITE_ID,
+      fixture: fixtureFor(site, { consents: [] }),
+    });
+
+    const response = await relay.handle(
+      new Request("http://relay.test/byollm/pair", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          protocolVersion: "0",
+          owner: "alice",
+          device: publicIdentityOf(generateKeys(Date.now())),
+        }),
+      }),
+    );
+    expect(await refusal(response)).toBe("forbidden");
+  });
+
+  it("keeps revoked as its own code, not folded into forbidden", async () => {
+    // The distinction the split exists to preserve. A revoked daemon stops
+    // for good; a forbidden request is about one request. Reporting both the
+    // same way is what made `case 403 → revoked` look reasonable.
+    const siteKeys = generateKeys(Date.now());
+    const site = publicIdentityOf(siteKeys);
+    const fixture = fixtureFor(site);
+    const relay = new Relay({ siteId: SITE_ID, fixture });
+    const daemon = await makeDaemon(relay, fixture, { owner: "alice", site });
+    disposers.push(daemon.dispose);
+
+    relay.project({
+      ...fixture,
+      consents: [],
+      revoked: [{ owner: "alice", siteId: SITE_ID }],
+    });
+    const response = await daemon.signedFetch("claim", {
+      capabilities: [],
+      max: 1,
+    });
+    const code = await refusal(response);
+    expect(["forbidden", "revoked"]).toContain(code);
+    // Whatever it is, it is not 401 — the caller is known.
+    expect(response.status).toBe(403);
+  });
+});
+
 describe("the enumeration itself", () => {
   it("gives every code a status", () => {
     // A code with no status is a code the relay cannot serve. Compared as

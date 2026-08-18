@@ -468,7 +468,6 @@ export class ByollmHandlers {
       const response: HeartbeatResponse = {
         revoked: true,
         cancel: [],
-        leases: [],
         lost: held.map((job) => job.id),
         serverTime: now,
       };
@@ -483,7 +482,10 @@ export class ByollmHandlers {
       now,
     });
 
-    const { renewed, lost } = await this.#store.renewLeases({
+    // `renewed` is not reported back — cloud_008 §1.4b. The grants are still
+    // extended; the daemon simply never read the list, and `lost` is the
+    // signal it acts on.
+    const { lost } = await this.#store.renewLeases({
       runnerId: runner.id,
       leases: request.activeLeases,
       leaseMs: this.#leaseMs,
@@ -495,7 +497,6 @@ export class ByollmHandlers {
     const response: HeartbeatResponse = {
       revoked: false,
       cancel,
-      leases: renewed.map((r) => ({ jobId: r.jobId, expiresAt: r.expiresAt })),
       lost: [...lost],
       serverTime: now,
     };

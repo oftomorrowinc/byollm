@@ -202,7 +202,6 @@ function routed(responses: {
           ? (responses.heartbeat ?? {
               revoked: false,
               cancel: [],
-              leases: [],
               lost: [],
               serverTime: Date.now(),
             })
@@ -231,7 +230,6 @@ describe("the loop", () => {
         heartbeat: {
           revoked: true,
           cancel: [],
-          leases: [],
           lost: [],
           serverTime: Date.now(),
         },

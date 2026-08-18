@@ -186,7 +186,7 @@ export class SitePlane {
       return fail(400, "bad-request", "request failed schema validation");
     }
     if (siteIdOf(parsed.data) !== siteId) {
-      return fail(403, "unauthorized", "that is not your site");
+      return fail(403, "forbidden", "that is not your site");
     }
     // This relay routes for exactly one site, and now says so.
     //
@@ -198,7 +198,7 @@ export class SitePlane {
     // to open the payload. Contained by the crypto, and still a job burned by
     // routing rather than by anything the device did.
     if (siteId !== this.#deps.routesFor) {
-      return fail(403, "unauthorized", "this relay does not route for you");
+      return fail(403, "forbidden", "this relay does not route for you");
     }
     return run(parsed.data, siteId);
   }

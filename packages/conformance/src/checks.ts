@@ -375,7 +375,12 @@ export const CHECKS: readonly Check[] = [
   {
     id: "C008_REVOCATION",
     title: "a revoked daemon stops mid-queue",
-    musts: ["REVOCATION_HONORED"],
+    // Both halves, and this check already proved both: the daemon learns it
+    // is revoked (`REVOCATION_HONORED`), *and* the upstream leaves the job
+    // queued rather than granting it (`REVOCATION_IMMEDIATE`). The second
+    // assertion was here and cited nothing — which is how a MUST comes to be
+    // declared in a spec, absent from the registry, and tested all along.
+    musts: ["REVOCATION_HONORED", "REVOCATION_IMMEDIATE"],
     async run(target: ConformanceTarget): Promise<void> {
       const daemon = await pairDaemon(target, { owner: "alice" });
       try {
@@ -619,7 +624,11 @@ export const CHECKS: readonly Check[] = [
     id: "C014_RESULT_PROVENANCE",
     title:
       "a community result arrives marked untrusted, a self result does not",
-    musts: ["RESULT_PROVENANCE"],
+    // `PROVENANCE_NAMES_DEVICE` supersedes `RESULT_PROVENANCE` — a
+    // strengthening rather than a rename. C030 is the other half: a label
+    // means nothing unless a result whose signature does not verify against
+    // the granted device is refused rather than recorded.
+    musts: ["PROVENANCE_NAMES_DEVICE"],
     async run(target: ConformanceTarget): Promise<void> {
       const bob = await pairDaemon(target, { owner: "bob", offer: "public" });
       try {
@@ -724,7 +733,13 @@ export const CHECKS: readonly Check[] = [
   {
     id: "C016_UNAUTHENTICATED_REFUSED",
     title: "the protocol endpoints refuse an unknown token",
-    musts: ["PAIR_ONE_USER"],
+    // `CONSENT_BEFORE_ROUTE` on this plane. A relay has a consent record; a
+    // direct site has pairing, and it is the same obligation — an upstream
+    // routes to a device it has a record binding, and there is no discovery
+    // path by which an unbound device receives work. Every endpoint is
+    // checked rather than just `claim`, which is what makes it the absence
+    // of a path rather than the absence of one door.
+    musts: ["PAIR_ONE_USER", "CONSENT_BEFORE_ROUTE"],
     async run(target: ConformanceTarget): Promise<void> {
       for (const endpoint of ["claim", "heartbeat", "result", "release"]) {
         const response = await target.fetch(
@@ -749,7 +764,15 @@ export const CHECKS: readonly Check[] = [
     id: "C017_METERED_DEFAULTS_SELF",
     title:
       "a paid backend is not shared until its owner says so, with a ceiling",
-    musts: ["METERED_DEFAULTS_SELF", "COST_NOT_CONFIGURABLE"],
+    // `EFFECTIVE_OFFER_ONLY` too: bob asks for `public`, what reaches the
+    // server is `self`, and the server acts on what it was told rather than
+    // on what was wanted. That *is* the effective-offer rule, proved here
+    // without being named.
+    musts: [
+      "METERED_DEFAULTS_SELF",
+      "COST_NOT_CONFIGURABLE",
+      "EFFECTIVE_OFFER_ONLY",
+    ],
     async run(target: ConformanceTarget): Promise<void> {
       // Bob asks for `public` on a metered provider and says nothing about
       // spending. The ask is not honoured: what reaches the server is `self`,
@@ -1657,7 +1680,11 @@ export const CHECKS: readonly Check[] = [
   {
     id: "C030_SITE_REFUSES_UNSIGNED_RESULTS",
     title: "a site refuses a result not signed by the device that ran it",
-    musts: ["ENVELOPE_SEALED_AND_SIGNED"],
+    // The proof-of-possession half of `PROVENANCE_NAMES_DEVICE`: attribution
+    // by a signature that verifies against the device the lease was granted
+    // to, rather than by a key id carried beside the result. Carrying an id
+    // is not proving possession, and a forger writes whatever it likes.
+    musts: ["ENVELOPE_SEALED_AND_SIGNED", "PROVENANCE_NAMES_DEVICE"],
     async run(target: ConformanceTarget): Promise<void> {
       // The return leg of C029. `ENVELOPE_SEALED_AND_SIGNED` says "every
       // payload *and result*", and until this check existed only half of that
@@ -1729,6 +1756,62 @@ export const CHECKS: readonly Check[] = [
         assert(
           lying.status !== 200,
           "a site believed a disposition the sealed outcome contradicted",
+        );
+      } finally {
+        await daemon.dispose();
+      }
+    },
+  },
+
+  {
+    id: "C031_ROSTER_NOT_DISCLOSED",
+    title: "a claimed stub carries no list of who may run the job",
+    musts: ["ROSTER_NOT_DISCLOSED"],
+    async run(target: ConformanceTarget): Promise<void> {
+      // Checkable at all only since cloud_008 §0.2. The property used to be
+      // "a site should not publish membership", which nothing could observe;
+      // taking `audienceAllow` off the stub made it "no wire message carries
+      // membership", which a serialised stub answers directly.
+      //
+      // Worth writing precisely rather than generously, because this MUST was
+      // cited in code comments, in relay tests and in two specs as though it
+      // were enforced data while having no registry entry and no check at all.
+      const daemon = await pairDaemon(target, { owner: "alice" });
+      try {
+        const job = await target.enqueue({
+          kind: "llm.generate",
+          payload: prompt("who else is on this roster"),
+          owner: "alice",
+          audience: "named",
+          // The site restricts the job to people who are not this daemon's
+          // owner. A stub that carried the list would be handing a routing
+          // party the membership of alice's group.
+          audienceAllow: ["alice", "carol", "erin"],
+        });
+
+        const claimed = await claimOne(target, daemon);
+        assert(
+          claimed.id === job.id,
+          "the harness could not claim its own named job",
+        );
+
+        // Read by serialising rather than by naming a field: the property is
+        // that the names are not there. A check reading `stub.audienceAllow`
+        // would stop compiling when the field was removed, which is not the
+        // same as proving the names never travel.
+        const wire = JSON.stringify(claimed);
+        for (const member of ["carol", "erin"]) {
+          assert(
+            !wire.includes(member),
+            `a claimed stub disclosed roster member "${member}"`,
+          );
+        }
+
+        // And the stub is otherwise intact — "send nothing" would pass the
+        // assertions above and break every route.
+        assert(
+          claimed.owner === "alice" && claimed.audience === "named",
+          "the stub lost the metadata routing needs",
         );
       } finally {
         await daemon.dispose();

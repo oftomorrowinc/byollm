@@ -539,7 +539,7 @@ describe("heartbeat", () => {
   });
 });
 
-describe("result [RESULT_IDEMPOTENT, RESULT_PROVENANCE]", () => {
+describe("result [RESULT_IDEMPOTENT, PROVENANCE_NAMES_DEVICE]", () => {
   async function claimOne(
     h: ReturnType<typeof createHarness>,
     runner: PairedRunner,

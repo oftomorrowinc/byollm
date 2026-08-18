@@ -117,7 +117,7 @@ export type ClaimedJob = z.infer<typeof ClaimedJob>;
  *
  * byollm_003 Rev 1: a `named`/`public` result is attacker-controlled text.
  * The app must never render volunteer output as its own AI's answer without
- * knowing that is what it is ({@link MUSTS.RESULT_PROVENANCE}).
+ * knowing that is what it is ({@link MUSTS.PROVENANCE_NAMES_DEVICE}).
  */
 export const ResultProvenance = z
   .object({

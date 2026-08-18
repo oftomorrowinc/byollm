@@ -520,7 +520,7 @@ export class ByollmHandlers {
 
     // Provenance is built here, from the job's audience and the authenticated
     // runner — never from anything the daemon asserted
-    // ({@link MUSTS.RESULT_PROVENANCE}).
+    // ({@link MUSTS.PROVENANCE_NAMES_DEVICE}).
     const provenance = provenanceFor({
       audience: job.audience,
       runnerId: runner.id,

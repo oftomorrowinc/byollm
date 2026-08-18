@@ -336,7 +336,7 @@ export class SitePlane {
           leaseId: job.claimedBy?.leaseId,
           /**
            * Which device ran it, so the site can verify the signature against
-           * the key it was told to seal to — and so `RESULT_PROVENANCE` can
+           * the key it was told to seal to — and so `PROVENANCE_NAMES_DEVICE` can
            * name a foreign device rather than guessing (cloud_004 §11.2).
            */
           device: job.claimedBy?.device,

@@ -364,15 +364,17 @@ export const MUSTS = Object.freeze({
     verifiedBy: "conformance",
     source: "byollm_001 §Endpoints.4",
   }),
-  RESULT_PROVENANCE: must({
-    id: "RESULT_PROVENANCE",
+  PROVENANCE_NAMES_DEVICE: must({
+    id: "PROVENANCE_NAMES_DEVICE",
     statement:
-      "A result from a non-'self' job MUST carry its provenance (audience and " +
-      "runner) to the delivery seam so an app never treats volunteer output " +
-      "as first-party.",
+      "A result MUST carry the claiming device's key id and its relationship " +
+      "to the requester, to the delivery seam, so an app never treats " +
+      "volunteer output as first-party. The key id MUST be the device the " +
+      "upstream granted the lease to, and a result whose signature does not " +
+      "verify against that device MUST be refused rather than recorded.",
     enforcedBy: "server",
     verifiedBy: "conformance",
-    source: "byollm_003 Rev 1 §Return-trip",
+    source: "byollm_009 §11",
   }),
 
   // ---- The trust surface -------------------------------------------------
@@ -444,7 +446,125 @@ export const MUSTS = Object.freeze({
     verifiedBy: "adversarial",
     source: "byollm_004 §4",
   }),
+  REVOCATION_IMMEDIATE: must({
+    id: "REVOCATION_IMMEDIATE",
+    statement:
+      "Revocation MUST take effect at the upstream at once — a revoked " +
+      "runner MUST NOT be granted further work from the moment the record " +
+      "changes — and MUST reach the daemon by its next heartbeat.",
+    // Both, and stated as one sentence with two obligations rather than
+    // folded into REVOCATION_HONORED. That one binds the *daemon*: a revoked
+    // daemon stops claiming and abandons in-flight work. This binds the
+    // *upstream*. byollm_009 §5 is explicit that the pair is the point — "a
+    // revocation enforced at one end survives a compromise of that end" — and
+    // one entry covering both would make a compromised daemon look compliant.
+    enforcedBy: "both",
+    verifiedBy: "conformance",
+    source: "byollm_009 §11",
+  }),
+  CONSENT_BEFORE_ROUTE: must({
+    id: "CONSENT_BEFORE_ROUTE",
+    statement:
+      "An upstream MUST NOT route a job to a device without a record binding " +
+      "that user, that site and that scope. There MUST be no discovery path " +
+      "by which a device receives work it was never granted.",
+    enforcedBy: "server",
+    verifiedBy: "conformance",
+    source: "byollm_009 §11",
+  }),
+  ROSTER_NOT_DISCLOSED: must({
+    id: "ROSTER_NOT_DISCLOSED",
+    statement:
+      "A site MUST NOT learn the membership of a group whose compute it " +
+      "uses, and MUST NOT publish membership to a routing party. No wire " +
+      "message may carry a list of who may run a job.",
+    // Checkable since cloud_008 §0.2 took `audienceAllow` off the stub: the
+    // property now holds by *absence*, and absence is exactly what a strict
+    // schema and a serialised stub can be asked about. Before that it was a
+    // sentence — and one this project cited in code comments, tests and two
+    // specs as though it were enforced data, which is why it is worth
+    // stating precisely rather than generously.
+    enforcedBy: "both",
+    verifiedBy: "conformance",
+    source: "byollm_009 §11",
+  }),
+  EFFECTIVE_OFFER_ONLY: must({
+    id: "EFFECTIVE_OFFER_ONLY",
+    statement:
+      "A daemon MUST declare effective offers only. An upstream MUST NOT " +
+      "receive raw config, allowlists, or capacity the owner has not shared, " +
+      "and MUST act on the declared offer rather than on what was asked for.",
+    enforcedBy: "both",
+    verifiedBy: "conformance",
+    source: "byollm_009 §11",
+  }),
+  FALLBACK_LABELED: must({
+    id: "FALLBACK_LABELED",
+    statement:
+      "Work served by anything other than the user's own compute MUST be " +
+      "labelled as such wherever it is reported, and MUST NOT be silently " +
+      "substituted.",
+    // `construction` today, and deliberately not `conformance`. Nothing on
+    // the wire yet distinguishes a fallback from any other community job —
+    // the ledger that would give it a surface is unbuilt — so a check would
+    // have to assert something it cannot observe. Promoted the day that
+    // surface exists. Marking it `conformance` now would put "verified"
+    // beside a property no third party can see, which is the one thing the
+    // kinds exist to prevent.
+    enforcedBy: "both",
+    verifiedBy: "construction",
+    source: "byollm_009 §11",
+  }),
+  RELAY_BLIND: must({
+    id: "RELAY_BLIND",
+    statement:
+      "A relay MUST NOT hold any key capable of decrypting a payload, a " +
+      "result, or a delta frame.",
+    // Operator: a third party can read the relay's types and see there is
+    // nowhere to put such a key, but the kit certifies a *server* and cannot
+    // reach inside somebody's deployment to prove what it holds.
+    enforcedBy: "server",
+    verifiedBy: "operator",
+    source: "byollm_009 §11",
+  }),
+  SHARED_COMPUTE_DISCLOSED: must({
+    id: "SHARED_COMPUTE_DISCLOSED",
+    statement:
+      "Before a user's work first runs on compute they do not own, they MUST " +
+      "be told in plain language that the machine's owner can see it.",
+    // Operator, and cloud_008 §0.3 is why the classification now comes with a
+    // standing answer rather than a standing question. The screen is not
+    // wire-observable, but the *string the server composes* is, and it is
+    // now unit-tested with the two false sentences forbidden by name. The
+    // kind stays `operator` because a third-party site can still render
+    // whatever it likes; what changed is that the part inside our own
+    // boundary stopped depending on somebody remembering to audit it.
+    enforcedBy: "server",
+    verifiedBy: "operator",
+    source: "byollm_009 §11",
+  }),
 } as const satisfies Record<string, Must>);
+
+/**
+ * Ids that were retired, and what took over.
+ *
+ * Ids are public — third-party certification output cites them — so one
+ * cannot simply disappear. `RESULT_PROVENANCE` was not renamed: since
+ * Amendment A a result's attribution is by *proof of possession* rather than
+ * by a carried label, and `PROVENANCE_NAMES_DEVICE` says so. The old
+ * statement is true of the new one and weaker, which is what "subsumed"
+ * means here.
+ */
+export const RETIRED_MUSTS = Object.freeze({
+  RESULT_PROVENANCE: {
+    supersededBy: "PROVENANCE_NAMES_DEVICE",
+    note:
+      "Strengthened, not renamed: attribution is now by proof of possession " +
+      "— the result's signature must verify against the device the upstream " +
+      "granted the lease to — rather than by a provenance label travelling " +
+      "beside it. byollm_009 §11 states the stronger form.",
+  },
+} as const satisfies Record<string, { supersededBy: string; note: string }>);
 
 /** The id of any normative MUST. */
 export type MustId = keyof typeof MUSTS;

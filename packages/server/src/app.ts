@@ -300,7 +300,7 @@ export class ByollmApp {
    * Check `provenance.untrusted` before rendering. It is true for every
    * `named`/`public` job, because that text came from someone else's machine
    * and the app must not present it as its own AI's answer
-   * ({@link MUSTS.RESULT_PROVENANCE}).
+   * ({@link MUSTS.PROVENANCE_NAMES_DEVICE}).
    */
   async result(jobId: string): Promise<DeliveredResult | null> {
     const job = await this.job(jobId);

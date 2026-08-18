@@ -526,6 +526,21 @@ labelled rather than implied.
 | `FALLBACK_LABELED` | Work served by anything other than the user's own compute MUST be labelled as such wherever it is reported, and MUST NOT be silently substituted. | conformance |
 | `RELAY_BLIND` | A relay MUST NOT hold any key capable of decrypting a payload, a result, or a delta frame. | **operator** |
 | `SHARED_COMPUTE_DISCLOSED` | Before a user's work first runs on compute they do not own, they MUST be told in plain language that the machine's owner can see it. | **operator** |
+| `REQUESTS_SIGNED_NOT_BEARER` | Every authenticated request MUST be signed by the calling device's pinned identity key, over the endpoint, the runner id, a timestamp and the body. A bearer token MUST NOT be sufficient. | conformance |
+| `LEASE_SCOPED_BY_GRANT` | A lease-scoped request MUST name the lease it acts on, and a server MUST apply it only to that lease. Naming the job and the runner is not enough. | conformance |
+| `KEYS_EXCHANGED_AT_CONSENT` | Pairing MUST exchange both parties' public identities, and each side MUST verify that the encryption key is signed by the identity presenting it. | conformance |
+
+The last three rows were **added by Amendment A**, and they are the
+reverse of the drift §A.1–A.3 fixes. They were adjudicated in §4.2 and
+§5 of this spec, registered with checks, and enforced from the start —
+and were never written into this table. So §11 under-declared what this
+spec requires while §6 over-declared what the schema carried, and the
+registry was the only place either could be counted.
+
+That asymmetry is the reason the reconciliation needed a test rather
+than a reading. `musts-match-specs.test.ts` now reads this table and
+fails if an id sourced to byollm_009 is missing from it — which is how
+these three were found, rather than by anyone noticing.
 
 ### On the two operator-kind MUSTs
 

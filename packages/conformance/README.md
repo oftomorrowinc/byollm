@@ -1,5 +1,5 @@
 > [!WARNING]
-> **Alpha (`0.1.0-alpha.14`) — under active development. Don't use this yet.**
+> **Alpha (`0.1.0-alpha.15`) — under active development. Don't use this yet.**
 >
 > Install it deliberately: `npm install @byollm/conformance@alpha`.
 >
@@ -11,7 +11,20 @@
 > npm assigns `latest` on a first publish and won't let it be removed, so a
 > bare install resolves here too. This notice is the only guard — deliberately
 > not an npm deprecation, which would read as *abandoned* rather than *early*.
-> Ask for `@alpha` explicitly so your lockfile records that you meant to.
+> Ask for `@alpha` explicitly so your lockfile records that you meant to.>
+> **`alpha.15` is a breaking wire change, and it breaks daemons and relays —
+> not app authors.** If you call `app.enqueue(...)` and read results, nothing
+> in your code changes. If you run a daemon or an upstream, every package must
+> move together: a mixed pair refuses on both sides, because both ends parse
+> `.strict()`.
+>
+> What moved, all of it reconciling the frozen `byollm_009` with its code:
+> `JobStub` gains `site` (the site's identity key id) and loses
+> `audienceAllow`; `ResultRequest` gains `leaseId`; `HeartbeatResponse` loses
+> `leases`, which nothing read; `WireErrorCode` gains `not-ready`,
+> `clock-skew` and `forbidden`, and `403` is `forbidden` rather than
+> `unauthorized`. `RESULT_PROVENANCE` is superseded by
+> `PROVENANCE_NAMES_DEVICE`. See `byollm_009` Amendment A.
 
 # `@byollm/conformance`
 

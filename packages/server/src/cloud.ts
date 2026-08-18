@@ -254,6 +254,7 @@ export class CloudLane {
         runnerId: string;
         leaseId: string;
         device: PublicIdentity;
+        runnerOwner: string;
       }[];
     };
     for (const done of finished.jobs) {
@@ -280,7 +281,14 @@ export class CloudLane {
         provenance: provenanceFor({
           audience: record.audience,
           runnerId: done.runnerId,
-          runnerOwner: keyId(done.device.identity),
+          // The owner, from the relay's own record of who claimed it — not a
+          // key id. cloud_008 §2.5: this said `keyId(device.identity)`, which
+          // put a key id where the direct plane puts a user id, so an app
+          // comparing provenance across lanes compared two namespaces and got
+          // `false` for the same person. The device's key is still what the
+          // signature was verified against, above; that is a different
+          // question from whose machine it is.
+          runnerOwner: done.runnerOwner,
           backendClass: "http",
           model: "unknown",
         }),

@@ -372,6 +372,18 @@ export class SitePlane {
            * name a foreign device rather than guessing (cloud_004 §11.2).
            */
           device: job.claimedBy?.device,
+          /**
+           * Whose machine ran it — cloud_008 §2.5, finding 41.
+           *
+           * The relay has held this since the claim: `claimedBy.owner` is the
+           * owner id the *projection* supplied, in the same namespace the
+           * direct plane's `runnerOwner` uses. The cloud lane was filling that
+           * field with `keyId(device.identity)` instead — a key id where every
+           * other plane puts a user id, so an app comparing provenance across
+           * lanes compared two namespaces for equality and got `false` for
+           * the same person.
+           */
+          runnerOwner: job.claimedBy?.owner,
         }));
         return ok({ jobs });
       },

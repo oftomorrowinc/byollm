@@ -1,5 +1,10 @@
 import { randomUUID } from "node:crypto";
-import { cryptoReady, generateKeys, publicIdentityOf } from "@byollm/protocol";
+import {
+  cryptoReady,
+  generateKeys,
+  keyId,
+  publicIdentityOf,
+} from "@byollm/protocol";
 import {
   ByollmApp,
   MemoryStore,
@@ -278,6 +283,65 @@ describe.each(CASES)("the cloud lane over $name", (storeCase) => {
 
     const report = await app.cloud!.pump();
     expect(report.completed).not.toContain(handle.id);
+  });
+});
+
+describe("provenance names a person, not a key", () => {
+  /**
+   * cloud_008 §2.5, finding 41 — two owner namespaces compared for equality.
+   *
+   * The cloud lane filled `runnerOwner` with `keyId(device.identity)`. The
+   * direct plane fills it with the owner's id. Same field, same type, two
+   * different kinds of value — so an app asking "did my own machine run
+   * this?" across both lanes compared a key id to a user id and got `false`
+   * for the same person.
+   *
+   * The relay has held the right value since the claim: `claimedBy.owner`,
+   * supplied by the projection.
+   */
+  it("reports the owner the projection named, on both lanes alike", async () => {
+    const { store, owner } = await CASES[0]!.make();
+    const siteKeys = generateSiteKeys();
+    const site = publicIdentityOf(siteKeys);
+    const fixture = fixtureFor(site, {
+      consents: [{ owner, siteId: SITE_ID }],
+    });
+    const relay = new Relay({ siteId: SITE_ID, fixture });
+    const app = new ByollmApp({
+      store,
+      siteKeys,
+      lane: {
+        relayOrigin: "http://relay.test",
+        siteId: SITE_ID,
+        fetch: (i, init) => relay.handle(new Request(i, init)),
+      },
+    });
+    const daemon = await makeDaemon(relay, fixture, { owner, site });
+    disposers.push(daemon.dispose);
+
+    const job = await app.enqueue({
+      kind: "llm.generate",
+      owner,
+      audience: "self",
+      payload: { prompt: "whose machine ran this" },
+    });
+
+    for (let i = 0; i < 12; i += 1) {
+      await daemon.runner.tick();
+      await app.cloud!.pump();
+      if ((await store.get(job.id))?.state === "ok") break;
+      await new Promise((r) => setTimeout(r, 20));
+    }
+
+    const record = await store.get(job.id);
+    expect(record?.state).toBe("ok");
+    // A person, in the namespace consent and rosters are written in.
+    expect(record?.provenance?.runnerOwner).toBe(owner);
+    // And specifically not the device key id it used to be — stated so the
+    // regression is named rather than merely absent.
+    expect(record?.provenance?.runnerOwner).not.toBe(
+      keyId(publicIdentityOf(daemon.keys).identity),
+    );
   });
 });
 

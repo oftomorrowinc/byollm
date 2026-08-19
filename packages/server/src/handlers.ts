@@ -532,8 +532,15 @@ export class ByollmHandlers {
       model: outcome.value.ran.model,
     });
 
-    const { accepted, job: updated } = await this.#store.complete({
+    const {
+      accepted,
+      duplicate,
+      job: updated,
+    } = await this.#store.complete({
       jobId: request.jobId,
+      // Who is asking, for the duplicate answer only — §3.6. Authorisation
+      // is `holder`, below, and still is.
+      runnerId: runner.id,
       // The grant, not the runner — cloud_008 §1.4a. `CompleteHolder`'s own
       // docstring already called the lease "the more exact check anyway";
       // this plane simply had no lease id to give it until now.
@@ -545,6 +552,10 @@ export class ByollmHandlers {
 
     const response: ResultResponse = {
       accepted,
+      // Only when true — cloud_008 §3.6. Absent means "not a duplicate", and
+      // an optional field that is always present is a required one wearing a
+      // question mark.
+      ...(duplicate === true ? { duplicate: true } : {}),
       state: updated?.state ?? job.state,
     };
     return ok(response);

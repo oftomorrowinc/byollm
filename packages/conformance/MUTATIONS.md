@@ -5,7 +5,28 @@ one: it reports a gap as covered. This file records, for every check the kit
 ships, the smallest change to the reference server or daemon that **must**
 make it fail.
 
-## The rule, first, because everything below is an instance of it
+## Two rules, because everything below is an instance of one of them
+
+### A MUST enforced only as a side effect of another rule's refusal is coincident, not enforced
+
+> **The test: delete the branch named after it. Does its check fail?**
+
+`RESULT_IDEMPOTENT` failed this. `complete` nulls the lease on success, so a
+replayed result was refused for not holding the job and the terminal-state
+branch was never reached — deleting idempotency from the reference store broke
+nothing, and the conformance check said `RESULT_IDEMPOTENT` in its name.
+
+It mattered beyond tidiness because byollm_009 §4's argument for signing
+requests rather than issuing nonces _cites_ it: every write is idempotent per
+the instance it names. A MUST that another MUST's security case leans on
+cannot be one that holds because a null happens to trip first.
+
+The fix was an ordering — terminal state before holder, in all four stores at
+once — and the general shape is worth keeping: **when two rules can refuse the
+same request, the order decides which one you are actually enforcing.** Pick
+it deliberately, write it once, and make the check distinguish them.
+
+### The one below, which is about tests rather than design
 
 > **When a test cites a MUST, ask what other rule would also make it pass.
 > If the answer is "the rule you are replacing", the test is about the

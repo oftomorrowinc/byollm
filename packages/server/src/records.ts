@@ -46,6 +46,17 @@ export interface JobRecord {
   readonly dependsOn: readonly string[];
   readonly state: JobState;
   readonly lease: Lease | null;
+  /**
+   * The grant that recorded this job's result — cloud_008 §3.6.
+   *
+   * Kept after `lease` is nulled, because "who finished this" outlives "who
+   * holds this" and the two are asked for different reasons. It is what lets
+   * a replay from the device that finished the job be answered *as a
+   * duplicate* rather than as a stale lease — and lets a replay from any
+   * other device be refused exactly as it would be for a job that is not
+   * terminal, so a job id is not a terminality probe.
+   */
+  readonly completedByLeaseId: string | null;
   readonly createdAt: number;
   /**
    * When the job became claimable — enqueue time for a job with no

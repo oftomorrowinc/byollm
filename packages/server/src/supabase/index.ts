@@ -56,6 +56,7 @@ interface JobRow {
   state: JobState;
   lease_id: string | null;
   lease_runner: string | null;
+  completed_by_lease_id: string | null;
   lease_expires_at: string | null;
   claimable_at: string | null;
   ttl_ms: number;
@@ -117,6 +118,7 @@ function toJob(row: JobRow): JobRecord {
     audienceAllow: row.audience_allow ?? undefined,
     dependsOn: row.depends_on,
     state: row.state,
+    completedByLeaseId: row.completed_by_lease_id ?? null,
     lease:
       // Keyed on the lease id, not the runner. A relayed grant has no runner
       // row to point at (see AdoptArgs), and reading the lease as absent
@@ -385,6 +387,9 @@ export function supabaseStore(options: SupabaseStoreOptions): ByollmStore {
           state,
           lease_runner: null,
           lease_expires_at: null,
+          // Which grant recorded it, kept after the lease is dropped — §3.6.
+          completed_by_lease_id:
+            args.holder.by === "lease" ? args.holder.leaseId : null,
           outcome: args.outcome,
           provenance: args.provenance,
           updated_at: iso(args.now),
@@ -406,10 +411,29 @@ export function supabaseStore(options: SupabaseStoreOptions): ByollmStore {
             .eq("id", args.jobId)
             .maybeSingle(),
         );
-        return {
-          accepted: false,
-          job: current === null ? null : toJob(current),
-        };
+        const job = current === null ? null : toJob(current);
+        // Terminal before holder — cloud_008 §3.6. The update above matched
+        // nothing for one of two reasons, and the caller is owed the
+        // difference: the device that already recorded this job hears
+        // "duplicate", and anybody else hears the same refusal they would get
+        // for a job that is not terminal, so a job id is not a terminality
+        // probe.
+        //
+        // Decided on the row that is there rather than by a second predicate,
+        // because the update is the atomic part and this is only a diagnosis
+        // of why it matched nothing.
+        const duplicate =
+          job !== null &&
+          job.provenance?.runnerId === args.runnerId &&
+          (job.state === "ok" ||
+            job.state === "error" ||
+            job.state === "canceled") &&
+          args.holder.by === "lease" &&
+          job.completedByLeaseId !== null &&
+          job.completedByLeaseId === args.holder.leaseId;
+        return duplicate
+          ? { accepted: false, duplicate: true, job }
+          : { accepted: false, job };
       }
       return { accepted: true, job: toJob(written) };
     },

@@ -414,23 +414,46 @@ export class RelayState implements RoutingStore {
     envelope: SealedEnvelope;
     disposition: "ok" | "error" | "canceled";
   }): Promise<
-    { accepted: boolean; state: RoutedState } | { refused: HolderRefusal }
+    | { accepted: boolean; duplicate?: boolean; state: RoutedState }
+    | { refused: HolderRefusal }
   > {
     const job = this.#jobs.get(input.jobId);
     if (!job) return Promise.resolve({ refused: "not-found" });
     if (job.claimedBy?.runnerId !== input.runnerId) {
       return Promise.resolve({ refused: "not-holder" });
     }
-    // LEASE_HONORED per instance — cloud_008 §1.4a. The idempotency check
-    // below comes *after* this deliberately: a result under a grant that
-    // ended is not a replay of this job's result, it is a different device's
-    // work arriving late, and calling it `accepted: false` would tell the
-    // sender its result had already been recorded.
+    // Terminal before holder — cloud_008 §3.6, and the same order in all four
+    // stores.
+    //
+    // This file argued the opposite two days ago: that a result under a grant
+    // that ended is a different device's work arriving late rather than a
+    // replay, so the lease check should win. That is right for a job which is
+    // **not** terminal, and the two orders only ever disagree about a *done*
+    // job asked about under a stale grant — where "already recorded" is the
+    // more useful of two true statements, and "your lease is stale" invents a
+    // worry about an answer that is safely stored.
+    //
+    // The deciding argument is not comfort. byollm_009 §4's case for signing
+    // requests rather than issuing nonces rests on every write being
+    // idempotent per the instance it names, and on the direct plane
+    // `RESULT_IDEMPOTENT` was holding only because `complete` nulls the lease
+    // and the holder check tripped first. A MUST another MUST's security
+    // argument leans on cannot hold by coincidence.
+    //
+    // Scoped to the device that finished it: anyone else falls through to the
+    // holder check and gets the refusal they would get for a job that is not
+    // terminal, so a job id is not a terminality probe.
+    if (job.state === "done") {
+      const sameGrant = job.claimedBy.leaseId === input.leaseId;
+      return Promise.resolve(
+        sameGrant
+          ? { accepted: false, duplicate: true, state: job.state }
+          : { refused: "stale-lease" },
+      );
+    }
+    // LEASE_HONORED per instance — cloud_008 §1.4a.
     if (job.claimedBy.leaseId !== input.leaseId) {
       return Promise.resolve({ refused: "stale-lease" });
-    }
-    if (job.state === "done") {
-      return Promise.resolve({ accepted: false, state: job.state });
     }
     job.result = input.envelope;
     job.disposition = input.disposition;

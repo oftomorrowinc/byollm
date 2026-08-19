@@ -501,19 +501,14 @@ export const CHECKS: readonly Check[] = [
           "a site reported a replayed result as newly accepted",
         );
 
-        // **What this check can and cannot see** — cloud_008 Tier 3.6.
-        //
-        // The observable property is that the first answer survives, and that
-        // is asserted below. What a third party *cannot* tell from outside is
-        // which rule produced it: `complete` nulls the lease on success, so a
-        // replay fails the `LEASE_HONORED` check before the terminal-state
-        // check is ever consulted. Deleting idempotency from the reference
-        // store does not fail this check, and that mutation is recorded
-        // rather than hidden.
-        //
-        // Making the two distinguishable is an ordering decision across four
-        // store implementations (§3.6), not a fix to this file. Until it is
-        // ruled on, this check proves the outcome and says so.
+        // `duplicate`, not a stale-lease refusal — cloud_008 §3.6. The
+        // device whose acknowledgment was lost is told its answer is already
+        // recorded; the other message would invent a worry about a result
+        // that is safely on disk.
+        assert(
+          body.duplicate === true,
+          "a replay from the device that finished the job was not called a duplicate",
+        );
 
         // The property, not the boolean: the first answer is what survived.
         const after = await target.job(job.id);
@@ -521,6 +516,35 @@ export const CHECKS: readonly Check[] = [
           after?.outcome?.text === "the answer that counts",
           `a second result overwrote the first (${String(after?.outcome?.text)})`,
         );
+
+        // A *different* device, signed and sealed, submitting for a job that
+        // is already terminal. It must get exactly the refusal it would get
+        // for a job that is not terminal — otherwise the two answers differ
+        // and a job id becomes a terminality probe: anyone holding an id
+        // could learn whether the work had finished by watching which
+        // rejection came back.
+        const stranger = await pairDaemon(target, { owner: "alice" });
+        try {
+          const foreign = await postResult(target, stranger, {
+            jobId: job.id,
+            leaseId: claimed.lease.id,
+            outcome: { outcome: "ok", text: "not this device's to answer" },
+          });
+          const foreignBody = (await foreign
+            .json()
+            .catch(() => ({}))) as Record<string, unknown>;
+          assert(
+            foreignBody["duplicate"] !== true,
+            "a site told a device that never held this job it was a duplicate",
+          );
+          const stillFirst = await target.job(job.id);
+          assert(
+            stillFirst?.outcome?.text === "the answer that counts",
+            "a stranger's result overwrote a terminal job",
+          );
+        } finally {
+          await stranger.dispose();
+        }
       } finally {
         await daemon.dispose();
       }

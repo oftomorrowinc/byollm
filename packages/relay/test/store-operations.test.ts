@@ -509,7 +509,11 @@ describe("complete", () => {
     });
 
     expect(first).toEqual({ accepted: true, state: "done" });
-    expect(replay).toEqual({ accepted: false, state: "done" });
+    // `duplicate` — cloud_008 §3.6. The device that recorded this result is
+    // told it already did, rather than that its lease is stale: its answer is
+    // safely on disk, and the other message sends its owner looking for a
+    // routing problem that is not there.
+    expect(replay).toEqual({ accepted: false, duplicate: true, state: "done" });
     // The second result did not overwrite the first — which is the property,
     // not the boolean.
     expect((await state.job("a"))?.result).toEqual(ENVELOPE);

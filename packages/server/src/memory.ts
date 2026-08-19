@@ -83,6 +83,7 @@ export class MemoryStore implements ByollmStore {
       dependsOn,
       state: "queued",
       lease: null,
+      completedByLeaseId: null,
       createdAt: now,
       // The TTL clock starts here only if nothing blocks the job.
       claimableAt: blocked ? null : now,
@@ -247,11 +248,36 @@ export class MemoryStore implements ByollmStore {
 
     // First terminal outcome wins; a later submission is discarded, not
     // applied ({@link MUSTS.RESULT_IDEMPOTENT}).
+    // Terminal before holder — cloud_008 §3.6, and the same order in all four
+    // stores. `RESULT_IDEMPOTENT` used to hold only because `complete` nulls
+    // the lease, so a replay tripped the holder check first and the branch
+    // named after the MUST was never reached. A MUST that byollm_009 §4's
+    // case for signed requests leans on cannot hold by coincidence.
+    //
+    // **Scoped to the device that finished it.** A replay from that grant is
+    // a duplicate and is told so; anyone else falls through to the holder
+    // check and gets exactly the refusal they would get for a job that is not
+    // terminal. Answering them differently would make a job id a terminality
+    // probe.
     if (
       job.state === "ok" ||
       job.state === "error" ||
       job.state === "canceled"
     ) {
+      // The same device *and* the same grant. Either alone is not the
+      // device that finished the job: a lease id can be presented by whoever
+      // learned it, and a device can hold a later grant on a job it never
+      // completed.
+      const sameDevice =
+        job.provenance?.runnerId !== undefined &&
+        job.provenance.runnerId === args.runnerId;
+      const sameGrant =
+        args.holder.by === "lease" &&
+        job.completedByLeaseId !== null &&
+        job.completedByLeaseId === args.holder.leaseId;
+      if (sameDevice && sameGrant) {
+        return Promise.resolve({ accepted: false, duplicate: true, job });
+      }
       return Promise.resolve({ accepted: false, job });
     }
     if (job.state === "expired") {
@@ -279,6 +305,11 @@ export class MemoryStore implements ByollmStore {
       ...job,
       state,
       lease: null,
+      // The grant that recorded it, kept after the lease is dropped — §3.6.
+      completedByLeaseId:
+        args.holder.by === "lease"
+          ? args.holder.leaseId
+          : (job.lease?.id ?? null),
       outcome: args.outcome,
       provenance: args.provenance,
       updatedAt: args.now,
@@ -387,6 +418,7 @@ export class MemoryStore implements ByollmStore {
         ...job,
         state: "queued",
         lease: null,
+        completedByLeaseId: null,
         // Newly available again, so the TTL clock restarts here too.
         claimableAt: args.now,
         // A refusal is remembered, or the pair spins between claim and
@@ -426,6 +458,7 @@ export class MemoryStore implements ByollmStore {
           ...job,
           state: "queued",
           lease: null,
+          completedByLeaseId: null,
           // The TTL clock restarts: it measures how long a job has waited
           // *unclaimed*, and this job has just become available again. Without
           // this, a job whose runner died would expire for time it spent being
@@ -451,6 +484,7 @@ export class MemoryStore implements ByollmStore {
         ...job,
         state: "expired",
         lease: null,
+        completedByLeaseId: null,
         updatedAt: now,
       };
       this.#write(job.id, expired);
@@ -467,6 +501,7 @@ export class MemoryStore implements ByollmStore {
         ...job,
         state: "canceled",
         lease: null,
+        completedByLeaseId: null,
         updatedAt: now,
       };
       this.#write(jobId, canceled);

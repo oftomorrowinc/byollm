@@ -96,7 +96,8 @@ export interface RoutingStore {
     envelope: SealedEnvelope;
     disposition: "ok" | "error" | "canceled";
   }): Promise<
-    { accepted: boolean; state: RoutedState } | { refused: HolderRefusal }
+    | { accepted: boolean; duplicate?: boolean; state: RoutedState }
+    | { refused: HolderRefusal }
   >;
 
   /** Give back the grants this runner names. */

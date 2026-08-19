@@ -181,6 +181,20 @@ export type CompleteHolder =
 
 export interface CompleteArgs {
   readonly jobId: string;
+  /**
+   * The authenticated caller — cloud_008 §3.6, and for the duplicate answer
+   * only.
+   *
+   * Never for authorisation: {@link CompleteHolder} decides whether this
+   * write may happen, and that has not changed. This decides which of two
+   * refusals a caller is owed once the write is refused.
+   *
+   * It exists because a *grant* is not a device. Scoping the duplicate answer
+   * to the lease id alone let a second daemon replay under a lease id it had
+   * learned and be told "already recorded" — which is both untrue and a
+   * terminality probe. Found by writing C010's third case.
+   */
+  readonly runnerId: string;
   /** Who claims to hold this job. Both variants are checked, never trusted. */
   readonly holder: CompleteHolder;
   readonly outcome: JobOutcome;
@@ -189,8 +203,22 @@ export interface CompleteArgs {
 }
 
 export interface CompleteResult {
-  /** False when this submission lost an idempotency race or the lease was gone. */
+  /** False when this submission wrote nothing. */
   readonly accepted: boolean;
+  /**
+   * True when the caller is the device that already recorded this result.
+   *
+   * cloud_008 §3.6. `RESULT_IDEMPOTENT` used to hold as a *side effect* of
+   * `LEASE_HONORED`: `complete` nulls the lease on success, so a replay was
+   * refused for not holding the job and the idempotency branch was never
+   * reached. Deleting that branch failed no check.
+   *
+   * byollm_009 §4's case for signing requests rather than issuing nonces
+   * rests on every write being idempotent per the instance it names. A MUST
+   * that another MUST's security argument leans on cannot be one that holds
+   * only because a null happened to trip first.
+   */
+  readonly duplicate?: boolean;
   readonly job: JobRecord | null;
 }
 

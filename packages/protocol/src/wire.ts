@@ -446,11 +446,24 @@ export type ResultRequest = z.infer<typeof ResultRequest>;
 export const ResultResponse = z
   .object({
     /**
-     * False when the submission lost an idempotency race or the lease was
-     * already gone — the daemon should discard, not retry
-     * ({@link MUSTS.RESULT_IDEMPOTENT}).
+     * False when this submission wrote nothing — the daemon should discard,
+     * not retry ({@link MUSTS.RESULT_IDEMPOTENT}).
      */
     accepted: z.boolean(),
+    /**
+     * True when this device had already recorded this job's result.
+     *
+     * The difference between "already recorded" and "you no longer hold this"
+     * — cloud_008 §3.6. A daemon whose acknowledgment was lost is in the first
+     * case and needs to hear it: its answer is safely on disk. Reporting a
+     * stale lease instead invents a worry about a result that is already
+     * stored, and sends its owner looking for a routing problem.
+     *
+     * Set only for the device that finished the job. A different device gets
+     * the same refusal it would get for a job that is *not* terminal, so a job
+     * id cannot be used as a terminality probe.
+     */
+    duplicate: z.boolean().optional(),
     /** The job's state after this submission. */
     state: z.string().min(1),
   })

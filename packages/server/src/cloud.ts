@@ -273,6 +273,8 @@ export class CloudLane {
       // relay is not more trustworthy for having travelled further.
       await this.#store.complete({
         jobId: done.jobId,
+        // The relay named the device; the signature above proved it — §3.6.
+        runnerId: done.runnerId,
         // The grant, not the machine: this site never paired with the device
         // that ran it, and the signature it verified above is the stronger
         // claim about who did.

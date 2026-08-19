@@ -162,6 +162,35 @@ export const CHECKS: readonly Check[] = [
           daemon.backend.seen.length > before,
           "the advertised kind never reached the backend",
         );
+
+        // The negative, which this check's own comment claimed was "covered
+        // by the capability filter below" and which was not below or anywhere
+        // — cloud_008 Tier 3. It asserted only that an advertised kind runs,
+        // under a title about a kind never being handed over, citing
+        // `CLAIM_REQUIRES_CAPABILITY` while never withholding anything.
+        //
+        // Claimed raw, advertising one kind, so the *server's* matching is
+        // what decides. Through a daemon this proves nothing: a daemon
+        // refuses a kind it has no route for, and the job stays queued either
+        // way.
+        const chat = await target.enqueue({
+          kind: "llm.chat",
+          payload: { messages: [{ role: "user", content: "not for you" }] },
+          owner: "alice",
+        });
+        const generateOnly = await claimRaw(target, daemon, [
+          {
+            kind: "llm.generate",
+            backendId: "openai-http",
+            backendClass: "http",
+            model: "echo-model",
+            offerScope: "self",
+          },
+        ]);
+        assert(
+          !generateOnly.some((offered) => offered.id === chat.id),
+          "a server offered `llm.chat` to a claim advertising only `llm.generate`",
+        );
       } finally {
         await daemon.dispose();
       }
@@ -182,7 +211,7 @@ export const CHECKS: readonly Check[] = [
 
       // Claim it, then stop existing — no release, no heartbeat.
       dead.backend.hangMs = 60_000;
-      await dead.runner.tick();
+      const firstLease = await claimOne(target, dead);
       await waitFor(
         async () => {
           const state = await target.job(job.id);
@@ -203,12 +232,68 @@ export const CHECKS: readonly Check[] = [
         label: "alive",
       });
       try {
-        await alive.runner.tick();
-        await waitFor(async () => (await target.job(job.id))?.state === "ok", {
-          what: "the reclaimed job to complete",
+        // The stale-holder case goes **here**, while the reclaimed job is
+        // still live — cloud_008 Tier 3, and this is the third time in this
+        // file that ordering decided which rule a test observes.
+        //
+        // Written after the reclaiming daemon finished, it proved nothing:
+        // §3.6 checks terminal state before the holder, so a submission
+        // against a completed job is refused as not-current regardless of who
+        // holds it, and deleting the holder check failed nothing. A stale
+        // holder is only *stale* while somebody else's grant is live.
+        const reclaimed = await claimOne(target, alive);
+        assert(
+          reclaimed.id === job.id,
+          "the reclaiming daemon did not get the job",
+        );
+
+        // `LEASE_HONORED`, which this check has cited since it was written
+        // and never exercised — cloud_008 Tier 3. Reclaim is
+        // `LEASE_RECLAIMABLE`; the dead daemon never submitted anything, so
+        // nothing here ever asked whether a stale holder may write.
+        //
+        // It is the natural end of this check's own story. The machine that
+        // vanished comes back, finishes the work it started, and submits
+        // under the grant it still believes it holds — which is not
+        // hypothetical, it is what a laptop that slept does.
+        const late = await postResult(target, dead, {
+          jobId: job.id,
+          leaseId: firstLease.lease.id,
+          outcome: { outcome: "ok", text: "from the machine that vanished" },
         });
+        const lateBody = (await late.json().catch(() => ({}))) as {
+          accepted?: boolean;
+        };
+        assert(
+          lateBody.accepted !== true,
+          "a site accepted a result from a runner whose lease had lapsed",
+        );
+
+        const midflight = await target.job(job.id);
+        assert(
+          !midflight?.outcome,
+          "a lapsed holder's result was recorded over a live grant",
+        );
+
+        // And the current holder still finishes it — a refusal that also
+        // broke the reclaim would pass every assertion above.
+        const proper = await postResult(target, alive, {
+          jobId: job.id,
+          leaseId: reclaimed.lease.id,
+          outcome: { outcome: "ok", text: "from the machine that took over" },
+        });
+        assert(
+          proper.status === 200,
+          `the reclaiming daemon could not finish the job (${String(proper.status)})`,
+        );
+        const final = await target.job(job.id);
+        assert(
+          final?.outcome?.text === "from the machine that took over",
+          "the reclaimed job did not record the current holder's result",
+        );
       } finally {
         await alive.dispose();
+        await dead.dispose();
       }
     },
   },

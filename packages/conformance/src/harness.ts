@@ -500,8 +500,14 @@ export async function claimOne(
 export async function claimRaw(
   target: ConformanceTarget,
   daemon: HarnessDaemon,
+  /**
+   * What this claim advertises, when the check needs to advertise less than
+   * the daemon can do. Defaults to everything it detects.
+   */
+  capabilityOverride?: readonly Capability[],
 ): Promise<ClaimedStub[]> {
-  const capabilities = await daemon.runner.detectCapabilities();
+  const capabilities =
+    capabilityOverride ?? (await daemon.runner.detectCapabilities());
   const body = JSON.stringify({
     protocolVersion: PROTOCOL_VERSION,
     runnerId: daemon.runnerId,

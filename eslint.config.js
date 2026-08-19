@@ -86,7 +86,21 @@ export default tseslint.config(
     },
   },
   {
-    files: ["**/*.test.ts", "**/test/**/*.ts", "packages/conformance/**/*.ts"],
+    files: [
+      "**/*.test.ts",
+      "**/test/**/*.ts",
+      "packages/conformance/**/*.ts",
+      // Test code that has to be published — cloud_008 finding 54.
+      //
+      // The store contract runs against implementations in another
+      // repository, so it ships in the package rather than sitting beside
+      // the tests. It reads like a test because it is one; `granted!` after
+      // an assertion that the array has an element is the shape every case
+      // in this project uses, and rewriting sixteen of them to satisfy a
+      // rule about production code would make them worse to read and easier
+      // to get wrong in the translation.
+      "packages/relay/src/store-contract.ts",
+    ],
     rules: {
       "@typescript-eslint/no-non-null-assertion": "off",
       "@typescript-eslint/no-unsafe-assignment": "off",

@@ -1,6 +1,6 @@
 {
   "name": "@byollm/relay",
-  "version": "0.1.0-alpha.22",
+  "version": "0.1.0-alpha.23",
   "type": "module",
   "description": "The reference relay: routes sealed byollm jobs between sites and daemons, holding no decryption keys by construction.",
   "license": "MIT",
@@ -19,6 +19,10 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
+    },
+    "./store-contract": {
+      "types": "./dist/store-contract.d.ts",
+      "import": "./dist/store-contract.js"
     }
   },
   "files": [
@@ -39,6 +43,15 @@
     "byollm": "workspace:*",
     "@byollm/server": "workspace:*",
     "@supabase/supabase-js": "^2.112.2",
-    "@byollm/conformance": "workspace:*"
+    "@byollm/conformance": "workspace:*",
+    "vitest": "^4.1.10"
+  },
+  "peerDependencies": {
+    "vitest": ">=3"
+  },
+  "peerDependenciesMeta": {
+    "vitest": {
+      "optional": true
+    }
   }
 }

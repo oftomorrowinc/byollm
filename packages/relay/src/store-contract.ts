@@ -211,6 +211,44 @@ export function describeStoreContract(
       await done();
     });
 
+    it("will not answer for one job with another job's lease", async () => {
+      // cloud_009 §3. Holder-scoped calls carry a lease id and no site, so the
+      // store resolves the job *from the lease* — and a lease id belonging to a
+      // different job must not be a way to reach that job's payload.
+      //
+      // A mutation that dropped the "does this lease's job match the id the
+      // caller named" check survived every other case in this contract, on both
+      // implementations, because nothing else here ever presents a mismatched
+      // pair. The holder of a valid grant is exactly the party who could try
+      // it.
+      const { store, done } = await make();
+      await store.enqueue({ id: "mine", siteId: SITE, stub: stub("mine") });
+      await store.enqueue({ id: "other", siteId: SITE, stub: stub("other") });
+      const granted = await store.claim(claimArgs());
+      const mine = granted.find((job) => job.id === "mine");
+      const other = granted.find((job) => job.id === "other");
+      await store.seal({ jobId: "other", siteId: SITE, envelope: ENVELOPE });
+
+      // The right runner, a real lease, the wrong job.
+      expect(
+        await store.takePayload({
+          jobId: "other",
+          runnerId: "runner_1",
+          leaseId: mine!.lease.id,
+        }),
+      ).toEqual({ refused: "stale-lease" });
+
+      // And the honest pairing still works, so this is not "refuse everything".
+      expect(
+        await store.takePayload({
+          jobId: "other",
+          runnerId: "runner_1",
+          leaseId: other!.lease.id,
+        }),
+      ).toEqual({ envelope: ENVELOPE });
+      await done();
+    });
+
     it("renews a grant it still holds, and extends the sweep with it", async () => {
       // cloud_008 §0.6, at the contract level: renewal has to be one operation,
       // because between a read and a write another replica can sweep the lease

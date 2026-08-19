@@ -100,7 +100,7 @@ export {
  * define: an app's runner list shows this string, so a stale one is a lie
  * told to every user, and a literal that a test pins cannot drift quietly.
  */
-export const DAEMON_VERSION = "0.1.0-alpha.26";
+export const DAEMON_VERSION = "0.1.0-alpha.27";
 
 /**
  * Everything needed to reason about one daemon — byollm_010 §5.

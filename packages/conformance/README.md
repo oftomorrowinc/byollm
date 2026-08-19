@@ -1,5 +1,5 @@
 > [!WARNING]
-> **Alpha (`0.1.0-alpha.17`) — under active development. Don't use this yet.**
+> **Alpha (`0.1.0-alpha.18`) — under active development. Don't use this yet.**
 >
 > Install it deliberately: `npm install @byollm/conformance@alpha`.
 >
@@ -38,7 +38,28 @@
 > cancellations instead of an empty list. `WireErrorCode` gains `forbidden`
 > for 403, leaving `unauthorized` at exactly 401. The relay gained a
 > site-plane `cancel` endpoint, honours `stub.deadlineAt`, honours
-> `stub.audience`, and remembers a refusal.
+> `stub.audience`, and remembers a refusal.>
+> **`alpha.17` is additive** — no wire change. It exports `ReleaseReason`,
+> which `RoutingStore.releaseLeases` names and the package did not export, so
+> the interface was unimplementable outside this repo.>
+> **`alpha.18` is a breaking wire change — daemons and relays, not app
+> authors.** `app.enqueue(...)` and reading results are unchanged. All five
+> packages move together.
+>
+> The **bearer token is gone**: off `PairPollResponse`, off the runner row,
+> off the daemon's pairings file, out of the adapter's schema. It was minted,
+> hashed and stored on two disks and never sent, looked up or compared —
+> `REQUESTS_SIGNED_NOT_BEARER` was enforced by signatures the whole time. If
+> you run the Supabase adapter, apply
+> `20260819000000_drop_runner_token.sql`; `byollm_approve_pairing` now takes
+> one argument. A pairings file written by an older daemon still loads.
+>
+> `model`, `backendClass` and `durationMs` moved **inside** the sealed result
+> (`SealedOutcome = { outcome, ran }`), so a daemon cannot declare a model it
+> did not sign and a relay carries none of them. Writing a `RoutingStore`?
+> `releaseLeases` takes an optional `reason` and `complete` requires
+> `leaseId`, and **an implementation that ignores either still typechecks** —
+> run the store contract tests.
 
 # `@byollm/conformance`
 

@@ -1,6 +1,7 @@
 import { cryptoReady, generateKeys, publicIdentityOf } from "@byollm/protocol";
 import { beforeAll, describe, expect, it } from "vitest";
 import { AWAITING_PAYLOAD_MS, RelayState } from "../src/index.js";
+import { routeKey } from "../src/state.js";
 
 /**
  * The routing store's operations, each tested for the guard it carries.
@@ -49,9 +50,8 @@ const claimArgs = (over: Partial<Parameters<RelayState["claim"]>[0]> = {}) => ({
   runnerId: "runner_1",
   owner: "alice",
   device: KEYS(),
-  siteId: SITE,
   kinds: new Set(["llm.generate"]),
-  owners: new Set(["alice"]),
+  routes: new Set([routeKey(SITE, "alice")]),
   max: 10,
   leaseMs: 60_000,
   ...over,
@@ -157,7 +157,7 @@ describe("audience, which the relay was ignoring", () => {
       // The Team owner's machine: it may run its own work and every roster
       // member's — which is exactly the projection this test is about.
       owner: "owner",
-      owners: new Set(["owner", "alice"]),
+      routes: new Set([routeKey(SITE, "owner"), routeKey(SITE, "alice")]),
       ...over,
     });
 
@@ -186,7 +186,7 @@ describe("audience, which the relay was ignoring", () => {
     });
 
     const granted = await state.claim(
-      claimArgs({ owner: "alice", owners: new Set(["alice"]) }),
+      claimArgs({ owner: "alice", routes: new Set([routeKey(SITE, "alice")]) }),
     );
     expect(granted.map((job) => job.id)).toEqual(["private"]);
   });

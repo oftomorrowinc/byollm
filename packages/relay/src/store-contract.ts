@@ -1,5 +1,6 @@
 import { generateKeys, publicIdentityOf, type JobStub } from "@byollm/protocol";
 import { describe, expect, it } from "vitest";
+import { routeKey } from "./state.js";
 import type { RoutingStore } from "./store.js";
 
 /**
@@ -63,17 +64,31 @@ const ENVELOPE = {
   deadlineAt: 4_102_444_800_000,
 };
 
-const claimArgs = (over: Record<string, unknown> = {}) => ({
-  runnerId: "runner_1",
-  owner: "alice",
-  device: publicIdentityOf(generateKeys(Date.now())),
-  siteId: SITE,
-  kinds: new Set(["llm.generate"]),
-  owners: new Set(["alice"]),
-  max: 10,
-  leaseMs: 60_000,
-  ...over,
-});
+/**
+ * A claim, with its routes written out — cloud_009 §3.
+ *
+ * `routes` replaced `siteId` + `owners`, and the cases that pass `owners`
+ * below now pass the pairs those owners are reachable through. That rewrite
+ * is the contract's own statement of the rule: there is no way to express
+ * "this owner, any site" here, because that is not a thing consent says.
+ */
+const claimArgs = (
+  over: { owners?: string[]; sites?: string[] } & Record<string, unknown> = {},
+) => {
+  const { owners = ["alice"], sites = [SITE], ...rest } = over;
+  return {
+    runnerId: "runner_1",
+    owner: "alice",
+    device: publicIdentityOf(generateKeys(Date.now())),
+    kinds: new Set(["llm.generate"]),
+    routes: new Set(
+      sites.flatMap((site) => owners.map((owner) => routeKey(site, owner))),
+    ),
+    max: 10,
+    leaseMs: 60_000,
+    ...rest,
+  };
+};
 
 export interface StoreContractOptions {
   /**
@@ -309,7 +324,7 @@ export function describeStoreContract(
 
       // A roster owner's machine: may run alice's work in general.
       const granted = await store.claim(
-        claimArgs({ owner: "owner", owners: new Set(["owner", "alice"]) }),
+        claimArgs({ owner: "owner", owners: ["owner", "alice"] }),
       );
 
       expect(granted).toEqual([]);
@@ -325,7 +340,7 @@ export function describeStoreContract(
         stub: { ...stub("private", "alice"), audience: "self" },
       });
       const granted = await store.claim(
-        claimArgs({ owner: "alice", owners: new Set(["alice"]) }),
+        claimArgs({ owner: "alice", owners: ["alice"] }),
       );
       expect(granted.map((job) => job.id)).toEqual(["private"]);
       await done();

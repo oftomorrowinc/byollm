@@ -214,7 +214,9 @@ describe("the site set a pairing covers", () => {
     ]);
     // And nothing routes under it.
     expect(relay.projection.mayRouteFor("alice", SITE_ID)).toBe(false);
-    expect(relay.projection.routableOwners("alice", SITE_ID)).toEqual([]);
+    // And no route: `routesFor` is the claim filter, and a paused consent
+    // contributes no (site, owner) pair to it — cloud_009 §3.
+    expect(relay.projection.routesFor("alice").size).toBe(0);
   });
 
   it("names only the sites this owner consented to", () => {

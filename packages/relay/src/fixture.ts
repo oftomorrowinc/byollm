@@ -1,4 +1,5 @@
 import { PublicIdentity } from "@byollm/protocol";
+import { routeKey } from "./state.js";
 import { z } from "zod";
 
 /**
@@ -312,29 +313,38 @@ export class Projection {
   }
 
   /**
-   * Whose work this device may run for this site — the set a claim carries.
+   * Every (site, owner) route this device may run — cloud_009 §3.
    *
-   * {@link Projection.ownersRunnableBy} collapsed and then filtered by
-   * consent, which is two things this relay was doing in one place and one
-   * place respectively:
+   * The claim filter, collapsed to data a store can match on. `routableOwners`
+   * was this for one site; the hub needs it for the set, and the shape had to
+   * change rather than repeat, because **a set of sites and a set of owners
+   * multiply**. A device whose owner consented to site A, serving a roster
+   * member who consented to site B, appears in both sets and has no consented
+   * route between them. Pairs cannot express a route nobody agreed to.
    *
-   * - **The device's own owner is checked first**, and an unroutable one
-   *   empties the whole set. A machine whose owner has not agreed to this
-   *   site's current terms runs nothing for it, including a roster member's
-   *   work: the roster says whose jobs may land here, and consent says
-   *   whether this machine is available to the site at all.
-   * - **Every job owner is checked too.** That check did not exist. Consent
-   *   was enforced by the daemon plane's blanket revoked guard, which asks
-   *   only about the *claiming* device's owner — so a roster member who never
-   *   consented to a site could have their work claimed by their admin's
-   *   machine, which is `CONSENT_BEFORE_ROUTE` read the other way round. The
-   *   site plane does not check consent at enqueue either, so nothing did.
+   * Both halves of the rule are here, and neither was enforced before finding
+   * 48's work:
+   *
+   * - **This machine's owner** must have a live consent for the site, or
+   *   nothing of that site's runs here at all — including a roster member's
+   *   work. The roster says whose jobs may land on this machine; consent says
+   *   whether this machine is available to that site.
+   * - **Each job's owner** must have one too. That check did not exist:
+   *   consent was enforced by the daemon plane's blanket revoked guard, which
+   *   asks only about the claiming device's owner, so a roster member who
+   *   never consented to a site could have their work claimed by their admin's
+   *   machine — `CONSENT_BEFORE_ROUTE` read the other way round.
    */
-  routableOwners(deviceOwner: string, siteId: string): string[] {
-    if (!this.mayRouteFor(deviceOwner, siteId)) return [];
-    return this.ownersRunnableBy(deviceOwner).filter((owner) =>
-      this.mayRouteFor(owner, siteId),
-    );
+  routesFor(deviceOwner: string): Set<string> {
+    const routes = new Set<string>();
+    for (const site of this.#fixture.sites) {
+      if (!this.mayRouteFor(deviceOwner, site.siteId)) continue;
+      for (const owner of this.ownersRunnableBy(deviceOwner)) {
+        if (!this.mayRouteFor(owner, site.siteId)) continue;
+        routes.add(routeKey(site.siteId, owner));
+      }
+    }
+    return routes;
   }
 
   /**

@@ -173,15 +173,36 @@ export interface ClaimInput {
   readonly runnerId: string;
   readonly owner: string;
   readonly device: PublicIdentity;
-  /** The site this relay routes for. Multi-tenancy widens this to a set. */
-  readonly siteId: string;
-  /** Job kinds this device can actually run. */
+  /**
+   * The (site, owner) pairs this device may run work for — cloud_009 §3.
+   *
+   * **One set of pairs, not a set of sites and a set of owners.** Consent
+   * binds a user to a site, so the two cannot travel separately: a device
+   * whose owner consented to site A, serving a roster member who consented
+   * to site B, would have every element of both sets and no consented route
+   * between them. Two sets multiply; consent does not.
+   *
+   * Built by {@link Projection.routesFor} and matched with {@link routeKey},
+   * so the relay and a store in another repository agree on the encoding by
+   * calling the same function rather than by both spelling it out.
+   *
+   * This is the collapse that lets a claim stay one operation: a predicate
+   * cannot travel to a store over a network, and a set can.
+   */
+  readonly routes: ReadonlySet<string>;
   readonly kinds: ReadonlySet<string>;
-  /** Whose work it may run — the projection, already collapsed to data. */
-  readonly owners: ReadonlySet<string>;
   readonly max: number;
   readonly leaseMs: number;
 }
+
+/**
+ * How a (site, owner) route is written, so two implementations agree.
+ *
+ * The same `\u0000` the job key uses, for the same reason: it cannot appear
+ * in a site id or an owner id, so this is a key rather than a parser.
+ */
+export const routeKey = (siteId: string, owner: string): string =>
+  `${siteId}\u0000${owner}`;
 
 /**
  * Where the store's sense of time comes from — cloud_006 §3.4.
@@ -410,10 +431,11 @@ export class RelayState implements RoutingStore {
     for (const job of this.#jobs.values()) {
       if (granted.length >= input.max) break;
       if (job.state !== "queued") continue;
-      // Only this relay's site. A device paired against one site's key and
-      // pinned it; a job from another site could only ever produce an envelope
-      // it refuses to open — contained by the crypto, and still a burned job.
-      if (job.siteId !== input.siteId) continue;
+      // The route, as one lookup, because consent is about the pair — a
+      // device whose owner consented to site A, serving a roster member who
+      // consented to site B, is in both a set of sites and a set of owners
+      // and has no consented route between them.
+      if (!input.routes.has(routeKey(job.siteId, job.stub.owner))) continue;
       if (!input.kinds.has(job.stub.kind)) continue;
       // Already declined by this device — `REFUSAL_NOT_REOFFERED`, §2.1.
       if (job.refusedBy.includes(input.runnerId)) continue;
@@ -421,13 +443,13 @@ export class RelayState implements RoutingStore {
       if (job.cancelled) continue;
       // The relay's half of AUDIENCE_BOTH_SIDES. The daemon re-checks its own
       // allowlist and may still refuse — this only ever narrows.
-      if (!input.owners.has(job.stub.owner)) continue;
-      // `self` means the owner's own machines, and `owners` cannot express
-      // that — cloud_008 §2.1.
+
+      // `self` means the owner's own machines, and the route set cannot
+      // express that — cloud_008 §2.1.
       //
-      // `owners` is `ownersRunnableBy(deviceOwner)`: every person whose work
-      // this device may run, which for a Team owner's machine includes every
-      // roster member. Correct for `public` and `named`, and wrong for
+      // The routes are every (site, owner) this device may run for, which for
+      // a Team owner's machine includes every roster member. Correct for
+      // `public` and `named`, and wrong for
       // `self`: a roster member's private job was offered to the owner's
       // daemon, which refused it locally and released it, and the relay
       // offered it straight back. The ping-pong was the visible symptom; the

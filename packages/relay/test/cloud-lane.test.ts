@@ -15,6 +15,7 @@ import { supabaseStore } from "@byollm/server/supabase";
 import { createClient } from "@supabase/supabase-js";
 import { afterEach, beforeAll, describe, expect, it } from "vitest";
 import { Relay } from "../src/index.js";
+import { routeKey } from "../src/state.js";
 import { SITE_ID, fixtureFor, makeDaemon } from "./harness.js";
 
 /**
@@ -398,9 +399,8 @@ describe("the site's own row decides whether to seal", () => {
       runnerId: "runner_x",
       owner,
       device,
-      siteId: SITE_ID,
       kinds: new Set(["llm.generate"]),
-      owners: new Set([owner]),
+      routes: new Set([routeKey(SITE_ID, owner)]),
       max: 1,
       leaseMs: 60_000,
     });

@@ -1,5 +1,5 @@
 > [!WARNING]
-> **Alpha (`0.1.0-alpha.21`) — under active development. Don't use this yet.**
+> **Alpha (`0.1.0-alpha.22`) — under active development. Don't use this yet.**
 >
 > Install it deliberately: `npm install @byollm/conformance@alpha`.
 >
@@ -79,7 +79,7 @@
 > packages published and `@byollm/server` did not: a Sigstore
 > transparency-log 409 on its provenance attestation. The workflow's
 > "already published" guard correctly refuses to resume a partial publish,
-> so `0.1.0-alpha.21` is that release, whole.
+> so `0.1.0-alpha.22` is that release, whole.
 >
 > If you run the Supabase adapter, `alpha.21` needs
 > `20260819010000_completed_by_lease_id.sql`: alpha.19 shipped §3.6's

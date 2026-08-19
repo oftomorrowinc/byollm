@@ -15,3 +15,4 @@ byollm.config.json
 # `pnpm pack` output, staged by the release workflow.
 dist-tarballs/
 *.tgz
+.verified

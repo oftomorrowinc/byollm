@@ -33,6 +33,20 @@ export type MustEnforcer = "daemon" | "server" | "both";
  *   someone else's, so the kit cannot carry it.
  * - `construction` — true by the shape of the code, where a test could only
  *   sample. A reviewer verifies it; a suite cannot.
+ * ## When a MUST binds both sides — cloud_008 Tier 3
+ *
+ * `AUDIENCE_BOTH_SIDES` says the server and the daemon each enforce. The kit
+ * passed **entirely** with the server's half deleted: every check drove a real
+ * daemon, and a daemon refuses locally, so "the job did not run" looked
+ * identical whichever side refused it. A full-honest-stack test proves only
+ * the conjunction.
+ *
+ * So a `both`-enforced MUST needs **one check per party, each with the honest
+ * counterpart removed** — C032 claims over the raw protocol precisely so no
+ * daemon admission logic runs. Where a check strips one side, its comment
+ * says which; where a MUST is enforced by both and only one side is checked,
+ * that is a gap rather than coverage.
+ *
  * - `operator` — a claim about how someone runs a deployment, verifiable only
  *   by audit or by reading source. The honest category, and the one that
  *   exists so a property nobody can check from outside is *labelled* as such

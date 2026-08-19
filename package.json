@@ -18,12 +18,13 @@
     "adversarial": "vitest run --project adversarial",
     "knip": "knip",
     "dupes": "jscpd packages --config .jscpd.json",
-    "verify": "pnpm run format:check && pnpm run build && pnpm run smoke && pnpm run check:site && pnpm run lint && pnpm run typecheck && pnpm run test:coverage && pnpm run knip",
+    "verify": "pnpm run format:check && pnpm run build && pnpm run smoke && pnpm run check:site && pnpm run lint && pnpm run typecheck && pnpm run test:coverage && pnpm run knip && node scripts/record-verified.mjs",
     "smoke": "pnpm --filter byollm run smoke",
     "check:site": "node scripts/check-site.mjs",
     "test:unit": "vitest run --project unit",
     "freeze-gate": "vitest run --project relay",
-    "release:check": "node scripts/release-check.mjs"
+    "release:check": "node scripts/release-check.mjs",
+    "hooks:install": "node scripts/install-hooks.mjs"
   },
   "devDependencies": {
     "@changesets/cli": "^2.31.1",

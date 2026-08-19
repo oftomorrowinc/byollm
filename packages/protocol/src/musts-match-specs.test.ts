@@ -58,14 +58,12 @@ describe("the registry covers what the specs declare", () => {
     // changes, or the specs move, this fails rather than reporting perfect
     // coverage of an empty set.
     //
-    // Eleven, not thirty-eight, and that gap is a finding rather than a
-    // threshold to lower: **byollm_009 is the only spec that declares its
-    // MUSTs in a table.** The other 34 registry entries are adjudicated in
-    // prose across 001–008, so there is nothing to parse them from. The
-    // registry is their only enumerated home, which is exactly the asymmetry
-    // that let §11's eleven drift from it unnoticed — recorded as cloud_008
-    // §1.3b.
-    expect(declared.size).toBeGreaterThanOrEqual(11);
+    // It used to say eleven, because byollm_009 was the only spec with a
+    // table and the other 34 entries were adjudicated in prose — so the
+    // registry was their only enumerated home, which is the asymmetry that
+    // let §11's own eleven drift from it unnoticed. cloud_008 Tier 4 §1.3b
+    // gave 001, 002, 004 and 007 tables of their own.
+    expect(declared.size).toBeGreaterThanOrEqual(MUST_IDS.length);
   });
 
   it("has an entry for every declared MUST", () => {
@@ -87,25 +85,29 @@ describe("the registry covers what the specs declare", () => {
     ).toEqual([]);
   });
 
-  it("does not invent a MUST inside the spec that has a table", () => {
-    // The other direction, scoped to where it can be asked honestly.
-    //
-    // It cannot be asked of the registry as a whole: 34 entries are declared
-    // in prose, so "declared in no table" would be true of almost all of
-    // them and the assertion would be about the specs' formatting rather
-    // than about anyone's rules. What *can* be asked is the converse within
-    // byollm_009 — every id it sources must be one it declares — which is
-    // the drift that actually happened, in both directions, in one spec.
-    const sourced = MUST_IDS.filter((id) =>
-      MUSTS[id].source.startsWith("byollm_009"),
-    );
-    const undeclared = sourced.filter((id) => !declared.has(id)).sort();
+  it("declares every registry entry in some spec", () => {
+    // The direction that catches a rule with no author: a MUST invented in
+    // code, enforced by it, and adjudicated nowhere. Askable across the whole
+    // registry now that every spec has a table — it was scoped to byollm_009
+    // before, and even scoped it found three orphans on its first run.
+    const orphans = MUST_IDS.filter((id) => !declared.has(id)).sort();
     expect(
-      undeclared,
-      undeclared.length === 0
+      orphans,
+      orphans.length === 0
         ? ""
-        : `sourced to byollm_009 but absent from its §11 table: ${undeclared.join(", ")}`,
+        : `in the registry, declared in no spec table: ${orphans.join(", ")}`,
     ).toEqual([]);
+  });
+
+  it("declares each MUST in exactly one spec", () => {
+    // Two homes is two places to revise and one to forget. The tables index
+    // rather than restate, so a duplicate is cheap to create and invisible
+    // until somebody edits the copy nobody reads.
+    const twice = [...declared.entries()]
+      .filter(([, files]) => new Set(files).size > 1)
+      .map(([id, files]) => `${id} (${[...new Set(files)].join(", ")})`)
+      .sort();
+    expect(twice, twice.join("; ")).toEqual([]);
   });
 
   it("points every retired id at a live one", () => {

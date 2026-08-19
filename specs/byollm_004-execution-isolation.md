@@ -87,6 +87,28 @@ model (cap holds). Each has a test id; the suite runs on every PR and
 its failure blocks publish. New backend = new adversarial rows before
 it ships.
 
+
+### The registry index
+
+Every MUST this spec adjudicates, by id, with the section that decides it.
+Added by cloud_008 Tier 4 §1.3b: byollm_009 was the only spec with a table,
+so the registry was the sole enumerated home for 34 of 38 MUSTs and nothing
+could compare the two. `musts-match-specs.test.ts` reads these tables.
+
+**An index, not a restatement.** The statement lives in `MUSTS` and the
+reasoning lives in the sections named below; a table that repeated either
+would be a third copy to drift. What a reader gets here is the set, and what
+the check gets is a list it can compare against the registry.
+
+| MUST | Adjudicated in |
+|---|---|
+| `COMMUNITY_BUDGETS` | §4 |
+| `HTTP_BASE_URL_SAFE` | Rev 1 §Backend taxonomy |
+| `NO_PAYLOAD_ROUTING` | §2 |
+| `NO_SHELL_INTERPOLATION` | §2 |
+| `OUTPUT_INERT` | §2 |
+| `STRIPPED_CHILD_ENV` | §2 |
+
 ## Done when
 
 Every requirement in §2 has a passing test; the §5 corpus is green

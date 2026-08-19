@@ -151,6 +151,26 @@ same plain-language register as the existing one: widening a `metered`
 backend spends the owner's money on someone else's work, and the
 sentence has to say that before the prompt is accepted.
 
+
+### The registry index
+
+Every MUST this spec adjudicates, by id, with the section that decides it.
+Added by cloud_008 Tier 4 §1.3b: byollm_009 was the only spec with a table,
+so the registry was the sole enumerated home for 34 of 38 MUSTs and nothing
+could compare the two. `musts-match-specs.test.ts` reads these tables.
+
+**An index, not a restatement.** The statement lives in `MUSTS` and the
+reasoning lives in the sections named below; a table that repeated either
+would be a third copy to drift. What a reader gets here is the set, and what
+the check gets is a list it can compare against the registry.
+
+| MUST | Adjudicated in |
+|---|---|
+| `COST_NOT_CONFIGURABLE` | §2 |
+| `METERED_DEFAULTS_SELF` | §4 |
+| `METERED_REQUIRES_CEILING` | §4 |
+| `REMOTE_IS_NEVER_FREE` | §2 |
+
 ## Done when
 
 **Status: implemented.** `C017_METERED_DEFAULTS_SELF` and

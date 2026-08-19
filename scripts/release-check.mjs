@@ -138,8 +138,12 @@ if (problems.length > 0) {
   for (const problem of problems) console.error(`  ${problem}`);
   console.error(
     `\nA partial release is the dangerous state: some packages at ${version},` +
-      `\nothers behind, and every one of them resolvable. Publish the rest or` +
-      `\nburn the version.`,
+      `\nothers behind, and every one of them resolvable.` +
+      `\n\nRe-run the Release workflow for this tag — cloud_008 §37. Publishing` +
+      `\nis idempotent per package now, so a re-run publishes only what is` +
+      `\nmissing and converges. Burning the version was the answer when the` +
+      `\npre-check refused any tag whose version any package already had, which` +
+      `\nturned a stranded publish into a lost version.`,
   );
   process.exit(1);
 }

@@ -193,15 +193,44 @@ jobs:
             fi
           fi
 
-          # 3. npm versions are immutable. Failing here beats failing halfway
-          #    through, with some of the set published and the rest not.
+          # 3. npm versions are immutable, so a package already at this
+          #    version cannot be republished. Two very different situations
+          #    look alike here, and conflating them cost a version — cloud_008
+          #    §37.
+          #
+          #    **All of them published** means somebody forgot to bump, and
+          #    refusing is right.
+          #
+          #    **Some of them published** means a previous run stranded
+          #    partway: alpha.20 got four packages out and lost
+          #    `@byollm/server` to a Sigstore 409 on its provenance
+          #    attestation. The old check refused that too, so the release was
+          #    unresumable and the version had to be burned — while four
+          #    resolvable packages sat on npm pointing at a fifth that was a
+          #    version behind.
+          #
+          #    So: refuse a no-op, resume a partial one, and publish only what
+          #    is missing.
+          PUBLISHED=""
+          MISSING=""
           for pkg in $PKGS; do
             name="$(node -p "require('./packages/$pkg/package.json').name")"
             if npm view "$name@$VERSION" version >/dev/null 2>&1; then
-              echo "::error::$name@$VERSION is already published — bump the version"
-              exit 1
+              PUBLISHED="$PUBLISHED $name"
+            else
+              MISSING="$MISSING $name"
             fi
           done
+          if [ -z "$MISSING" ]; then
+            echo "::error::every package is already at $VERSION — bump the version"
+            exit 1
+          fi
+          if [ -n "$PUBLISHED" ]; then
+            echo "::warning::resuming a partial publish of $VERSION"
+            echo "  already up:$PUBLISHED"
+            echo "  to publish:$MISSING"
+          fi
+          echo "missing=$MISSING" >> "$GITHUB_OUTPUT"
 
           # 3b. Provenance needs `repository.url` to match the repo it was
           #     built from, and npm rejects the publish with a 422 when it does
@@ -299,6 +328,12 @@ jobs:
             if [ ! -f "$FILE" ]; then
               echo "::error::expected tarball $FILE for $NAME, which pnpm pack did not produce"
               exit 1
+            fi
+            # Idempotent per package — cloud_008 §37. A re-run of a stranded
+            # release converges instead of failing on the ones that made it.
+            if npm view "$NAME@$V" version >/dev/null 2>&1; then
+              echo "==> $NAME@$V is already published — skipping"
+              continue
             fi
             echo "==> publishing $NAME from $FILE"
             npm publish "$FILE" --tag "${{ steps.version.outputs.npm_tag }}" --access public

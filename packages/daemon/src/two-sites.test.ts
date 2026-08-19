@@ -345,4 +345,120 @@ describe("a daemon paired with two sites", () => {
     );
     expect(results).toEqual([]);
   });
+
+  it("takes a site the heartbeat adds, and drops one it removes", async () => {
+    // cloud_009 §5: the set follows consent, so it changes under a running
+    // daemon. A site connected on a dashboard arrives on the next heartbeat;
+    // one disconnected leaves, and the rest keep running — which is finding
+    // 59, seen from the machine.
+    const SITE_C = generateKeys(1_800_000_000_000);
+    const C = keyId(publicIdentityOf(SITE_C).identity);
+    let announced: Record<string, unknown> = {
+      [A]: publicIdentityOf(SITE_A),
+      [B]: publicIdentityOf(SITE_B),
+    };
+    const job = stub("job_c", C);
+    let claimed = false;
+    const fetchImpl: typeof fetch = (input, init) => {
+      const url = String(input instanceof Request ? input.url : input);
+      const endpoint = url.split("/").pop() ?? "";
+      let body: unknown;
+      if (endpoint === "claim") {
+        body = claimed
+          ? { jobs: [], leaseMs: 60_000 }
+          : { jobs: [job], leaseMs: 60_000 };
+        claimed = true;
+      } else if (endpoint === "fetch") {
+        body = { envelope: pending };
+      } else if (endpoint === "heartbeat") {
+        body = {
+          sites: announced,
+          awaitingConsent: [],
+          cancel: [],
+          lost: [],
+          serverTime: Date.now(),
+        };
+      } else if (endpoint === "result") {
+        const sent = JSON.parse(
+          typeof init?.body === "string" ? init.body : "{}",
+        ) as { jobId: string; envelope: SealedEnvelope };
+        results.push({ jobId: sent.jobId, envelope: sent.envelope });
+        body = { accepted: true, state: "ok" };
+      } else {
+        body = { released: [] };
+      }
+      return Promise.resolve(
+        new Response(JSON.stringify(body), {
+          headers: { "content-type": "application/json" },
+        }),
+      );
+    };
+    const pending = await sealedBy(SITE_C, "job_c");
+
+    const runner = await runnerOver(fetchImpl);
+    // Before: C is not in the set, so its work is refused by name.
+    await runner.tick();
+    await settles(() => events.some((e) => e.type === "error"), "the refusal");
+    expect(events.find((e) => e.type === "error")?.message).toContain(
+      "is not paired with",
+    );
+
+    // The upstream adds C, and the same job now opens.
+    announced = { ...announced, [C]: publicIdentityOf(SITE_C) };
+    claimed = false;
+    await runner.tick();
+    await settles(() => results.length === 1, "site C's result");
+    expect(runner.sites.has(C)).toBe(true);
+
+    // And removing A takes its pin with it.
+    announced = {
+      [B]: publicIdentityOf(SITE_B),
+      [C]: publicIdentityOf(SITE_C),
+    };
+    await runner.tick();
+    expect(runner.sites.has(A)).toBe(false);
+    expect(runner.sites.has(B)).toBe(true);
+  });
+
+  it("refuses a key that moved under a site it already pinned", async () => {
+    // The map is keyed by identity key id, so a *new identity* is a new
+    // entry. This is the encryption key changing under an identity whose
+    // fingerprint somebody already compared — the substitution pinning exists
+    // to refuse, and a relay is exactly the party that would benefit from it
+    // being accepted quietly.
+    const impostor = publicIdentityOf(generateKeys(1_800_000_000_009));
+    const announced = {
+      [A]: { ...publicIdentityOf(SITE_A), encryption: impostor.encryption },
+    };
+    const fetchImpl: typeof fetch = (input) => {
+      const url = String(input instanceof Request ? input.url : input);
+      const endpoint = url.split("/").pop() ?? "";
+      const body =
+        endpoint === "heartbeat"
+          ? {
+              sites: announced,
+              awaitingConsent: [],
+              cancel: [],
+              lost: [],
+              serverTime: Date.now(),
+            }
+          : endpoint === "claim"
+            ? { jobs: [], leaseMs: 60_000 }
+            : { released: [] };
+      return Promise.resolve(
+        new Response(JSON.stringify(body), {
+          headers: { "content-type": "application/json" },
+        }),
+      );
+    };
+
+    const runner = await runnerOver(fetchImpl);
+    await runner.tick();
+
+    expect(events.some((e) => e.type === "site-key-changed")).toBe(true);
+    // Kept, not replaced: the pin is what the owner compared.
+    expect(runner.sites.get(A)?.encryption).toBe(
+      publicIdentityOf(SITE_A).encryption,
+    );
+  });
 });

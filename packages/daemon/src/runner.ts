@@ -608,7 +608,12 @@ export class Runner {
         jobId: job.id,
         senderKeyId: keyId(publicIdentityOf(keys).identity),
         recipientKeyId: keyId(identity.sitePinned.identity),
-        deadlineAt: Date.now() + ENVELOPE_MAX_AGE_MS,
+        // This runner's clock, not the process's — cloud_008 §31. The only
+        // `Date.now()` left in this class, in the one place that stamps a
+        // deadline somebody else enforces: a test that moves time moved every
+        // other clock here and not this one, so a sealed result carried an
+        // expiry from a different timeline than the lease it answered.
+        deadlineAt: this.#now() + ENVELOPE_MAX_AGE_MS,
         direction: "result",
       },
     });

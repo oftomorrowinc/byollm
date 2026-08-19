@@ -177,3 +177,25 @@ export interface StoredJobInput extends Omit<EnqueueInput, "payload" | "id"> {
   readonly envelope: SealedEnvelope;
   readonly sizeClass: SizeClass;
 }
+
+/**
+ * When a job's ciphertext stops being worth carrying — cloud_008 §31.
+ *
+ * One function because it was two expressions. The direct plane computed
+ * `job.deadlineAt ?? (job.claimableAt ?? now) + job.ttlMs`; the cloud lane
+ * computed `record.deadlineAt ?? record.createdAt + <a local constant>`. The
+ * first branch agreed and the fallback did not, so a job with no explicit
+ * deadline got two different ones depending on which lane published it — and
+ * the difference is largest exactly where it matters, for a job blocked on a
+ * dependency, whose `claimableAt` may be hours after `createdAt`.
+ *
+ * The TTL clock starts when a job becomes *claimable*, which is the rule
+ * `DEPENDS_ON_GATING` and `TTL_EXPIRY` already share: a dependent job must not
+ * spend its life waiting for its dependency.
+ */
+export function deadlineFor(
+  job: Pick<JobRecord, "deadlineAt" | "claimableAt" | "ttlMs">,
+  now: number,
+): number {
+  return job.deadlineAt ?? (job.claimableAt ?? now) + job.ttlMs;
+}

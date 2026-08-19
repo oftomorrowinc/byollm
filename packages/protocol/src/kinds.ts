@@ -4,6 +4,13 @@ import { z } from "zod";
  * Upper bounds on payload size, enforced at the schema so oversized input is
  * refused at parse time rather than somewhere deeper.
  *
+ * All three are enforced — cloud_008 Tier 4, finding 30. `maxTotalChars` was
+ * declared here and referenced nowhere, under this docstring's claim that the
+ * schema enforces them, so a chat payload of 256 messages at a million
+ * characters each parsed cleanly at sixty-four times the stated ceiling. The
+ * per-field limits were real and the aggregate one was a number in a frozen
+ * object.
+ *
  * byollm_004 §4 requires stricter limits for community (`named`/`public`)
  * jobs; those are applied on top of these by the daemon's budget check, which
  * knows the job's audience. These are the absolute ceilings for any job.
@@ -43,7 +50,15 @@ export const GeneratePayload = z
     prompt: z.string().min(1).max(PAYLOAD_LIMITS.maxTextChars),
     system: z.string().max(PAYLOAD_LIMITS.maxTextChars).optional(),
   })
-  .strict();
+  .strict()
+  .refine(
+    (payload) =>
+      payload.prompt.length + (payload.system?.length ?? 0) <=
+      PAYLOAD_LIMITS.maxTotalChars,
+    {
+      message: `payload exceeds ${String(PAYLOAD_LIMITS.maxTotalChars)} characters`,
+    },
+  );
 export type GeneratePayload = z.infer<typeof GeneratePayload>;
 
 /** Payload for `llm.chat`. Text only, for the same reason as {@link GeneratePayload}. */
@@ -52,7 +67,19 @@ export const ChatPayload = z
     messages: z.array(ChatMessage).min(1).max(PAYLOAD_LIMITS.maxMessages),
     system: z.string().max(PAYLOAD_LIMITS.maxTextChars).optional(),
   })
-  .strict();
+  .strict()
+  // The aggregate, which is the one that matters here: the per-message and
+  // per-count limits multiply, and their product is far above the ceiling
+  // this object states.
+  .refine(
+    (payload) =>
+      payload.messages.reduce((sum, m) => sum + m.content.length, 0) +
+        (payload.system?.length ?? 0) <=
+      PAYLOAD_LIMITS.maxTotalChars,
+    {
+      message: `payload exceeds ${String(PAYLOAD_LIMITS.maxTotalChars)} characters`,
+    },
+  );
 export type ChatPayload = z.infer<typeof ChatPayload>;
 
 /**

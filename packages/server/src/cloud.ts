@@ -10,6 +10,7 @@ import {
   type PublicIdentity,
   type StoredKeys,
 } from "@byollm/protocol";
+import { deadlineFor } from "./records.js";
 import type { JobRecord } from "./records.js";
 import { resealForDevice } from "./reseal.js";
 import type { ByollmStore } from "./store.js";
@@ -134,7 +135,14 @@ export class CloudLane {
       // The relay needs *a* deadline to bound routing. A job without one gets
       // the envelope's, which is the outer bound on how long the ciphertext
       // is worth carrying — never longer than the work could possibly matter.
-      deadlineAt: record.deadlineAt ?? record.createdAt + ENVELOPE_TTL_FALLBACK,
+      // The same fallback the direct plane uses — cloud_008 Tier 4, finding
+      // 31. This said `createdAt + ENVELOPE_TTL_FALLBACK`, a local constant
+      // whose value happened to equal `ENVELOPE_MAX_AGE_MS`; the direct plane
+      // said `(claimableAt ?? now) + ttlMs`. One field, two meanings, and a
+      // job that was blocked on a dependency got a deadline measured from
+      // when it was *created* on one lane and from when it became *claimable*
+      // on the other.
+      deadlineAt: deadlineFor(record, this.#now()),
     };
     await this.#post("enqueue", {
       siteId: this.#options.siteId,
@@ -397,6 +405,3 @@ export class CloudLane {
     return response.json();
   }
 }
-
-/** Only used when a job carries no deadline of its own. */
-const ENVELOPE_TTL_FALLBACK = 24 * 60 * 60_000;

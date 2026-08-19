@@ -32,6 +32,7 @@ import {
 } from "@byollm/protocol";
 import { generateDeviceCode, generateUserCode, hashSecret } from "./ids.js";
 import { resealForDevice } from "./reseal.js";
+import { deadlineFor } from "./records.js";
 import type { JobRecord, RunnerRecord } from "./records.js";
 import type { ByollmStore } from "./store.js";
 
@@ -423,7 +424,7 @@ export class ByollmHandlers {
         // The stub's deadline bounds how long a captured envelope is worth
         // keeping, so it is always present — falling back to the TTL window
         // when the app named no absolute one.
-        deadlineAt: job.deadlineAt ?? (job.claimableAt ?? now) + job.ttlMs,
+        deadlineAt: deadlineFor(job, now),
         // `audienceAllow` is not sent — cloud_008 §0.2. The list stays on
         // `JobRecord`, where `claim` already filtered candidates with it; the
         // daemon's own allowlist is what decides `named` (byollm_001 Rev 1

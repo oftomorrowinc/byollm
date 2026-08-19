@@ -108,3 +108,65 @@ describe("payloadTextLength", () => {
     expect(payloadTextLength(kinded)).toBe(6);
   });
 });
+
+describe("the aggregate ceiling — cloud_008 finding 30", () => {
+  /**
+   * `maxTotalChars` was declared and referenced nowhere, under a docstring
+   * saying the schema enforced these limits. Two of the three were real.
+   *
+   * The per-field limits multiply: 256 messages at a million characters each
+   * is 256M, sixty-four times the ceiling the same object states, and every
+   * one of them parsed. Nothing downstream re-checked it — the daemon's budget
+   * check applies *stricter* community limits on top and reads this as the
+   * floor it never has to verify.
+   */
+  it("refuses a chat payload over the total, one message at a time", () => {
+    const messages = Array.from({ length: 200 }, () => ({
+      role: "user" as const,
+      // Each well under `maxTextChars`, so every field-level limit passes.
+      content: "x".repeat(30_000),
+    }));
+    expect(ChatPayload.safeParse({ messages }).success).toBe(false);
+  });
+
+  it("accepts one just under it", () => {
+    // The positive control: a ceiling that refuses everything would pass the
+    // test above and break every real job.
+    const messages = Array.from({ length: 3 }, () => ({
+      role: "user" as const,
+      content: "x".repeat(1_000_000),
+    }));
+    expect(ChatPayload.safeParse({ messages }).success).toBe(true);
+  });
+
+  it("counts the system prompt toward the total", () => {
+    // A field that is checked on its own and forgotten in the sum is how an
+    // aggregate limit gets quietly reintroduced.
+    expect(
+      ChatPayload.safeParse({
+        messages: [{ role: "user", content: "x".repeat(3_500_000) }],
+        system: "y".repeat(600_000),
+      }).success,
+    ).toBe(false);
+  });
+
+  it("cannot be reached by a generate payload, which is worth stating", () => {
+    // Two fields at `maxTextChars` is 2M, half the aggregate ceiling — so on
+    // this kind the check can never fire, and the refinement is there for the
+    // shape rather than for the bound.
+    //
+    // Said out loud because the alternative is a test named "refuses a
+    // generate payload over the total" that asserts `true` and reads as
+    // coverage. The multiplication only bites where a *count* limit meets a
+    // per-item limit, which is `llm.chat`.
+    expect(
+      GeneratePayload.safeParse({
+        prompt: "x".repeat(PAYLOAD_LIMITS.maxTextChars),
+        system: "y".repeat(PAYLOAD_LIMITS.maxTextChars),
+      }).success,
+    ).toBe(true);
+    expect(PAYLOAD_LIMITS.maxTextChars * 2).toBeLessThan(
+      PAYLOAD_LIMITS.maxTotalChars,
+    );
+  });
+});

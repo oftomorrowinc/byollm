@@ -1,3 +1,4 @@
+import { request as httpsRequest } from "node:https";
 import { generateKeys, signRequest, signSiteRequest } from "@byollm/protocol";
 
 /**
@@ -58,6 +59,13 @@ export interface PostureContext {
   readonly basePath: string;
   /** Injectable, so a test can drive this without a network. */
   readonly fetch: typeof fetch;
+  /**
+   * The origin's own address, behind whatever edge fronts it — `D008`.
+   *
+   * Optional because most deployments have no separate origin, and a check
+   * that guessed one would report a posture it never tested.
+   */
+  readonly originAddress?: string;
 }
 
 export interface PostureOutcome {
@@ -340,6 +348,97 @@ export const POSTURE_CHECKS: readonly PostureCheck[] = Object.freeze([
       );
     },
   },
+
+  {
+    id: "D008_ORIGIN_NOT_PUBLIC",
+    title: "the origin answers the edge, and nobody else",
+    cites: [],
+    async run({ origin, originAddress }) {
+      // cloud_008 findings 44/45. A load balancer has a public address, and
+      // an edge in front of it is a convention rather than a boundary until
+      // the origin refuses everything else: anyone who resolves the address
+      // reaches the hub past every WAF rule, rate limit and bot check the
+      // zone applies, and appears in no edge log doing it.
+      //
+      // Bounded, and not nothing. Requests are signed and payloads sealed, so
+      // a stranger cannot forge a claim or read a job — but they can reach
+      // `/byollm/pair` and every plane endpoint at whatever rate the origin
+      // serves, which is exactly the surface the edge exists to absorb.
+      //
+      // Skipped rather than failed when no address is supplied: an auditor
+      // who does not know where the origin lives cannot ask this, and
+      // guessing would be a check that passes for not looking.
+      if (originAddress === undefined) {
+        // **Fails, not skips.** This file's own rule, and the suite already
+        // had a test for it: an audit that drops a check it could not run
+        // reports a posture nobody measured, which reads identically to one
+        // measured and found good.
+        //
+        // Written as a pass first, on the reasoning that most deployments
+        // have no separate origin — and that test failed it immediately. The
+        // reasoning was wrong in the way this whole audit exists to catch:
+        // "probably fine" and "verified" must not print the same.
+        return outcome(
+          false,
+          "no origin address given — this posture was not measured " +
+            "(pass the origin's address as the third argument)",
+        );
+      }
+
+      // Asked the way an attacker would, which `fetch` cannot.
+      //
+      // The first version of this check used `fetch` and passed for the wrong
+      // reason: TLS fails against a bare IP because the certificate does not
+      // name it, the request never reaches the load balancer's backend, and a
+      // connection error read as "refused". It would have reported a green
+      // origin with no policy attached at all.
+      //
+      // Plain HTTP does not work either — the frontend answers `301` before
+      // any backend is chosen, so the policy is never consulted.
+      //
+      // So: HTTPS to the address, with the real host in SNI, and certificate
+      // verification **off**. That is not a lapse. The property under test is
+      // whether an address answers a stranger, not who the answer comes from,
+      // and refusing to look because the certificate does not match the IP is
+      // how the first version passed while proving nothing. Nothing else in
+      // this kit may copy it.
+      const host = new URL(origin).host;
+      const status = await new Promise<number | "refused">((resolve) => {
+        const request = httpsRequest(
+          {
+            host: originAddress,
+            servername: host,
+            headers: { host },
+            path: "/readyz",
+            method: "GET",
+            rejectUnauthorized: false,
+            timeout: 15_000,
+          },
+          (response) => {
+            response.resume();
+            resolve(response.statusCode ?? 0);
+          },
+        );
+        request.on("error", () => {
+          resolve("refused");
+        });
+        request.on("timeout", () => {
+          request.destroy();
+          resolve("refused");
+        });
+        request.end();
+      });
+
+      if (status === "refused") {
+        // Nothing answered at all, which is the strongest form of this.
+        return outcome(true, "the origin address refused the connection");
+      }
+      return outcome(
+        status === 403,
+        `the origin answered ${String(status)} to a direct request`,
+      );
+    },
+  },
 ]);
 
 /**
@@ -351,6 +450,8 @@ export const POSTURE_CHECKS: readonly PostureCheck[] = Object.freeze([
 export async function auditDeployment(options: {
   url: string;
   basePath?: string;
+  /** The origin behind the edge, for `D008`. */
+  originAddress?: string;
   fetch?: typeof fetch;
   onProgress?: (result: PostureResult) => void;
 }): Promise<PostureReport> {
@@ -358,6 +459,9 @@ export async function auditDeployment(options: {
   const context: PostureContext = {
     origin,
     basePath: (options.basePath ?? "/byollm").replace(/\/+$/, ""),
+    ...(options.originAddress === undefined
+      ? {}
+      : { originAddress: options.originAddress }),
     fetch: options.fetch ?? globalThis.fetch,
   };
 

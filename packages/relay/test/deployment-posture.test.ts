@@ -98,10 +98,16 @@ describe("the deployment posture audit", () => {
     // Written as an exact list rather than a count, so a check that starts
     // failing for a new reason shows up as a changed list instead of the same
     // number.
-    expect(failed.map((result) => result.id).sort()).toEqual([
-      "D005_NO_DEBUG_SURFACE",
-      "D007_TLS_ONLY",
-    ]);
+    expect(failed.map((result) => result.id).sort()).toEqual(
+      [
+        "D005_NO_DEBUG_SURFACE",
+        // The third, added with `D008`: an in-process relay has no origin
+        // address behind an edge, and the audit says so rather than passing.
+        // A posture nobody measured must not read like one that was.
+        "D008_ORIGIN_NOT_PUBLIC",
+        "D007_TLS_ONLY",
+      ].sort(),
+    );
 
     // Everything a stranger could actually *do*, refused.
     const auth = report.results.filter((result) =>

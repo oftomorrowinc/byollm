@@ -16,11 +16,11 @@ import { auditDeployment, formatPostureReport } from "./deployment.js";
  * Safe to run against production: nothing writes, nothing floods, and every
  * request is one an ordinary scanner would make.
  */
-const [url, basePath] = process.argv.slice(2);
+const [url, basePath, originAddress] = process.argv.slice(2);
 
 if (url === undefined) {
   process.stderr.write(
-    "usage: byollm-audit-deployment <url> [base-path]\n" +
+    "usage: byollm-audit-deployment <url> [base-path] [origin-address]\n" +
       "  e.g. byollm-audit-deployment https://hub.byollm.cloud\n",
   );
   process.exit(2);
@@ -29,6 +29,9 @@ if (url === undefined) {
 const report = await auditDeployment({
   url,
   ...(basePath === undefined ? {} : { basePath }),
+  // `D008` asks the origin directly. Without it that check says so rather
+  // than guessing an address and reporting a posture it never tested.
+  ...(originAddress === undefined ? {} : { originAddress }),
 });
 process.stdout.write(`\n${formatPostureReport(report)}`);
 process.exit(report.passed ? 0 : 1);

@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { generateKeys, keyId, publicIdentityOf } from "@byollm/protocol";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { Pairings } from "./pairings.js";
+import { Pairings, recordSites } from "./pairings.js";
 import { removeTemp } from "./test-support.js";
 
 /**
@@ -179,5 +179,88 @@ describe("a pairings file with one unreadable row", () => {
     expect(
       Object.keys(pairings.get("https://hub.test")?.sites ?? {}).sort(),
     ).toEqual([keyId(SITE_A.identity), keyId(SITE_B.identity)].sort());
+  });
+});
+
+describe("recording the site set an upstream describes", () => {
+  it("writes when it moved, and says so", async () => {
+    // cloud_009 §5: the heartbeat is the authority on which sites a pairing
+    // covers, and the file follows it. A daemon that learns the set every few
+    // seconds and forgets it at every restart behaves differently depending
+    // on how recently it was rebooted.
+    const SITE_A = publicIdentityOf(generateKeys(1_800_000_000_010));
+    const SITE_B = publicIdentityOf(generateKeys(1_800_000_000_011));
+    await writeFile(
+      path,
+      JSON.stringify({
+        version: 1,
+        pairings: [
+          {
+            origin: "https://hub.test",
+            runnerId: "r",
+            owner: "alice",
+            sites: { [keyId(SITE_A.identity)]: SITE_A },
+            pairedAt: 1,
+          },
+        ],
+      }),
+    );
+    const pairings = new Pairings(path);
+    await pairings.load();
+
+    // Unchanged is not a write: a file rewritten every heartbeat is a disk
+    // busy proving nothing.
+    expect(
+      await recordSites(
+        pairings,
+        "https://hub.test",
+        new Map([[keyId(SITE_A.identity), SITE_A]]),
+      ),
+    ).toBe("unchanged");
+
+    expect(
+      await recordSites(
+        pairings,
+        "https://hub.test",
+        new Map([
+          [keyId(SITE_A.identity), SITE_A],
+          [keyId(SITE_B.identity), SITE_B],
+        ]),
+      ),
+    ).toBe("written");
+
+    const reloaded = new Pairings(path);
+    await reloaded.load();
+    expect(
+      Object.keys(reloaded.get("https://hub.test")?.sites ?? {}).sort(),
+    ).toEqual([keyId(SITE_A.identity), keyId(SITE_B.identity)].sort());
+
+    // A site removed leaves with its pin, which is finding 59 seen from the
+    // machine: one site's revocation, not the whole relationship.
+    expect(
+      await recordSites(
+        pairings,
+        "https://hub.test",
+        new Map([[keyId(SITE_B.identity), SITE_B]]),
+      ),
+    ).toBe("written");
+    const after = new Pairings(path);
+    await after.load();
+    expect(Object.keys(after.get("https://hub.test")?.sites ?? {})).toEqual([
+      keyId(SITE_B.identity),
+    ]);
+  });
+
+  it("says so rather than throwing when nothing is paired there", async () => {
+    // The run loop calls this from an event handler, where a throw takes the
+    // runner with it. An origin with no pairing is an ordinary state — a
+    // revocation dropped it a moment ago — not an error.
+    await writeFile(path, JSON.stringify({ version: 1, pairings: [] }));
+    const pairings = new Pairings(path);
+    await pairings.load();
+
+    expect(await recordSites(pairings, "https://gone.test", new Map())).toBe(
+      "unpaired",
+    );
   });
 });

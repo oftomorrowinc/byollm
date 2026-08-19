@@ -11,7 +11,7 @@ import { connect } from "./connect.js";
 import { IngressLog, stripControlChars } from "./ingress.js";
 import { fingerprint } from "@byollm/protocol";
 import { DeviceIdentity } from "./identity.js";
-import { Pairings } from "./pairings.js";
+import { Pairings, recordSites } from "./pairings.js";
 import { SpendLedger } from "./spend.js";
 import { daemonPaths, type DaemonPaths } from "./paths.js";
 import { Runner, type RunnerEvent } from "./runner.js";
@@ -304,33 +304,20 @@ async function runLoop(
       onEvent: (event) => {
         report(origin, event, io);
         // The set follows consent, and the file follows the set — cloud_009
-        // §5. A user who connects a site on a web dashboard gets it on the
-        // next heartbeat; one who disconnects loses that pin and keeps the
-        // rest. Written back because the alternative is a daemon that learns
-        // the truth every few seconds and forgets it at every restart, which
-        // is a machine whose behaviour depends on how recently it was
-        // rebooted.
-        //
-        // Not awaited, for the reason the revocation branch below gives: an
-        // event handler that throws takes the runner with it, and a file that
-        // cannot be written is worth a message rather than a crash.
+        // §5. Not awaited, for the reason the revocation branch below gives:
+        // an event handler that throws takes the runner with it, and a file
+        // that cannot be written is worth a message rather than a crash.
         if (event.type === "heartbeat") {
-          const current = Object.fromEntries(runner.sites);
-          const stored = pairings.get(origin)?.sites ?? {};
-          if (JSON.stringify(current) !== JSON.stringify(stored)) {
-            const pairing = pairings.get(origin);
-            if (pairing) {
-              void pairings
-                .put({ ...pairing, sites: current })
-                .catch((error: unknown) => {
-                  io.err(
-                    `could not record the site list for ${origin}: ` +
-                      `${error instanceof Error ? error.message : "unknown error"}\n`,
-                  );
-                });
-            }
-          }
+          void recordSites(pairings, origin, runner.sites).catch(
+            (error: unknown) => {
+              io.err(
+                `could not record the site list for ${origin}: ` +
+                  `${error instanceof Error ? error.message : "unknown error"}\n`,
+              );
+            },
+          );
         }
+
         // Revocation drops the pairing — cloud_008 §2.3, finding 24.
         //
         // The daemon stopped and said so, and left the pinned site key on

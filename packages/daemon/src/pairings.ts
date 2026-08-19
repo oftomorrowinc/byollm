@@ -189,3 +189,34 @@ export class Pairings {
     );
   }
 }
+
+/**
+ * Record the site set an upstream just described, if it moved.
+ *
+ * The heartbeat is the authority on which sites a pairing covers (cloud_009
+ * §5), and the file has to follow it: a daemon that learns the set every few
+ * seconds and forgets it at every restart behaves differently depending on
+ * how recently it was rebooted.
+ *
+ * Its own function rather than a branch inside the run loop, because a seam
+ * that cannot be called cannot be tested — and this one has four outcomes
+ * worth naming: nothing paired here, nothing changed, written, and the write
+ * failed. Returns what happened so a caller can say so without inspecting the
+ * file.
+ */
+export async function recordSites(
+  pairings: Pairings,
+  origin: string,
+  sites: ReadonlyMap<string, PublicIdentity>,
+): Promise<"unpaired" | "unchanged" | "written"> {
+  const pairing = pairings.get(origin);
+  if (!pairing) return "unpaired";
+  const next = Object.fromEntries(sites);
+  // Compared as text, deliberately: the values are small, flat and
+  // JSON-shaped, and a deep-equality helper here would be a second
+  // implementation of a comparison the file format already defines.
+  if (JSON.stringify(next) === JSON.stringify(pairing.sites))
+    return "unchanged";
+  await pairings.put({ ...pairing, sites: next });
+  return "written";
+}

@@ -288,6 +288,16 @@ export {
 } from "./fixture.js";
 export { AWAITING_PAYLOAD_MS } from "./state.js";
 /**
+ * How a (site, owner) route is written — cloud_009 §3.
+ *
+ * Exported because a store in another repository builds the same set and has
+ * to agree on the encoding. Spelling it out on both sides is two statements
+ * of one format, which is the bug the routes set exists to remove one level
+ * up: the hub's Valkey store and this package's memory store must match
+ * character for character or a claim silently returns nothing.
+ */
+export { routeKey } from "./state.js";
+/**
  * Everything an implementer of {@link RoutingStore} needs.
  *
  * `ClaimInput` and `HolderRefusal` were missing from this list, which made the

@@ -495,7 +495,10 @@ export const CHECKS: readonly Check[] = [
           replay.status === 200,
           `a replayed result was rejected rather than ignored (${String(replay.status)})`,
         );
-        const body = (await replay.json()) as { accepted?: boolean };
+        const body = (await replay.json()) as {
+          accepted?: boolean;
+          duplicate?: boolean;
+        };
         assert(
           body.accepted === false,
           "a site reported a replayed result as newly accepted",

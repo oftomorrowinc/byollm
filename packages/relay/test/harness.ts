@@ -329,10 +329,16 @@ export async function makeDaemon(
     }),
   });
   const approval = (await paired.json()) as {
-    site: PublicIdentity;
+    sites: Record<string, PublicIdentity>;
     runnerId: string;
   };
-  expect(approval.site.identity).toBe(input.site.identity);
+  // The set this pairing covers — cloud_009 §5. One entry here, because this
+  // harness pairs against one site; the assertion is that it is *that* site's
+  // key rather than the relay's, which is what makes the relay unable to
+  // inject work.
+  expect(Object.values(approval.sites).map((site) => site.identity)).toEqual([
+    input.site.identity,
+  ]);
 
   const allowlist = new Allowlist(join(home, "allow.json"));
   await allowlist.load();
@@ -403,7 +409,7 @@ export async function makeDaemon(
       keys: () => identity.load(Date.now()),
       // Pinned from the relay's pair response — the site's key, not the
       // relay's. This is what makes the relay unable to inject work.
-      sitePinned: approval.site,
+      sites: new Map(Object.entries(approval.sites)),
     },
     daemonVersion: "relay-gate",
     loaded,

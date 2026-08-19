@@ -42,10 +42,15 @@ const TEST_SITE_KEYS = generateKeys(1_800_000_000_000);
  * is the check doing exactly what it is for.
  */
 const TEST_SITE_ID = keyId(publicIdentityOf(TEST_SITE_KEYS).identity);
+
+/** The set a heartbeat carries — cloud_009 §5. One entry is a site. */
+const HEARTBEAT_SITES = {
+  [TEST_SITE_ID]: publicIdentityOf(TEST_SITE_KEYS),
+};
 const TEST_DEVICE_KEYS = generateKeys(1_800_000_000_000);
 const TEST_IDENTITY = {
   keys: () => Promise.resolve(TEST_DEVICE_KEYS),
-  sitePinned: publicIdentityOf(TEST_SITE_KEYS),
+  sites: new Map([[TEST_SITE_ID, publicIdentityOf(TEST_SITE_KEYS)]]),
 };
 
 /** Seal a payload to the test device, as the site would at fetch time. */
@@ -239,7 +244,8 @@ describe("reporting failures never lose the job", () => {
       const body = url.endsWith("/claim")
         ? claimOne([])
         : JSON.stringify({
-            revoked: false,
+            sites: HEARTBEAT_SITES,
+            awaitingConsent: [],
             cancel: [],
             lost: [],
             serverTime: Date.now(),
@@ -290,7 +296,8 @@ describe("reporting failures never lose the job", () => {
         : url.endsWith("/result")
           ? JSON.stringify({ accepted: true, state: "canceled" })
           : JSON.stringify({
-              revoked: false,
+              sites: HEARTBEAT_SITES,
+              awaitingConsent: [],
               cancel: [],
               lost: [],
               serverTime: Date.now(),
@@ -331,7 +338,8 @@ describe("reporting failures never lose the job", () => {
         : url.endsWith("/result")
           ? JSON.stringify({ accepted: true, state: "canceled" })
           : JSON.stringify({
-              revoked: false,
+              sites: HEARTBEAT_SITES,
+              awaitingConsent: [],
               cancel: [],
               lost: [],
               serverTime: Date.now(),
@@ -370,7 +378,8 @@ describe("reporting failures never lose the job", () => {
         return Promise.resolve(
           new Response(
             JSON.stringify({
-              revoked: false,
+              sites: HEARTBEAT_SITES,
+              awaitingConsent: [],
               cancel: [],
               // On the second heartbeat the server says the job is gone.
               lost: heartbeats > 1 ? ["job_1"] : [],

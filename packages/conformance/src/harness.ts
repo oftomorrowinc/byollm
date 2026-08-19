@@ -107,8 +107,16 @@ export interface HarnessDaemon {
   readonly owner: string;
   /** This daemon's keys, so a check can sign as it — or deliberately not. */
   readonly keys: StoredKeys;
-  /** This daemon's keys, and the site identity it pinned at pairing. */
+  /** This daemon's keys, and the site identities it pinned at pairing. */
   identityKeys(): Promise<StoredKeys>;
+  /**
+   * The site a single-site check seals to and verifies against.
+   *
+   * A pairing covers a set now, and every check in this kit pairs with one
+   * upstream serving one site — so this is that entry, read from the set
+   * rather than kept beside it. Two copies of "which key opens this" is the
+   * bug the set exists to remove.
+   */
   readonly sitePinned: PublicIdentity;
   readonly home: string;
   readonly ingress: IngressLog;
@@ -326,8 +334,10 @@ export async function pairDaemon(
     owner: result.pairing.owner,
     identity: {
       keys: () => deviceIdentity.load(Date.now()),
-      // Pinned at pairing, exactly as a real daemon does.
-      sitePinned: result.pairing.site,
+      // Pinned at pairing, exactly as a real daemon does — the set the
+      // upstream answered with, keyed by each site's identity key id
+      // (cloud_009 §5). A direct site is one entry.
+      sites: new Map(Object.entries(result.pairing.sites)),
     },
     daemonVersion: "conformance",
     loaded,
@@ -346,7 +356,7 @@ export async function pairDaemon(
     owner: result.pairing.owner,
     keys: await deviceIdentity.load(Date.now()),
     identityKeys: () => deviceIdentity.load(Date.now()),
-    sitePinned: result.pairing.site,
+    sitePinned: Object.values(result.pairing.sites)[0] as PublicIdentity,
     home,
     ingress,
     spend,

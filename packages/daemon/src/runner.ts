@@ -63,19 +63,20 @@ export interface RunnerOptions {
    */
   readonly identity?: {
     keys(): Promise<StoredKeys>;
-    readonly sitePinned: PublicIdentity;
     /**
      * Every site this machine is paired with, keyed by the site's identity
      * key id — cloud_009 §5.
      *
      * The same id `stub.site` carries (Amendment A §A.3), so resolving a
      * job's site is a map read rather than a join against a second
-     * namespace. Optional for one release: a daemon that has only ever
-     * paired with one site has no map, and `sitePinned` still answers for
-     * it. When the pairings file writes `sites`, this stops being optional
-     * and `sitePinned` goes.
+     * namespace.
+     *
+     * The set the *upstream* says this pairing covers, refreshed on every
+     * heartbeat (cloud_009 §5). `sitePinned` is gone: one pairing covers an
+     * upstream rather than a site, and two answers to "which key opens this"
+     * is this project's most repeated bug.
      */
-    readonly sites?: ReadonlyMap<string, PublicIdentity>;
+    readonly sites: ReadonlyMap<string, PublicIdentity>;
   };
   /** Heartbeat cadence before jitter. */
   readonly heartbeatMs?: number;
@@ -89,8 +90,10 @@ export interface RunnerOptions {
 export type RunnerEvent =
   | { readonly type: "heartbeat"; readonly capabilities: number }
   /** A disclosure went stale; the user has something to read — finding 48. */
-  | { readonly type: "awaiting-consent" }
+  | { readonly type: "awaiting-consent"; readonly sites: readonly string[] }
   | { readonly type: "consent-resumed" }
+  /** A pinned site's encryption key moved under its identity — refused. */
+  | { readonly type: "site-key-changed"; readonly site: string }
   | { readonly type: "claimed"; readonly jobId: string; readonly kind: string }
   | {
       readonly type: "refused";
@@ -135,7 +138,7 @@ export class Runner {
   #capabilities: Capability[] = [];
   #paused = false;
   #revoked = false;
-  #awaitingConsent = false;
+  #awaitingConsent = "";
   #stopped = false;
   #lastError: string | undefined;
   #completed = 0;
@@ -144,6 +147,15 @@ export class Runner {
   constructor(options: RunnerOptions) {
     this.#options = options;
     this.#now = options.now ?? Date.now;
+    // Copied, not aliased: the pairing's map is what was on disk, and this
+    // one is what the upstream last said. Sharing them would let a heartbeat
+    // rewrite a file nobody wrote.
+    this.#sites = new Map(options.identity?.sites ?? []);
+  }
+
+  /** The sites this daemon holds pins for, so the CLI can persist changes. */
+  get sites(): ReadonlyMap<string, PublicIdentity> {
+    return this.#sites;
   }
 
   status(): RunnerStatus {
@@ -481,21 +493,41 @@ export class Runner {
       capabilities: capabilities.length,
     });
 
-    // Nothing will be offered, and the reason is not a fault — cloud_008
+    // The site set, applied — cloud_008 finding 59.
+    //
+    // A site that left the set is revoked *for that site*: its pin goes and
+    // the others stay. Revocation used to be a boolean that stopped the
+    // daemon and dropped its whole pairing, so one site's revocation ended a
+    // machine's relationship with every other site it served.
+    //
+    // A key that *changed* for a site still in the set is refused rather than
+    // replaced. The map is keyed by identity key id, so a changed identity
+    // arrives as a different entry — this is the encryption key moving under
+    // an identity somebody already compared a fingerprint of, which pinning
+    // exists to refuse. Amendment A.3.1's rotation is an explicit path, not
+    // a silent swap.
+    this.#applySites(heartbeat.sites);
+
+    // Nothing will be offered for these, and the reason is not a fault —
     // finding 48. Said once per transition rather than every few seconds: a
     // daemon that repeats itself on a five-second heartbeat is a daemon
     // nobody reads.
-    if (heartbeat.awaitingConsent === true) {
-      if (!this.#awaitingConsent) {
-        this.#awaitingConsent = true;
-        this.#options.onEvent?.({ type: "awaiting-consent" });
+    const waiting = heartbeat.awaitingConsent.join(",");
+    if (waiting !== this.#awaitingConsent) {
+      this.#awaitingConsent = waiting;
+      if (waiting === "") {
+        this.#options.onEvent?.({ type: "consent-resumed" });
+      } else {
+        this.#options.onEvent?.({
+          type: "awaiting-consent",
+          sites: [...heartbeat.awaitingConsent],
+        });
       }
-    } else if (this.#awaitingConsent) {
-      this.#awaitingConsent = false;
-      this.#options.onEvent?.({ type: "consent-resumed" });
     }
 
-    if (heartbeat.revoked) {
+    // An empty set is what `revoked: true` used to say, read for itself
+    // rather than told twice — two fields for one fact is how they drift.
+    if (Object.keys(heartbeat.sites).length === 0) {
       this.#revoked = true;
       this.cancelAll();
       this.#options.onEvent?.({ type: "revoked" });
@@ -781,29 +813,60 @@ export class Runner {
    * as "probably the one I know" has handed the choice of which key verifies
    * its work to the party the pinning is defending against.
    */
+  /**
+   * The sites this daemon is pinned to, as the upstream last described them.
+   *
+   * Seeded from the pairing and replaced by every heartbeat — cloud_009 §5.
+   * Held here rather than read from options each time because it *changes*:
+   * a set frozen at construction would serve a site whose consent ended
+   * until the process restarted.
+   */
+  #sites: Map<string, PublicIdentity>;
+
+  /**
+   * Take the upstream's site set, refusing a key that moved under an id.
+   *
+   * Adds and removals are ordinary: consent is a thing users change, and a
+   * site leaving the set is revoked for that site alone. A **changed key for
+   * an id already pinned** is not ordinary — the map is keyed by identity key
+   * id, so a new identity is a new entry, and this is the encryption key
+   * moving under an identity whose fingerprint somebody already compared.
+   * Pinning exists to refuse exactly that, so it is kept and reported rather
+   * than replaced. Amendment A.3.1's rotation is an explicit path.
+   */
+  #applySites(sites: Record<string, PublicIdentity>): void {
+    for (const [id, site] of Object.entries(sites)) {
+      const pinned = this.#sites.get(id);
+      if (pinned === undefined) {
+        this.#sites.set(id, site);
+        continue;
+      }
+      if (
+        pinned.encryption !== site.encryption ||
+        pinned.encryptionSig !== site.encryptionSig
+      ) {
+        this.#options.onEvent?.({ type: "site-key-changed", site: id });
+        continue;
+      }
+    }
+    for (const id of [...this.#sites.keys()]) {
+      if (!(id in sites)) this.#sites.delete(id);
+    }
+  }
+
   #pinFor(job: ClaimedStub): PublicIdentity {
     const identity = this.#options.identity;
     if (!identity) {
       throw new Error("this daemon has no keys, so it has no site to pin");
     }
-    const fromMap = identity.sites?.get(job.site);
+    const fromMap = this.#sites.get(job.site);
     if (fromMap) return fromMap;
-    // The single-site daemon, for the one release before the pairings file
-    // carries a map. Still a check and not a default: the id has to match.
-    if (job.site === keyId(identity.sitePinned.identity)) {
-      return identity.sitePinned;
-    }
     // Names what this machine *is* paired with, not only what it refused.
-    // The first draft dropped that half — "paired with X" stops being a
+    // An earlier draft dropped that half — "paired with X" stops being a
     // sentence when there are several — and `loop.test.ts` caught it: an
-    // operator reading this needs to compare two fingerprints, and one of
-    // them was missing. A list is the honest generalisation of the singular.
-    const paired = [
-      ...new Set([
-        keyId(identity.sitePinned.identity),
-        ...(identity.sites?.keys() ?? []),
-      ]),
-    ].sort();
+    // operator reading this is comparing two fingerprints, and one of them
+    // was missing.
+    const paired = [...this.#sites.keys()].sort();
     throw new Error(
       `refusing job ${job.id}: it names site ${job.site}, which this machine ` +
         `is not paired with (paired with ${paired.join(", ")})`,

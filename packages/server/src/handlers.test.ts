@@ -118,7 +118,7 @@ describe("pairing [PAIR_INTERACTIVE, PAIR_ONE_USER]", () => {
     expect(Object.keys(approved.body as object).sort()).toEqual([
       "owner",
       "runnerId",
-      "site",
+      "sites",
       "status",
     ]);
   });
@@ -546,7 +546,11 @@ describe("heartbeat", () => {
       runner,
     );
     expect(res.status).toBe(200);
-    expect((res.body as { revoked: boolean }).revoked).toBe(true);
+    // The set going empty is what revocation says now — cloud_008 finding
+    // 59. It used to be a boolean, and a boolean is device-wide: under a hub
+    // one site's revocation would end the machine's relationship with every
+    // other site it served.
+    expect(Object.keys((res.body as { sites: object }).sites)).toEqual([]);
   });
 
   it("403s a revoked runner on every other endpoint", async () => {

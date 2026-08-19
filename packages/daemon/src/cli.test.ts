@@ -1,7 +1,7 @@
 import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { generateKeys, publicIdentityOf } from "@byollm/protocol";
+import { generateKeys, publicIdentityOf, keyId } from "@byollm/protocol";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { runCli, type CliIo } from "./cli.js";
 import { IngressLog } from "./ingress.js";
@@ -178,9 +178,8 @@ describe("byollm status", () => {
     await pairings.put({
       origin: "https://app.test",
       runnerId: "runner_1",
-      token: "t",
       owner: "alice",
-      site: SITE,
+      sites: { [keyId(SITE.identity)]: SITE },
       pairedAt: Date.now(),
     });
 
@@ -325,9 +324,8 @@ describe("byollm forget", () => {
     await pairings.put({
       origin: "https://app.test",
       runnerId: "runner_1",
-      token: "t",
       owner: "alice",
-      site: SITE,
+      sites: { [keyId(SITE.identity)]: SITE },
       pairedAt: Date.now(),
     });
 

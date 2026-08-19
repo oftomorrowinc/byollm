@@ -1,7 +1,7 @@
 import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { generateKeys, publicIdentityOf } from "@byollm/protocol";
+import { generateKeys, keyId, publicIdentityOf } from "@byollm/protocol";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { Pairings } from "./pairings.js";
 import { removeTemp } from "./test-support.js";
@@ -33,14 +33,19 @@ afterEach(async () => {
   await removeTemp(home);
 });
 
-const good = (origin: string) => ({
-  origin,
-  runnerId: `runner_${origin}`,
-  token: "t",
-  owner: "alice",
-  site: publicIdentityOf(generateKeys(1_800_000_000_000)),
-  pairedAt: 1_800_000_000_000,
-});
+const good = (origin: string) => {
+  const site = publicIdentityOf(generateKeys(1_800_000_000_000));
+  return {
+    origin,
+    runnerId: `runner_${origin}`,
+    owner: "alice",
+    // Keyed by the site's identity key id — cloud_009 §5. `token` is gone
+    // with the bearer credential nothing had read since alpha.18, and `site`
+    // with the single-site shape.
+    sites: { [keyId(site.identity)]: site },
+    pairedAt: 1_800_000_000_000,
+  };
+};
 
 describe("a pairings file with one unreadable row", () => {
   it("keeps every row it can read", async () => {
@@ -131,17 +136,11 @@ describe("a pairings file with one unreadable row", () => {
     expect(pairings.skipped).toEqual([]);
   });
 
-  it("accepts a row from the next release, and keeps serving today's", async () => {
-    // cloud_009 §5's first release. `Pairing` is `.strict()`, so a row
-    // carrying the multi-site `sites` map read by a daemon that predates this
-    // fails to parse — and the per-row parse above would skip it and report a
-    // daemon paired with nothing, which is precisely the failure this file
-    // exists to describe. So the field is accepted a release before anything
-    // writes it.
-    //
-    // The assertion is both halves: the new row survives, and the old one
-    // beside it is untouched. A migration that reads the future and drops the
-    // present is not a migration.
+  it("reads a pairing that covers several sites", async () => {
+    // cloud_009 §5. One pairing per upstream, covering a set: a user who
+    // connects a site on a web dashboard has no reason to run a command on a
+    // laptop afterwards, so the set follows consent rather than being frozen
+    // at pairing.
     const SITE_A = publicIdentityOf(generateKeys(1_800_000_000_002));
     const SITE_B = publicIdentityOf(generateKeys(1_800_000_000_003));
     await writeFile(
@@ -149,19 +148,15 @@ describe("a pairings file with one unreadable row", () => {
       JSON.stringify({
         version: 1,
         pairings: [
-          {
-            origin: "https://old.test",
-            runnerId: "r_old",
-            owner: "alice",
-            site: publicIdentityOf(generateKeys(1_800_000_000_001)),
-            pairedAt: 1,
-          },
+          good("https://direct.test"),
           {
             origin: "https://hub.test",
-            runnerId: "r_new",
+            runnerId: "r_hub",
             owner: "alice",
-            site: SITE_A,
-            sites: { "BYOLLM-A": SITE_A, "BYOLLM-B": SITE_B },
+            sites: {
+              [keyId(SITE_A.identity)]: SITE_A,
+              [keyId(SITE_B.identity)]: SITE_B,
+            },
             pairedAt: 2,
           },
         ],
@@ -173,12 +168,16 @@ describe("a pairings file with one unreadable row", () => {
 
     expect(pairings.skipped).toEqual([]);
     expect(pairings.list().map((p) => p.origin)).toEqual([
-      "https://old.test",
+      "https://direct.test",
       "https://hub.test",
     ]);
-    expect(Object.keys(pairings.get("https://hub.test")?.sites ?? {})).toEqual([
-      "BYOLLM-A",
-      "BYOLLM-B",
-    ]);
+    // A direct site is one entry rather than a different shape, which is what
+    // lets the runner's lookup be one map read on every lane.
+    expect(
+      Object.keys(pairings.get("https://direct.test")?.sites ?? {}),
+    ).toHaveLength(1);
+    expect(
+      Object.keys(pairings.get("https://hub.test")?.sites ?? {}).sort(),
+    ).toEqual([keyId(SITE_A.identity), keyId(SITE_B.identity)].sort());
   });
 });

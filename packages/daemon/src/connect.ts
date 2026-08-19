@@ -111,14 +111,33 @@ export async function connect(options: ConnectOptions): Promise<ConnectResult> {
         // impersonated, and pinning it would make the impersonation
         // permanent — which is the failure mode pinning exists to prevent,
         // arrived at by pinning.
-        if (!verifyPublicIdentity(polled.site)) {
+        // **Every** site, not the first one — cloud_009 §5. A pairing now
+        // covers a set, and one unverifiable member is the whole pairing
+        // refused: pinning the others and quietly dropping that one would
+        // leave a machine serving an upstream whose account of itself did
+        // not add up, which is the thing this check exists to refuse.
+        for (const site of Object.values(polled.sites)) {
+          if (verifyPublicIdentity(site)) continue;
           return {
             ok: false,
             reason: "denied",
             message:
-              "this app presented keys that do not verify: its encryption " +
+              "this app presented keys that do not verify: an encryption " +
               "key is not signed by the identity it claims. Nothing was " +
               "paired.",
+          };
+        }
+        if (Object.keys(polled.sites).length === 0) {
+          // Approved, and covering nothing. A pairing with no site is a row
+          // that reports "paired" and serves nobody — the shape §2.3a's
+          // per-row parse produces on a bad file, arriving here by consent
+          // having gone between approval and this poll.
+          return {
+            ok: false,
+            reason: "denied",
+            message:
+              "this app approved the pairing and then offered no sites to " +
+              "serve. Nothing was paired.",
           };
         }
         return {
@@ -130,7 +149,7 @@ export async function connect(options: ConnectOptions): Promise<ConnectResult> {
             ...(polled.ownerLabel === undefined
               ? {}
               : { ownerLabel: polled.ownerLabel }),
-            site: polled.site,
+            sites: polled.sites,
             pairedAt: now(),
           },
         };

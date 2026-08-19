@@ -368,7 +368,12 @@ export class ByollmHandlers {
         owner: pairing.owner,
         // Only on approval: a pending or denied poll learns nothing, so an
         // unapproved code cannot be used to enumerate a site's keys.
-        site: publicIdentityOf(this.#siteKeys),
+        //
+        // One entry, because a direct site *is* one site — the same shape a
+        // hub answers with rather than a special case (cloud_009 §5). The
+        // daemon's lookup is one map read on every lane, which is what keeps
+        // the two lanes one protocol.
+        sites: { [this.#siteKeyId]: publicIdentityOf(this.#siteKeys) },
       };
       // Delivered exactly once — a replayed device code gets nothing.
       await this.#store.consumePairingToken(pairing.deviceCodeHash);
@@ -466,7 +471,12 @@ export class ByollmHandlers {
       // reported lost so it abandons the queue rather than finishing it.
       const held = await this.#store.listClaimedBy(runner.id);
       const response: HeartbeatResponse = {
-        revoked: true,
+        // Empty, which is what `revoked: true` used to say — cloud_008
+        // finding 59. A direct site has one site to withdraw, so revocation
+        // here is the whole set going; under a hub it is one entry leaving.
+        // One field, one fact, on both lanes.
+        sites: {},
+        awaitingConsent: [],
         cancel: [],
         lost: held.map((job) => job.id),
         serverTime: now,
@@ -495,7 +505,10 @@ export class ByollmHandlers {
     const cancel = await this.#store.listCancelRequests(runner.id);
 
     const response: HeartbeatResponse = {
-      revoked: false,
+      sites: { [this.#siteKeyId]: publicIdentityOf(this.#siteKeys) },
+      // A direct site has no disclosure of its own to go stale: consent to it
+      // *is* the pairing, and withdrawing it empties the set above.
+      awaitingConsent: [],
       cancel,
       lost: [...lost],
       serverTime: now,

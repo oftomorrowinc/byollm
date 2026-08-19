@@ -83,10 +83,16 @@ describe("a paused consent", () => {
     });
     expect(response.status).toBe(200);
     const body = (await response.json()) as {
-      revoked: boolean;
+      sites: Record<string, unknown>;
+      awaitingConsent: string[];
       lost: string[];
     };
-    expect(body.revoked).toBe(false);
+    // The pin stands — a paused site is still in the set, which is what makes
+    // re-consenting free of a re-pair (cloud_009 §5). An empty set is what
+    // revocation looks like now, and this is not that.
+    expect(Object.keys(body.sites)).toHaveLength(1);
+    // And it says which site the user has to go and read about.
+    expect(body.awaitingConsent).toEqual(Object.keys(body.sites));
     expect(body.lost).toEqual([]);
   });
 

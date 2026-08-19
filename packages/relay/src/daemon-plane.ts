@@ -187,8 +187,17 @@ export class DaemonPlane {
     return ok({
       protocolVersion: PROTOCOL_VERSION,
       runnerId,
-      /** The *site's* key. See the note above — this is load-bearing. */
-      site: site.site,
+      /**
+       * The *sites'* keys. See the note above — this is load-bearing.
+       *
+       * The set this owner has consented to, keyed by each site's identity
+       * key id (cloud_009 §5). Paused sites are here: a paused consent keeps
+       * its pin so re-consenting never costs a re-pair, and what it does not
+       * do is route.
+       */
+      sites: Object.fromEntries(
+        sites.map((record) => [keyId(record.site.identity), record.site]),
+      ),
     });
   }
 
@@ -368,19 +377,31 @@ export class DaemonPlane {
 
         // Revocation is a fixture edit, and this is where the daemon learns
         // of it — within one heartbeat, which is what the freeze gate times.
-        const consent = this.#deps.projection.consentFor(
-          device.owner,
-          this.#deps.siteId,
+        // The set, not a boolean — cloud_008 finding 59. A site that leaves
+        // it is revoked for that site; the daemon drops that pin and keeps
+        // the rest. An empty set is what `revoked: true` used to mean, and
+        // the daemon reads it for itself rather than being told twice.
+        const pinned = this.#deps.projection.sitesFor(device.owner);
+        const sites = Object.fromEntries(
+          pinned.map((record) => [keyId(record.site.identity), record.site]),
         );
-        const revoked = consent === null;
+        // A subset: paused sites keep their pin and route nothing, so the
+        // daemon can name what the user has to go and read.
+        const awaitingConsent = pinned
+          .filter(
+            (record) =>
+              !this.#deps.projection.mayRouteFor(device.owner, record.siteId),
+          )
+          .map((record) => keyId(record.site.identity));
 
-        // A revoked runner renews nothing and is told it holds nothing, so it
-        // abandons the queue rather than finishing it. Identical to the direct
-        // plane's revoked branch, deliberately: the daemon cannot see which
-        // upstream it is talking to and the rule must not depend on that.
-        if (revoked) {
+        if (pinned.length === 0) {
+          // Nothing left to serve. The daemon abandons the queue rather than
+          // finishing it, exactly as the direct plane's revoked branch does:
+          // a daemon cannot see which upstream it is talking to, and the rule
+          // must not depend on that.
           return ok({
-            revoked,
+            sites,
+            awaitingConsent,
             cancel: [],
             lost: request.activeLeases.map((lease) => lease.jobId),
             serverTime: now,
@@ -409,7 +430,8 @@ export class DaemonPlane {
         });
 
         return ok({
-          revoked,
+          sites,
+          awaitingConsent,
           cancel,
           lost,
           serverTime: now,

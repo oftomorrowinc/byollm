@@ -16,54 +16,30 @@ export const Pairing = z
   .object({
     origin: z.string().min(1),
     runnerId: z.string().min(1),
-    /**
-     * A bearer token this daemon no longer mints, sends or reads — cloud_008
-     * §2.4, finding 37.
-     *
-     * Optional, and only so that a pairings file written before alpha.18
-     * still parses: `Pairing` is `.strict()`, so making it absent would make
-     * every existing row unreadable — and §2.3a would then dutifully skip
-     * them one by one and report a daemon paired with nothing. A schema
-     * change is a data migration; that lesson cost the hub an outage window
-     * in §2.1a and is not worth learning twice.
-     *
-     * Never written by this version. It disappears from a file the first time
-     * anything rewrites it, and this field goes when no supported version can
-     * still be holding one.
-     */
-    token: z.string().min(1).optional(),
     /** The app's id for this daemon's owner. */
     owner: z.string().min(1),
     ownerLabel: z.string().optional(),
     /**
-     * The site's public keys, pinned at pairing (byollm_009 §5).
+     * The sites this pairing covers, keyed by each site's identity key id.
      *
      * Pinned rather than fetched: a key re-fetched on each connection is a
      * key an upstream can change, which is the whole thing pinning prevents.
-     * The owner can compare `sitePin`'s fingerprint against what the site
-     * displays.
+     * The owner compares a fingerprint against what the site displays.
+     *
+     * A **map**, because one pairing covers an upstream rather than a site
+     * (cloud_009 §5): a user who connects a site on a web dashboard has no
+     * reason to run a command on a laptop afterwards, so the set follows
+     * consent and arrives on the heartbeat. A direct site is one entry, which
+     * is the same shape rather than a special case.
+     *
+     * `site` and `token` are gone. `token` was a bearer credential nothing
+     * had minted, sent or read since alpha.18 — a secret kept at rest for
+     * nothing. `site` was the single-site shape, and carrying both would be
+     * two answers to "which key opens this", which is this project's most
+     * repeated bug. Pre-1.0, an existing pairing file is re-paired rather
+     * than migrated, and the README says so.
      */
-    site: PublicIdentity,
-    /**
-     * Every site this pairing carries, keyed by the site's identity key id.
-     *
-     * **Accepted, not yet written** — cloud_009 §5's first release. One
-     * pairing per hub, and which sites it carries is a projection of consent
-     * rather than something frozen at pairing: a user who connects a site in
-     * the dashboard has no reason to go back to a laptop and run a command,
-     * so the set arrives on the heartbeat and this is where it lands.
-     *
-     * The order matters and is the whole reason this field is here a release
-     * early. `Pairing` is `.strict()`, so a row carrying `sites` read by a
-     * daemon that predates it fails to parse — and §2.3a's per-row parse
-     * would dutifully skip it and report a daemon paired with nothing. So:
-     * this release accepts it, the next writes it, and a third drops `site`.
-     * No release ever writes a shape the previous one cannot read.
-     *
-     * The key is the id `stub.site` carries (Amendment A §A.3), so the
-     * runner's lookup is a map read with no second namespace in it.
-     */
-    sites: z.record(z.string().min(1), PublicIdentity).optional(),
+    sites: z.record(z.string().min(1), PublicIdentity),
     pairedAt: z.number().int().positive(),
   })
   .strict();

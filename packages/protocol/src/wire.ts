@@ -251,33 +251,24 @@ export const PairPollResponse = z.discriminatedUnion("status", [
       /** Display name for the trust UI, if the app offers one. */
       ownerLabel: z.string().optional(),
       /**
-       * The site's public keys, for the daemon to pin (byollm_009 §5).
+       * The sites this pairing covers, for the daemon to pin (byollm_009 §5),
+       * keyed by each site's identity key id — cloud_009 §5.
        *
-       * Returned only on approval — a pending or denied poll learns nothing,
+       * Returned only on approval: a pending or denied poll learns nothing,
        * so an unapproved code cannot be used to enumerate a site's keys.
-       */
-      site: PublicIdentity,
-      /**
-       * Every site this pairing covers, keyed by the site's identity key id —
-       * cloud_009 §5.
        *
-       * **Accepted, not yet emitted.** A relay that sent this to a daemon
-       * whose `PairPollResponse` predates it would fail that daemon's
-       * `.strict()` parse at the one moment it is trying to pair — so the
-       * schema learns the field a release before anything sends it, exactly
-       * as the pairings file did in alpha.24.
-       *
-       * One pairing per hub rather than one per site: a user who connects a
-       * site in the dashboard has no reason to go back to a laptop and run a
-       * command, so which sites a pairing covers is a projection of consent
-       * rather than something frozen here. `site` stays for the release that
-       * still needs it, carrying whichever site this daemon would otherwise
-       * have paired with alone.
+       * **One pairing per upstream, not one per site.** A user who connects a
+       * site on a web dashboard has no reason to go back to a laptop and run
+       * a command, so which sites a pairing covers is a projection of consent
+       * — refreshed on the heartbeat — rather than something frozen at
+       * pairing. A direct site answers with exactly one entry, which is the
+       * same shape and not a special case.
        *
        * Keyed by the id `stub.site` carries (Amendment A §A.3), so the
-       * runner's lookup is a map read and not a join across two namespaces.
+       * runner's lookup is a map read rather than a join across two
+       * namespaces.
        */
-      sites: z.record(z.string().min(1), PublicIdentity).optional(),
+      sites: z.record(z.string().min(1), PublicIdentity),
     })
     .strict(),
 ]);
@@ -345,8 +336,24 @@ export type HeartbeatRequest = z.infer<typeof HeartbeatRequest>;
 
 export const HeartbeatResponse = z
   .object({
-    /** Once true, the daemon stops claiming and abandons in-flight work. */
-    revoked: z.boolean(),
+    /**
+     * The sites this daemon may serve, right now — cloud_008 finding 59.
+     *
+     * Revocation used to be a boolean, and it was device-wide: the daemon
+     * plane refused every call when the (owner, hub-site) consent was gone,
+     * heartbeat answered `revoked: true` with `lost: all`, and the daemon
+     * dropped its whole pairing by origin. Under a hub that is one site's
+     * revocation ending a machine's relationship with every other site it
+     * served — the amplification finding 48 warned about, arriving through
+     * the one field nobody thought of as tenancy.
+     *
+     * So the answer is the set. A site that leaves it is revoked *for that
+     * site*: the daemon drops that pin and keeps the rest. An empty set is
+     * what "revoked" used to mean, and the daemon can see that for itself
+     * rather than being told a second time — two fields for one fact is how
+     * they drift.
+     */
+    sites: z.record(z.string().min(1), PublicIdentity),
     /**
      * Per-job cancel (byollm_001 Rev 1 §C). The daemon aborts these jobs'
      * in-flight backend calls and reports them `canceled`.
@@ -380,27 +387,20 @@ export const HeartbeatResponse = z
     /** Server clock, so a daemon with a skewed clock still honors leases. */
     serverTime: z.number().int().positive(),
     /**
-     * The user has something to read before their work moves again —
-     * cloud_008 finding 48.
+     * Sites whose disclosure the user must read again before work moves —
+     * cloud_008 finding 48, named rather than counted.
      *
-     * Not `revoked`, and deliberately not spelled `paused`. `revoked` is a
-     * human ending the relationship, and a daemon that hears it stops and
-     * deletes its pairing; this is a disclosure that stopped describing the
-     * user's arrangements, which ends when they read the new one. And
-     * `HeartbeatRequest.paused` already means "this daemon's operator stopped
-     * it" — one word, two subjects, on the two halves of one exchange, is a
-     * confusion nobody would ever untangle from a log.
+     * A **subset of `sites`**, deliberately: a paused site keeps its pin, so
+     * re-consenting never costs a re-pair. The daemon can say which site is
+     * waiting and the user can go and read it, which is the difference
+     * between a machine that is quietly idle and one that says why.
      *
-     * Optional for one release. A field a relay emits to a daemon whose
-     * `.strict()` schema predates it is a parse failure at exactly the moment
-     * the user needs their machine working, so this release **accepts** it and
-     * the next one emits it (cloud_009 §5's rollout, applied to a smaller
-     * thing).
-     *
-     * A boolean today because the relay serves one site. Under a hub it says
-     * which sites, and the daemon can name them.
+     * Not `revoked`, which is a human ending a relationship, and not
+     * `paused`, which on the request side already means "this daemon's
+     * operator stopped it" — one word with two subjects on two halves of one
+     * exchange is a confusion nobody untangles from a log.
      */
-    awaitingConsent: z.boolean().optional(),
+    awaitingConsent: z.array(z.string().min(1)),
   })
   .strict();
 export type HeartbeatResponse = z.infer<typeof HeartbeatResponse>;

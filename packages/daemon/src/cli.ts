@@ -291,15 +291,9 @@ async function runLoop(
       owner: pairing.owner,
       identity: {
         keys: () => identity.load(Date.now()),
-        sitePinned: pairing.site,
-        // Present only on a pairing written by a later release (cloud_009
-        // §5). Passing it now means the daemon that *accepts* the new shape
-        // also *uses* it — a release that could read a multi-site row and
-        // then served one site would be the more confusing half of a
-        // migration.
-        ...(pairing.sites === undefined
-          ? {}
-          : { sites: new Map(Object.entries(pairing.sites)) }),
+        // What was on disk. The runner replaces it from each heartbeat and
+        // the loop below writes changes back — cloud_009 §5.
+        sites: new Map(Object.entries(pairing.sites)),
       },
       daemonVersion: DAEMON_VERSION,
       loaded,
@@ -417,9 +411,23 @@ function report(origin: string, event: RunnerEvent, io: CliIo): void {
     // changed, and the person who has to read them is the one at this
     // keyboard. The daemon keeps running and keeps its pairing.
     case "awaiting-consent":
+      // Names the sites, because "something changed" sends somebody hunting.
+      // A pairing covers a set now (cloud_009 §5), and one site's terms
+      // moving leaves every other site running.
       io.out(
-        `${at} ${host} paused — the terms changed and are waiting for you. ` +
-          `Open your connections page to read them; nothing runs until you do.\n`,
+        `${at} ${host} paused for ${event.sites.join(", ")} — the terms ` +
+          `changed and are waiting for you. Open your connections page to ` +
+          `read them; nothing runs for those sites until you do.\n`,
+      );
+      break;
+    case "site-key-changed":
+      // Refused, not applied. The map is keyed by identity key id, so this is
+      // an encryption key moving under an identity whose fingerprint somebody
+      // already compared — which is the substitution pinning exists to stop.
+      io.err(
+        `${at} ${host} refused a changed key for site ${event.site}. ` +
+          `Nothing was re-pinned. If this site rotated its keys on purpose, ` +
+          `re-pair with \`byollm connect\`.\n`,
       );
       break;
     case "consent-resumed":
@@ -462,7 +470,12 @@ async function commandStatus(paths: DaemonPaths, io: CliIo): Promise<ExitCode> {
     io.out(`  ${pairing.origin}  as ${pairing.ownerLabel ?? pairing.owner}\n`);
     // The pinned key, so an owner can check it against what the app shows.
     // A pin nobody can see is a pin nobody can verify.
-    io.out(`    pinned: ${fingerprint(pairing.site.identity)}\n`);
+    // Every pinned key, so an owner can check each against what the site
+    // shows. A pin nobody can see is a pin nobody can verify, and a pairing
+    // covering several sites hides several of them behind one line.
+    for (const site of Object.values(pairing.sites)) {
+      io.out(`    pinned: ${fingerprint(site.identity)}\n`);
+    }
   }
 
   io.out("\nroutes\n");

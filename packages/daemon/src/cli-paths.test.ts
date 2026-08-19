@@ -1,7 +1,7 @@
 import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { payloadTextLength } from "@byollm/protocol";
+import { payloadTextLength, keyId } from "@byollm/protocol";
 import { generateKeys, publicIdentityOf } from "@byollm/protocol";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { normalizeOrigin } from "./allowlist.js";
@@ -86,9 +86,8 @@ describe("byollm run — when the pairing is missing", () => {
     await pairings.put({
       origin: "https://other.test",
       runnerId: "runner_1",
-      token: "t",
       owner: "alice",
-      site: SITE,
+      sites: { [keyId(SITE.identity)]: SITE },
       pairedAt: Date.now(),
     });
 

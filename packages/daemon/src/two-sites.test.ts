@@ -64,16 +64,9 @@ const DEVICE = generateKeys(1_800_000_000_000);
 const A = keyId(publicIdentityOf(SITE_A).identity);
 const B = keyId(publicIdentityOf(SITE_B).identity);
 
-/**
- * Paired with both, as cloud_009 §5's hub pairing leaves a machine.
- *
- * `sitePinned` is A only because the field still exists for the release that
- * accepts both shapes. Every assertion below about B is therefore also an
- * assertion that the map is what answered.
- */
+/** Paired with both, as cloud_009 §5's hub pairing leaves a machine. */
 const IDENTITY = {
   keys: () => Promise.resolve(DEVICE),
-  sitePinned: publicIdentityOf(SITE_A),
   sites: new Map<string, PublicIdentity>([
     [A, publicIdentityOf(SITE_A)],
     [B, publicIdentityOf(SITE_B)],
@@ -171,7 +164,19 @@ function relay(job: ReturnType<typeof stub>, envelope: SealedEnvelope) {
     } else if (endpoint === "fetch") {
       body = { envelope };
     } else if (endpoint === "heartbeat") {
-      body = { revoked: false, cancel: [], lost: [], serverTime: Date.now() };
+      body = {
+        // The set this pairing covers — cloud_009 §5. The runner takes it
+        // from every heartbeat, so a fixture that sent one site would
+        // un-pin the other between ticks.
+        sites: {
+          [A]: publicIdentityOf(SITE_A),
+          [B]: publicIdentityOf(SITE_B),
+        },
+        awaitingConsent: [],
+        cancel: [],
+        lost: [],
+        serverTime: Date.now(),
+      };
     } else if (endpoint === "result") {
       // The client sends a JSON string body; anything else is a fixture bug
       // rather than a case to handle.

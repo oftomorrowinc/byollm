@@ -2,7 +2,7 @@ import { createServer, type Server } from "node:http";
 import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { generateKeys, publicIdentityOf } from "@byollm/protocol";
+import { generateKeys, publicIdentityOf, keyId } from "@byollm/protocol";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { runCli } from "./cli.js";
 import { daemonPaths, type DaemonPaths } from "./paths.js";
@@ -68,7 +68,8 @@ async function revokingServer(): Promise<void> {
       if (req.url?.endsWith("/heartbeat")) {
         res.end(
           JSON.stringify({
-            revoked: true,
+            sites: {},
+            awaitingConsent: [],
             cancel: [],
             lost: [],
             serverTime: Date.now(),
@@ -89,6 +90,16 @@ async function revokingServer(): Promise<void> {
   )}`;
 }
 
+/**
+ * One paired site, as a pairing row holds it — keyed by its identity key id.
+ */
+const PAIRED_KEYS = generateKeys(1_800_000_000_000);
+const PAIRED_SITE = publicIdentityOf(PAIRED_KEYS);
+const PAIRED_SITES = { [keyId(PAIRED_SITE.identity)]: PAIRED_SITE };
+
+/** What a heartbeat says while the pairing still stands. */
+const HEARTBEAT_SITES = PAIRED_SITES;
+
 describe("a revoked daemon", () => {
   it("drops the pairing rather than keeping a key for a dead relationship", async () => {
     await writeConfig();
@@ -98,9 +109,8 @@ describe("a revoked daemon", () => {
     await pairings.put({
       origin,
       runnerId: "runner_test",
-      token: "unused-but-required",
       owner: "alice",
-      site: publicIdentityOf(generateKeys(1_800_000_000_000)),
+      sites: PAIRED_SITES,
       pairedAt: 1_800_000_000_000,
     });
 
@@ -141,7 +151,8 @@ describe("a revoked daemon", () => {
       if (req.url?.endsWith("/heartbeat")) {
         res.end(
           JSON.stringify({
-            revoked: false,
+            sites: HEARTBEAT_SITES,
+            awaitingConsent: [],
             cancel: [],
             lost: [],
             serverTime: Date.now(),
@@ -164,9 +175,8 @@ describe("a revoked daemon", () => {
     await pairings.put({
       origin,
       runnerId: "runner_test",
-      token: "unused-but-required",
       owner: "alice",
-      site: publicIdentityOf(generateKeys(1_800_000_000_000)),
+      sites: PAIRED_SITES,
       pairedAt: 1_800_000_000_000,
     });
 

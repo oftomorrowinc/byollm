@@ -43,10 +43,15 @@ const TEST_SITE_KEYS = generateKeys(1_800_000_000_000);
  * is the check doing exactly what it is for.
  */
 const TEST_SITE_ID = keyId(publicIdentityOf(TEST_SITE_KEYS).identity);
+
+/** The set a heartbeat carries — cloud_009 §5. One entry is a site. */
+const HEARTBEAT_SITES = {
+  [TEST_SITE_ID]: publicIdentityOf(TEST_SITE_KEYS),
+};
 const TEST_DEVICE_KEYS = generateKeys(1_800_000_000_000);
 const TEST_IDENTITY = {
   keys: () => Promise.resolve(TEST_DEVICE_KEYS),
-  sitePinned: publicIdentityOf(TEST_SITE_KEYS),
+  sites: new Map([[TEST_SITE_ID, publicIdentityOf(TEST_SITE_KEYS)]]),
 };
 
 /** Seal a payload to the test device, as the site would at fetch time. */
@@ -200,7 +205,8 @@ function routed(responses: {
           })
         : endpoint === "heartbeat"
           ? (responses.heartbeat ?? {
-              revoked: false,
+              sites: HEARTBEAT_SITES,
+              awaitingConsent: [],
               cancel: [],
               lost: [],
               serverTime: Date.now(),
@@ -237,11 +243,11 @@ describe("the loop", () => {
       const body =
         endpoint === "heartbeat"
           ? {
-              revoked: false,
+              sites: HEARTBEAT_SITES,
+              awaitingConsent: awaiting ? [TEST_SITE_ID] : [],
               cancel: [],
               lost: [],
               serverTime: Date.now(),
-              ...(awaiting ? { awaitingConsent: true } : {}),
             }
           : endpoint === "claim"
             ? { jobs: [], leaseMs: 60_000 }
@@ -259,7 +265,11 @@ describe("the loop", () => {
 
     // Once, not once per heartbeat: a line repeated every few seconds is a
     // line nobody reads.
-    expect(events.filter((e) => e.type === "awaiting-consent")).toHaveLength(1);
+    const waiting = events.filter((e) => e.type === "awaiting-consent");
+    expect(waiting).toHaveLength(1);
+    // It names the site, so the user knows which terms to go and read —
+    // cloud_008 finding 48, cloud_009 §5's set.
+    expect(waiting[0]).toMatchObject({ sites: [TEST_SITE_ID] });
     // Still running, unlike `revoked` — which stops the loop and, in the CLI,
     // deletes the pairing. That difference is the whole point of the state.
     expect(events.filter((e) => e.type === "revoked")).toEqual([]);
@@ -274,7 +284,8 @@ describe("the loop", () => {
     const runner = await makeRunner(
       routed({
         heartbeat: {
-          revoked: true,
+          sites: {},
+          awaitingConsent: [],
           cancel: [],
           lost: [],
           serverTime: Date.now(),

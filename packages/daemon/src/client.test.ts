@@ -3,6 +3,7 @@ import {
   publicIdentityOf,
   signRequest,
   verifyRequest,
+  keyId,
 } from "@byollm/protocol";
 import { describe, expect, it } from "vitest";
 import { ClientError, ProtocolClient } from "./client.js";
@@ -235,7 +236,7 @@ describe("connect — the device-code flow", () => {
           { status: "pending" },
           {
             status: "approved",
-            site: SITE,
+            sites: { [keyId(SITE.identity)]: SITE },
             runnerId: "runner_1",
             owner: "alice",
           },
@@ -326,7 +327,7 @@ describe("connect — the device-code flow", () => {
         new Response(
           JSON.stringify({
             status: "approved",
-            site: SITE,
+            sites: { [keyId(SITE.identity)]: SITE },
             runnerId: "runner_1",
             owner: "alice",
           }),
@@ -376,9 +377,8 @@ describe("Pairings", () => {
       await store.put({
         origin: "https://app.test/",
         runnerId: "runner_1",
-        token: "t1",
         owner: "alice",
-        site: SITE,
+        sites: { [keyId(SITE.identity)]: SITE },
         pairedAt: 1,
       });
       // Trailing slash and a path are the same server.
@@ -388,9 +388,8 @@ describe("Pairings", () => {
       await store.put({
         origin: "https://app.test",
         runnerId: "runner_2",
-        token: "t2",
         owner: "alice",
-        site: SITE,
+        sites: { [keyId(SITE.identity)]: SITE },
         pairedAt: 2,
       });
       expect(store.list()).toHaveLength(1);
@@ -398,7 +397,13 @@ describe("Pairings", () => {
 
       const reloaded = new Pairings(path);
       await reloaded.load();
-      expect(reloaded.get("https://app.test")?.token).toBe("t2");
+      // The pinned set survives a reload, which is what the row is for. The
+      // bearer token this line used to check is gone — nothing had minted,
+      // sent or read it since alpha.18, and a secret kept at rest for nothing
+      // is a liability rather than clutter.
+      expect(
+        Object.keys(reloaded.get("https://app.test")?.sites ?? {}),
+      ).toHaveLength(1);
 
       expect(await reloaded.remove("https://app.test")).toBe(true);
       expect(await reloaded.remove("https://app.test")).toBe(false);

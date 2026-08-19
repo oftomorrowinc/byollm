@@ -1460,7 +1460,7 @@ export const CHECKS: readonly Check[] = [
       //    enumerate a site's keys.
       const pending = await poll();
       assert(
-        pending["site"] === undefined,
+        pending["sites"] === undefined,
         "a pending poll disclosed the site's keys before anyone approved",
       );
 
@@ -1472,8 +1472,24 @@ export const CHECKS: readonly Check[] = [
         `poll after approval said "${String(approved["status"])}"`,
       );
 
-      const site = PublicIdentity.safeParse(approved["site"]);
-      assert(site.success, "the approval carried no usable site identity");
+      // The set this pairing covers — cloud_009 §5. A direct site answers
+      // with one entry, and this check pairs against one, so what it verifies
+      // is every key it was handed rather than the first: an upstream that
+      // slipped one unverifiable site into a set would otherwise pass by
+      // being asked about the other.
+      const offered = approved["sites"];
+      assert(
+        typeof offered === "object" && offered !== null,
+        "the approval carried no sites to pin",
+      );
+      const parsed = Object.values(offered as Record<string, unknown>).map(
+        (value) => PublicIdentity.safeParse(value),
+      );
+      assert(
+        parsed.length > 0 && parsed.every((entry) => entry.success),
+        "the approval carried no usable site identity",
+      );
+      const site = parsed[0]!;
       assert(
         verifyPublicIdentity(site.data),
         "the site's encryption key is not signed by the identity it presented",

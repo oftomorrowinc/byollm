@@ -139,6 +139,12 @@ export function describeStoreContract(
       });
 
       expect(collision).toEqual({ refused: "id-taken" });
+      // The refusal names nothing about the other site. What the *store* says
+      // reaches the site plane, which must not turn it into "somebody else has
+      // that id" — cloud_008 finding 58, second pass. One value, and it is the
+      // same value for every collision, so there is nothing here to correlate.
+      expect(JSON.stringify(collision)).not.toContain("site_other");
+      expect(JSON.stringify(collision)).not.toContain(SITE);
       // And the original is untouched: a refusal must not disturb the job it
       // refused on behalf of.
       expect((await store.job("shared"))?.siteId).toBe(SITE);

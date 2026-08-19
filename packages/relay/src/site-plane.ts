@@ -255,7 +255,21 @@ export class SitePlane {
         // is exercised there against both implementations. This is the wire's
         // half of it.
         if ("refused" in job) {
-          return fail(403, "forbidden", "that job id belongs to another site");
+          // **Says nothing about why** — cloud_008 finding 58, second pass.
+          //
+          // "that job id belongs to another site" is a cross-tenant existence
+          // oracle: a site that guessed or was leaked an id could confirm
+          // another tenant holds it. Ids are random, so enumeration is not
+          // practical, and a confirmation should still not be available for
+          // the asking.
+          //
+          // This reduces the leak and does not remove it, which is worth
+          // saying rather than claiming a fix: a site knows its own stub is
+          // well-formed, so *any* refusal it can tell apart from success is
+          // the confirmation, whatever the message says. The only real fix is
+          // a collision that cannot happen — per-site keys, cloud_009 §3's
+          // first store decision — and this refusal disappears with it.
+          return fail(400, "bad-request", "that stub was not accepted");
         }
         return ok({ jobId: job.id, state: job.state });
       },

@@ -1,0 +1,25 @@
+-- Which grant recorded a result — cloud_008 §3.6.
+--
+-- `complete` now checks terminal state **before** the holder, so
+-- `RESULT_IDEMPOTENT` is enforced by the branch named after it rather than as
+-- a side effect of the lease being nulled on success. Answering a replay
+-- correctly means knowing which grant recorded the result, and `lease_id` is
+-- cleared at completion by design: "who holds this" and "who finished this"
+-- are different questions with different lifetimes.
+--
+-- ## Why this is its own file
+--
+-- It was first appended to `20260819000000_drop_runner_token.sql`, which had
+-- already shipped in alpha.19. An applied migration is immutable — that is the
+-- whole reason a migrations folder can be trusted — and the fact that this one
+-- is only days old and probably applied nowhere does not make editing it a
+-- different act. The rule is worth more than the tidiness.
+--
+-- ## Nullable, and not backfilled
+--
+-- Rows completed before this migration have no recorded grant, so a replay of
+-- one of them is answered as a plain refusal rather than as a duplicate. That
+-- is the safe direction: it withholds a reassurance rather than inventing one,
+-- and the daemons that produced those rows stopped retrying long ago.
+alter table byollm_jobs
+  add column if not exists completed_by_lease_id text;

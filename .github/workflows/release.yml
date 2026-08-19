@@ -27,11 +27,55 @@ concurrency:
 
 permissions:
   contents: read
+  # Reading CI's verdict on this commit — the `ci` job below.
+  actions: read
   # The whole point: this is what lets the runner mint an OIDC token npm will
   # trust. Without it every publish fails with ENEEDAUTH.
   id-token: write
 
 jobs:
+  # Nothing publishes on a commit CI has not passed — cloud_008 §3.7.
+  #
+  # Release runs on a **tag** and CI runs on a **push**, so until this job
+  # existed they were independent: alpha.19 published while CI was red, and
+  # the failure was real — the Supabase adapter's schema was missing a column
+  # the adapter had started writing. The tag said "ship it" and nothing asked
+  # what CI thought of the same commit.
+  #
+  # `platforms` below re-runs the daemon suite on three operating systems,
+  # which is a different question (byollm_010 §2) and does not cover the
+  # conformance targets, the Supabase adapter, or lint and typecheck. This
+  # waits for the CI run on this exact SHA rather than restating its contents,
+  # so the two cannot drift.
+  ci:
+    name: CI passed on this commit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Wait for CI
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          SHA="$(git rev-parse HEAD)"
+          echo "waiting for CI on $SHA"
+          for attempt in $(seq 1 60); do
+            # `--json` over the checks API rather than the status API: CI is a
+            # workflow, and a workflow that has not started yet reports
+            # nothing at all rather than reporting pending.
+            STATE="$(gh run list --commit "$SHA" --workflow CI               --json status,conclusion --jq               '[.[]] | if length == 0 then "missing"
+                       elif any(.status != "completed") then "running"
+                       elif all(.conclusion == "success") then "success"
+                       else "failed" end')"
+            case "$STATE" in
+              success) echo "CI green on $SHA"; exit 0 ;;
+              failed)  echo "::error::CI failed on $SHA — not publishing"; exit 1 ;;
+              *)       echo "  $STATE ($attempt/60)"; sleep 20 ;;
+            esac
+          done
+          echo "::error::CI did not finish for $SHA within 20 minutes"
+          exit 1
+
   # byollm_010 §2: nothing publishes that has not been run on every platform
   # we let people install it on. The alpha shipped a daemon that was unusable
   # on Windows because the gate only ever ran on Linux — a blocking security
@@ -58,7 +102,7 @@ jobs:
 
   release:
     name: Publish to npm
-    needs: platforms
+    needs: [ci, platforms]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

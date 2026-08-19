@@ -1,5 +1,5 @@
 > [!WARNING]
-> **Alpha (`0.1.0-alpha.19`) — under active development. Don't use this yet.**
+> **Alpha (`0.1.0-alpha.20`) — under active development. Don't use this yet.**
 >
 > This is a walking skeleton. It routes real jobs between real daemons and real
 > sites, and it is the fixture byollm_009 freezes against — but it keeps its
@@ -141,7 +141,7 @@ daemons pin at pairing, verified against the `sites` half of the projection.
 Nothing here trusts a `siteId` in a body or a query string.
 
 That is newer than the rest of this package. The site plane took the caller's
-word for who it was until `0.1.0-alpha.19`, which on a relay reachable from the
+word for who it was until `0.1.0-alpha.20`, which on a relay reachable from the
 internet is an open enqueue endpoint into consenting users' machines and an
 open read of who is online. It was blind the whole time — nothing could open a
 payload — and blind is not the same as safe.
@@ -149,7 +149,7 @@ payload — and blind is not the same as safe.
 If you are running this: the site plane is authenticated but this is still a
 single-tenant relay with in-memory state. One site, one replica.
 
-## Breaking in `0.1.0-alpha.19`: `RelayState` is async
+## Breaking in `0.1.0-alpha.20`: `RelayState` is async
 
 Every method on `RelayState` now returns a `Promise`, and `Relay.sweep()` and
 `debugPage()` with it. `RelayState.requeue` is private — it was only ever a

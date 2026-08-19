@@ -351,7 +351,16 @@ export const POSTURE_CHECKS: readonly PostureCheck[] = Object.freeze([
         statuses.push(response.status);
       }
       return outcome(
-        statuses.every((status) => status !== 200),
+        // **Not merely "not 200"** — cloud_009 §3 made the page per-site, so
+        // an enabled one answers a probe with no site id `400` rather than
+        // rendering. A check that accepted anything but 200 would pass
+        // against a deployment whose debug page is one query parameter away,
+        // which is finding eleven with a shorter walk.
+        //
+        // `404` is the only answer that means the route does not exist. The
+        // reference relay says exactly that when its debug page is off, and
+        // says `400` when it is on and the caller named no site.
+        statuses.every((status) => status === 404),
         `debug paths answered ${statuses.map(String).join("/")}`,
       );
     },

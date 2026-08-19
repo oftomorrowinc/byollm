@@ -60,7 +60,7 @@ describe("the site plane refuses anyone it cannot verify", () => {
     const siteKeys = generateKeys(Date.now());
     const site = publicIdentityOf(siteKeys);
     const fixture = fixtureFor(site);
-    const relay = new Relay({ siteId: SITE_ID, fixture });
+    const relay = new Relay({ fixture });
     return { siteKeys, site, fixture, relay };
   };
 
@@ -133,7 +133,6 @@ describe("the site plane refuses anyone it cannot verify", () => {
     // Same keys, same signature, but the projection has no `sites` entry —
     // the relay has nothing to check against and must not invent one.
     const relay = new Relay({
-      siteId: SITE_ID,
       fixture: {
         sites: [],
         consents: [],
@@ -304,7 +303,7 @@ describe("enqueue is idempotent per job id", () => {
     const siteKeys = generateKeys(Date.now());
     const site = publicIdentityOf(siteKeys);
     const fixture = fixtureFor(site);
-    const relay = new Relay({ siteId: SITE_ID, fixture });
+    const relay = new Relay({ fixture });
     const connector = new SiteConnector(relay, siteKeys);
     const daemon = await makeDaemon(relay, fixture, { owner: "alice", site });
     disposers.push(daemon.dispose);
@@ -347,7 +346,7 @@ describe("revocation does not wait for a heartbeat", () => {
     const siteKeys = generateKeys(Date.now());
     const site = publicIdentityOf(siteKeys);
     const fixture = fixtureFor(site);
-    const relay = new Relay({ siteId: SITE_ID, fixture });
+    const relay = new Relay({ fixture });
     const connector = new SiteConnector(relay, siteKeys);
     const daemon = await makeDaemon(relay, fixture, { owner: "alice", site });
     disposers.push(daemon.dispose);
@@ -411,7 +410,6 @@ describe("the projection, collapsed to data a store can match on", () => {
   it("answers exactly what mayRunFor answers, for every pair", () => {
     const site = publicIdentityOf(generateKeys(Date.now()));
     const relay = new Relay({
-      siteId: SITE_ID,
       fixture: {
         sites: [{ siteId: SITE_ID, site }],
         consents: [{ owner: "bob", siteId: SITE_ID, paused: false }],
@@ -470,7 +468,7 @@ describe("a clock too far from the relay's", () => {
     const siteKeys = generateKeys(Date.now());
     const site = publicIdentityOf(siteKeys);
     const fixture = fixtureFor(site);
-    const relay = new Relay({ siteId: SITE_ID, fixture });
+    const relay = new Relay({ fixture });
     const daemon = await makeDaemon(relay, fixture, { owner: "alice", site });
     disposers.push(daemon.dispose);
 
@@ -527,7 +525,7 @@ describe("a clock too far from the relay's", () => {
     const siteKeys = generateKeys(Date.now());
     const site = publicIdentityOf(siteKeys);
     const fixture = fixtureFor(site);
-    const relay = new Relay({ siteId: SITE_ID, fixture });
+    const relay = new Relay({ fixture });
     const daemon = await makeDaemon(relay, fixture, { owner: "alice", site });
     disposers.push(daemon.dispose);
 

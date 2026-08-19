@@ -112,7 +112,6 @@ export interface SitePlaneDeps {
    * the same fact — a relay that accepted enqueues for sites its daemons never
    * paired with would route work nobody can open.
    */
-  readonly routesFor: string;
 }
 
 /** What `Relay.handle` reconstructs from the request, for signature checking. */
@@ -202,7 +201,11 @@ export class SitePlane {
     // paired with the first, which pinned a different key and could only fail
     // to open the payload. Contained by the crypto, and still a job burned by
     // routing rather than by anything the device did.
-    if (siteId !== this.#deps.routesFor) {
+    // Registered, rather than "the one site this relay was configured with"
+    // — cloud_009 §3. Every registered site is routable now; what a relay
+    // refuses is a caller naming a site its projection does not hold, which
+    // is the same refusal for a different reason and the honest one.
+    if (this.#deps.projection.siteFor(siteId) === null) {
       return fail(403, "forbidden", "this relay does not route for you");
     }
     return run(parsed.data, siteId);

@@ -94,7 +94,6 @@ export interface DaemonPlaneDeps {
    * replaces this field (cloud_004 §9) — recorded here so the seam is visible
    * rather than assumed away.
    */
-  readonly siteId: string;
 }
 
 export class DaemonPlane {
@@ -123,24 +122,19 @@ export class DaemonPlane {
       return fail(400, "bad-request", "the device identity is not consistent");
     }
 
-    // Every site this owner has consented to, not the one this relay was
-    // configured with — cloud_009 §3. Identical today, because a relay whose
-    // projection holds one site can only answer with that one; different the
-    // moment a hub holds several, which is the point of asking the question
-    // this way now rather than rewriting the check later.
+    // Every site this owner has consented to — cloud_009 §3. The relay is no
+    // longer configured with one: it routes for whatever the projection
+    // holds, which is the honest shape, and `RelayOptions.siteId` was always
+    // a stand-in for the projection being single-site.
+    //
+    // The keys come from the site registry, which is their one home. They
+    // used to be inlined on each consent record, which gave a site's key one
+    // copy per consenting user and nothing to reconcile them against.
     const sites = this.#deps.projection.sitesFor(parsed.data.owner);
-    const consent = sites.some((site) => site.siteId === this.#deps.siteId);
-    if (!consent) {
+    if (sites.length === 0) {
       // CONSENT_BEFORE_ROUTE. There is no discovery path that creates one:
       // consent is a click somewhere else, and the relay only reads it.
       return fail(403, "forbidden", "no consent record for this user");
-    }
-    // The key comes from the site registry, which is its one home. It used to
-    // be inlined on the consent record, which gave a site's key one copy per
-    // consenting user and nothing to reconcile them against.
-    const site = this.#deps.projection.siteFor(this.#deps.siteId);
-    if (!site) {
-      return fail(403, "forbidden", "this site is not registered");
     }
 
     // The device must already be approved, by a human, in the control plane.
@@ -244,8 +238,11 @@ export class DaemonPlane {
     // is a message, not an authority, and the authority is the projection.
     // Two copies of one value where one is a stale mirror of the other is this
     // project's most-repeated bug; here it was also an enforcement hole.
-    const revoked =
-      this.#deps.projection.consentFor(known.owner, this.#deps.siteId) === null;
+    // Nothing left to serve, for anyone — cloud_008 finding 59. Per-site
+    // revocation is the *set* changing, which heartbeat reports; this guard
+    // is the whole relationship ending, and it is the only thing that should
+    // refuse a call outright.
+    const revoked = this.#deps.projection.sitesFor(known.owner).length === 0;
     if (revoked && options.allowRevoked !== true) {
       // Revocation reaches the daemon through heartbeat too, so heartbeat
       // itself must be answerable by a revoked runner — bouncing it with a 403

@@ -52,8 +52,8 @@ describe("two replicas, one load balancer", () => {
     // Everything derived from the control plane replicates for free; only the
     // state the relay invents for itself does not.
     const fixture = fixtureFor(site);
-    const a = new Relay({ siteId: SITE_ID, fixture });
-    const b = new Relay({ siteId: SITE_ID, fixture });
+    const a = new Relay({ fixture });
+    const b = new Relay({ fixture });
 
     const daemon = await makeDaemon(a, fixture, { owner: "alice", site });
     disposers.push(daemon.dispose);
@@ -95,8 +95,8 @@ describe("two replicas, one load balancer", () => {
     const siteKeys = generateKeys(Date.now());
     const site = publicIdentityOf(siteKeys);
     const fixture = fixtureFor(site);
-    const a = new Relay({ siteId: SITE_ID, fixture });
-    const b = new Relay({ siteId: SITE_ID, fixture });
+    const a = new Relay({ fixture });
+    const b = new Relay({ fixture });
 
     const daemon = await makeDaemon(a, fixture, { owner: "alice", site });
     disposers.push(daemon.dispose);
@@ -150,8 +150,8 @@ describe("two replicas sharing one store", () => {
     // One store, two relays — which is what a load balancer in front of two
     // pods looks like once routing state is shared.
     const store = new RelayState();
-    const a = new Relay({ siteId: SITE_ID, fixture, store });
-    const b = new Relay({ siteId: SITE_ID, fixture, store });
+    const a = new Relay({ fixture, store });
+    const b = new Relay({ fixture, store });
 
     const one = await makeDaemon(a, fixture, { owner: "alice", site });
     disposers.push(one.dispose);
@@ -199,8 +199,8 @@ describe("two replicas sharing one store", () => {
     const site = publicIdentityOf(siteKeys);
     const fixture = fixtureFor(site);
     const store = new RelayState();
-    const a = new Relay({ siteId: SITE_ID, fixture, store });
-    const b = new Relay({ siteId: SITE_ID, fixture, store });
+    const a = new Relay({ fixture, store });
+    const b = new Relay({ fixture, store });
 
     const daemon = await makeDaemon(a, fixture, { owner: "alice", site });
     disposers.push(daemon.dispose);

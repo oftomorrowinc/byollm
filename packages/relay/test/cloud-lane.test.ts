@@ -122,7 +122,7 @@ describe.each(CASES)("the cloud lane over $name", (storeCase) => {
     const fixture = fixtureFor(site, {
       consents: [{ owner, siteId: SITE_ID, paused: false }],
     });
-    const relay = new Relay({ siteId: SITE_ID, fixture });
+    const relay = new Relay({ fixture });
 
     const app = new ByollmApp({
       store,
@@ -187,7 +187,7 @@ describe.each(CASES)("the cloud lane over $name", (storeCase) => {
     const fixture = fixtureFor(site, {
       consents: [{ owner, siteId: SITE_ID, paused: false }],
     });
-    const relay = new Relay({ siteId: SITE_ID, fixture });
+    const relay = new Relay({ fixture });
     const app = new ByollmApp({
       store,
       siteKeys,
@@ -247,7 +247,7 @@ describe.each(CASES)("the cloud lane over $name", (storeCase) => {
     const fixture = fixtureFor(site, {
       consents: [{ owner, siteId: SITE_ID, paused: false }],
     });
-    const relay = new Relay({ siteId: SITE_ID, fixture });
+    const relay = new Relay({ fixture });
     const app = new ByollmApp({
       store,
       siteKeys,
@@ -309,7 +309,7 @@ describe("provenance names a person, not a key", () => {
     const fixture = fixtureFor(site, {
       consents: [{ owner, siteId: SITE_ID, paused: false }],
     });
-    const relay = new Relay({ siteId: SITE_ID, fixture });
+    const relay = new Relay({ fixture });
     const app = new ByollmApp({
       store,
       siteKeys,
@@ -369,7 +369,7 @@ describe("the site's own row decides whether to seal", () => {
     const fixture = fixtureFor(site, {
       consents: [{ owner, siteId: SITE_ID, paused: false }],
     });
-    const relay = new Relay({ siteId: SITE_ID, fixture });
+    const relay = new Relay({ fixture });
 
     const app = new ByollmApp({
       store,
@@ -449,7 +449,7 @@ describe("what the relay is told, and what it is not", () => {
     const fixture = fixtureFor(site, {
       consents: [{ owner, siteId: SITE_ID, paused: false }],
     });
-    const relay = new Relay({ siteId: SITE_ID, fixture });
+    const relay = new Relay({ fixture });
 
     const app = new ByollmApp({
       store,

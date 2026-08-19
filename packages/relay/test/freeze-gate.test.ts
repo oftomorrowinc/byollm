@@ -32,7 +32,7 @@ describe("the freeze gate — cloud_004 §14", () => {
     const siteKeys = generateKeys(Date.now());
     const site = publicIdentityOf(siteKeys);
     const fixture = fixtureFor(site);
-    const relay = new Relay({ siteId: SITE_ID, fixture });
+    const relay = new Relay({ fixture });
     const connector = new SiteConnector(relay, siteKeys);
     const daemon = await makeDaemon(relay, fixture, {
       owner: "alice",
@@ -61,7 +61,7 @@ describe("the freeze gate — cloud_004 §14", () => {
     const siteKeys = generateKeys(Date.now());
     const site = publicIdentityOf(siteKeys);
     const fixture = fixtureFor(site);
-    const relay = new Relay({ siteId: SITE_ID, fixture });
+    const relay = new Relay({ fixture });
     const connector = new SiteConnector(relay, siteKeys);
     const daemon = await makeDaemon(relay, fixture, {
       owner: "alice",
@@ -97,7 +97,7 @@ describe("the freeze gate — cloud_004 §14", () => {
     const siteKeys = generateKeys(Date.now());
     const site = publicIdentityOf(siteKeys);
     const fixture = fixtureFor(site);
-    const relay = new Relay({ siteId: SITE_ID, fixture });
+    const relay = new Relay({ fixture });
     const connector = new SiteConnector(relay, siteKeys);
     const daemon = await makeDaemon(relay, fixture, {
       owner: "alice",
@@ -149,7 +149,6 @@ describe("the freeze gate — cloud_004 §14", () => {
     let skew = 0;
     const fixture = fixtureFor(site);
     const relay = new Relay({
-      siteId: SITE_ID,
       fixture,
       now: () => Date.now() + skew,
     });
@@ -211,7 +210,7 @@ describe("the freeze gate — cloud_004 §14", () => {
     const siteKeys = generateKeys(Date.now());
     const site = publicIdentityOf(siteKeys);
     const fixture = fixtureFor(site);
-    const relay = new Relay({ siteId: SITE_ID, fixture });
+    const relay = new Relay({ fixture });
     const connector = new SiteConnector(relay, siteKeys);
     const daemon = await makeDaemon(relay, fixture, {
       owner: "alice",
@@ -262,7 +261,7 @@ describe("the freeze gate — cloud_004 §14", () => {
       rosters: [{ id: "team_1", owner: "bob", members: ["alice"] }],
       revoked: [],
     };
-    const relay = new Relay({ siteId: SITE_ID, fixture });
+    const relay = new Relay({ fixture });
     const connector = new SiteConnector(relay, siteKeys);
     const daemon = await makeDaemon(relay, fixture, {
       owner: "bob",
@@ -301,7 +300,7 @@ describe("the freeze gate — cloud_004 §14", () => {
     const siteKeys = generateKeys(Date.now());
     const site = publicIdentityOf(siteKeys);
     const fixture = fixtureFor(site);
-    const relay = new Relay({ siteId: SITE_ID, fixture });
+    const relay = new Relay({ fixture });
     const connector = new SiteConnector(relay, siteKeys);
     const daemon = await makeDaemon(relay, fixture, {
       owner: "alice",
@@ -329,7 +328,7 @@ describe("identity is the control plane's to decide", () => {
     const siteKeys = generateKeys(Date.now());
     const site = publicIdentityOf(siteKeys);
     const fixture = fixtureFor(site);
-    const relay = new Relay({ siteId: SITE_ID, fixture });
+    const relay = new Relay({ fixture });
 
     const stranger = generateKeys(Date.now());
     const response = await relay.handle(
@@ -358,7 +357,7 @@ describe("identity is the control plane's to decide", () => {
     const siteKeys = generateKeys(Date.now());
     const site = publicIdentityOf(siteKeys);
     const fixture = fixtureFor(site);
-    const relay = new Relay({ siteId: SITE_ID, fixture });
+    const relay = new Relay({ fixture });
     const daemon = await makeDaemon(relay, fixture, { owner: "alice", site });
     disposers.push(daemon.dispose);
 

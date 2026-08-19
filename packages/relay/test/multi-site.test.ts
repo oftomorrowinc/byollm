@@ -41,7 +41,6 @@ function twoSites() {
   const a = publicIdentityOf(aKeys);
   const b = publicIdentityOf(bKeys);
   const relay = new Relay({
-    siteId: SITE_ID,
     fixture: {
       sites: [
         { siteId: SITE_ID, site: a },

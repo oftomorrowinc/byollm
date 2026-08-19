@@ -38,7 +38,6 @@ export interface RelayOptions {
    * One, in the skeleton. Multi-tenant routing is the closed piece
    * (cloud_004 §9), and it replaces this field rather than extending it.
    */
-  readonly siteId: string;
   /** Consent and rosters, projected from the control plane. */
   readonly fixture?: RelayFixture;
   /** How long a claim is good for. */
@@ -47,6 +46,27 @@ export interface RelayOptions {
   readonly now?: () => number;
   /** Where the daemon plane is mounted. */
   readonly basePath?: string;
+  /**
+   * Serve `/debug`, which is off unless somebody asks for it.
+   *
+   * The page shows every routed job for a site, its state, who claimed it and
+   * how long its timers have left. It shows no prompt or result text — the
+   * relay does not have them — and it is genuinely useful when a route is
+   * behaving strangely.
+   *
+   * It is also, on anything reachable from the internet, an anonymous read of
+   * exactly the metadata the site plane exists to protect. That was finding
+   * eleven, found by curling a deployed hub. The hub refuses the route
+   * outright; this package used to serve it by default and leave `D005` to
+   * warn whoever deployed it, which is a default that fails safe only if
+   * somebody reads the audit.
+   *
+   * So: off, and per-site when on (cloud_009 §3 — the debug page is per-site
+   * or it is nothing). `D005` still fails for a relay that turned it on,
+   * which is the audit doing its job for an operator who made a choice rather
+   * than warning everybody about a default.
+   */
+  readonly debug?: boolean;
   /**
    * Where routing state lives — cloud_006.
    *
@@ -73,7 +93,7 @@ export class Relay {
   readonly #site: SitePlane;
   readonly #now: () => number;
   readonly #basePath: string;
-  readonly #siteId: string;
+  readonly #debug: boolean;
 
   constructor(options: RelayOptions) {
     this.state =
@@ -81,19 +101,17 @@ export class Relay {
     this.projection = new Projection(options.fixture);
     this.#now = options.now ?? Date.now;
     this.#basePath = (options.basePath ?? "/byollm").replace(/\/+$/, "");
-    this.#siteId = options.siteId;
+    this.#debug = options.debug ?? false;
     this.#daemon = new DaemonPlane({
       state: this.state,
       projection: this.projection,
       now: this.#now,
       leaseMs: options.leaseMs ?? 60_000,
-      siteId: options.siteId,
     });
     this.#site = new SitePlane({
       state: this.state,
       projection: this.projection,
       now: this.#now,
-      routesFor: options.siteId,
     });
   }
 
@@ -122,11 +140,40 @@ export class Relay {
     const path = url.pathname;
 
     if (path === "/debug" || path === `${this.#basePath}/debug`) {
+      // **Per-site or nothing** — cloud_009 §3, ratified. A page that reads
+      // every tenant's state through one door is finding eleven wearing a
+      // different hat: the anonymous read of who-is-online and
+      // which-device-holds-what, rebuilt after being closed. So the site is a
+      // parameter, and without one there is no page rather than a page
+      // showing everything.
+      const siteId = url.searchParams.get("site");
+      if (!this.#debug) {
+        // No such route. `not-found` rather than `forbidden`, because there
+        // is no credential that would work and saying "forbidden" advertises
+        // a door that does not open.
+        return new Response(JSON.stringify({ error: "not-found" }), {
+          status: 404,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      if (siteId === null || this.projection.siteFor(siteId) === null) {
+        // **A different answer, deliberately.** `D005` probes this path with
+        // no site id, and a 404 here would tell it there is no debug surface
+        // when there is one behind a parameter — a check passing for a reason
+        // unrelated to the property, in the audit written to catch that.
+        //
+        // The same answer for "no site named" and "a site I do not hold", so
+        // this cannot be used to ask which sites exist.
+        return new Response(JSON.stringify({ error: "bad-request" }), {
+          status: 400,
+          headers: { "content-type": "application/json" },
+        });
+      }
       return new Response(
         await debugPage(this.state, this.#now(), {
-          siteId: this.#siteId,
+          siteId,
           consents: (owner) =>
-            this.projection.consentFor(owner, this.#siteId) !== null,
+            this.projection.consentFor(owner, siteId) !== null,
         }),
         { headers: { "content-type": "text/html; charset=utf-8" } },
       );

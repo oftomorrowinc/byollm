@@ -55,7 +55,7 @@ describe("a paused consent", () => {
     const fixture = fixtureFor(site, {
       consents: [{ owner: "alice", siteId: SITE_ID, paused: true }],
     });
-    const relay = new Relay({ siteId: SITE_ID, fixture });
+    const relay = new Relay({ fixture });
     const daemon = await makeDaemon(relay, fixture, { owner: "alice", site });
     disposers.push(daemon.dispose);
 
@@ -102,7 +102,7 @@ describe("a paused consent", () => {
     const fixture = fixtureFor(site, {
       consents: [{ owner: "alice", siteId: SITE_ID, paused: true }],
     });
-    const relay = new Relay({ siteId: SITE_ID, fixture });
+    const relay = new Relay({ fixture });
     const connector = new SiteConnector(relay, siteKeys);
     const daemon = await makeDaemon(relay, fixture, { owner: "alice", site });
     disposers.push(daemon.dispose);
@@ -139,7 +139,7 @@ describe("a paused consent", () => {
       ],
       rosters: [{ id: "team_1", owner: "bob", members: ["alice"] }],
     });
-    const relay = new Relay({ siteId: SITE_ID, fixture });
+    const relay = new Relay({ fixture });
     const connector = new SiteConnector(relay, siteKeys);
     const daemon = await makeDaemon(relay, fixture, { owner: "bob", site });
     disposers.push(daemon.dispose);
@@ -177,7 +177,7 @@ describe("a paused consent", () => {
       ],
       rosters: [{ id: "team_1", owner: "bob", members: ["alice"] }],
     });
-    const relay = new Relay({ siteId: SITE_ID, fixture });
+    const relay = new Relay({ fixture });
     const connector = new SiteConnector(relay, siteKeys);
     const daemon = await makeDaemon(relay, fixture, { owner: "bob", site });
     disposers.push(daemon.dispose);
@@ -211,7 +211,7 @@ describe("the site set a pairing covers", () => {
     const fixture = fixtureFor(site, {
       consents: [{ owner: "alice", siteId: SITE_ID, paused: true }],
     });
-    const relay = new Relay({ siteId: SITE_ID, fixture });
+    const relay = new Relay({ fixture });
 
     // The pairing covers it: the key is still pinnable, so re-consent costs
     // nothing on the machine.
@@ -233,7 +233,7 @@ describe("the site set a pairing covers", () => {
     const fixture = fixtureFor(site, {
       consents: [{ owner: "alice", siteId: SITE_ID, paused: false }],
     });
-    const relay = new Relay({ siteId: SITE_ID, fixture });
+    const relay = new Relay({ fixture });
 
     expect(relay.projection.sitesFor("alice").map((s) => s.siteId)).toEqual([
       SITE_ID,

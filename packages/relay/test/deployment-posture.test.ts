@@ -4,7 +4,7 @@ import { cryptoReady, generateKeys, publicIdentityOf } from "@byollm/protocol";
 import { auditDeployment, POSTURE_CHECKS } from "@byollm/conformance";
 import { afterEach, beforeAll, describe, expect, it } from "vitest";
 import { Relay } from "../src/index.js";
-import { SITE_ID, fixtureFor } from "./harness.js";
+import { fixtureFor } from "./harness.js";
 
 /**
  * The deployment posture audit, against a relay served over HTTP.
@@ -78,7 +78,7 @@ describe("the deployment posture audit", () => {
 
   it("refuses every stranger, and still fails the two checks a bare relay must", async () => {
     const site = publicIdentityOf(generateKeys(Date.now()));
-    const relay = new Relay({ siteId: SITE_ID, fixture: fixtureFor(site) });
+    const relay = new Relay({ fixture: fixtureFor(site) });
     const origin = await serve((request) => relay.handle(request));
 
     const report = await auditDeployment({ url: origin });
@@ -90,17 +90,17 @@ describe("the deployment posture audit", () => {
     //   * `D007` — plain HTTP on a loopback port. A check that quietly
     //     accepted an http:// origin would certify nothing about the property
     //     that matters most.
-    //   * `D005` — **the reference relay serves its own debug page**, which
-    //     is right for a library and wrong for a deployment. The hub refuses
-    //     the route before the relay sees it; anyone else running this has to
-    //     do the same, and this is where they find that out.
+    // `D005` is **not** in the list any more, and that is the point of the
+    // case below it: the reference relay no longer serves a debug page unless
+    // somebody turns it on. It used to serve one by default and leave this
+    // audit to warn whoever deployed it — a default that fails safe only if
+    // somebody reads the warning.
     //
     // Written as an exact list rather than a count, so a check that starts
     // failing for a new reason shows up as a changed list instead of the same
     // number.
     expect(failed.map((result) => result.id).sort()).toEqual(
       [
-        "D005_NO_DEBUG_SURFACE",
         "D007_TLS_ONLY",
         // Added with `D008` and `D009`: an in-process relay has no origin
         // behind an edge and serves no certificate, and the audit says so
@@ -120,9 +120,26 @@ describe("the deployment posture audit", () => {
     expect(auth.every((result) => result.passed)).toBe(true);
   });
 
+  it("says so when somebody turns the debug page on", async () => {
+    // The other half of the default above. `D005` has to keep biting for a
+    // relay that opted in, or making the page off-by-default would have
+    // removed the check along with the risk — and the risk comes back the
+    // moment an operator wants the page and forgets it is public.
+    const site = publicIdentityOf(generateKeys(Date.now()));
+    const relay = new Relay({ fixture: fixtureFor(site), debug: true });
+    const origin = await serve((request) => relay.handle(request));
+
+    const report = await auditDeployment({ url: origin });
+    const debug = report.results.find(
+      (result) => result.id === "D005_NO_DEBUG_SURFACE",
+    );
+
+    expect(debug?.passed).toBe(false);
+  });
+
   it("does not serve the debug page as 200 through a gateway that hides it", async () => {
     const site = publicIdentityOf(generateKeys(Date.now()));
-    const relay = new Relay({ siteId: SITE_ID, fixture: fixtureFor(site) });
+    const relay = new Relay({ fixture: fixtureFor(site) });
     // What the hub does: refuse the route before the relay sees it.
     const origin = await serve(async (request) => {
       if (new URL(request.url).pathname.endsWith("/debug")) {

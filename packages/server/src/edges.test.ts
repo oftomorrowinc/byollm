@@ -106,7 +106,6 @@ describe("MemoryStore — edges", () => {
   it("returns nothing for a runner that does not exist", async () => {
     const store = new MemoryStore();
     expect(await store.getRunner("runner_nope")).toBeNull();
-    expect(await store.getRunnerByTokenHash("nope")).toBeNull();
     expect(await store.getPairingByUserCode("ZZZZ-ZZZZ")).toBeNull();
     expect(await store.getPairingByDeviceCodeHash("nope")).toBeNull();
     expect(

@@ -105,8 +105,6 @@ export interface HarnessDaemon {
   readonly allowlist: Allowlist;
   readonly runnerId: string;
   readonly owner: string;
-  /** The runner token, for checks that drive the protocol wire directly. */
-  readonly token: string;
   /** This daemon's keys, so a check can sign as it — or deliberately not. */
   readonly keys: StoredKeys;
   /** This daemon's keys, and the site identity it pinned at pairing. */
@@ -346,7 +344,6 @@ export async function pairDaemon(
     allowlist,
     runnerId: result.pairing.runnerId,
     owner: result.pairing.owner,
-    token: result.pairing.token,
     keys: await deviceIdentity.load(Date.now()),
     identityKeys: () => deviceIdentity.load(Date.now()),
     sitePinned: result.pairing.site,

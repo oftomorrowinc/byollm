@@ -72,7 +72,6 @@ interface JobRow {
 interface RunnerRow {
   id: string;
   owner: string;
-  token_hash: string;
   label: string;
   platform: "darwin" | "linux" | "win32";
   daemon_version: string;
@@ -156,7 +155,6 @@ function toRunner(row: RunnerRow): RunnerRecord {
   return {
     id: row.id,
     owner: row.owner,
-    tokenHash: row.token_hash,
     label: row.label,
     platform: row.platform,
     daemonVersion: row.daemon_version,
@@ -176,7 +174,7 @@ function toPairing(row: PairingRow): PairingRecord {
     state: row.state,
     owner: row.owner,
     runnerId: row.runner_id,
-    runnerTokenOnce: row.runner_token_once,
+    collected: row.runner_token_once === null,
     label: row.label,
     platform: row.platform,
     daemonVersion: row.daemon_version,
@@ -613,7 +611,6 @@ export function supabaseStore(options: SupabaseStoreOptions): ByollmStore {
           .from("byollm_runners")
           .insert({
             owner: args.owner,
-            token_hash: args.tokenHash,
             label: pairing.label,
             platform: pairing.platform,
             daemon_version: pairing.daemon_version,
@@ -635,7 +632,12 @@ export function supabaseStore(options: SupabaseStoreOptions): ByollmStore {
           state: "approved",
           owner: args.owner,
           runner_id: runner.id,
-          runner_token_once: args.runnerToken,
+          // Marks the approval collectable — cloud_008 §2.4. The column held
+          // a bearer token; it now holds a marker, and the next migration
+          // renames it. Written as a constant rather than left null because
+          // `collected` reads `=== null`, and a schema change and a code
+          // change landing in one step is how a rollback strands rows.
+          runner_token_once: "pending-collection",
         })
         .eq("device_code_hash", pairing.device_code_hash);
       if (error) throw new Error(`supabase: ${error.message}`);
@@ -657,17 +659,6 @@ export function supabaseStore(options: SupabaseStoreOptions): ByollmStore {
         .update({ runner_token_once: null })
         .eq("device_code_hash", deviceCodeHash);
       if (error) throw new Error(`supabase: ${error.message}`);
-    },
-
-    async getRunnerByTokenHash(hash: string): Promise<RunnerRecord | null> {
-      const row = unwrapMaybe<RunnerRow>(
-        await db
-          .from("byollm_runners")
-          .select()
-          .eq("token_hash", hash)
-          .maybeSingle(),
-      );
-      return row === null ? null : toRunner(row);
     },
 
     async getRunner(runnerId: string): Promise<RunnerRecord | null> {

@@ -229,8 +229,22 @@ export const PairPollResponse = z.discriminatedUnion("status", [
   z
     .object({
       status: z.literal("approved"),
-      /** Bearer token for every later call. Scoped to exactly one user. */
-      runnerToken: z.string().min(20),
+      // `runnerToken` is gone — cloud_008 §2.4, finding 37.
+      //
+      // It was minted here, hashed into `RunnerRecord.tokenHash`, written to
+      // the daemon's pairings file, and then **never sent, never looked up
+      // and never compared**. `getRunnerByTokenHash` existed on both stores
+      // and was called by nothing but a test asserting it returns null.
+      //
+      // Not merely dead wire, which is what `audienceAllow` and
+      // `HeartbeatResponse.leases` were. This was a *secret*: minted,
+      // transmitted, and written to two disks at rest, for nothing. A
+      // credential with no purpose is a liability rather than clutter,
+      // because the only thing it can ever do is leak.
+      //
+      // `REQUESTS_SIGNED_NOT_BEARER` was already the rule and was already
+      // enforced — every authenticated call is signed by the device's pinned
+      // identity key. This removes the thing the MUST is named after.
       runnerId: z.string().min(1),
       /** The app's id for the approving user — this daemon's owner forever. */
       owner: z.string().min(1),

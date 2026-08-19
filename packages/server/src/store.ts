@@ -223,8 +223,6 @@ export interface RunnerStore {
   /** Clear the one-shot token after the daemon collects it. */
   consumePairingToken(deviceCodeHash: string): Promise<void>;
 
-  getRunnerByTokenHash(hash: string): Promise<RunnerRecord | null>;
-
   getRunner(runnerId: string): Promise<RunnerRecord | null>;
 
   /** Record a heartbeat: capabilities, version, pause state, liveness. */
@@ -262,8 +260,6 @@ export interface ApproveArgs {
   /** From the approving user's session, never from the daemon. */
   readonly owner: string;
   readonly runnerId: string;
-  readonly runnerToken: string;
-  readonly tokenHash: string;
   readonly now: number;
 }
 

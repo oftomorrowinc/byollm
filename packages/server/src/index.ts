@@ -51,7 +51,6 @@ export {
   generateDeviceCode,
   generateJobId,
   generateRunnerId,
-  generateRunnerToken,
   generateUserCode,
   hashSecret,
   secretsMatch,

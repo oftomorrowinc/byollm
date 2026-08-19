@@ -236,7 +236,6 @@ describe("connect — the device-code flow", () => {
           {
             status: "approved",
             site: SITE,
-            runnerToken: "t".repeat(32),
             runnerId: "runner_1",
             owner: "alice",
           },
@@ -328,7 +327,6 @@ describe("connect — the device-code flow", () => {
           JSON.stringify({
             status: "approved",
             site: SITE,
-            runnerToken: "t".repeat(32),
             runnerId: "runner_1",
             owner: "alice",
           }),

@@ -79,8 +79,6 @@ export interface RunnerRecord {
   readonly id: string;
   /** The app's id for the user this runner is bound to — exactly one. */
   readonly owner: string;
-  /** SHA-256 of the bearer token. The token itself is never stored. */
-  readonly tokenHash: string;
   readonly label: string;
   readonly platform: "darwin" | "linux" | "win32";
   readonly daemonVersion: string;
@@ -108,10 +106,19 @@ export interface PairingRecord {
   readonly owner: string | null;
   readonly runnerId: string | null;
   /**
-   * The bearer token, held until the daemon's next poll collects it, then
-   * cleared. Delivered exactly once.
+   * Whether this approval has already been collected — cloud_008 §2.4.
+   *
+   * This was `runnerTokenOnce`, a bearer token held until the daemon's next
+   * poll and then nulled. The token is gone (finding 37: minted, hashed,
+   * written to two disks, never sent or compared), but the *deliver-once*
+   * property it carried is real and separate: a replayed device code must get
+   * nothing, or a code seen in a shell history is a second pairing.
+   *
+   * So the flag stays and the secret does not. Nulling a token to mean
+   * "collected" was one field doing two jobs, and only one of them was load
+   * bearing.
    */
-  readonly runnerTokenOnce: string | null;
+  readonly collected: boolean;
   readonly label: string;
   readonly platform: "darwin" | "linux" | "win32";
   readonly daemonVersion: string;

@@ -6,7 +6,6 @@ import {
   hashSecret,
   secretsMatch,
   generateDeviceCode,
-  generateRunnerToken,
 } from "./ids.js";
 import { normalizeUserCode } from "./app.js";
 import { capabilityFor } from "./memory.js";
@@ -44,7 +43,6 @@ describe("id and secret helpers", () => {
       Array.from({ length: 50 }, () => generateDeviceCode()),
     );
     expect(codes.size).toBe(50);
-    expect(generateRunnerToken().length).toBeGreaterThan(20);
   });
 
   it("hashes a secret to a stable 64-char digest", () => {

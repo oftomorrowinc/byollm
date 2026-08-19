@@ -321,7 +321,7 @@ export class ByollmHandlers {
         state: "pending",
         owner: null,
         runnerId: null,
-        runnerTokenOnce: null,
+        collected: false,
         label: request.daemon.label,
         platform: request.daemon.platform,
         daemonVersion: request.daemon.version,
@@ -357,13 +357,12 @@ export class ByollmHandlers {
     }
     if (
       pairing.state === "approved" &&
-      pairing.runnerTokenOnce !== null &&
+      !pairing.collected &&
       pairing.runnerId !== null &&
       pairing.owner !== null
     ) {
       const response: PairPollResponse = {
         status: "approved",
-        runnerToken: pairing.runnerTokenOnce,
         runnerId: pairing.runnerId,
         owner: pairing.owner,
         // Only on approval: a pending or denied poll learns nothing, so an

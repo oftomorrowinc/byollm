@@ -126,7 +126,6 @@ export async function connect(options: ConnectOptions): Promise<ConnectResult> {
           pairing: {
             origin: options.client.origin,
             runnerId: polled.runnerId,
-            token: polled.runnerToken,
             owner: polled.owner,
             ...(polled.ownerLabel === undefined
               ? {}

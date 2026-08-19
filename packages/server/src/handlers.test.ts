@@ -71,17 +71,59 @@ describe("pairing [PAIR_INTERACTIVE, PAIR_ONE_USER]", () => {
     expect(approved.body).toMatchObject({ status: "approved", owner: "alice" });
   });
 
-  it("binds the token to exactly the approving user", async () => {
+  it("binds the pairing to exactly the approving user", async () => {
+    // No token to assert on — cloud_008 §2.4 removed it. What the MUST is
+    // actually about survives unchanged: the runner belongs to whoever
+    // approved it, and to nobody else.
     const h = createHarness();
-    const { token, owner } = await h.pair({ owner: "alice" });
-    const runners = await h.app.runners("alice");
+    const { owner } = await h.pair({ owner: "alice" });
     expect(owner).toBe("alice");
-    expect(runners).toHaveLength(1);
+    expect(await h.app.runners("alice")).toHaveLength(1);
     expect(await h.app.runners("bob")).toHaveLength(0);
-    expect(token.length).toBeGreaterThan(20);
   });
 
-  it("delivers the token exactly once", async () => {
+  it("hands a daemon no secret at all [REQUESTS_SIGNED_NOT_BEARER]", async () => {
+    // cloud_008 §2.4, finding 37. The approval used to carry `runnerToken`: a
+    // secret minted here, hashed into the runner row, written to the daemon's
+    // pairings file — and never sent, never looked up, never compared. Not
+    // dead wire in the ordinary sense but a credential at rest with no
+    // consumer, which cannot be used correctly and can still leak.
+    //
+    // Read positively rather than by asserting one absent field, so a secret
+    // reintroduced under any name has to pass this on purpose.
+    const h = createHarness();
+    const start = await h.handlers.handle(
+      "pair",
+      {
+        protocolVersion: "0",
+        action: "start",
+        device: publicIdentityOf(generateKeys(Date.now())),
+        daemon: { version: "0.1.0", label: "mbp", platform: "darwin" },
+        capabilities: httpCapabilities(),
+      },
+      { endpoint: "pair", rawBody: "", signature: undefined },
+    );
+    const { deviceCode, userCode } = start.body as {
+      deviceCode: string;
+      userCode: string;
+    };
+    await h.app.approvePairing({ userCode, owner: "alice" });
+
+    const approved = await h.handlers.handle(
+      "pair",
+      { protocolVersion: "0", action: "poll", deviceCode },
+      { endpoint: "pair", rawBody: "", signature: undefined },
+    );
+
+    expect(Object.keys(approved.body as object).sort()).toEqual([
+      "owner",
+      "runnerId",
+      "site",
+      "status",
+    ]);
+  });
+
+  it("delivers an approval exactly once", async () => {
     const h = createHarness();
     const start = await h.handlers.handle(
       "pair",

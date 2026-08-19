@@ -18,12 +18,7 @@ import {
   type ResultDelivery,
   type WaitOptions,
 } from "./delivery.js";
-import {
-  generateJobId,
-  generateRunnerId,
-  generateRunnerToken,
-  hashSecret,
-} from "./ids.js";
+import { generateJobId, generateRunnerId } from "./ids.js";
 import { CloudLane, type CloudLaneOptions } from "./cloud.js";
 import type { EnqueueInput, JobRecord, RunnerRecord } from "./records.js";
 import type { ByollmStore } from "./store.js";
@@ -420,13 +415,10 @@ export class ByollmApp {
     userCode: string;
     owner: string;
   }): Promise<RunnerRecord> {
-    const token = generateRunnerToken();
     return this.#store.approvePairing({
       userCode: normalizeUserCode(args.userCode),
       owner: args.owner,
       runnerId: generateRunnerId(),
-      runnerToken: token,
-      tokenHash: hashSecret(token),
       now: this.#now(),
     });
   }

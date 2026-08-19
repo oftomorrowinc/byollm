@@ -530,7 +530,6 @@ export class MemoryStore implements ByollmStore {
     const runner: RunnerRecord = {
       id: args.runnerId,
       owner: args.owner,
-      tokenHash: args.tokenHash,
       // Carried from the pairing, not re-supplied at approval: the user
       // approved a specific machine, and the runner must be that machine.
       device: pairing.device,
@@ -549,7 +548,7 @@ export class MemoryStore implements ByollmStore {
       state: "approved",
       owner: args.owner,
       runnerId: runner.id,
-      runnerTokenOnce: args.runnerToken,
+      collected: false,
     });
     return Promise.resolve(runner);
   }
@@ -572,17 +571,10 @@ export class MemoryStore implements ByollmStore {
     if (pairing) {
       this.#pairings.set(deviceCodeHash, {
         ...pairing,
-        runnerTokenOnce: null,
+        collected: true,
       });
     }
     return Promise.resolve();
-  }
-
-  getRunnerByTokenHash(hash: string): Promise<RunnerRecord | null> {
-    for (const runner of this.#runners.values()) {
-      if (runner.tokenHash === hash) return Promise.resolve(runner);
-    }
-    return Promise.resolve(null);
   }
 
   getRunner(runnerId: string): Promise<RunnerRecord | null> {

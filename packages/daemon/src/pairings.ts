@@ -16,8 +16,22 @@ export const Pairing = z
   .object({
     origin: z.string().min(1),
     runnerId: z.string().min(1),
-    /** Bearer token. This file is written 0600 for exactly this reason. */
-    token: z.string().min(1),
+    /**
+     * A bearer token this daemon no longer mints, sends or reads — cloud_008
+     * §2.4, finding 37.
+     *
+     * Optional, and only so that a pairings file written before alpha.18
+     * still parses: `Pairing` is `.strict()`, so making it absent would make
+     * every existing row unreadable — and §2.3a would then dutifully skip
+     * them one by one and report a daemon paired with nothing. A schema
+     * change is a data migration; that lesson cost the hub an outage window
+     * in §2.1a and is not worth learning twice.
+     *
+     * Never written by this version. It disappears from a file the first time
+     * anything rewrites it, and this field goes when no supported version can
+     * still be holding one.
+     */
+    token: z.string().min(1).optional(),
     /** The app's id for this daemon's owner. */
     owner: z.string().min(1),
     ownerLabel: z.string().optional(),

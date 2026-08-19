@@ -20,11 +20,6 @@ export function generateDeviceCode(): string {
   return randomBytes(32).toString("base64url");
 }
 
-/** A runner bearer token. */
-export function generateRunnerToken(): string {
-  return randomBytes(32).toString("base64url");
-}
-
 /** A runner id. */
 export function generateRunnerId(): string {
   return `runner_${randomUUID()}`;

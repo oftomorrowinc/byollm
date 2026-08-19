@@ -10,6 +10,16 @@
 > has production miles. Read it, take the ideas, tell us what's wrong — but
 > don't put it in front of your users.
 >
+> **Formats change, and a change may require re-pairing.** On-disk shapes
+> (the pairings file), wire fields and the routing store's keyspace are still
+> moving, and while the only deployment is ours they move in **one** release
+> rather than three: transitional code exists to protect a party who has not
+> agreed to change, and today that party is us. The slow procedures —
+> dual-read for a keyspace, N/N+1 for a wire field, three releases for an
+> on-disk format — are written down and turn on with the first outside user.
+> If an upgrade leaves a daemon saying it is paired with nothing, `byollm
+> connect` is the answer and nothing else is lost.
+>
 > **`alpha.7` tightens who a machine is allowed to say it is.** A relay now
 > refuses to pair a device its owner has not approved in a control plane —
 > previously a daemon presented keys and the relay believed them, which made
@@ -53,6 +63,7 @@
 >
 > See [byollm_009](specs/byollm_009-sessions-keys-envelopes.md), including §12
 > for what an upstream can still observe.
+
 
 <div align="center">
 

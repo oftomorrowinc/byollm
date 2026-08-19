@@ -91,7 +91,7 @@ interface PairingRow {
   state: "pending" | "approved" | "denied";
   owner: string | null;
   runner_id: string | null;
-  runner_token_once: string | null;
+  collected_at: string | null;
   label: string;
   platform: "darwin" | "linux" | "win32";
   daemon_version: string;
@@ -176,7 +176,10 @@ function toPairing(row: PairingRow): PairingRecord {
     state: row.state,
     owner: row.owner,
     runnerId: row.runner_id,
-    collected: row.runner_token_once === null,
+    // Collected when it has a timestamp. This was `runner_token_once ===
+    // null` — a nulled token standing in for a fact about delivery, which is
+    // one field doing two jobs (cloud_008 §2.4a).
+    collected: row.collected_at !== null,
     label: row.label,
     platform: row.platform,
     daemonVersion: row.daemon_version,
@@ -661,7 +664,7 @@ export function supabaseStore(options: SupabaseStoreOptions): ByollmStore {
           // renames it. Written as a constant rather than left null because
           // `collected` reads `=== null`, and a schema change and a code
           // change landing in one step is how a rollback strands rows.
-          runner_token_once: "pending-collection",
+          collected_at: null,
         })
         .eq("device_code_hash", pairing.device_code_hash);
       if (error) throw new Error(`supabase: ${error.message}`);
@@ -680,7 +683,10 @@ export function supabaseStore(options: SupabaseStoreOptions): ByollmStore {
     async consumePairingToken(deviceCodeHash: string): Promise<void> {
       const { error } = await db
         .from("byollm_pairings")
-        .update({ runner_token_once: null })
+        // The database's clock, not this process's — the same rule the
+        // relay's lease stamps follow: two writers measuring one fact against
+        // two clocks is how a "collected" row looks uncollected.
+        .update({ collected_at: "now()" })
         .eq("device_code_hash", deviceCodeHash);
       if (error) throw new Error(`supabase: ${error.message}`);
     },

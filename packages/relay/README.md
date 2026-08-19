@@ -1,5 +1,5 @@
 > [!WARNING]
-> **Alpha (`0.1.0-alpha.18`) — under active development. Don't use this yet.**
+> **Alpha (`0.1.0-alpha.19`) — under active development. Don't use this yet.**
 >
 > This is a walking skeleton. It routes real jobs between real daemons and real
 > sites, and it is the fixture byollm_009 freezes against — but it keeps its
@@ -52,7 +52,19 @@
 > did not sign and a relay carries none of them. Writing a `RoutingStore`?
 > `releaseLeases` takes an optional `reason` and `complete` requires
 > `leaseId`, and **an implementation that ignores either still typechecks** —
-> run the store contract tests.
+> run the store contract tests.>
+> **`alpha.19` is additive on the wire and a behaviour change in every
+> store.** `ResultResponse` gains an optional `duplicate`. Nothing is removed,
+> so an older daemon keeps working — but the *order* two rules are checked in
+> has changed, and a `RoutingStore` implementation must change with it.
+>
+> `complete` now checks **terminal state before holder**, scoped to the device
+> that finished the job: a replay from that device is answered `duplicate:
+> true` with a 2xx, and anyone else gets exactly the refusal they would get
+> for a job that is not terminal. Previously `RESULT_IDEMPOTENT` held only
+> because the lease is nulled on success, so the holder check tripped first —
+> deleting the idempotency branch failed no test. Run the store contract
+> tests; the compiler cannot see this.
 
 # `@byollm/relay`
 
@@ -129,7 +141,7 @@ daemons pin at pairing, verified against the `sites` half of the projection.
 Nothing here trusts a `siteId` in a body or a query string.
 
 That is newer than the rest of this package. The site plane took the caller's
-word for who it was until `0.1.0-alpha.18`, which on a relay reachable from the
+word for who it was until `0.1.0-alpha.19`, which on a relay reachable from the
 internet is an open enqueue endpoint into consenting users' machines and an
 open read of who is online. It was blind the whole time — nothing could open a
 payload — and blind is not the same as safe.
@@ -137,7 +149,7 @@ payload — and blind is not the same as safe.
 If you are running this: the site plane is authenticated but this is still a
 single-tenant relay with in-memory state. One site, one replica.
 
-## Breaking in `0.1.0-alpha.18`: `RelayState` is async
+## Breaking in `0.1.0-alpha.19`: `RelayState` is async
 
 Every method on `RelayState` now returns a `Promise`, and `Relay.sweep()` and
 `debugPage()` with it. `RelayState.requeue` is private — it was only ever a

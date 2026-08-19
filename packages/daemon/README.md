@@ -1,5 +1,5 @@
 > [!WARNING]
-> **Alpha (`0.1.0-alpha.18`) — under active development. Don't use this yet.**
+> **Alpha (`0.1.0-alpha.19`) — under active development. Don't use this yet.**
 >
 > Install it deliberately: `npx byollm@alpha`, or `npm install byollm@alpha`.
 >
@@ -59,7 +59,19 @@
 > did not sign and a relay carries none of them. Writing a `RoutingStore`?
 > `releaseLeases` takes an optional `reason` and `complete` requires
 > `leaseId`, and **an implementation that ignores either still typechecks** —
-> run the store contract tests.
+> run the store contract tests.>
+> **`alpha.19` is additive on the wire and a behaviour change in every
+> store.** `ResultResponse` gains an optional `duplicate`. Nothing is removed,
+> so an older daemon keeps working — but the *order* two rules are checked in
+> has changed, and a `RoutingStore` implementation must change with it.
+>
+> `complete` now checks **terminal state before holder**, scoped to the device
+> that finished the job: a replay from that device is answered `duplicate:
+> true` with a 2xx, and anyone else gets exactly the refusal they would get
+> for a job that is not terminal. Previously `RESULT_IDEMPOTENT` held only
+> because the lease is nulled on success, so the holder check tripped first —
+> deleting the idempotency branch failed no test. Run the store contract
+> tests; the compiler cannot see this.
 >
 > **`alpha.3` is a breaking change.** A config naming `openai-http` with a
 > remote base URL and an offer scope wider than `self` is narrowed to `self`

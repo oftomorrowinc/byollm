@@ -5,7 +5,7 @@ import type {
   SealedEnvelope,
 } from "@byollm/protocol";
 import { randomUUID } from "node:crypto";
-import type { RoutingStore } from "./store.js";
+import type { EnqueueRefusal, RoutingStore } from "./store.js";
 
 /**
  * The relay's routing state — byollm_009 §7, reachable at last.
@@ -260,9 +260,15 @@ export class RelayState implements RoutingStore {
     id: string;
     siteId: string;
     stub: JobStub;
-  }): Promise<RoutedJob> {
+  }): Promise<RoutedJob | { refused: EnqueueRefusal }> {
     const existing = this.#jobs.get(input.id);
-    if (existing) return Promise.resolve(existing);
+    // Same site: the replay this method exists to absorb. Different site:
+    // finding 58 — returning it would hand one site another's stub.
+    if (existing) {
+      return Promise.resolve(
+        existing.siteId === input.siteId ? existing : { refused: "id-taken" },
+      );
+    }
     const job: RoutedJob = {
       id: input.id,
       siteId: input.siteId,

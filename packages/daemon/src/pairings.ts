@@ -44,6 +44,26 @@ export const Pairing = z
      * displays.
      */
     site: PublicIdentity,
+    /**
+     * Every site this pairing carries, keyed by the site's identity key id.
+     *
+     * **Accepted, not yet written** — cloud_009 §5's first release. One
+     * pairing per hub, and which sites it carries is a projection of consent
+     * rather than something frozen at pairing: a user who connects a site in
+     * the dashboard has no reason to go back to a laptop and run a command,
+     * so the set arrives on the heartbeat and this is where it lands.
+     *
+     * The order matters and is the whole reason this field is here a release
+     * early. `Pairing` is `.strict()`, so a row carrying `sites` read by a
+     * daemon that predates it fails to parse — and §2.3a's per-row parse
+     * would dutifully skip it and report a daemon paired with nothing. So:
+     * this release accepts it, the next writes it, and a third drops `site`.
+     * No release ever writes a shape the previous one cannot read.
+     *
+     * The key is the id `stub.site` carries (Amendment A §A.3), so the
+     * runner's lookup is a map read with no second namespace in it.
+     */
+    sites: z.record(z.string().min(1), PublicIdentity).optional(),
     pairedAt: z.number().int().positive(),
   })
   .strict();

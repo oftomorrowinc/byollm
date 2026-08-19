@@ -130,4 +130,55 @@ describe("a pairings file with one unreadable row", () => {
     expect(pairings.list()).toEqual([]);
     expect(pairings.skipped).toEqual([]);
   });
+
+  it("accepts a row from the next release, and keeps serving today's", async () => {
+    // cloud_009 §5's first release. `Pairing` is `.strict()`, so a row
+    // carrying the multi-site `sites` map read by a daemon that predates this
+    // fails to parse — and the per-row parse above would skip it and report a
+    // daemon paired with nothing, which is precisely the failure this file
+    // exists to describe. So the field is accepted a release before anything
+    // writes it.
+    //
+    // The assertion is both halves: the new row survives, and the old one
+    // beside it is untouched. A migration that reads the future and drops the
+    // present is not a migration.
+    const SITE_A = publicIdentityOf(generateKeys(1_800_000_000_002));
+    const SITE_B = publicIdentityOf(generateKeys(1_800_000_000_003));
+    await writeFile(
+      path,
+      JSON.stringify({
+        version: 1,
+        pairings: [
+          {
+            origin: "https://old.test",
+            runnerId: "r_old",
+            owner: "alice",
+            site: publicIdentityOf(generateKeys(1_800_000_000_001)),
+            pairedAt: 1,
+          },
+          {
+            origin: "https://hub.test",
+            runnerId: "r_new",
+            owner: "alice",
+            site: SITE_A,
+            sites: { "BYOLLM-A": SITE_A, "BYOLLM-B": SITE_B },
+            pairedAt: 2,
+          },
+        ],
+      }),
+    );
+
+    const pairings = new Pairings(path);
+    await pairings.load();
+
+    expect(pairings.skipped).toEqual([]);
+    expect(pairings.list().map((p) => p.origin)).toEqual([
+      "https://old.test",
+      "https://hub.test",
+    ]);
+    expect(Object.keys(pairings.get("https://hub.test")?.sites ?? {})).toEqual([
+      "BYOLLM-A",
+      "BYOLLM-B",
+    ]);
+  });
 });

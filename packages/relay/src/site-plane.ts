@@ -242,11 +242,21 @@ export class SitePlane {
           siteId,
           stub: request.stub,
         });
-        // Idempotent by id: a known id returns what is already routing. Only
-        // one site can reach this relay, so a known id is always this site's
-        // republish. The multi-tenant router needs a collision check here, and
-        // it gets one when it can be exercised — an unreachable guard is a
-        // test that cannot fail, which this project has now written twice.
+        // Idempotent by id **within a site** — cloud_008 finding 58. A known
+        // id from the same site is that site's republish and returns what is
+        // already routing; a known id from another site is refused rather
+        // than answered with the other site's job.
+        //
+        // The comment here used to say the multi-tenant router would need a
+        // collision check "when it can be exercised", on the argument that an
+        // unreachable guard is a test that cannot fail. That was right about
+        // the test and wrong about where the guard belongs: the store owns
+        // idempotency, so the store owns the exception to it, and the check
+        // is exercised there against both implementations. This is the wire's
+        // half of it.
+        if ("refused" in job) {
+          return fail(403, "forbidden", "that job id belongs to another site");
+        }
         return ok({ jobId: job.id, state: job.state });
       },
     );

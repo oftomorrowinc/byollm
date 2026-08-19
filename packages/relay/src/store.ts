@@ -52,16 +52,37 @@ import type {
  * express an opinion about who may route, only about what it was told. That is
  * what keeps `RELAY_BLIND` a property of the shape rather than of the code.
  */
+/** Why a stub was not taken. One value, and it names the whole reason. */
+export type EnqueueRefusal = "id-taken";
+
 export interface RoutingStore {
   /** The one clock every deadline in this store is stamped from. */
   now(): Promise<number>;
 
-  /** Take a stub for routing. Idempotent by id. */
+  /**
+   * Take a stub for routing. Idempotent by id, **within a site**.
+   *
+   * A republished id belonging to the same site returns what is already
+   * routing, unchanged: a site that restarts and republishes its queue must
+   * not disturb work in flight (byollm_009 §4.2's replay argument rests on
+   * it).
+   *
+   * A republished id belonging to a **different** site is refused — cloud_008
+   * finding 58. Ids are a site's to choose, and two sites choosing the same
+   * one is not a replay: returning the existing job would hand site B site A's
+   * stub, and B's `seal` and `cancel` would then be refused for a job it
+   * believes it published. That reads as a broken relay and is a tenancy leak.
+   *
+   * The relay routes for one site today, so this is unreachable through the
+   * site plane and will not be under a hub (cloud_009 §3). It is enforced at
+   * the store because that is where idempotency lives, and a rule enforced
+   * one layer above the thing it protects is a rule the next caller skips.
+   */
   enqueue(input: {
     id: string;
     siteId: string;
     stub: JobStub;
-  }): Promise<RoutedJob>;
+  }): Promise<RoutedJob | { refused: EnqueueRefusal }>;
 
   job(jobId: string): Promise<RoutedJob | undefined>;
   jobs(): Promise<RoutedJob[]>;

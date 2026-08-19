@@ -123,6 +123,37 @@ export function describeStoreContract(
       await done();
     });
 
+    it("refuses an id another site is already using", async () => {
+      // cloud_008 finding 58. Idempotence by bare id made a second site's
+      // enqueue return the *first* site's job: site B would be handed A's stub,
+      // and B's `seal` and `cancel` would then be refused for a job B believes
+      // it published. Two tenants, one namespace, and the symptom is a relay
+      // that looks broken to the innocent party.
+      const { store, done } = await make();
+      await store.enqueue({ id: "shared", siteId: SITE, stub: stub("shared") });
+
+      const collision = await store.enqueue({
+        id: "shared",
+        siteId: "site_other",
+        stub: stub("shared"),
+      });
+
+      expect(collision).toEqual({ refused: "id-taken" });
+      // And the original is untouched: a refusal must not disturb the job it
+      // refused on behalf of.
+      expect((await store.job("shared"))?.siteId).toBe(SITE);
+
+      // The same site republishing is still absorbed, which is the behaviour
+      // this exception is carved out of — byollm_009 §4.2's replay argument.
+      const replay = await store.enqueue({
+        id: "shared",
+        siteId: SITE,
+        stub: stub("shared"),
+      });
+      expect(replay).toEqual(await store.job("shared"));
+      await done();
+    });
+
     it("grants only what the owners set allows", async () => {
       const { store, done } = await make();
       await store.enqueue({ id: "mine", siteId: SITE, stub: stub("mine") });

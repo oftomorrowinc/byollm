@@ -292,6 +292,14 @@ async function runLoop(
       identity: {
         keys: () => identity.load(Date.now()),
         sitePinned: pairing.site,
+        // Present only on a pairing written by a later release (cloud_009
+        // §5). Passing it now means the daemon that *accepts* the new shape
+        // also *uses* it — a release that could read a multi-site row and
+        // then served one site would be the more confusing half of a
+        // migration.
+        ...(pairing.sites === undefined
+          ? {}
+          : { sites: new Map(Object.entries(pairing.sites)) }),
       },
       daemonVersion: DAEMON_VERSION,
       loaded,

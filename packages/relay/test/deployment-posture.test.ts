@@ -108,6 +108,7 @@ describe("the deployment posture audit", () => {
         // one that was — the same rule `D009` enforces about certificates.
         "D008_ORIGIN_NOT_PUBLIC",
         "D009_CERT_NAMES_THE_PINNED_HOST",
+        "D010_CERT_HAS_LIFE_LEFT",
       ].sort(),
     );
 

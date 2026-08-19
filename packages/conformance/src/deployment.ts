@@ -154,6 +154,63 @@ const outcome = (passed: boolean, detail: string): PostureOutcome => ({
   detail,
 });
 
+/**
+ * The certificate the **origin** serves, read off the connection.
+ *
+ * Connects to the origin's own address with the pinned hostname in SNI, which
+ * is what an edge does when it validates. Certificate verification is off for
+ * `D008`'s reason: the question is what this address presents, not whether to
+ * trust it.
+ *
+ * **It must be the origin, not the hostname.** Written first as a plain
+ * connection to `hub.byollm.cloud`, which goes *through* Cloudflare and
+ * returns Cloudflare's own edge certificate — one that names the host by
+ * construction and auto-renews on a ninety-day cycle. `D009` passed on it
+ * while the origin's certificate named nothing relevant, which is the exact
+ * condition finding 45 describes; `D010` then failed with "84 days" and
+ * revealed that both were measuring the edge.
+ *
+ * Two certificates, two purposes: the edge one protects visitors and
+ * Cloudflare renews it, and the origin one is what the edge validates and
+ * nobody renews automatically. Only the second is this audit's business.
+ */
+async function servedCertificate(
+  address: string,
+  host: string,
+): Promise<{ names: readonly string[]; validTo: string } | undefined> {
+  return new Promise((resolve) => {
+    const socket = tlsConnect(
+      {
+        host: address,
+        servername: host,
+        port: 443,
+        timeout: 15_000,
+        rejectUnauthorized: false,
+      },
+      () => {
+        const peer = socket.getPeerCertificate();
+        const alt = (peer.subjectaltname ?? "")
+          .split(",")
+          .map((entry) => entry.trim().replace(/^DNS:/, ""))
+          .filter((entry) => entry.length > 0);
+        const cn: unknown = peer.subject.CN;
+        socket.end();
+        resolve({
+          names: alt.length > 0 ? alt : [typeof cn === "string" ? cn : ""],
+          validTo: peer.valid_to,
+        });
+      },
+    );
+    socket.on("error", () => {
+      resolve(undefined);
+    });
+    socket.on("timeout", () => {
+      socket.destroy();
+      resolve(undefined);
+    });
+  });
+}
+
 export const POSTURE_CHECKS: readonly PostureCheck[] = Object.freeze([
   {
     id: "D001_SITE_ENQUEUE_REFUSES_UNSIGNED",
@@ -445,7 +502,7 @@ export const POSTURE_CHECKS: readonly PostureCheck[] = Object.freeze([
     id: "D009_CERT_NAMES_THE_PINNED_HOST",
     title: "the certificate names the hostname daemons pin",
     cites: [],
-    async run({ origin }) {
+    async run({ origin, originAddress }) {
       // cloud_008 finding 45. The load balancer held one certificate, for the
       // *origin* hostname, and `hub.byollm.cloud` — the name every daemon
       // pins and the edge validates — was not on it. Cloudflare cannot verify
@@ -460,35 +517,22 @@ export const POSTURE_CHECKS: readonly PostureCheck[] = Object.freeze([
       // Asked over TLS with the real SNI and read from the peer, so it is the
       // certificate actually served rather than one somebody configured.
       const host = new URL(origin).host;
-      const names = await new Promise<readonly string[] | undefined>(
-        (resolve) => {
-          const socket = tlsConnect(
-            { host, servername: host, port: 443, timeout: 15_000 },
-            () => {
-              const peer = socket.getPeerCertificate();
-              const alt = (peer.subjectaltname ?? "")
-                .split(",")
-                .map((entry) => entry.trim().replace(/^DNS:/, ""))
-                .filter((entry) => entry.length > 0);
-              socket.end();
-              const cn: unknown = peer.subject.CN;
-              resolve(
-                alt.length > 0 ? alt : [typeof cn === "string" ? cn : ""],
-              );
-            },
-          );
-          socket.on("error", () => {
-            resolve(undefined);
-          });
-          socket.on("timeout", () => {
-            socket.destroy();
-            resolve(undefined);
-          });
-        },
-      );
+      if (originAddress === undefined) {
+        return outcome(
+          false,
+          "no origin address given — this posture was not measured. " +
+            "Asking the hostname reads the edge's certificate, which names it " +
+            "by construction and proves nothing about the origin",
+        );
+      }
+      const served = await servedCertificate(originAddress, host);
+      const names = served?.names;
 
       if (names === undefined) {
-        return outcome(false, `could not read a certificate from ${host}`);
+        return outcome(
+          false,
+          `could not read a certificate from ${originAddress}`,
+        );
       }
       const covered = names.some(
         (name) =>
@@ -500,6 +544,48 @@ export const POSTURE_CHECKS: readonly PostureCheck[] = Object.freeze([
         covered
           ? `served a certificate naming ${host}`
           : `the certificate names ${names.join(", ")} — not ${host}`,
+      );
+    },
+  },
+
+  {
+    id: "D010_CERT_HAS_LIFE_LEFT",
+    title: "the certificate is not about to expire",
+    cites: [],
+    async run({ origin, originAddress }) {
+      // A long-lived certificate is the kind whose expiry gets written in a
+      // note and never looked at again. The one this deployment now depends
+      // on runs to 2041, which makes it *more* likely to be forgotten, not
+      // less — and it is load-bearing: it is what the edge validates before
+      // it will carry a daemon's traffic at all.
+      //
+      // Measured from the artefact rather than from the note. A date somebody
+      // owns has to mean a date something checks.
+      //
+      // Ninety days: long enough that a renewal is scheduled rather than
+      // scrambled, short enough that the warning is still about something
+      // real.
+      const host = new URL(origin).host;
+      if (originAddress === undefined) {
+        return outcome(
+          false,
+          "no origin address given — this posture was not measured " +
+            "(the edge's certificate is Cloudflare's to renew, not ours)",
+        );
+      }
+      const served = await servedCertificate(originAddress, host);
+      if (served === undefined) {
+        return outcome(
+          false,
+          `could not read a certificate from ${originAddress}`,
+        );
+      }
+      const days = Math.round(
+        (Date.parse(served.validTo) - Date.now()) / 86_400_000,
+      );
+      return outcome(
+        days > 90,
+        `the certificate expires ${served.validTo} (${String(days)} days)`,
       );
     },
   },

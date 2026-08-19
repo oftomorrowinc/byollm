@@ -488,6 +488,51 @@ export async function claimOne(
 }
 
 /**
+ * Every stub a claim answered with — including none.
+ *
+ * `claimOne` throws on an empty answer, which is right for the checks that
+ * need a job and useless for the one that needs to prove a job was **not**
+ * offered. That check is the only thing in the kit that can see the server's
+ * half of `AUDIENCE_BOTH_SIDES`: every other check drives a daemon, and a
+ * daemon refuses locally, so "the job did not run" says nothing about which
+ * side refused it.
+ */
+export async function claimRaw(
+  target: ConformanceTarget,
+  daemon: HarnessDaemon,
+): Promise<ClaimedStub[]> {
+  const capabilities = await daemon.runner.detectCapabilities();
+  const body = JSON.stringify({
+    protocolVersion: PROTOCOL_VERSION,
+    runnerId: daemon.runnerId,
+    capabilities,
+    max: 10,
+  });
+  const signature = signRequest(daemon.keys, {
+    endpoint: "claim",
+    runnerId: daemon.runnerId,
+    issuedAt: Date.now(),
+    body,
+  });
+  const response = await target.fetch(
+    new Request(`${target.origin}/byollm/claim`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-byollm-runner": signature.runnerId,
+        "x-byollm-issued-at": String(signature.issuedAt),
+        "x-byollm-signature": signature.signature,
+      },
+      body,
+    }),
+  );
+  if (response.status !== 200) {
+    throw new Error(`claim answered ${String(response.status)}`);
+  }
+  return ((await response.json()) as { jobs: ClaimedStub[] }).jobs;
+}
+
+/**
  * Release one named lease over the wire, signed, as a daemon would.
  *
  * Raw rather than through the runner, because the property under test is what

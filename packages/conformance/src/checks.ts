@@ -17,6 +17,7 @@ import {
 import {
   advance,
   claimOne,
+  claimRaw,
   fetchGenuine,
   postResult,
   fetchPayload,
@@ -1820,6 +1821,60 @@ export const CHECKS: readonly Check[] = [
         );
       } finally {
         await daemon.dispose();
+      }
+    },
+  },
+
+  {
+    id: "C032_SERVER_REFUSES_TO_OFFER",
+    title: "a claim is not answered with work the claimer may not run",
+    musts: ["AUDIENCE_BOTH_SIDES"],
+    async run(target: ConformanceTarget): Promise<void> {
+      // cloud_008 Tier 3, finding 10 — and the finding was understated. The
+      // **entire kit** passes with server-side audience enforcement deleted:
+      // all thirty-odd checks, green, against a server that offers every job
+      // to every daemon.
+      //
+      // Not one bad check. A structural blind spot: every other check drives
+      // a real daemon, and a daemon refuses locally, so "the job did not run"
+      // looks identical whether the server declined to offer it or the device
+      // declined to take it. `AUDIENCE_BOTH_SIDES` is the MUST that says
+      // *both* sides enforce, and the kit could only ever see one.
+      //
+      // This claims over the raw protocol instead. No daemon admission logic
+      // runs, so what comes back is exactly what the server was willing to
+      // hand over — which is the half nothing else observes.
+      const bob = await pairDaemon(target, { owner: "bob", offer: "public" });
+      try {
+        const priv = await target.enqueue({
+          kind: "llm.generate",
+          payload: prompt("alice's own machines only"),
+          owner: "alice",
+          audience: "self",
+        });
+
+        const offered = await claimRaw(target, bob);
+        assert(
+          !offered.some((job) => job.id === priv.id),
+          "a server offered a `self` job to a device its owner does not own",
+        );
+
+        // The positive control, and it is the whole reason this check is not
+        // "assert the claim is empty": a server that offered nothing would
+        // pass the assertion above and route no work at all.
+        const shared = await target.enqueue({
+          kind: "llm.generate",
+          payload: prompt("anyone may run this"),
+          owner: "alice",
+          audience: "public",
+        });
+        const second = await claimRaw(target, bob);
+        assert(
+          second.some((job) => job.id === shared.id),
+          "a server withheld a `public` job from a public-offering device",
+        );
+      } finally {
+        await bob.dispose();
       }
     },
   },

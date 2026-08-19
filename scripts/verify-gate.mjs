@@ -22,6 +22,14 @@
  * `--no-verify` still skips it, which is fine: the point is that skipping
  * becomes a thing you *typed*, and the required status on `main` is what makes
  * it not enough on its own.
+ *
+ * ## The order this forces, which is the right one
+ *
+ * **Commit, then verify, then push.** The first thing this hook did was refuse
+ * a push of its own commit, because verify had been run before the commit
+ * existed and the stamp named the parent. That is not a rough edge — verify
+ * has to run on the exact tree being pushed, and running it beforehand
+ * verifies something else that happens to be nearby.
  */
 import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";

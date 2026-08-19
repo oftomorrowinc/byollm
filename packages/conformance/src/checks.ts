@@ -447,6 +447,19 @@ export const CHECKS: readonly Check[] = [
     title: "the first terminal outcome wins",
     musts: ["RESULT_IDEMPOTENT"],
     async run(target: ConformanceTarget): Promise<void> {
+      // cloud_008 Tier 3. This used to post a duplicate with no envelope, no
+      // lease and no signature, and then say so in a comment —
+      // "unauthenticated here, so it is refused before it can matter". It was
+      // refused for being unsigned, never for being a duplicate, so
+      // `RESULT_IDEMPOTENT` was never exercised. The body still carried
+      // `model` and `durationMs` two alphas after those left the wire, which
+      // is what a request nobody parses looks like.
+      //
+      // Both submissions are now signed, sealed and under the same grant —
+      // the shape a retrying daemon actually produces, and the only shape
+      // that reaches the idempotency branch at all. A replay under a
+      // *different* grant is a different rule (`LEASE_HONORED`, §1.4a) and
+      // would be refused before idempotency was consulted.
       const daemon = await pairDaemon(target, { owner: "alice" });
       try {
         const job = await target.enqueue({
@@ -454,38 +467,59 @@ export const CHECKS: readonly Check[] = [
           payload: prompt("once"),
           owner: "alice",
         });
-        await daemon.runner.tick();
-        await waitFor(async () => (await target.job(job.id))?.state === "ok", {
-          what: "the job to complete",
+
+        // Claimed directly rather than by ticking the runner, because this
+        // check needs the lease the grant was issued under.
+        const claimed = await claimOne(target, daemon);
+        assert(claimed.id === job.id, "the harness could not claim its job");
+
+        const first = await postResult(target, daemon, {
+          jobId: job.id,
+          leaseId: claimed.lease.id,
+          outcome: { outcome: "ok", text: "the answer that counts" },
+        });
+        assert(
+          first.status === 200,
+          `a site refused the first result (${String(first.status)})`,
+        );
+
+        const replay = await postResult(target, daemon, {
+          jobId: job.id,
+          leaseId: claimed.lease.id,
+          outcome: { outcome: "ok", text: "SECOND ANSWER" },
         });
 
-        const first = await target.job(job.id);
-
-        // A duplicate submission — the shape a retrying daemon produces —
-        // must not overwrite the recorded answer.
-        const response = await target.fetch(
-          new Request(`${target.origin}/byollm/result`, {
-            method: "POST",
-            headers: { "content-type": "application/json" },
-            body: JSON.stringify({
-              protocolVersion: "0",
-              runnerId: daemon.runnerId,
-              jobId: job.id,
-              outcome: { outcome: "ok", text: "SECOND ANSWER" },
-              model: "echo-model",
-              backendClass: "http",
-              durationMs: 1,
-            }),
-          }),
+        // Accepted as a request, and a no-op as a write. A site that answered
+        // an error would make a retrying daemon retry forever.
+        assert(
+          replay.status === 200,
+          `a replayed result was rejected rather than ignored (${String(replay.status)})`,
         );
-        // Unauthenticated here, so it is refused before it can matter; the
-        // recorded outcome is what the check is about either way.
-        void response;
+        const body = (await replay.json()) as { accepted?: boolean };
+        assert(
+          body.accepted === false,
+          "a site reported a replayed result as newly accepted",
+        );
 
+        // **What this check can and cannot see** — cloud_008 Tier 3.6.
+        //
+        // The observable property is that the first answer survives, and that
+        // is asserted below. What a third party *cannot* tell from outside is
+        // which rule produced it: `complete` nulls the lease on success, so a
+        // replay fails the `LEASE_HONORED` check before the terminal-state
+        // check is ever consulted. Deleting idempotency from the reference
+        // store does not fail this check, and that mutation is recorded
+        // rather than hidden.
+        //
+        // Making the two distinguishable is an ordering decision across four
+        // store implementations (§3.6), not a fix to this file. Until it is
+        // ruled on, this check proves the outcome and says so.
+
+        // The property, not the boolean: the first answer is what survived.
         const after = await target.job(job.id);
         assert(
-          after?.outcome?.text === first?.outcome?.text,
-          "a second result overwrote the first",
+          after?.outcome?.text === "the answer that counts",
+          `a second result overwrote the first (${String(after?.outcome?.text)})`,
         );
       } finally {
         await daemon.dispose();

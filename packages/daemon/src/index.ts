@@ -16,7 +16,6 @@ export { main, runCli, type CliIo, type ExitCode } from "./cli.js";
 
 export {
   ClaudeCliBackend,
-  IMPLEMENTED_BACKEND_IDS,
   OpenAiHttpBackend,
   childEnv,
   claudeArgv,

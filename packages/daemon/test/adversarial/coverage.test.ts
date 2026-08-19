@@ -1,6 +1,6 @@
 import { BACKENDS, BACKEND_IDS } from "@byollm/protocol";
 import { describe, expect, it } from "vitest";
-import { IMPLEMENTED_BACKEND_IDS } from "../../src/backends/index.js";
+import { createBackend } from "../../src/backends/index.js";
 import { HTTP_CORPUS, PROCESS_CORPUS, corpusFor } from "./corpus.js";
 
 /**
@@ -23,12 +23,24 @@ describe("adversarial coverage [byollm_004 §5]", () => {
     }
   });
 
-  it("implements every backend the protocol registers", () => {
-    // A registered-but-unimplemented backend could be named in a config and
-    // fail at runtime rather than at load.
-    expect([...IMPLEMENTED_BACKEND_IDS].sort()).toEqual(
-      [...BACKEND_IDS].sort(),
-    );
+  it("constructs every backend the protocol registers, as its declared class", () => {
+    // cloud_008 Tier 3, finding 15. This compared `IMPLEMENTED_BACKEND_IDS`
+    // to `BACKEND_IDS` — and the constant was *defined* as `BACKEND_IDS`, so
+    // the assertion was `x === x`. It could not fail, and it sat under a
+    // comment about a registered-but-unimplemented backend failing at runtime
+    // rather than at load: the exact failure it did not check.
+    //
+    // The honest question is whether the daemon can actually build one, and
+    // whether what it builds is what the registry promised. A provider whose
+    // class says `process` and which comes back speaking HTTP is a config
+    // that loads and a job that fails.
+    for (const id of BACKEND_IDS) {
+      const backend = createBackend(id, {
+        baseUrl: "http://127.0.0.1:1/v1",
+      });
+      expect(backend, id).toBeDefined();
+      expect(backend.class, id).toBe(BACKENDS[id].class);
+    }
   });
 
   it("covers both corpus kinds", () => {

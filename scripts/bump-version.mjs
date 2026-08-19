@@ -49,7 +49,19 @@ for (const path of targets) {
   // Literal, not a regex over "any version": `docs/releasing.md` narrates past
   // releases by number and must not be rewritten, which is why history files
   // are not in `targets` at all.
-  const after = before.split(current).join(next);
+  //
+  // And release notes are left alone — cloud_008 §36. A note about alpha.19
+  // must still say alpha.19 after this runs, or the READMEs stop being a
+  // record and every "is this version mentioned?" check becomes ambiguous
+  // between the banner and the history. `release-note.mjs` marks them.
+  const after = before
+    .split("\n")
+    .map((line) =>
+      line.includes("<!-- release-note ")
+        ? line
+        : line.split(current).join(next),
+    )
+    .join("\n");
   if (after !== before) {
     writeFileSync(path, after);
     console.log(`  ${path}`);

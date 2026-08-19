@@ -46,7 +46,16 @@ All endpoints are `POST`, JSON request and response, mounted under
 requested version MUST respond `400` with `error: "unsupported-protocol-version"`
 rather than guessing.
 
-Every endpoint except `pair` requires `Authorization: Bearer <runnerToken>`.
+Every endpoint except `pair` is **signed**, not bearer-authenticated. A
+request carries `x-byollm-runner`, `x-byollm-issued-at` and
+`x-byollm-signature`, the last being the device's Ed25519 signature over the
+endpoint, the runner id, the timestamp and the body
+(`REQUESTS_SIGNED_NOT_BEARER`).
+
+There is no bearer token. One was minted at pairing until `alpha.18` and was
+never sent, looked up or compared — a credential at rest with no consumer —
+and it is gone from the wire, both stores and the adapter's schema. A server
+that accepts one is not implementing this protocol.
 
 ### 2.1 Errors
 
@@ -75,7 +84,7 @@ job list), and **backend down** (a local condition, never a wire event).
 A job is:
 
 ```ts
-{ id, kind, payload, audience, owner, audienceAllow?, lease }
+{ id, kind, payload, audience, owner, site, lease }
 ```
 
 `kind` is a string resolved against handlers **baked into the daemon**. v0
@@ -146,10 +155,17 @@ that a runner is allowed is never sufficient — user ids are
 server-namespace-local, so honouring a server's list would mean obeying the
 server rather than enforcing against it.
 
-A server MAY additionally attach `audienceAllow` to a job, restricting which
-runner owners it will hand the job to. That is defence in depth on the server
-side. It cannot widen anything: a job passes only if the daemon's local list
-admits it *and* `audienceAllow`, when present, names the runner's owner.
+A server MUST NOT put the list on the wire. It may hold one and filter its
+own candidates with it — the party holding the list authored it — but a stub
+carries no membership at any point. `audienceAllow` was a stub field until
+`alpha.14`, and it was a second answer to a question the daemon already owned:
+able only to agree, in which case it was redundant, or to disagree, with
+nothing written down about which wins.
+
+The rule it left behind, which decides any field proposed after it: **a class
+the router acts on may travel; membership never does.** `audience` travels
+because a relay narrows on it. A roster does not travel at all, which is how
+`ROSTER_NOT_DISCLOSED` holds — by absence.
 
 ### 4.3 Community results are best-effort
 
@@ -223,20 +239,44 @@ The response carries:
 - `cancel: [jobId]` — per-job cancellation. The daemon aborts those jobs'
   in-flight backend calls (HTTP abort, process kill) and reports them
   `canceled` `[CANCEL_HONORED]`.
-- `leases` — renewed expiries for jobs still held.
 - `lost` — jobs the daemon thinks it holds but the server has reassigned or
   expired. The daemon MUST stop work on these and MUST NOT report results for
   them.
 - `serverTime` — so a daemon with a skewed clock still honours leases.
 
+The upstream still renews the leases a heartbeat names; it simply does not
+report them back. A `leases` field carried that list until `alpha.16` and no
+daemon ever read it — `lost` is the signal a daemon acts on, and two answers
+to one question is one too many.
+
 ### 5.4 `POST /byollm/result`
 
-Idempotent by job id: the first terminal outcome wins and later submissions
-MUST NOT change it `[RESULT_IDEMPOTENT]`. A losing submission receives
-`accepted: false` and MUST be discarded rather than retried.
+The request names the **grant** the work was done under, not only the job:
+`{ jobId, leaseId, envelope, disposition }`. A runner id survives a
+claim-release-reclaim cycle and a lease id does not, which is the difference
+`[LEASE_HONORED]` is about.
 
-A daemon MUST NOT report a result for a job whose lease it no longer holds
-`[LEASE_HONORED]`.
+How the job ran travels **inside** the sealed envelope, not beside it. The
+plaintext is `{ outcome, ran: { model, backendClass, durationMs } }`, so a
+daemon cannot seal one answer and declare it came from another model, and a
+relay carries none of it. Those three were request fields until `alpha.18`.
+
+Checks happen in this order: signature, then terminal state, then holder
+`[RESULT_IDEMPOTENT, LEASE_HONORED]`.
+
+- A replay from **the device that finished the job**, under the same grant,
+  answers `202`-style `{ accepted: false, duplicate: true }`. Its answer is
+  already stored; telling it the lease is stale would invent a worry.
+- Any other submission for a terminal job gets exactly the refusal it would
+  get for a job that is not terminal, so a job id cannot be used to probe
+  whether work has finished.
+- A daemon MUST NOT report a result for a job whose lease it no longer holds,
+  and a losing submission MUST be discarded rather than retried.
+
+The order is load bearing rather than stylistic. Checking the holder first
+made `RESULT_IDEMPOTENT` hold as a side effect of the lease being cleared on
+success — and byollm_009 §4's case for signing requests rather than issuing
+nonces *cites* that MUST.
 
 ### 5.5 `POST /byollm/release`
 

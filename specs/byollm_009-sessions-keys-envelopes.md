@@ -528,9 +528,16 @@ labelled rather than implied.
 | `SHARED_COMPUTE_DISCLOSED` | Before a user's work first runs on compute they do not own, they MUST be told in plain language that the machine's owner can see it. | **operator** |
 | `REQUESTS_SIGNED_NOT_BEARER` | Every authenticated request MUST be signed by the calling device's pinned identity key, over the endpoint, the runner id, a timestamp and the body. A bearer token MUST NOT be sufficient. | conformance |
 | `LEASE_SCOPED_BY_GRANT` | A lease-scoped request MUST name the lease it acts on, and a server MUST apply it only to that lease. Naming the job and the runner is not enough. | conformance |
+| `SITE_KEY_BY_STUB` | A daemon MUST verify a job's payload against the pinned key of the site the stub names, MUST refuse a job naming a site it has not pinned, and MUST NOT fall back to another pinned key. | adversarial |
 | `KEYS_EXCHANGED_AT_CONSENT` | Pairing MUST exchange both parties' public identities, and each side MUST verify that the encryption key is signed by the identity presenting it. | conformance |
 
-The last three rows were **added by Amendment A**, and they are the
+`SITE_KEY_BY_STUB` was added when cloud_009's first commit gave it a
+check (2026-08-20). It is §A.3's consequence stated as a rule: the field
+exists so a daemon serving several sites can pick the right key, and a
+field nobody is required to act on is a field that will eventually be
+ignored on one path.
+
+The three rows above it were **added by Amendment A**, and they are the
 reverse of the drift §A.1–A.3 fixes. They were adjudicated in §4.2 and
 §5 of this spec, registered with checks, and enforced from the start —
 and were never written into this table. So §11 under-declared what this

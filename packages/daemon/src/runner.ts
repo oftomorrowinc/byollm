@@ -64,6 +64,18 @@ export interface RunnerOptions {
   readonly identity?: {
     keys(): Promise<StoredKeys>;
     readonly sitePinned: PublicIdentity;
+    /**
+     * Every site this machine is paired with, keyed by the site's identity
+     * key id — cloud_009 §5.
+     *
+     * The same id `stub.site` carries (Amendment A §A.3), so resolving a
+     * job's site is a map read rather than a join against a second
+     * namespace. Optional for one release: a daemon that has only ever
+     * paired with one site has no map, and `sitePinned` still answers for
+     * it. When the pairings file writes `sites`, this stops being optional
+     * and `sitePinned` goes.
+     */
+    readonly sites?: ReadonlyMap<string, PublicIdentity>;
   };
   /** Heartbeat cadence before jitter. */
   readonly heartbeatMs?: number;
@@ -603,11 +615,15 @@ export class Runner {
       // everything about it.
       plaintext: JSON.stringify({ outcome, ran } satisfies SealedOutcome),
       senderKeys: keys,
-      recipientEncryptionPublic: identity.sitePinned.encryption,
+      // Back to the site that sent it, which is not necessarily the only
+      // site this machine serves. Sealing to `sitePinned` would send site B's
+      // answer to site A — unopenable there, and readable by nobody, which
+      // presents as a job that ran and never came back.
+      recipientEncryptionPublic: this.#pinFor(job).encryption,
       context: {
         jobId: job.id,
         senderKeyId: keyId(publicIdentityOf(keys).identity),
-        recipientKeyId: keyId(identity.sitePinned.identity),
+        recipientKeyId: keyId(this.#pinFor(job).identity),
         // This runner's clock, not the process's — cloud_008 §31. The only
         // `Date.now()` left in this class, in the one place that stamps a
         // deadline somebody else enforces: a test that moves time moved every
@@ -688,29 +704,36 @@ export class Runner {
     }
     const keys = await identity.keys();
 
-    // The stub said which site this is; this machine pinned that site's key at
-    // pairing. Amendment A §A.3 makes `stub.site` a key id precisely so this
-    // comparison is possible without a lookup — the stub describes itself
-    // rather than pointing into somebody else's table.
+    // Which site's key opens this, decided by the stub — Amendment A §A.3
+    // makes `stub.site` a key id precisely so this is a lookup the daemon can
+    // do without asking anybody.
+    const pinned = this.#pinFor(job);
+    const pinnedKeyId = keyId(pinned.identity);
+
+    // What the envelope *claims* about its sender, checked against what the
+    // stub *says* about its site, before any crypto — cloud_009 §4.2.
     //
-    // Redundant today, and deliberately kept: with one pinned key the `open`
-    // below already refuses anything else. It stops being redundant the moment
-    // a daemon serves two sites (cloud_009), where the wrong pinned key is the
-    // silent failure — a payload from site B verified against site A's key
-    // fails to open and reports as a corrupt envelope. Naming the mismatch
-    // here turns that into a sentence somebody can act on.
-    const pinnedKeyId = keyId(identity.sitePinned.identity);
-    if (job.site !== pinnedKeyId) {
+    // The relay hands over both, and it is the party that would benefit from
+    // them disagreeing: a stub naming a site this machine trusts, wrapped
+    // around a payload from somewhere else. `open` below refuses that too,
+    // because the signature will not verify against the pinned key — which is
+    // exactly why this check has to exist separately and say something
+    // different. A refusal that reads "the payload did not verify" sends
+    // whoever is debugging it to the crypto, and the fault is in the routing.
+    //
+    // Neither value is trusted: `senderKeyId` is inside the signature, so a
+    // relay that edits it to match only moves the failure back to `open`.
+    if (envelope.senderKeyId !== job.site) {
       throw new Error(
-        `refusing job ${job.id}: it names site ${job.site}, but this machine ` +
-          `is paired with ${pinnedKeyId}`,
+        `refusing job ${job.id}: the stub names site ${job.site}, but the ` +
+          `payload declares it was sealed by ${envelope.senderKeyId}`,
       );
     }
 
     const opened = await open({
       envelope,
       recipientKeys: keys,
-      senderIdentityPublic: identity.sitePinned.identity,
+      senderIdentityPublic: pinned.identity,
       expected: {
         jobId: job.id,
         senderKeyId: pinnedKeyId,
@@ -725,6 +748,48 @@ export class Runner {
       );
     }
     return JSON.parse(opened.plaintext) as JobPayload;
+  }
+
+  /**
+   * The pinned key for the site a stub names — cloud_009 §5.
+   *
+   * One place, because both legs need it and they must agree: opening the
+   * payload with site A's key while sealing the answer to site B is a job
+   * that runs, produces something nobody can read, and reports success.
+   *
+   * A site the map does not hold is refused by name rather than falling back
+   * to any key at hand. The fallback is the failure this exists to prevent —
+   * the relay chooses `stub.site`, and a daemon that treats an unknown site
+   * as "probably the one I know" has handed the choice of which key verifies
+   * its work to the party the pinning is defending against.
+   */
+  #pinFor(job: ClaimedStub): PublicIdentity {
+    const identity = this.#options.identity;
+    if (!identity) {
+      throw new Error("this daemon has no keys, so it has no site to pin");
+    }
+    const fromMap = identity.sites?.get(job.site);
+    if (fromMap) return fromMap;
+    // The single-site daemon, for the one release before the pairings file
+    // carries a map. Still a check and not a default: the id has to match.
+    if (job.site === keyId(identity.sitePinned.identity)) {
+      return identity.sitePinned;
+    }
+    // Names what this machine *is* paired with, not only what it refused.
+    // The first draft dropped that half — "paired with X" stops being a
+    // sentence when there are several — and `loop.test.ts` caught it: an
+    // operator reading this needs to compare two fingerprints, and one of
+    // them was missing. A list is the honest generalisation of the singular.
+    const paired = [
+      ...new Set([
+        keyId(identity.sitePinned.identity),
+        ...(identity.sites?.keys() ?? []),
+      ]),
+    ].sort();
+    throw new Error(
+      `refusing job ${job.id}: it names site ${job.site}, which this machine ` +
+        `is not paired with (paired with ${paired.join(", ")})`,
+    );
   }
 
   /**

@@ -123,6 +123,22 @@ export const MUSTS = Object.freeze({
     verifiedBy: "conformance",
     source: "byollm_009 §4",
   }),
+  SITE_KEY_BY_STUB: must({
+    id: "SITE_KEY_BY_STUB",
+    statement:
+      "A daemon MUST verify a job's payload against the pinned key of the " +
+      "site the stub names, and MUST refuse a job naming a site it has not " +
+      "pinned. It MUST NOT fall back to another pinned key, and MUST refuse " +
+      "an envelope whose declared sender disagrees with the stub's site.",
+    enforcedBy: "daemon",
+    // Adversarial, and the reason is the finding that produced it: the
+    // honest paths pass with every site check deleted, because `open`
+    // refuses a signature from the wrong key anyway. What distinguishes an
+    // enforced rule from a coincidence here is a hostile pairing of stub and
+    // envelope, which no conformance client would ever send.
+    verifiedBy: "adversarial",
+    source: "byollm_009 §A.3",
+  }),
   KEYS_EXCHANGED_AT_CONSENT: must({
     id: "KEYS_EXCHANGED_AT_CONSENT",
     statement:

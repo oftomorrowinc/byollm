@@ -123,10 +123,13 @@ export class DaemonPlane {
       return fail(400, "bad-request", "the device identity is not consistent");
     }
 
-    const consent = this.#deps.projection.consentFor(
-      parsed.data.owner,
-      this.#deps.siteId,
-    );
+    // Every site this owner has consented to, not the one this relay was
+    // configured with — cloud_009 §3. Identical today, because a relay whose
+    // projection holds one site can only answer with that one; different the
+    // moment a hub holds several, which is the point of asking the question
+    // this way now rather than rewriting the check later.
+    const sites = this.#deps.projection.sitesFor(parsed.data.owner);
+    const consent = sites.some((site) => site.siteId === this.#deps.siteId);
     if (!consent) {
       // CONSENT_BEFORE_ROUTE. There is no discovery path that creates one:
       // consent is a click somewhere else, and the relay only reads it.

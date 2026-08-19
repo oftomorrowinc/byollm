@@ -263,6 +263,38 @@ export class Projection {
   }
 
   /**
+   * Every site this owner may route with — cloud_009 §3.
+   *
+   * The set a pairing covers, and the set a claim will filter on. Consent
+   * decides it, which is the sentence the whole design rests on: a site
+   * appears here because a human clicked, never because a site asked to be
+   * here and never because a daemon named it.
+   *
+   * **Paused sites are here, and that is deliberate** — cloud_008 finding 48
+   * as ratified. A paused consent routes nothing and keeps its pin: the
+   * relationship stands, the key the daemon compared a fingerprint of stays
+   * pinned, and re-consenting never costs a re-pair. Written the other way
+   * round first, and three of the paused tests failed by refusing to pair at
+   * all — which is the trap the finding is about, arriving through the door
+   * marked "be stricter".
+   *
+   * So this is the *pairing* set and `mayRouteFor` is the *routing* set. Two
+   * questions with different answers, kept apart for the same reason
+   * `consentFor` and `mayRouteFor` are: one method answering both is how a
+   * paused user quietly starts routing again, or quietly loses their machine.
+   *
+   * Sorted by site id so two calls with the same projection produce the same
+   * answer: this ends up in a pairings file and in a fingerprint list a human
+   * compares by eye, and an order that drifts between polls is a diff nobody
+   * can read.
+   */
+  sitesFor(owner: string): SiteRecord[] {
+    return this.#fixture.sites
+      .filter((site) => this.consentFor(owner, site.siteId) !== null)
+      .sort((a, b) => (a.siteId < b.siteId ? -1 : 1));
+  }
+
+  /**
    * May this owner's work move for this site, right now?
    *
    * Consent exists, was not revoked, and is not paused. The routing question,

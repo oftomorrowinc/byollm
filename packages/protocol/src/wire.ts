@@ -257,6 +257,27 @@ export const PairPollResponse = z.discriminatedUnion("status", [
        * so an unapproved code cannot be used to enumerate a site's keys.
        */
       site: PublicIdentity,
+      /**
+       * Every site this pairing covers, keyed by the site's identity key id —
+       * cloud_009 §5.
+       *
+       * **Accepted, not yet emitted.** A relay that sent this to a daemon
+       * whose `PairPollResponse` predates it would fail that daemon's
+       * `.strict()` parse at the one moment it is trying to pair — so the
+       * schema learns the field a release before anything sends it, exactly
+       * as the pairings file did in alpha.24.
+       *
+       * One pairing per hub rather than one per site: a user who connects a
+       * site in the dashboard has no reason to go back to a laptop and run a
+       * command, so which sites a pairing covers is a projection of consent
+       * rather than something frozen here. `site` stays for the release that
+       * still needs it, carrying whichever site this daemon would otherwise
+       * have paired with alone.
+       *
+       * Keyed by the id `stub.site` carries (Amendment A §A.3), so the
+       * runner's lookup is a map read and not a join across two namespaces.
+       */
+      sites: z.record(z.string().min(1), PublicIdentity).optional(),
     })
     .strict(),
 ]);

@@ -189,3 +189,55 @@ describe("a paused consent", () => {
     expect(daemon.backend.seen).toEqual([]);
   });
 });
+
+describe("the site set a pairing covers", () => {
+  it("keeps a paused site's pin, and routes nothing to it", () => {
+    // cloud_009 §3 and finding 48 meeting: the pairing set and the routing
+    // set are different questions about the same consent.
+    //
+    // Written first with one answer for both — `sitesFor` filtering on
+    // `mayRouteFor` — and three cases in this file failed by refusing to pair
+    // at all. A user whose team changed a setting would have been unable to
+    // set up a machine until they re-read a sentence, which is the trap
+    // finding 48 is about arriving through the door marked "be stricter".
+    const siteKeys = generateKeys(Date.now());
+    const site = publicIdentityOf(siteKeys);
+    const fixture = fixtureFor(site, {
+      consents: [{ owner: "alice", siteId: SITE_ID, paused: true }],
+    });
+    const relay = new Relay({ siteId: SITE_ID, fixture });
+
+    // The pairing covers it: the key is still pinnable, so re-consent costs
+    // nothing on the machine.
+    expect(relay.projection.sitesFor("alice").map((s) => s.siteId)).toEqual([
+      SITE_ID,
+    ]);
+    // And nothing routes under it.
+    expect(relay.projection.mayRouteFor("alice", SITE_ID)).toBe(false);
+    expect(relay.projection.routableOwners("alice", SITE_ID)).toEqual([]);
+  });
+
+  it("names only the sites this owner consented to", () => {
+    // The claim `sitesFor` makes, and the one a hub rests on: a site is here
+    // because a human clicked, never because a site asked to be here.
+    const siteKeys = generateKeys(Date.now());
+    const site = publicIdentityOf(siteKeys);
+    const fixture = fixtureFor(site, {
+      consents: [{ owner: "alice", siteId: SITE_ID, paused: false }],
+    });
+    const relay = new Relay({ siteId: SITE_ID, fixture });
+
+    expect(relay.projection.sitesFor("alice").map((s) => s.siteId)).toEqual([
+      SITE_ID,
+    ]);
+    // A stranger with no consent gets an empty set rather than the registry.
+    expect(relay.projection.sitesFor("mallory")).toEqual([]);
+    // And a revoked one is gone, not merely unroutable — revocation is the
+    // end of the relationship, which is what paused is not.
+    relay.project({
+      ...fixture,
+      revoked: [{ owner: "alice", siteId: SITE_ID }],
+    });
+    expect(relay.projection.sitesFor("alice")).toEqual([]);
+  });
+});

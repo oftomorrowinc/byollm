@@ -5,7 +5,7 @@ import type {
   SealedEnvelope,
 } from "@byollm/protocol";
 import { randomUUID } from "node:crypto";
-import type { EnqueueRefusal, RoutingStore } from "./store.js";
+import type { RoutingStore } from "./store.js";
 
 /**
  * The relay's routing state — byollm_009 §7, reachable at last.
@@ -224,8 +224,98 @@ export type HolderRefusal =
  * returns to its site's queue — which is the behaviour a lapsed lease already
  * has to produce, so nothing new needs to be true for this to be safe.
  */
+/**
+ * A job's key: the site that published it, and the id that site chose.
+ *
+ * `\u0000` cannot appear in either half, so this is a key rather than a
+ * parser — cloud_009 §3, and the reason the Valkey layout uses a distinct
+ * prefix rather than a suffix on the old one.
+ */
+const keyOf = (siteId: string, jobId: string): string =>
+  `${siteId}\u0000${jobId}`;
+
 export class RelayState implements RoutingStore {
+  /**
+   * Jobs by **(site, id)** — cloud_009 §3.
+   *
+   * A job id is a site's to choose, so two sites can choose the same one.
+   * Keyed by the bare id, the second site's enqueue returned the first
+   * site's job (cloud_008 finding 58), and the refusal that fixed it was a
+   * cross-tenant existence oracle. Keyed by the pair, the collision does not
+   * exist and there is nothing to refuse.
+   *
+   * `\u0000` as the separator, because a site id is a uuid and a job id is
+   * whatever a site chose — including, one day, a string with a colon in it.
+   * A separator that cannot appear in either half is the difference between
+   * a key and a parser.
+   */
   readonly #jobs = new Map<string, RoutedJob>();
+
+  /**
+   * Grants by lease id, so a holder-scoped call needs no site — §3.
+   *
+   * `takePayload`, `complete`, `releaseLeases` and `renewLeases` carry a
+   * `leaseId` the relay minted, which is unique across every site. That is
+   * what lets those four signatures stay as they are: the caller names the
+   * grant, and the grant names the job. A daemon never has to know a site id
+   * to answer for work it holds.
+   */
+  readonly #byLease = new Map<string, RoutedJob>();
+
+  /**
+   * Jobs by bare id, across sites — the refusal path.
+   *
+   * The lease index alone answers the happy case and gets the refusals
+   * wrong: a **stale** lease finds nothing, so `LEASE_HONORED`'s "your grant
+   * ended" becomes "no such job", and a daemon that was slow is told
+   * something untrue about the work it was doing. Distinguishing
+   * `not-found`, `not-holder` and `stale-lease` needs the job even when the
+   * lease named is over, and that is what this is for.
+   *
+   * A list rather than a single value: two sites may choose one id, which is
+   * the whole reason `#jobs` is keyed by the pair.
+   */
+  readonly #byJobId = new Map<string, RoutedJob[]>();
+
+  /**
+   * The job a holder-scoped call is about, without a site id.
+   *
+   * The exact grant first, and **checked against the job the caller named**:
+   * a lease id belonging to another job would otherwise hand over that job's
+   * payload to somebody holding a valid-looking grant. Then the same job held
+   * by this runner under an older grant, which is what `stale-lease` is. Then
+   * any job with that id, which is what `not-holder` is.
+   */
+  #grantFor(
+    jobId: string,
+    runnerId: string,
+    leaseId: string,
+  ): RoutedJob | undefined {
+    const exact = this.#byLease.get(leaseId);
+    if (exact?.id === jobId) return exact;
+    const candidates = this.#byJobId.get(jobId) ?? [];
+    return (
+      candidates.find((job) => job.claimedBy?.runnerId === runnerId) ??
+      candidates[0]
+    );
+  }
+
+  #index(job: RoutedJob): void {
+    const bare = this.#byJobId.get(job.id);
+    if (bare) {
+      if (!bare.includes(job)) bare.push(job);
+    } else {
+      this.#byJobId.set(job.id, [job]);
+    }
+  }
+
+  #forget(job: RoutedJob): void {
+    this.#jobs.delete(keyOf(job.siteId, job.id));
+    const bare = (this.#byJobId.get(job.id) ?? []).filter((it) => it !== job);
+    if (bare.length === 0) this.#byJobId.delete(job.id);
+    else this.#byJobId.set(job.id, bare);
+    if (job.claimedBy) this.#byLease.delete(job.claimedBy.leaseId);
+  }
   readonly #presence = new Map<string, Presence>();
   readonly #now: () => number | Promise<number>;
 
@@ -260,15 +350,11 @@ export class RelayState implements RoutingStore {
     id: string;
     siteId: string;
     stub: JobStub;
-  }): Promise<RoutedJob | { refused: EnqueueRefusal }> {
-    const existing = this.#jobs.get(input.id);
-    // Same site: the replay this method exists to absorb. Different site:
-    // finding 58 — returning it would hand one site another's stub.
-    if (existing) {
-      return Promise.resolve(
-        existing.siteId === input.siteId ? existing : { refused: "id-taken" },
-      );
-    }
+  }): Promise<RoutedJob> {
+    // Idempotent by (site, id). The refusal that used to live here went with
+    // the collision it refused — cloud_009 §3.
+    const existing = this.#jobs.get(keyOf(input.siteId, input.id));
+    if (existing) return Promise.resolve(existing);
     const job: RoutedJob = {
       id: input.id,
       siteId: input.siteId,
@@ -276,12 +362,13 @@ export class RelayState implements RoutingStore {
       state: "queued",
       refusedBy: [],
     };
-    this.#jobs.set(job.id, job);
+    this.#jobs.set(keyOf(job.siteId, job.id), job);
+    this.#index(job);
     return Promise.resolve(job);
   }
 
-  job(jobId: string): Promise<RoutedJob | undefined> {
-    return Promise.resolve(this.#jobs.get(jobId));
+  job(siteId: string, jobId: string): Promise<RoutedJob | undefined> {
+    return Promise.resolve(this.#jobs.get(keyOf(siteId, jobId)));
   }
 
   jobs(): Promise<RoutedJob[]> {
@@ -366,6 +453,9 @@ export class RelayState implements RoutingStore {
       // Not the lease: this bounds how long we wait for a *site*, not how long
       // the device may work. byollm_009 §7.1's third clock.
       job.awaitingUntil = now + AWAITING_PAYLOAD_MS;
+      // The grant is findable by its own id, which is how a holder-scoped
+      // call needs no site — cloud_009 §3.
+      this.#byLease.set(leaseId, job);
 
       granted.push({
         ...job.stub,
@@ -391,7 +481,7 @@ export class RelayState implements RoutingStore {
     runnerId: string;
     leaseId: string;
   }): Promise<{ envelope: SealedEnvelope } | { refused: HolderRefusal }> {
-    const job = this.#jobs.get(input.jobId);
+    const job = this.#grantFor(input.jobId, input.runnerId, input.leaseId);
     if (!job) return Promise.resolve({ refused: "not-found" });
     if (job.claimedBy?.runnerId !== input.runnerId) {
       return Promise.resolve({ refused: "not-holder" });
@@ -423,7 +513,7 @@ export class RelayState implements RoutingStore {
     | { accepted: boolean; duplicate?: boolean; state: RoutedState }
     | { refused: HolderRefusal }
   > {
-    const job = this.#jobs.get(input.jobId);
+    const job = this.#grantFor(input.jobId, input.runnerId, input.leaseId);
     if (!job) return Promise.resolve({ refused: "not-found" });
     if (job.claimedBy?.runnerId !== input.runnerId) {
       return Promise.resolve({ refused: "not-holder" });
@@ -475,7 +565,9 @@ export class RelayState implements RoutingStore {
   }): Promise<string[]> {
     const released: string[] = [];
     for (const { jobId, leaseId } of input.leases) {
-      const job = this.#jobs.get(jobId);
+      // Through the grant, like every other holder-scoped operation — the
+      // caller names a lease and this store no longer keys jobs by a bare id.
+      const job = this.#grantFor(jobId, input.runnerId, leaseId);
       if (!job || job.claimedBy?.runnerId !== input.runnerId) continue;
       if (job.claimedBy.leaseId !== leaseId) continue;
       // Recorded before the requeue, so the job goes back to the queue
@@ -509,7 +601,7 @@ export class RelayState implements RoutingStore {
     | { state: RoutedState }
     | { refused: "not-found" | "too-late"; was?: RoutedState }
   > {
-    const job = this.#jobs.get(input.jobId);
+    const job = this.#jobs.get(keyOf(input.siteId, input.jobId));
     if (job?.siteId !== input.siteId) {
       return Promise.resolve({ refused: "not-found" });
     }
@@ -524,7 +616,7 @@ export class RelayState implements RoutingStore {
 
   /** {@link RoutingStore.cancel} — the site withdraws a job. */
   cancel(input: { jobId: string; siteId: string }): Promise<boolean> {
-    const job = this.#jobs.get(input.jobId);
+    const job = this.#jobs.get(keyOf(input.siteId, input.jobId));
     // Scoped to the caller's site for the same reason every other site-plane
     // operation is: a site must not be able to cancel somebody else's work by
     // guessing an id.
@@ -564,7 +656,7 @@ export class RelayState implements RoutingStore {
     const lost: string[] = [];
 
     for (const { jobId, leaseId } of input.leases) {
-      const job = this.#jobs.get(jobId);
+      const job = this.#grantFor(jobId, input.runnerId, leaseId);
       const held = job?.claimedBy;
       // The lease id *and* the runner. A lease id is a UUID so the runner
       // check is belt and braces, but "this grant, held by you" is the
@@ -620,6 +712,9 @@ export class RelayState implements RoutingStore {
    */
   #requeue(job: RoutedJob): void {
     job.state = "queued";
+    // The grant ended; the index that names it must end with it, or a stale
+    // lease id resolves to a job it no longer holds.
+    if (job.claimedBy) this.#byLease.delete(job.claimedBy.leaseId);
     delete job.claimedBy;
     delete job.awaitingUntil;
     delete job.payload;
@@ -653,7 +748,7 @@ export class RelayState implements RoutingStore {
       // reports a job the store no longer holds as `lost` — the path that
       // already exists for a lease that ended.
       if (job.stub.deadlineAt <= now) {
-        this.#jobs.delete(job.id);
+        this.#forget(job);
         expired.push(job);
         continue;
       }

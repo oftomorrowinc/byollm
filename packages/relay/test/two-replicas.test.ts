@@ -69,11 +69,11 @@ describe("two replicas, one load balancer", () => {
     await new Promise((r) => setTimeout(r, 30));
 
     // A knows the job is claimed and waiting to be sealed.
-    expect((await a.state.job(jobId))?.state).toBe("awaiting-payload");
+    expect((await a.state.job(SITE_ID, jobId))?.state).toBe("awaiting-payload");
 
     // B has never heard of it. Not an error — an absence, which is what makes
     // this hard to see in production.
-    expect(await b.state.job(jobId)).toBeUndefined();
+    expect(await b.state.job(SITE_ID, jobId)).toBeUndefined();
 
     // So a site whose next poll lands on B is told there is nothing to do,
     // while a device sits holding a lease waiting for exactly that seal.
@@ -82,7 +82,7 @@ describe("two replicas, one load balancer", () => {
 
     // And the daemon is not confused, which is the trap: it holds a valid
     // lease on a job that a healthy-looking relay says nothing about.
-    expect((await a.state.job(jobId))?.claimedBy?.runnerId).toBe(
+    expect((await a.state.job(SITE_ID, jobId))?.claimedBy?.runnerId).toBe(
       daemon.runnerId,
     );
   });
@@ -177,7 +177,7 @@ describe("two replicas sharing one store", () => {
     await Promise.all([one.runner.tick(), two.runner.tick()]);
     await new Promise((r) => setTimeout(r, 30));
 
-    const holder = (await store.job(stub.id))?.claimedBy?.runnerId;
+    const holder = (await store.job(SITE_ID, stub.id))?.claimedBy?.runnerId;
     expect(holder).toBeDefined();
     // Both daemons asked; one holds it. The other was told there was nothing,
     // which is the answer that keeps two machines from running one job and

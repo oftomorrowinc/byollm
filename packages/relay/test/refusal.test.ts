@@ -57,7 +57,7 @@ describe("cancel, which never reached the relay at all", () => {
       owner: "alice",
     });
     await daemon.runner.tick();
-    expect((await relay.state.job(jobId))?.claimedBy).toBeDefined();
+    expect((await relay.state.job(SITE_ID, jobId))?.claimedBy).toBeDefined();
 
     await connector.cancel(jobId);
 
@@ -65,7 +65,10 @@ describe("cancel, which never reached the relay at all", () => {
       daemonVersion: "test",
       capabilities: await daemon.runner.detectCapabilities(),
       activeLeases: [
-        { jobId, leaseId: (await relay.state.job(jobId))!.claimedBy!.leaseId },
+        {
+          jobId,
+          leaseId: (await relay.state.job(SITE_ID, jobId))!.claimedBy!.leaseId,
+        },
       ],
       paused: false,
     });
@@ -84,8 +87,8 @@ describe("cancel, which never reached the relay at all", () => {
     await connector.cancel(jobId);
     await daemon.runner.tick();
 
-    expect((await relay.state.job(jobId))?.claimedBy).toBeUndefined();
-    expect((await relay.state.job(jobId))?.state).toBe("queued");
+    expect((await relay.state.job(SITE_ID, jobId))?.claimedBy).toBeUndefined();
+    expect((await relay.state.job(SITE_ID, jobId))?.state).toBe("queued");
   });
 
   it("refuses to cancel a job belonging to another site", async () => {
@@ -103,7 +106,7 @@ describe("cancel, which never reached the relay at all", () => {
     });
 
     expect(cancelled).toBe(false);
-    expect((await relay.state.job(jobId))?.cancelled).toBeUndefined();
+    expect((await relay.state.job(SITE_ID, jobId))?.cancelled).toBeUndefined();
   });
 });
 
@@ -116,7 +119,7 @@ describe("release, through the plane a daemon actually calls", () => {
     });
 
     await daemon.runner.tick();
-    const leaseId = (await relay.state.job(jobId))?.claimedBy?.leaseId;
+    const leaseId = (await relay.state.job(SITE_ID, jobId))?.claimedBy?.leaseId;
     expect(leaseId).toBeDefined();
 
     const response = await daemon.signedFetch("release", {
@@ -126,10 +129,10 @@ describe("release, through the plane a daemon actually calls", () => {
     expect(response.status).toBe(200);
 
     // Back in the queue, and no longer this device's to take.
-    expect((await relay.state.job(jobId))?.state).toBe("queued");
+    expect((await relay.state.job(SITE_ID, jobId))?.state).toBe("queued");
     await daemon.runner.tick();
-    expect((await relay.state.job(jobId))?.state).toBe("queued");
-    expect((await relay.state.job(jobId))?.claimedBy).toBeUndefined();
+    expect((await relay.state.job(SITE_ID, jobId))?.state).toBe("queued");
+    expect((await relay.state.job(SITE_ID, jobId))?.claimedBy).toBeUndefined();
   });
 
   it("gives it back to a runner that only went away", async () => {
@@ -143,16 +146,16 @@ describe("release, through the plane a daemon actually calls", () => {
     });
 
     await daemon.runner.tick();
-    const leaseId = (await relay.state.job(jobId))?.claimedBy?.leaseId;
+    const leaseId = (await relay.state.job(SITE_ID, jobId))?.claimedBy?.leaseId;
 
     await daemon.signedFetch("release", {
       leases: [{ jobId, leaseId }],
       reason: "shutdown",
     });
-    expect((await relay.state.job(jobId))?.state).toBe("queued");
+    expect((await relay.state.job(SITE_ID, jobId))?.state).toBe("queued");
 
     await daemon.runner.tick();
-    expect((await relay.state.job(jobId))?.claimedBy?.runnerId).toBe(
+    expect((await relay.state.job(SITE_ID, jobId))?.claimedBy?.runnerId).toBe(
       daemon.runnerId,
     );
   });

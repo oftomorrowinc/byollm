@@ -148,7 +148,9 @@ describe.each(CASES)("the cloud lane over $name", (storeCase) => {
 
     // The relay got a stub. The payload is still in the site's own store,
     // sealed at rest — direct mode's property inherited, not replaced.
-    expect((await relay.state.job(handle.id))?.stub.kind).toBe("llm.generate");
+    expect((await relay.state.job(SITE_ID, handle.id))?.stub.kind).toBe(
+      "llm.generate",
+    );
     expect(JSON.stringify(await relay.state.jobs())).not.toContain(
       "through the relay",
     );
@@ -270,7 +272,7 @@ describe.each(CASES)("the cloud lane over $name", (storeCase) => {
     for (let i = 0; i < 80; i += 1) {
       await daemon.runner.tick();
       await app.cloud!.pump();
-      if ((await relay.state.job(handle.id))?.state === "done") break;
+      if ((await relay.state.job(SITE_ID, handle.id))?.state === "done") break;
       await new Promise((r) => setTimeout(r, 20));
     }
 
@@ -278,7 +280,7 @@ describe.each(CASES)("the cloud lane over $name", (storeCase) => {
     // did not sign them. This is what keeps RELAY_BLIND from becoming
     // RELAY_TRUSTED, and it must hold identically on every store.
     const impostor = publicIdentityOf(generateKeys(Date.now()));
-    const routed = await relay.state.job(handle.id);
+    const routed = await relay.state.job(SITE_ID, handle.id);
     routed!.claimedBy = { ...routed!.claimedBy!, device: impostor };
 
     const report = await app.cloud!.pump();
@@ -412,7 +414,7 @@ describe("the site's own row decides whether to seal", () => {
     expect(report.sealed).not.toContain(job.id);
     // And nothing was handed to the relay — the assertion that matters, since
     // a payload there is a payload a device can run.
-    expect((await relay.state.job(job.id))?.payload).toBeUndefined();
+    expect((await relay.state.job(SITE_ID, job.id))?.payload).toBeUndefined();
   });
 });
 
@@ -468,7 +470,7 @@ describe("what the relay is told, and what it is not", () => {
       payload: { prompt: "who may run this" },
     });
 
-    const routed = await relay.state.job(job.id);
+    const routed = await relay.state.job(SITE_ID, job.id);
     expect(routed).toBeDefined();
     // …and the relay is told none of it. Checked by serialising the stub
     // rather than by reading a field that no longer exists: the property is

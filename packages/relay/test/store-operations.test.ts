@@ -81,7 +81,7 @@ describe("claim", () => {
     const granted = await state.claim(claimArgs());
 
     expect(granted.map((job) => job.id)).toEqual(["mine"]);
-    expect((await state.job("theirs"))?.state).toBe("queued");
+    expect((await state.job(SITE, "theirs"))?.state).toBe("queued");
   });
 
   it("grants at most `max`, and leaves the rest claimable", async () => {
@@ -122,7 +122,7 @@ describe("claim", () => {
     const second = await state.claim(claimArgs({ runnerId: "runner_2" }));
 
     expect(second).toHaveLength(1);
-    expect((await state.job("a"))?.claimedBy?.runnerId).toBe("runner_2");
+    expect((await state.job(SITE, "a"))?.claimedBy?.runnerId).toBe("runner_2");
     // A new grant, not the old one handed over.
     expect(second[0]?.lease.id).not.toBe(first[0]?.lease.id);
   });
@@ -172,7 +172,7 @@ describe("audience, which the relay was ignoring", () => {
     expect(await state.claim(rosterClaim())).toEqual([]);
     // Still queued, not consumed — the owner's machine simply is not a
     // candidate for it.
-    expect((await state.job("private"))?.state).toBe("queued");
+    expect((await state.job(SITE, "private"))?.state).toBe("queued");
   });
 
   it("offers that same job to the owner's own machine", async () => {
@@ -230,7 +230,7 @@ describe("a refusal is remembered", () => {
 
     expect(await state.claim(claimArgs())).toEqual([]);
     // Queued, not gone: somebody else may still run it.
-    expect((await state.job("a"))?.state).toBe("queued");
+    expect((await state.job(SITE, "a"))?.state).toBe("queued");
   });
 
   it("offers it to a different runner", async () => {
@@ -297,7 +297,7 @@ describe("the deadline, which the relay never read", () => {
       leases: [
         {
           jobId: "late",
-          leaseId: (await state.job("late"))!.claimedBy!.leaseId,
+          leaseId: (await state.job(SITE, "late"))!.claimedBy!.leaseId,
         },
       ],
     });
@@ -319,13 +319,13 @@ describe("the deadline, which the relay never read", () => {
     });
     await state.claim(claimArgs());
     await state.seal({ jobId: "late", siteId: SITE, envelope: ENVELOPE });
-    expect((await state.job("late"))?.payload).toBeDefined();
+    expect((await state.job(SITE, "late"))?.payload).toBeDefined();
 
     clock += 2_000;
     const swept = await state.sweep();
 
     expect(swept.map((job) => job.id)).toContain("late");
-    expect(await state.job("late")).toBeUndefined();
+    expect(await state.job(SITE, "late")).toBeUndefined();
     expect(JSON.stringify(await state.jobs())).not.toContain(
       ENVELOPE.ciphertext,
     );
@@ -343,7 +343,7 @@ describe("the deadline, which the relay never read", () => {
 
     await state.sweep();
 
-    expect((await state.job("fine"))?.state).toBe("queued");
+    expect((await state.job(SITE, "fine"))?.state).toBe("queued");
   });
 
   it("tells a device mid-flight that its job is gone", async () => {
@@ -406,7 +406,7 @@ describe("the store's clock", () => {
 
     // The third clock byollm_009 §7.1 requires: how long we wait for a site,
     // distinct from the lease and from the job's TTL.
-    expect((await state.job("a"))?.awaitingUntil).toBe(
+    expect((await state.job(SITE, "a"))?.awaitingUntil).toBe(
       CLOCK + AWAITING_PAYLOAD_MS,
     );
   });
@@ -454,7 +454,7 @@ describe("takePayload", () => {
     });
     expect(taken).toEqual({ refused: "stale-lease" });
     // And the job is untouched: a refusal must not advance the state machine.
-    expect((await state.job("a"))?.state).toBe("ready");
+    expect((await state.job(SITE, "a"))?.state).toBe("ready");
   });
 
   it("hands over the payload to the current holder", async () => {
@@ -465,7 +465,7 @@ describe("takePayload", () => {
       leaseId,
     });
     expect(taken).toEqual({ envelope: ENVELOPE });
-    expect((await state.job("a"))?.state).toBe("running");
+    expect((await state.job(SITE, "a"))?.state).toBe("running");
   });
 
   it("refuses a runner that does not hold the job", async () => {
@@ -516,8 +516,8 @@ describe("complete", () => {
     expect(replay).toEqual({ accepted: false, duplicate: true, state: "done" });
     // The second result did not overwrite the first — which is the property,
     // not the boolean.
-    expect((await state.job("a"))?.result).toEqual(ENVELOPE);
-    expect((await state.job("a"))?.disposition).toBe("ok");
+    expect((await state.job(SITE, "a"))?.result).toEqual(ENVELOPE);
+    expect((await state.job(SITE, "a"))?.disposition).toBe("ok");
   });
 
   it("refuses a result produced under a grant that ended", async () => {
@@ -543,8 +543,8 @@ describe("complete", () => {
 
     expect(late).toEqual({ refused: "stale-lease" });
     // And the job is untouched: the current holder can still finish it.
-    expect((await state.job("a"))?.state).toBe("awaiting-payload");
-    expect((await state.job("a"))?.result).toBeUndefined();
+    expect((await state.job(SITE, "a"))?.state).toBe("awaiting-payload");
+    expect((await state.job(SITE, "a"))?.result).toBeUndefined();
   });
 });
 
@@ -563,7 +563,7 @@ describe("releaseLeases", () => {
     });
 
     expect(released).toEqual([]);
-    expect((await state.job("a"))?.state).toBe("awaiting-payload");
+    expect((await state.job(SITE, "a"))?.state).toBe("awaiting-payload");
   });
 
   it("gives back the grant it names", async () => {
@@ -577,8 +577,8 @@ describe("releaseLeases", () => {
         leases: [{ jobId: "a", leaseId: granted!.lease.id }],
       }),
     ).toEqual(["a"]);
-    expect((await state.job("a"))?.state).toBe("queued");
-    expect((await state.job("a"))?.claimedBy).toBeUndefined();
+    expect((await state.job(SITE, "a"))?.state).toBe("queued");
+    expect((await state.job(SITE, "a"))?.claimedBy).toBeUndefined();
   });
 });
 

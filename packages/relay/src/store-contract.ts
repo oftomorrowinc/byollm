@@ -119,44 +119,43 @@ export function describeStoreContract(
       // A republish must not disturb work in flight — byollm_009 §4.2's replay
       // argument rests on it.
       await store.enqueue({ id: "a", siteId: SITE, stub: stub("a") });
-      expect((await store.job("a"))?.state).toBe("awaiting-payload");
+      expect((await store.job(SITE, "a"))?.state).toBe("awaiting-payload");
       await done();
     });
 
-    it("refuses an id another site is already using", async () => {
-      // cloud_008 finding 58. Idempotence by bare id made a second site's
-      // enqueue return the *first* site's job: site B would be handed A's stub,
-      // and B's `seal` and `cancel` would then be refused for a job B believes
-      // it published. Two tenants, one namespace, and the symptom is a relay
-      // that looks broken to the innocent party.
+    it("gives two sites the same id without either seeing the other", async () => {
+      // cloud_009 §3. Keyed by the bare id, the second site's enqueue returned
+      // the *first* site's job (cloud_008 finding 58), and the refusal that
+      // fixed it was a cross-tenant existence oracle: a site knows its own stub
+      // is well-formed, so any answer it can tell apart from success confirms
+      // somebody else holds that id. Keyed by (site, id), the collision does
+      // not exist and there is nothing to answer.
       const { store, done } = await make();
       await store.enqueue({ id: "shared", siteId: SITE, stub: stub("shared") });
-
-      const collision = await store.enqueue({
+      await store.enqueue({
         id: "shared",
         siteId: "site_other",
-        stub: stub("shared"),
+        stub: stub("shared", "bob"),
       });
 
-      expect(collision).toEqual({ refused: "id-taken" });
-      // The refusal names nothing about the other site. What the *store* says
-      // reaches the site plane, which must not turn it into "somebody else has
-      // that id" — cloud_008 finding 58, second pass. One value, and it is the
-      // same value for every collision, so there is nothing here to correlate.
-      expect(JSON.stringify(collision)).not.toContain("site_other");
-      expect(JSON.stringify(collision)).not.toContain(SITE);
-      // And the original is untouched: a refusal must not disturb the job it
-      // refused on behalf of.
-      expect((await store.job("shared"))?.siteId).toBe(SITE);
+      // Two jobs, each its own site's.
+      expect((await store.job(SITE, "shared"))?.stub.owner).toBe("alice");
+      expect((await store.job("site_other", "shared"))?.stub.owner).toBe("bob");
 
-      // The same site republishing is still absorbed, which is the behaviour
-      // this exception is carved out of — byollm_009 §4.2's replay argument.
+      // And a claim for one site does not see the other's, which is the
+      // property the key exists for rather than a restatement of it.
+      const granted = await store.claim(claimArgs());
+      expect(granted.map((job) => job.id)).toEqual(["shared"]);
+      expect(granted[0]?.owner).toBe("alice");
+
+      // The same site republishing is still absorbed — byollm_009 §4.2's
+      // replay argument, which is what idempotence is for.
       const replay = await store.enqueue({
         id: "shared",
         siteId: SITE,
         stub: stub("shared"),
       });
-      expect(replay).toEqual(await store.job("shared"));
+      expect(replay).toEqual(await store.job(SITE, "shared"));
       await done();
     });
 
@@ -225,7 +224,7 @@ export function describeStoreContract(
       // And it is the *stored* grant that moved, not just the number returned.
       // Reporting a renewal without performing one is the mutation that
       // survived the first version of the relay's own test for this.
-      expect((await store.job("a"))?.claimedBy?.leaseExpiresAt).toBe(
+      expect((await store.job(SITE, "a"))?.claimedBy?.leaseExpiresAt).toBe(
         renewed.renewed[0]!.expiresAt,
       );
       await done();
@@ -235,7 +234,7 @@ export function describeStoreContract(
       const { store, done } = await make();
       await store.enqueue({ id: "a", siteId: SITE, stub: stub("a") });
       const [granted] = await store.claim(claimArgs({ leaseMs: 1_000 }));
-      const before = (await store.job("a"))?.claimedBy?.leaseExpiresAt;
+      const before = (await store.job(SITE, "a"))?.claimedBy?.leaseExpiresAt;
 
       const renewed = await store.renewLeases({
         runnerId: "runner_1",
@@ -247,8 +246,10 @@ export function describeStoreContract(
       expect(renewed.lost).toEqual(["a"]);
       // A refusal must not advance anything — the current holder's grant is
       // untouched by somebody else's stale renewal.
-      expect((await store.job("a"))?.claimedBy?.leaseExpiresAt).toBe(before);
-      expect((await store.job("a"))?.claimedBy?.leaseId).toBe(
+      expect((await store.job(SITE, "a"))?.claimedBy?.leaseExpiresAt).toBe(
+        before,
+      );
+      expect((await store.job(SITE, "a"))?.claimedBy?.leaseId).toBe(
         granted!.lease.id,
       );
       await done();
@@ -290,7 +291,7 @@ export function describeStoreContract(
       expect(granted.map((job) => job.id)).toEqual(["good"]);
       // And the bad one is back in the queue rather than stuck holding a lease
       // nobody received.
-      expect((await store.job("old"))?.state).toBe("queued");
+      expect((await store.job(SITE, "old"))?.state).toBe("queued");
       await done();
     });
 
@@ -312,7 +313,7 @@ export function describeStoreContract(
       );
 
       expect(granted).toEqual([]);
-      expect((await store.job("private"))?.state).toBe("queued");
+      expect((await store.job(SITE, "private"))?.state).toBe("queued");
       await done();
     });
 
@@ -346,7 +347,7 @@ export function describeStoreContract(
       });
 
       expect(await store.claim(claimArgs())).toEqual([]);
-      expect((await store.job("a"))?.state).toBe("queued");
+      expect((await store.job(SITE, "a"))?.state).toBe("queued");
       // And somebody else may still run it.
       expect(
         (await store.claim(claimArgs({ runnerId: "runner_2" }))).map(
@@ -383,7 +384,7 @@ export function describeStoreContract(
       });
 
       expect(await store.claim(claimArgs())).toEqual([]);
-      expect(await store.job("late")).toBeUndefined();
+      expect(await store.job(SITE, "late")).toBeUndefined();
       await done();
     });
 
@@ -432,7 +433,7 @@ export function describeStoreContract(
         state: "done",
       });
       // The property, not the boolean: the second result did not overwrite.
-      expect((await store.job("a"))?.disposition).toBe("ok");
+      expect((await store.job(SITE, "a"))?.disposition).toBe("ok");
       await done();
     });
 
@@ -485,7 +486,7 @@ export function describeStoreContract(
 
       // And the first answer is what survived, which is the property rather
       // than any of the booleans above.
-      expect((await store.job("a"))?.disposition).toBe("ok");
+      expect((await store.job(SITE, "a"))?.disposition).toBe("ok");
       await done();
     });
 
@@ -510,8 +511,8 @@ export function describeStoreContract(
 
       expect(late).toEqual({ refused: "stale-lease" });
       // Untouched: the current holder can still finish it.
-      expect((await store.job("a"))?.state).toBe("awaiting-payload");
-      expect((await store.job("a"))?.result).toBeUndefined();
+      expect((await store.job(SITE, "a"))?.state).toBe("awaiting-payload");
+      expect((await store.job(SITE, "a"))?.result).toBeUndefined();
       await done();
     });
 

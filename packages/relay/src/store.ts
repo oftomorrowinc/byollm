@@ -52,9 +52,6 @@ import type {
  * express an opinion about who may route, only about what it was told. That is
  * what keeps `RELAY_BLIND` a property of the shape rather than of the code.
  */
-/** Why a stub was not taken. One value, and it names the whole reason. */
-export type EnqueueRefusal = "id-taken";
-
 export interface RoutingStore {
   /** The one clock every deadline in this store is stamped from. */
   now(): Promise<number>;
@@ -67,24 +64,32 @@ export interface RoutingStore {
    * not disturb work in flight (byollm_009 §4.2's replay argument rests on
    * it).
    *
-   * A republished id belonging to a **different** site is refused — cloud_008
-   * finding 58. Ids are a site's to choose, and two sites choosing the same
-   * one is not a replay: returning the existing job would hand site B site A's
-   * stub, and B's `seal` and `cancel` would then be refused for a job it
-   * believes it published. That reads as a broken relay and is a tenancy leak.
+   * A republished id belonging to a **different** site is a different job —
+   * cloud_009 §3. Keys are `(site, id)`, so two sites choosing one id collide
+   * nowhere and there is nothing to refuse.
    *
-   * The relay routes for one site today, so this is unreachable through the
-   * site plane and will not be under a hub (cloud_009 §3). It is enforced at
-   * the store because that is where idempotency lives, and a rule enforced
-   * one layer above the thing it protects is a rule the next caller skips.
+   * cloud_008 finding 58 closed this by refusing the collision, which was as
+   * far as a single-site relay could go and left a cross-tenant existence
+   * oracle: a site knows its own stub is well-formed, so any answer it can
+   * tell apart from success confirms that somebody else holds that id. The
+   * refusal is gone with the collision.
    */
   enqueue(input: {
     id: string;
     siteId: string;
     stub: JobStub;
-  }): Promise<RoutedJob | { refused: EnqueueRefusal }>;
+  }): Promise<RoutedJob>;
 
-  job(jobId: string): Promise<RoutedJob | undefined>;
+  /**
+   * One job, named by the site that published it — cloud_009 §3.
+   *
+   * The site id is a parameter rather than a scan, and the difference is
+   * finding eleven wearing a different hat: a reader that finds a job by id
+   * alone is a reader that can see every tenant's state through one door,
+   * which is exactly the anonymous read the debug page had and lost. The
+   * debug page is per-site or it is nothing.
+   */
+  job(siteId: string, jobId: string): Promise<RoutedJob | undefined>;
   jobs(): Promise<RoutedJob[]>;
 
   /** Jobs a site must seal for, right now. */

@@ -88,7 +88,7 @@ describe("a job that takes longer than its lease", () => {
     for (let i = 0; i < 10; i += 1) {
       await sleep(100);
       await daemon.runner.tick();
-      const held = (await relay.state.job(jobId))?.claimedBy;
+      const held = (await relay.state.job(SITE_ID, jobId))?.claimedBy;
       if (held) {
         grants.add(held.leaseId);
         expiries.push(held.leaseExpiresAt);
@@ -107,7 +107,7 @@ describe("a job that takes longer than its lease", () => {
     expect(results.map((r) => r.jobId)).toEqual([jobId]);
     expect(results[0]?.outcome?.outcome).toBe("ok");
     expect(daemon.backend.seen).toHaveLength(1);
-    expect((await relay.state.job(jobId))?.state).toBe("done");
+    expect((await relay.state.job(SITE_ID, jobId))?.state).toBe("done");
   });
 
   it("is taken away from a device that stops heartbeating", async () => {
@@ -120,7 +120,7 @@ describe("a job that takes longer than its lease", () => {
     await sleep(LEASE_MS + 100);
     await relay.state.sweep();
 
-    const job = await relay.state.job(jobId);
+    const job = await relay.state.job(SITE_ID, jobId);
     expect(job?.state).toBe("queued");
     expect(job?.claimedBy).toBeUndefined();
   });
@@ -133,7 +133,7 @@ describe("what heartbeat tells the daemon", () => {
     // indistinguishable from one whose leases have all lapsed — and the
     // daemon believes the second thing.
     const { relay, daemon, jobId } = await slowJob();
-    const held = (await relay.state.job(jobId))?.claimedBy;
+    const held = (await relay.state.job(SITE_ID, jobId))?.claimedBy;
     expect(held).toBeDefined();
 
     const renewed = await relay.state.renewLeases({

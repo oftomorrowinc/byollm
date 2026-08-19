@@ -97,7 +97,9 @@ describe("a stub's site is a claim, checked against the signature", () => {
     });
 
     expect(response.status).toBe(200);
-    expect((await relay.state.job("job_multi_1"))?.state).toBe("queued");
+    expect((await relay.state.job(SITE_ID, "job_multi_1"))?.state).toBe(
+      "queued",
+    );
   });
 
   it("refuses a stub naming another registered site", async () => {
@@ -113,7 +115,7 @@ describe("a stub's site is a claim, checked against the signature", () => {
     expect(response.status).toBe(403);
     // And nothing was routed. A refusal that still enqueued would leave a job
     // whose stub lies about its origin sitting in the queue.
-    expect(await relay.state.job("job_multi_1")).toBeUndefined();
+    expect(await relay.state.job(SITE_ID, "job_multi_1")).toBeUndefined();
   });
 
   it("refuses a stub naming a site nobody registered", async () => {
@@ -124,6 +126,6 @@ describe("a stub's site is a claim, checked against the signature", () => {
     });
 
     expect(response.status).toBe(403);
-    expect(await relay.state.job("job_multi_1")).toBeUndefined();
+    expect(await relay.state.job(SITE_ID, "job_multi_1")).toBeUndefined();
   });
 });

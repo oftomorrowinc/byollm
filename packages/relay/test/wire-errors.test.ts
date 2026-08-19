@@ -120,7 +120,7 @@ describe("the daemon plane's refusals", () => {
 
     // `fetch` names the grant it means — and `result`, the operation that
     // writes, does not (finding 15). The asymmetry is visible from right here.
-    const leaseId = (await relay.state.job(jobId))?.claimedBy?.leaseId;
+    const leaseId = (await relay.state.job(SITE_ID, jobId))?.claimedBy?.leaseId;
     const response = await daemon.signedFetch("fetch", { jobId, leaseId });
     expect(await refusal(response)).toBe("not-ready");
   });

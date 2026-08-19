@@ -256,7 +256,6 @@ export { AWAITING_PAYLOAD_MS } from "./state.js";
  * package entry point alone — a parameter type left private fails to build
  * rather than waiting for the next consumer to notice.
  */
-export type { EnqueueRefusal } from "./store.js";
 export type {
   ClaimInput,
   HolderRefusal,

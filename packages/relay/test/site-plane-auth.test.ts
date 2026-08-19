@@ -210,8 +210,16 @@ describe("the site plane refuses anyone it cannot verify", () => {
 
     await daemon.runner.tick();
     await new Promise((r) => setTimeout(r, 30));
-    expect((await relay.state.job("job_foreign"))?.state).toBe("queued");
-    expect((await relay.state.job("job_foreign"))?.claimedBy).toBeUndefined();
+    // Read under the site that published it — cloud_009 §3. The mechanical
+    // rewrite guessed `SITE_ID` here and the case failed, which is the key
+    // doing exactly what it is for: a job is not findable from the wrong
+    // tenant, including by a test that means well.
+    expect((await relay.state.job("site_other", "job_foreign"))?.state).toBe(
+      "queued",
+    );
+    expect(
+      (await relay.state.job("site_other", "job_foreign"))?.claimedBy,
+    ).toBeUndefined();
   });
 
   it("refuses a request whose body names a site the signature does not", async () => {
@@ -307,8 +315,10 @@ describe("enqueue is idempotent per job id", () => {
     });
     await daemon.runner.tick();
     await new Promise((r) => setTimeout(r, 30));
-    const claimed = (await relay.state.job(jobId))?.claimedBy;
-    expect((await relay.state.job(jobId))?.state).toBe("awaiting-payload");
+    const claimed = (await relay.state.job(SITE_ID, jobId))?.claimedBy;
+    expect((await relay.state.job(SITE_ID, jobId))?.state).toBe(
+      "awaiting-payload",
+    );
     expect(claimed?.leaseId).toBeDefined();
 
     // The site republishes its queue — a restart, a retry, or an attacker
@@ -318,8 +328,10 @@ describe("enqueue is idempotent per job id", () => {
     // it names; this is the write that was not, and it discarded a live lease.
     await connector.republish(jobId);
 
-    expect((await relay.state.job(jobId))?.state).toBe("awaiting-payload");
-    expect((await relay.state.job(jobId))?.claimedBy?.leaseId).toBe(
+    expect((await relay.state.job(SITE_ID, jobId))?.state).toBe(
+      "awaiting-payload",
+    );
+    expect((await relay.state.job(SITE_ID, jobId))?.claimedBy?.leaseId).toBe(
       claimed?.leaseId,
     );
   });

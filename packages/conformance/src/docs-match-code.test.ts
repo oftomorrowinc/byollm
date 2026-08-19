@@ -23,8 +23,24 @@ import { CHECKS } from "./checks.js";
  * when a wire changes.
  */
 
+/**
+ * Read a repository document with its line endings normalised.
+ *
+ * `\r\n`, because git hands Windows checkouts CRLF and every pattern below
+ * anchors on `\n`. The fence regex wants a newline straight after ```` ``` ````
+ * and found a carriage return instead, so it matched **nothing** — and this
+ * file's own vacuity guard is the only reason that read as a failure rather
+ * than as a document with no wire shapes in it to disagree with.
+ *
+ * Which is the whole argument for the Windows leg of the matrix: the suite
+ * was green on two platforms while a doc-parity check quietly stopped
+ * parsing the doc.
+ */
 const read = (relative: string) =>
-  readFileSync(fileURLToPath(new URL(relative, import.meta.url)), "utf8");
+  readFileSync(
+    fileURLToPath(new URL(relative, import.meta.url)),
+    "utf8",
+  ).replace(/\r\n/g, "\n");
 
 describe("docs/protocol.md describes this protocol", () => {
   const doc = read("../../../docs/protocol.md");

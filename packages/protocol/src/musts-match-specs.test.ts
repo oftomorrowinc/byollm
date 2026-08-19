@@ -37,7 +37,13 @@ const SPECS = fileURLToPath(new URL("../../../specs", import.meta.url));
 function declaredInSpecs(): Map<string, string[]> {
   const found = new Map<string, string[]>();
   for (const file of readdirSync(SPECS).filter((f) => f.endsWith(".md"))) {
-    const text = readFileSync(`${SPECS}/${file}`, "utf8");
+    // Normalised for the reason `docs-match-code.test.ts` gives at length: a
+    // CRLF checkout makes a `\n`-anchored pattern match nothing, and a
+    // coverage test that parses no tables reports perfect coverage.
+    const text = readFileSync(`${SPECS}/${file}`, "utf8").replace(
+      /\r\n/g,
+      "\n",
+    );
     // Split on either ending — a Windows checkout is CRLF, and a stray `\r`
     // at the end of a row is invisible until an id lands beside it.
     for (const line of text.split(/\r?\n/)) {

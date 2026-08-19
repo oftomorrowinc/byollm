@@ -457,7 +457,7 @@ export function fixtureFor(
 ): RelayFixture {
   return {
     sites: [{ siteId: SITE_ID, site }],
-    consents: [{ owner: "alice", siteId: SITE_ID }],
+    consents: [{ owner: "alice", siteId: SITE_ID, paused: false }],
     devices: [],
     rosters: [],
     revoked: [],

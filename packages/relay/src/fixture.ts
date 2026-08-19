@@ -81,6 +81,30 @@ export const ConsentRecord = z
     owner: z.string().min(1),
     /** Which site this consent is for. Scoped: consent is never global. */
     siteId: z.string().min(1),
+    /**
+     * The consent stands, and nothing routes under it — cloud_008 finding 48.
+     *
+     * The disclosure this user agreed to no longer describes their
+     * arrangements: they read that their prompts stay on machines they own,
+     * and they have since been added to a roster whose owner can read them.
+     * Until they have been shown the other sentence and clicked, their work
+     * does not move.
+     *
+     * **A third state, because the two we had are both wrong here.** Dropping
+     * the consent makes `consentFor` return null, and the daemon plane reads
+     * exactly that as revoked: heartbeat answers `revoked: true` with `lost:
+     * all`, and the daemon prints "this runner was revoked" and *deletes its
+     * pairing*. So a user whose team changed a setting would be told a human
+     * cut them off, lose their pinned keys, and have to re-run `byollm
+     * connect` after re-consenting. Under cloud_009 that is worse still: the
+     * pairing is keyed by origin, so one stale consent would drop the pairing
+     * for every other site reached through that hub.
+     *
+     * Reporting it as revoked is the same falsehood finding 48 exists to
+     * delete, told one layer down. So the record stays, the relationship
+     * stays, and the routing stops.
+     */
+    paused: z.boolean().default(false),
   })
   .strict();
 export type ConsentRecord = z.infer<typeof ConsentRecord>;
@@ -217,7 +241,15 @@ export class Projection {
     );
   }
 
-  /** The consent binding this owner to this site, if it exists and stands. */
+  /**
+   * The consent binding this owner to this site, if it exists and stands.
+   *
+   * **Liveness, not routing.** A paused consent is returned here: the
+   * relationship exists, the daemon is not revoked, the pairing stands. Ask
+   * {@link Projection.mayRouteFor} before moving anybody's work — the two
+   * questions have different answers and one method answering both is how a
+   * paused user would quietly start routing again.
+   */
   consentFor(owner: string, siteId: string): ConsentRecord | null {
     const revoked = this.#fixture.revoked.some(
       (r) => r.owner === owner && r.siteId === siteId,
@@ -227,6 +259,49 @@ export class Projection {
       this.#fixture.consents.find(
         (c) => c.owner === owner && c.siteId === siteId,
       ) ?? null
+    );
+  }
+
+  /**
+   * May this owner's work move for this site, right now?
+   *
+   * Consent exists, was not revoked, and is not paused. The routing question,
+   * kept apart from {@link Projection.consentFor}'s liveness one so that a
+   * caller has to pick which it means.
+   */
+  mayRouteFor(owner: string, siteId: string): boolean {
+    const consent = this.consentFor(owner, siteId);
+    return consent !== null && !consent.paused;
+  }
+
+  /** Whether this pair is consented and paused — what heartbeat reports. */
+  pausedFor(owner: string, siteId: string): boolean {
+    return this.consentFor(owner, siteId)?.paused === true;
+  }
+
+  /**
+   * Whose work this device may run for this site — the set a claim carries.
+   *
+   * {@link Projection.ownersRunnableBy} collapsed and then filtered by
+   * consent, which is two things this relay was doing in one place and one
+   * place respectively:
+   *
+   * - **The device's own owner is checked first**, and an unroutable one
+   *   empties the whole set. A machine whose owner has not agreed to this
+   *   site's current terms runs nothing for it, including a roster member's
+   *   work: the roster says whose jobs may land here, and consent says
+   *   whether this machine is available to the site at all.
+   * - **Every job owner is checked too.** That check did not exist. Consent
+   *   was enforced by the daemon plane's blanket revoked guard, which asks
+   *   only about the *claiming* device's owner — so a roster member who never
+   *   consented to a site could have their work claimed by their admin's
+   *   machine, which is `CONSENT_BEFORE_ROUTE` read the other way round. The
+   *   site plane does not check consent at enqueue either, so nothing did.
+   */
+  routableOwners(deviceOwner: string, siteId: string): string[] {
+    if (!this.mayRouteFor(deviceOwner, siteId)) return [];
+    return this.ownersRunnableBy(deviceOwner).filter((owner) =>
+      this.mayRouteFor(owner, siteId),
     );
   }
 

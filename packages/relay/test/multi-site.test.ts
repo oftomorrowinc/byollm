@@ -47,7 +47,7 @@ function twoSites() {
         { siteId: SITE_ID, site: a },
         { siteId: SITE_B, site: b },
       ],
-      consents: [{ owner: "alice", siteId: SITE_ID }],
+      consents: [{ owner: "alice", siteId: SITE_ID, paused: false }],
       devices: [],
       rosters: [],
       revoked: [],

@@ -286,7 +286,15 @@ export class DaemonPlane {
         kinds: new Set(request.capabilities.map((c) => c.kind)),
         // The projection, collapsed to data the store can match on — a
         // predicate does not travel.
-        owners: new Set(this.#deps.projection.ownersRunnableBy(device.owner)),
+        //
+        // `routableOwners`, not `ownersRunnableBy`: the roster says whose
+        // work *may* land here and consent says whether it moves at all. A
+        // paused consent (cloud_008 finding 48) leaves this set empty rather
+        // than refusing the call, which is the whole difference between "we
+        // are waiting for you to read something" and "a human cut you off".
+        owners: new Set(
+          this.#deps.projection.routableOwners(device.owner, this.#deps.siteId),
+        ),
         max: request.max,
         leaseMs: this.#deps.leaseMs,
       });

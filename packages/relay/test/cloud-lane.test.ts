@@ -119,7 +119,7 @@ describe.each(CASES)("the cloud lane over $name", (storeCase) => {
     const siteKeys = generateSiteKeys();
     const site = publicIdentityOf(siteKeys);
     const fixture = fixtureFor(site, {
-      consents: [{ owner, siteId: SITE_ID }],
+      consents: [{ owner, siteId: SITE_ID, paused: false }],
     });
     const relay = new Relay({ siteId: SITE_ID, fixture });
 
@@ -182,7 +182,7 @@ describe.each(CASES)("the cloud lane over $name", (storeCase) => {
     const siteKeys = generateSiteKeys();
     const site = publicIdentityOf(siteKeys);
     const fixture = fixtureFor(site, {
-      consents: [{ owner, siteId: SITE_ID }],
+      consents: [{ owner, siteId: SITE_ID, paused: false }],
     });
     const relay = new Relay({ siteId: SITE_ID, fixture });
     const app = new ByollmApp({
@@ -242,7 +242,7 @@ describe.each(CASES)("the cloud lane over $name", (storeCase) => {
     const siteKeys = generateSiteKeys();
     const site = publicIdentityOf(siteKeys);
     const fixture = fixtureFor(site, {
-      consents: [{ owner, siteId: SITE_ID }],
+      consents: [{ owner, siteId: SITE_ID, paused: false }],
     });
     const relay = new Relay({ siteId: SITE_ID, fixture });
     const app = new ByollmApp({
@@ -304,7 +304,7 @@ describe("provenance names a person, not a key", () => {
     const siteKeys = generateSiteKeys();
     const site = publicIdentityOf(siteKeys);
     const fixture = fixtureFor(site, {
-      consents: [{ owner, siteId: SITE_ID }],
+      consents: [{ owner, siteId: SITE_ID, paused: false }],
     });
     const relay = new Relay({ siteId: SITE_ID, fixture });
     const app = new ByollmApp({
@@ -364,7 +364,7 @@ describe("the site's own row decides whether to seal", () => {
     const siteKeys = generateSiteKeys();
     const site = publicIdentityOf(siteKeys);
     const fixture = fixtureFor(site, {
-      consents: [{ owner, siteId: SITE_ID }],
+      consents: [{ owner, siteId: SITE_ID, paused: false }],
     });
     const relay = new Relay({ siteId: SITE_ID, fixture });
 
@@ -445,7 +445,7 @@ describe("what the relay is told, and what it is not", () => {
     const siteKeys = generateSiteKeys();
     const site = publicIdentityOf(siteKeys);
     const fixture = fixtureFor(site, {
-      consents: [{ owner, siteId: SITE_ID }],
+      consents: [{ owner, siteId: SITE_ID, paused: false }],
     });
     const relay = new Relay({ siteId: SITE_ID, fixture });
 

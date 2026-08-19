@@ -402,7 +402,7 @@ describe("the projection, collapsed to data a store can match on", () => {
       siteId: SITE_ID,
       fixture: {
         sites: [{ siteId: SITE_ID, site }],
-        consents: [{ owner: "bob", siteId: SITE_ID }],
+        consents: [{ owner: "bob", siteId: SITE_ID, paused: false }],
         devices: [],
         // bob runs for his team; carol runs for hers; dave owns nothing.
         rosters: [

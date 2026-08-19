@@ -236,7 +236,25 @@ describe("the freeze gate — cloud_004 §14", () => {
     const site = publicIdentityOf(siteKeys);
     const fixture = {
       sites: [{ siteId: SITE_ID, site }],
-      consents: [{ owner: "bob", siteId: SITE_ID }],
+      // **Both of them**, and alice's is the one that was missing.
+      //
+      // This scenario used to consent only bob, the machine's owner, and
+      // route alice's work by the roster alone. `routableOwners` now asks
+      // about the job's owner too, and this is the gate saying what the
+      // product already does: alice reads a disclosure of her own on the
+      // connections page — the shared-compute one, which exists precisely
+      // because her jobs may land on a machine her admin can read.
+      //
+      // `CONSENT_BEFORE_ROUTE` says an upstream must not route a job to a
+      // device without a consent record binding that user, site and scope.
+      // The job's user is alice. Read that way, the old fixture was routing
+      // one, and nothing in the relay noticed: consent was enforced only
+      // against the *claiming* device's owner, and the site plane does not
+      // check consent at enqueue at all.
+      consents: [
+        { owner: "bob", siteId: SITE_ID, paused: false },
+        { owner: "alice", siteId: SITE_ID, paused: false },
+      ],
       devices: [],
       // Bob's machine runs work for his team, of which alice is a member.
       rosters: [{ id: "team_1", owner: "bob", members: ["alice"] }],

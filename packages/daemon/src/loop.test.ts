@@ -224,6 +224,52 @@ describe("the loop", () => {
     expect(backend.seen).toEqual([]);
   });
 
+  it("says it is waiting on the user, once, and resumes when they have read it", async () => {
+    // cloud_008 finding 48's daemon end. The relay does not emit this field
+    // yet — it is the accept half of a two-release change — so this is the
+    // only place the handling is exercised, and it is worth having early:
+    // the alternative to a message is a machine that quietly receives no work
+    // and an owner with no idea why.
+    let awaiting = true;
+    const fetchImpl: typeof fetch = (input) => {
+      const url = String(input instanceof Request ? input.url : input);
+      const endpoint = url.split("/").pop() ?? "";
+      const body =
+        endpoint === "heartbeat"
+          ? {
+              revoked: false,
+              cancel: [],
+              lost: [],
+              serverTime: Date.now(),
+              ...(awaiting ? { awaitingConsent: true } : {}),
+            }
+          : endpoint === "claim"
+            ? { jobs: [], leaseMs: 60_000 }
+            : { released: [] };
+      return Promise.resolve(
+        new Response(JSON.stringify(body), {
+          headers: { "content-type": "application/json" },
+        }),
+      );
+    };
+
+    const runner = await makeRunner(fetchImpl);
+    await runner.tick();
+    await runner.tick();
+
+    // Once, not once per heartbeat: a line repeated every few seconds is a
+    // line nobody reads.
+    expect(events.filter((e) => e.type === "awaiting-consent")).toHaveLength(1);
+    // Still running, unlike `revoked` — which stops the loop and, in the CLI,
+    // deletes the pairing. That difference is the whole point of the state.
+    expect(events.filter((e) => e.type === "revoked")).toEqual([]);
+    expect(events.filter((e) => e.type === "heartbeat")).toHaveLength(2);
+
+    awaiting = false;
+    await runner.tick();
+    expect(events.filter((e) => e.type === "consent-resumed")).toHaveLength(1);
+  });
+
   it("stops and reports itself revoked when the heartbeat says so", async () => {
     const runner = await makeRunner(
       routed({

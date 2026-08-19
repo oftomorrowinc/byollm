@@ -405,6 +405,18 @@ function report(origin: string, event: RunnerEvent, io: CliIo): void {
     case "revoked":
       io.out(`${at} ${host} this runner was revoked. Stopping.\n`);
       break;
+    // Not a fault and not a revocation: the terms this machine runs under
+    // changed, and the person who has to read them is the one at this
+    // keyboard. The daemon keeps running and keeps its pairing.
+    case "awaiting-consent":
+      io.out(
+        `${at} ${host} paused — the terms changed and are waiting for you. ` +
+          `Open your connections page to read them; nothing runs until you do.\n`,
+      );
+      break;
+    case "consent-resumed":
+      io.out(`${at} ${host} resumed — thank you.\n`);
+      break;
     case "error":
       io.err(`${at} ${host} ${stripControlChars(event.message)}\n`);
       break;

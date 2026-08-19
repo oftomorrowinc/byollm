@@ -88,6 +88,9 @@ export interface RunnerOptions {
 
 export type RunnerEvent =
   | { readonly type: "heartbeat"; readonly capabilities: number }
+  /** A disclosure went stale; the user has something to read — finding 48. */
+  | { readonly type: "awaiting-consent" }
+  | { readonly type: "consent-resumed" }
   | { readonly type: "claimed"; readonly jobId: string; readonly kind: string }
   | {
       readonly type: "refused";
@@ -132,6 +135,7 @@ export class Runner {
   #capabilities: Capability[] = [];
   #paused = false;
   #revoked = false;
+  #awaitingConsent = false;
   #stopped = false;
   #lastError: string | undefined;
   #completed = 0;
@@ -476,6 +480,20 @@ export class Runner {
       type: "heartbeat",
       capabilities: capabilities.length,
     });
+
+    // Nothing will be offered, and the reason is not a fault — cloud_008
+    // finding 48. Said once per transition rather than every few seconds: a
+    // daemon that repeats itself on a five-second heartbeat is a daemon
+    // nobody reads.
+    if (heartbeat.awaitingConsent === true) {
+      if (!this.#awaitingConsent) {
+        this.#awaitingConsent = true;
+        this.#options.onEvent?.({ type: "awaiting-consent" });
+      }
+    } else if (this.#awaitingConsent) {
+      this.#awaitingConsent = false;
+      this.#options.onEvent?.({ type: "consent-resumed" });
+    }
 
     if (heartbeat.revoked) {
       this.#revoked = true;

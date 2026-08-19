@@ -358,6 +358,28 @@ export const HeartbeatResponse = z
     lost: z.array(z.string().min(1)),
     /** Server clock, so a daemon with a skewed clock still honors leases. */
     serverTime: z.number().int().positive(),
+    /**
+     * The user has something to read before their work moves again —
+     * cloud_008 finding 48.
+     *
+     * Not `revoked`, and deliberately not spelled `paused`. `revoked` is a
+     * human ending the relationship, and a daemon that hears it stops and
+     * deletes its pairing; this is a disclosure that stopped describing the
+     * user's arrangements, which ends when they read the new one. And
+     * `HeartbeatRequest.paused` already means "this daemon's operator stopped
+     * it" — one word, two subjects, on the two halves of one exchange, is a
+     * confusion nobody would ever untangle from a log.
+     *
+     * Optional for one release. A field a relay emits to a daemon whose
+     * `.strict()` schema predates it is a parse failure at exactly the moment
+     * the user needs their machine working, so this release **accepts** it and
+     * the next one emits it (cloud_009 §5's rollout, applied to a smaller
+     * thing).
+     *
+     * A boolean today because the relay serves one site. Under a hub it says
+     * which sites, and the daemon can name them.
+     */
+    awaitingConsent: z.boolean().optional(),
   })
   .strict();
 export type HeartbeatResponse = z.infer<typeof HeartbeatResponse>;

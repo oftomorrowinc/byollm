@@ -370,13 +370,23 @@ export const CHECKS: readonly Check[] = [
           "a named job ran without the daemon's local allowlist admitting it",
         );
 
-        // And it must not be handed back to the same daemon forever.
-        const before = bob.backend.seen.length;
-        await bob.runner.tick();
-        await sleep(50);
+        // `REFUSAL_NOT_REOFFERED`, watched at the offer rather than at the
+        // backend — cloud_008 Tier 3, finding 13.
+        //
+        // This asserted `bob.backend.seen.length` had not grown, which is
+        // true whether or not the server remembers the refusal: the daemon
+        // declines this job at `admit`, before anything is executed, so a
+        // re-offered job reaches the backend exactly as often as a withheld
+        // one — never. The check observed a place the job could not arrive.
+        //
+        // A raw claim is the seam. It runs no daemon admission logic, so what
+        // comes back is what the server was still willing to hand over, and
+        // the server's memory of the refusal is the only thing that can
+        // withhold it.
+        const reoffered = await claimRaw(target, bob);
         assert(
-          bob.backend.seen.length === before,
-          "a refused job was re-offered to the runner that refused it",
+          !reoffered.some((job) => job.id === refused.id),
+          "a server re-offered a job to the runner that refused it",
         );
 
         // Now the owner allows alice, locally — by the id this server uses

@@ -1,4 +1,13 @@
-import { chmod, mkdir, readFile, stat, writeFile } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
+import {
+  chmod,
+  link,
+  mkdir,
+  readFile,
+  rm,
+  stat,
+  writeFile,
+} from "node:fs/promises";
 import { dirname } from "node:path";
 import {
   StoredKeys,
@@ -103,20 +112,64 @@ export class DeviceIdentity {
   async #create(now: number): Promise<StoredKeys> {
     const keys = generateKeys(now);
     await mkdir(dirname(this.#path), { recursive: true });
-    // `wx` so two daemons racing at first start cannot each believe they
-    // created the identity — the loser reads what the winner wrote rather
-    // than overwriting a key the other has already begun pairing with.
+
+    // Written somewhere else, then **linked** into place — and the reason is
+    // a Windows CI failure on this file's own race test.
+    //
+    // It was `writeFile(…, { flag: "wx" })`: exclusive create, so two daemons
+    // racing at first start could not each believe they had made the
+    // identity. That half was right and remains. What it does not give is an
+    // *atomic* file: `wx` creates the name and then writes the bytes, so
+    // between those two moments the other daemon reads a file that exists and
+    // is empty. On Linux the window is small enough that this passed for
+    // months; on Windows it opened wide enough to fail, with "keys.json is
+    // not valid JSON" — a message about corruption, for a file that was
+    // merely half-written.
+    //
+    // `link` makes the name appear only when the content is already complete,
+    // and fails with EEXIST if somebody won the race first. Both properties in
+    // one syscall, on every platform that has hard links.
+    // A unique name per attempt, not per process. Two daemons in one process
+    // is a test rather than a deployment, and this file's own race test is
+    // exactly that: with the pid as the suffix, both wrote the same temp,
+    // the second overwrote the first, and the daemon that won the `link`
+    // returned keys that were never the ones on disk. A worse failure than
+    // the one being fixed, and invisible anywhere but here.
+    const temp = `${this.#path}.${randomUUID()}.tmp`;
+    await writeFile(temp, JSON.stringify(keys, null, 2), { mode: 0o600 });
     try {
-      await writeFile(this.#path, JSON.stringify(keys, null, 2), {
-        mode: 0o600,
-        flag: "wx",
-      });
+      await link(temp, this.#path);
     } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === "EEXIST") {
+      const code = (error as NodeJS.ErrnoException).code;
+      if (code === "EEXIST") {
+        await rm(temp, { force: true });
+        // The winner's file, complete by construction now.
         return this.load(now);
       }
+      // A filesystem without hard links (some network and FAT mounts). Fall
+      // back to the old behaviour rather than refusing to start: a smaller
+      // race is better than no daemon, and this path is rare enough that
+      // saying so in a comment is the honest treatment.
+      if (code === "EPERM" || code === "ENOSYS" || code === "EXDEV") {
+        await rm(temp, { force: true });
+        try {
+          await writeFile(this.#path, JSON.stringify(keys, null, 2), {
+            mode: 0o600,
+            flag: "wx",
+          });
+        } catch (fallbackError) {
+          if ((fallbackError as NodeJS.ErrnoException).code === "EEXIST") {
+            return this.load(now);
+          }
+          throw fallbackError;
+        }
+        this.#keys = keys;
+        return keys;
+      }
+      await rm(temp, { force: true });
       throw error;
     }
+    await rm(temp, { force: true });
     this.#keys = keys;
     return keys;
   }

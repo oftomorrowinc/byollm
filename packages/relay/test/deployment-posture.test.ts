@@ -101,11 +101,13 @@ describe("the deployment posture audit", () => {
     expect(failed.map((result) => result.id).sort()).toEqual(
       [
         "D005_NO_DEBUG_SURFACE",
-        // The third, added with `D008`: an in-process relay has no origin
-        // address behind an edge, and the audit says so rather than passing.
-        // A posture nobody measured must not read like one that was.
-        "D008_ORIGIN_NOT_PUBLIC",
         "D007_TLS_ONLY",
+        // Added with `D008` and `D009`: an in-process relay has no origin
+        // behind an edge and serves no certificate, and the audit says so
+        // rather than passing. A posture nobody measured must not read like
+        // one that was — the same rule `D009` enforces about certificates.
+        "D008_ORIGIN_NOT_PUBLIC",
+        "D009_CERT_NAMES_THE_PINNED_HOST",
       ].sort(),
     );
 

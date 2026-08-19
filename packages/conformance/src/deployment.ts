@@ -1,3 +1,4 @@
+import { connect as tlsConnect } from "node:tls";
 import { request as httpsRequest } from "node:https";
 import { generateKeys, signRequest, signSiteRequest } from "@byollm/protocol";
 
@@ -436,6 +437,69 @@ export const POSTURE_CHECKS: readonly PostureCheck[] = Object.freeze([
       return outcome(
         status === 403,
         `the origin answered ${String(status)} to a direct request`,
+      );
+    },
+  },
+
+  {
+    id: "D009_CERT_NAMES_THE_PINNED_HOST",
+    title: "the certificate names the hostname daemons pin",
+    cites: [],
+    async run({ origin }) {
+      // cloud_008 finding 45. The load balancer held one certificate, for the
+      // *origin* hostname, and `hub.byollm.cloud` — the name every daemon
+      // pins and the edge validates — was not on it. Cloudflare cannot verify
+      // a certificate that does not name what it asked for, so the zone sat
+      // on plain Full: encrypted to the origin, not checking who the origin
+      // is, while every daemon's pinned site keys arrive through it.
+      //
+      // Nothing said so. "There is a certificate" and "there is a certificate
+      // for the name being validated" printed identically, which is why this
+      // check exists rather than a note in a runbook.
+      //
+      // Asked over TLS with the real SNI and read from the peer, so it is the
+      // certificate actually served rather than one somebody configured.
+      const host = new URL(origin).host;
+      const names = await new Promise<readonly string[] | undefined>(
+        (resolve) => {
+          const socket = tlsConnect(
+            { host, servername: host, port: 443, timeout: 15_000 },
+            () => {
+              const peer = socket.getPeerCertificate();
+              const alt = (peer.subjectaltname ?? "")
+                .split(",")
+                .map((entry) => entry.trim().replace(/^DNS:/, ""))
+                .filter((entry) => entry.length > 0);
+              socket.end();
+              const cn: unknown = peer.subject.CN;
+              resolve(
+                alt.length > 0 ? alt : [typeof cn === "string" ? cn : ""],
+              );
+            },
+          );
+          socket.on("error", () => {
+            resolve(undefined);
+          });
+          socket.on("timeout", () => {
+            socket.destroy();
+            resolve(undefined);
+          });
+        },
+      );
+
+      if (names === undefined) {
+        return outcome(false, `could not read a certificate from ${host}`);
+      }
+      const covered = names.some(
+        (name) =>
+          name === host ||
+          (name.startsWith("*.") && host.endsWith(name.slice(1))),
+      );
+      return outcome(
+        covered,
+        covered
+          ? `served a certificate naming ${host}`
+          : `the certificate names ${names.join(", ")} — not ${host}`,
       );
     },
   },

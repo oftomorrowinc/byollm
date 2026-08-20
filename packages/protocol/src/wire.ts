@@ -705,7 +705,13 @@ export const ERROR_STATUS: Readonly<Record<WireErrorCode, number>> =
 
 export const FetchRequest = z
   .object({
-    protocolVersion: z.string().min(1),
+    // `literal`, like every other request — V1-17. This one said
+    // `string().min(1)`, so a daemon speaking a version this server does not
+    // know got past the handshake on the one endpoint that hands over a
+    // sealed payload. The version check exists so that a mismatch is a named
+    // refusal rather than a schema failure three fields later; here it was
+    // neither.
+    protocolVersion: z.literal(PROTOCOL_VERSION),
     runnerId: z.string().min(1),
     jobId: z.string().min(1),
     /**

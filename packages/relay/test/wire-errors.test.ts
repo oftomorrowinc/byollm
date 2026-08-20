@@ -304,6 +304,37 @@ describe("the codes an identified caller gets — V1-13", () => {
   });
 });
 
+describe("the version a request declares — V1-17", () => {
+  it("refuses a fetch declaring a version this relay does not speak", async () => {
+    // `FetchRequest.protocolVersion` was `string().min(1)` where every other
+    // request is a literal, so the one endpoint that hands over a **sealed
+    // payload** accepted any version string at all. It is a literal now, and
+    // the refusal is `bad-request` because the relay checks versions through
+    // its schemas rather than through a handshake.
+    //
+    // Which is the larger finding this one uncovered, and it is written into
+    // the spec rather than patched at 4am: `@byollm/server` runs
+    // `checkProtocolVersion` before anything else — a named refusal that says
+    // what it speaks and how to upgrade — and the relay never has. Two
+    // upstreams, one wire, and only one of them answers "which version?"
+    // usefully. Deliberately left for a morning: it is a serving-path change
+    // on every endpoint, and the first attempt refused every site request in
+    // the suite because site-plane bodies do not all carry the field.
+    const { relay, connector, daemon } = await relayWithDaemon();
+    void relay;
+    const { jobId } = await connector.enqueue({
+      prompt: "for a daemon from the future",
+      owner: "alice",
+    });
+    const response = await daemon.signedFetch("fetch", {
+      protocolVersion: "99",
+      jobId,
+      leaseId: "whatever",
+    });
+    expect(await refusal(response)).toBe("bad-request");
+  });
+});
+
 describe("the enumeration itself", () => {
   it("gives every code a status", () => {
     // A code with no status is a code the relay cannot serve. Compared as

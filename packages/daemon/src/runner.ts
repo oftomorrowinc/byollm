@@ -661,10 +661,6 @@ export class Runner {
       })),
       paused: this.#paused,
     });
-    this.#options.onEvent?.({
-      type: "heartbeat",
-      capabilities: capabilities.length,
-    });
 
     // The site set, applied — cloud_008 finding 59.
     //
@@ -680,6 +676,16 @@ export class Runner {
     // exists to refuse. Amendment A.3.1's rotation is an explicit path, not
     // a silent swap.
     this.#applySites(heartbeat.sites);
+
+    // Announced *after* the set is applied — V1-17. The CLI persists
+    // `runner.sites` when it sees this event, so firing it first wrote the
+    // previous heartbeat's set to disk: every change reached the file one
+    // beat late, and the last change before a shutdown never reached it at
+    // all.
+    this.#options.onEvent?.({
+      type: "heartbeat",
+      capabilities: capabilities.length,
+    });
 
     // Nothing will be offered for these, and the reason is not a fault —
     // finding 48. Said once per transition rather than every few seconds: a

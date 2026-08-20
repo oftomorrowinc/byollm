@@ -203,11 +203,14 @@ export class SitePlane {
     // routing rather than by anything the device did.
     // Registered, rather than "the one site this relay was configured with"
     // — cloud_009 §3. Every registered site is routable now; what a relay
-    // refuses is a caller naming a site its projection does not hold, which
-    // is the same refusal for a different reason and the honest one.
-    if (this.#deps.projection.siteFor(siteId) === null) {
-      return fail(403, "forbidden", "this relay does not route for you");
-    }
+    // refuses is a caller naming a site its projection does not hold.
+    //
+    // Which is checked **above**, where the signature is resolved: a site the
+    // projection does not hold has no key to verify against and is refused
+    // 401 before reaching here. The second check that used to stand at this
+    // line was dead — V1-17 — and dead guards are worse than absent ones:
+    // they read as the enforcement, so the day somebody moves the real check
+    // they leave this one behind and nothing looks different.
     return run(parsed.data, siteId);
   }
 

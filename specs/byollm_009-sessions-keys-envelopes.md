@@ -893,3 +893,25 @@ says so". If consent carried a signature by a key the user holds, the
 daemon could check it and the local ceremony could be dropped rather
 than merely justified. That is a design, not a patch, and it belongs
 with rotation (A.3.1) in the work before 1.0.
+
+## B.4 One upstream answers "which version?", the other does not
+
+Found while closing V1-17. `FetchRequest.protocolVersion` was
+`z.string().min(1)` where every other request is `z.literal` — on the
+one endpoint that hands over a sealed payload. That is fixed.
+
+The larger half is not. `@byollm/server` runs `checkProtocolVersion`
+before anything else, and its own comment says why: a mismatch must
+name the disagreement and the fix rather than surface as a generic
+`bad-request` from a schema literal buried in an endpoint — "the
+connection is versionless" was listed as a defect and closed there. The
+**relay has never run it.** Every version mismatch on every relay
+endpoint is a 400 `bad-request` that says nothing about versions.
+
+So the wire has two upstreams and one of them answers the question
+usefully. Not patched at 4 a.m.: it is a serving-path change on every
+endpoint, and the first attempt refused every site request in the suite
+because the site plane's bodies do not all carry the field — which is
+its own finding about what "version before anything else" means when
+two planes have different request shapes. Morning work, with the site
+plane's schemas in hand.

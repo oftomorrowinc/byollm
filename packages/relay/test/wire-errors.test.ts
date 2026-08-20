@@ -203,6 +203,107 @@ describe("an identified caller refused", () => {
   });
 });
 
+describe("the codes an identified caller gets — V1-13", () => {
+  /**
+   * Five refusals served 403 with `unauthorized`, whose table entry is 401.
+   *
+   * The distinction is not cosmetic: `unauthorized` means "we do not know who
+   * you are" and every one of these is a caller we know exactly, being told
+   * no. A daemon branching on the code cannot tell a bad signature from a
+   * refused request, and "check your keys" is the wrong advice for both, in
+   * opposite directions. Ruled `forbidden` — and nothing provoked any of them
+   * until this block, which is why the drift survived the ruling.
+   */
+
+  it("says nothing about a job another runner holds", async () => {
+    const { relay, connector, daemon } = await relayWithDaemon();
+    const { jobId } = await connector.enqueue({
+      prompt: "held by somebody else",
+      owner: "alice",
+    });
+    await relay.state.claim({
+      runnerId: "somebody_else",
+      owner: "alice",
+      device: publicIdentityOf(generateKeys(Date.now())),
+      kinds: new Set(["llm.generate"]),
+      routes: relay.projection.routesFor("alice"),
+      max: 1,
+      leaseMs: 60_000,
+    });
+
+    const response = await daemon.signedFetch("fetch", {
+      jobId,
+      leaseId: "a-lease-this-daemon-never-had",
+    });
+    // `not-found`, not `forbidden` — V1-8. This daemon holds nothing by that
+    // id, and the previous answer told it that *somebody* did, which is a fact
+    // about another tenant delivered by a status code.
+    expect(await refusal(response)).toBe("not-found");
+  });
+
+  it("refuses a stale grant as forbidden rather than as unauthorized", async () => {
+    const { relay, connector, daemon } = await relayWithDaemon();
+    const { jobId } = await connector.enqueue({
+      prompt: "mine, then not",
+      owner: "alice",
+    });
+    const [granted] = await relay.state.claim({
+      runnerId: daemon.runnerId,
+      owner: "alice",
+      device: publicIdentityOf(daemon.keys),
+      kinds: new Set(["llm.generate"]),
+      routes: relay.projection.routesFor("alice"),
+      max: 1,
+      leaseMs: 60_000,
+    });
+    expect(granted?.id).toBe(jobId);
+
+    // The same daemon, naming a grant that is not the current one: it holds
+    // the job, so this is `stale-lease` rather than `not-holder`.
+    const response = await daemon.signedFetch("fetch", {
+      jobId,
+      leaseId: "an-older-grant",
+    });
+    expect(await refusal(response)).toBe("forbidden");
+    expect(response.status).toBe(403);
+  });
+
+  it("refuses a claim whose body names another runner", async () => {
+    const { daemon } = await relayWithDaemon();
+    // The signature verifies — we know precisely who this is — and the body
+    // names somebody else. 401 said the opposite of what had just happened.
+    const response = await daemon.signedFetch("claim", {
+      runnerId: "some_other_runner",
+      capabilities: [],
+      max: 1,
+    });
+    expect(await refusal(response)).toBe("forbidden");
+    expect(response.status).toBe(403);
+  });
+
+  it("refuses a device nobody approved", async () => {
+    const siteKeys = generateKeys(Date.now());
+    const site = publicIdentityOf(siteKeys);
+    // Consent exists, so this is not `CONSENT_BEFORE_ROUTE` refusing — it is
+    // the device check, which is the one under test.
+    const relay = new Relay({ fixture: fixtureFor(site, { devices: [] }) });
+
+    const response = await relay.handle(
+      new Request("http://relay.test/byollm/pair", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          protocolVersion: "0",
+          owner: "alice",
+          device: publicIdentityOf(generateKeys(Date.now())),
+        }),
+      }),
+    );
+    expect(await refusal(response)).toBe("forbidden");
+    expect(response.status).toBe(403);
+  });
+});
+
 describe("the enumeration itself", () => {
   it("gives every code a status", () => {
     // A code with no status is a code the relay cannot serve. Compared as

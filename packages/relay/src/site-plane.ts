@@ -235,7 +235,9 @@ export class SitePlane {
         ) {
           return fail(
             403,
-            "unauthorized",
+            // V1-13, and one of the five the ruling itself named: an
+            // identified site claiming another site's stub is `forbidden`.
+            "forbidden",
             "that stub does not name the site that signed it",
           );
         }

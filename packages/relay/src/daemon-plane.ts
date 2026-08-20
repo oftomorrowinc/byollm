@@ -57,16 +57,22 @@ const REFUSALS: Record<HolderRefusal, PlaneResult> = {
     status: 404,
     body: { error: "not-found", message: "unknown job" },
   },
+  // `forbidden`, not `unauthorized` — V1-13. Both of these are an
+  // *identified* caller being refused, which is what 403 means and what the
+  // table says `forbidden` is for; `unauthorized` is 401 and means "we do not
+  // know who you are". Served as 403 with a 401's code, a revoked daemon and
+  // an unsigned one looked alike in every log and every client branch, and
+  // "check your keys" is the wrong advice for both in opposite directions.
   "not-holder": {
     status: 403,
     body: {
-      error: "unauthorized",
+      error: "forbidden",
       message: "this runner does not hold the job",
     },
   },
   "stale-lease": {
     status: 403,
-    body: { error: "unauthorized", message: "that lease is no longer current" },
+    body: { error: "forbidden", message: "that lease is no longer current" },
   },
   "not-ready": {
     status: 409,
@@ -161,7 +167,7 @@ export class DaemonPlane {
     if (!approved) {
       return fail(
         403,
-        "unauthorized",
+        "forbidden",
         "this device has not been approved by its owner",
       );
     }
@@ -298,7 +304,12 @@ export class DaemonPlane {
   ): Promise<PlaneResult> {
     return this.#authed(auth, body, ClaimRequest, async (request, device) => {
       if (request.runnerId !== device.runnerId) {
-        return fail(401, "unauthorized", "runner id does not match the key");
+        // The signature verified, so we know exactly who this is; the body
+        // names somebody else. 403 with `forbidden` — V1-13. The site plane
+        // has always answered its own version of this 403, and one wire
+        // answering two ways is a difference a daemon cannot see the reason
+        // for.
+        return fail(403, "forbidden", "runner id does not match the key");
       }
       // One store call. The decision and its write are the store's, because a
       // caller that reads, filters and writes back cannot be made atomic once

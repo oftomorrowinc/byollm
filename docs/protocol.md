@@ -64,8 +64,10 @@ that accepts one is not implementing this protocol.
 | `bad-request` | 400 | malformed or schema-invalid |
 | `unsupported-protocol-version` | 400 | version not spoken here |
 | `unauthorized` | 401 | missing/invalid runner token |
+| `forbidden` | 403 | we know who you are, and the answer is no |
 | `revoked` | 403 | this runner has been revoked |
 | `not-found` | 404 | unknown job or runner |
+| `too-late` | 409 | the job is over; stop rather than retry |
 | `rate-limited` | 429 | back off; honour `Retry-After` |
 | `server-error` | 500 | transient; back off |
 

@@ -584,3 +584,47 @@ is about the outcome and not about the MUST — and it will keep passing through
 the regression it was written to catch. Finding 42 in cloud_008 names the same
 shape in the conformance kit (`C004`/`C001` counting MUSTs they never exercise);
 this is the same audit applied one layer down.
+
+## An assertion that renders blank rather than red (2026-08-21)
+
+`web_002 §2` added a per-tier domain allowance where **null means unlimited**.
+The test asserted it the obvious way:
+
+```sql
+select 'team does not lift the domain limit',
+       public.dashboard_apex_allowance(team_group) = 1, …
+```
+
+Then a mutation made every tier unlimited. The allowance came back `null`,
+`null = 1` is `null`, and the report printed:
+
+```
+ team does not lift the domain limit        |    | allowance unlimited
+```
+
+An empty cell. The runner counted it as a failure — `row.ok !== true` — so
+the suite did go red, and that is the only reason anybody noticed. In a report
+somebody skims, a blank sits between the ticks and reads as nothing at all.
+
+**The rule: an assertion whose subject can be null must be written null-safe.**
+`is not distinct from` rather than `=`. Three-valued logic turns a failing
+check into an _absent_ one, and absence is the thing this file exists to
+catch — it just usually arrives as a missing test rather than a colourless
+one.
+
+The neighbouring bug is worth recording with it, because they are the same
+shape one layer apart. The allowance function itself read:
+
+```sql
+coalesce(entitled_allowance, free_allowance)
+```
+
+`null` means unlimited _and_ it means "no rows", so `coalesce` read a paying
+group as a free one and Pro fell through to the Free limit. Four existing
+fixtures failed with the Free refusal while holding `cloud.pro` — a check
+catching a bug in the thing it checks, which is the happiest way for this to
+go. Three explicit branches replaced it.
+
+**Both are the same question:** what does this value mean when it is absent?
+Answer it in the code and in the assertion, or the two will disagree exactly
+once, in the direction of looking fine.

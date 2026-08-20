@@ -6,7 +6,7 @@ import { generateKeys, publicIdentityOf } from "@byollm/protocol";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { normalizeOrigin } from "./allowlist.js";
 import { composePrompt } from "./compose.js";
-import { main, runCli, type CliIo } from "./cli.js";
+import { DEFAULT_ORIGIN, main, runCli, type CliIo } from "./cli.js";
 import { daemonPaths, type DaemonPaths } from "./paths.js";
 import { Pairings } from "./pairings.js";
 import { removeTemp } from "./test-support.js";
@@ -18,10 +18,14 @@ const SITE = publicIdentityOf(generateKeys(1_800_000_000_000));
 let home: string;
 let paths: DaemonPaths;
 let err: string;
+// `out` was discarded when this file only asserted failure paths. `byollm
+// name` answers on stdout, so it is captured now — a helper that throws
+// away half the output is a helper that quietly limits what can be tested.
+let out: string;
 
 const io = (): Partial<CliIo> => ({
-  out: () => {
-    // This file asserts the failure paths, which all report on stderr.
+  out: (text) => {
+    out += text;
   },
   err: (text) => {
     err += text;
@@ -33,6 +37,7 @@ beforeEach(async () => {
   home = await mkdtemp(join(tmpdir(), "byollm-clipaths-"));
   paths = daemonPaths(home);
   err = "";
+  out = "";
 });
 
 afterEach(async () => {
@@ -60,8 +65,28 @@ describe("byollm connect — when it cannot", () => {
     expect(err).toContain("byollm backends");
   });
 
-  it("requires a url", async () => {
-    expect(await runCli(["connect"], { paths, io: io() })).toBe(2);
+  it("goes to the reference hub when nobody says otherwise", async () => {
+    // It used to refuse without a URL. Every user would have pasted the same
+    // string, from a page they had not opened yet — so the daemon knows it.
+    //
+    // A *default*, not a lock: `connect <url>` still goes where it is
+    // pointed, which is what keeps the protocol something other people can
+    // host. The assertion is on the URL it reaches for, not on reaching it:
+    // there is no hub in a unit test, and the failure to connect is the
+    // proof it tried.
+    // Asserted as "it accepted no argument" plus the constant itself, because
+    // this path cannot show more: `connect` detects backends *before* it says
+    // where it is going, and a unit test has none — so the run ends at "no
+    // backend is reachable" without ever naming an origin. Asserting the
+    // message it does print would be asserting the backend check.
+    const code = await runCli(["connect"], { paths, io: io() });
+    expect(code).not.toBe(2);
+    expect(err).not.toContain("usage:");
+    expect(DEFAULT_ORIGIN).toBe("https://hub.byollm.cloud");
+  });
+
+  it("still refuses a --name with nothing after it", async () => {
+    expect(await runCli(["connect", "--name"], { paths, io: io() })).toBe(2);
     expect(err).toContain("usage:");
   });
 
@@ -142,5 +167,33 @@ describe("small edges elsewhere", () => {
     const pairings = new Pairings(paths.pairings);
     await pairings.load();
     expect(pairings.list()).toEqual([]);
+  });
+});
+
+describe("what this machine calls itself", () => {
+  it("defaults to the hostname, and remembers a name it is given", async () => {
+    // The name is shown on the approval screen — the one moment somebody is
+    // deciding whether to trust this machine, and the one moment "which of my
+    // three laptops is this" has consequences. A hostname answers it badly.
+    expect(await runCli(["name"], { paths, io: io() })).toBe(0);
+    expect(out.trim().length).toBeGreaterThan(0);
+
+    expect(await runCli(["name", "studio"], { paths, io: io() })).toBe(0);
+    // It says what it will *not* do, because a rename that silently rewrote
+    // every app's record of a past decision would be this daemon editing
+    // somebody else's memory.
+    expect(out).toContain("keeps the name it introduced");
+
+    await runCli(["name"], { paths, io: io() });
+    expect(out.trim().endsWith("studio")).toBe(true);
+  });
+
+  it("truncates rather than refusing a long name", async () => {
+    // The wire caps a label at 120. Refusing at 121 would be a validation
+    // error about a field nobody knows exists; truncating is what the
+    // hostname path already does.
+    await runCli(["name", "x".repeat(200)], { paths, io: io() });
+    await runCli(["name"], { paths, io: io() });
+    expect(out.trim().split("\n").pop()).toHaveLength(120);
   });
 });

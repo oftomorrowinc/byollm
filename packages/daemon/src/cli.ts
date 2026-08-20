@@ -19,7 +19,8 @@ import { DAEMON_VERSION, formatVersion } from "./index.js";
 
 const USAGE = `byollm — run an app's LLM jobs on your own models.
 
-  byollm connect <url>        pair with an app and start running its jobs
+  byollm connect [<url>]      pair with an app and start running its jobs
+  byollm name [<name>]        what this machine calls itself when it pairs
   byollm run [url]            run jobs for a paired app (or all of them)
   byollm status               what is connected, what is running, what it cost
   byollm log [--full] [-n N]  every prompt that has run on this machine
@@ -94,6 +95,8 @@ export async function runCli(
       return 0;
     case "connect":
       return commandConnect(paths, rest, io, signal);
+    case "name":
+      return commandName(paths, rest, io);
     case "run":
       return commandRun(paths, rest, io, signal);
     case "status":
@@ -120,7 +123,78 @@ export async function runCli(
   }
 }
 
+// -- name ---------------------------------------------------------------------
+
+/**
+ * Read or set what this machine calls itself.
+ *
+ * The name is shown on the approval screen — the one moment somebody is
+ * deciding whether to trust this machine, and the one moment "which of my
+ * three laptops is this" is a question with consequences. A hostname answers
+ * it badly and a person answers it well.
+ *
+ * It changes nothing already paired. A name is what a machine *offered* when
+ * it asked, and rewriting an app's record of that afterwards would be this
+ * daemon editing somebody else's memory of a decision they made.
+ */
+async function commandName(
+  paths: DaemonPaths,
+  args: readonly string[],
+  io: CliIo,
+): Promise<ExitCode> {
+  const next = args[0];
+  if (next === undefined) {
+    io.out(`${await labelFor(paths, undefined)}\n`);
+    return 0;
+  }
+
+  await mkdir(dirname(paths.label), { recursive: true });
+  await writeFile(paths.label, `${next.slice(0, 120)}\n`, { mode: 0o600 });
+  io.out(
+    `This machine will pair as ${next.slice(0, 120)}.\n` +
+      "Anything already paired keeps the name it introduced itself with.\n",
+  );
+  return 0;
+}
+
 // -- connect -----------------------------------------------------------------
+
+/**
+ * Where `byollm connect` goes when nobody says — cloud_010's overnight brief.
+ *
+ * The reference hub, named once. A daemon that made somebody paste a URL
+ * before it would do anything is a daemon whose first minute is a
+ * copy-and-paste from a page they have not opened yet — and every one of them
+ * would paste the same string.
+ *
+ * It is a default and not a lock: `byollm connect <url>` still goes wherever
+ * it is pointed, which is what keeps the protocol something other people can
+ * host. Stated here rather than fetched, because a default that arrives over
+ * the network is a default somebody else can move.
+ */
+export const DEFAULT_ORIGIN = "https://hub.byollm.cloud";
+
+/**
+ * What this machine calls itself, in the order the answers were given.
+ *
+ * A flag beats a saved name beats the environment beats the hostname. Every
+ * layer is somebody being more specific than the last, and the hostname is
+ * what a machine says when nobody has said anything — `todd@Todds-Mac-Studio`
+ * is a fine answer and a poor label on an approval screen with three of them.
+ */
+async function labelFor(
+  paths: DaemonPaths,
+  flag: string | undefined,
+): Promise<string> {
+  if (flag !== undefined && flag !== "") return flag.slice(0, 120);
+  try {
+    const saved = (await readFile(paths.label, "utf8")).trim();
+    if (saved !== "") return saved.slice(0, 120);
+  } catch {
+    // No saved name is the ordinary case, not a problem to report.
+  }
+  return hostLabel();
+}
 
 async function commandConnect(
   paths: DaemonPaths,
@@ -128,12 +202,27 @@ async function commandConnect(
   io: CliIo,
   signal?: AbortSignal,
 ): Promise<ExitCode> {
-  const target = args[0];
-  if (target === undefined) {
-    io.err("usage: byollm connect <url>\n");
+  // `--name` may appear before or after the URL: somebody typing this for the
+  // first time should not have to learn an argument order.
+  const named = args.indexOf("--name");
+  const name = named === -1 ? undefined : args[named + 1];
+  if (named !== -1 && (name === undefined || name.startsWith("-"))) {
+    io.err("usage: byollm connect [<url>] [--name <name>]\n");
     return 2;
   }
+  // Guarded on `named !== -1`, and the guard is the whole of this comment.
+  // Without it `named + 1` is `0` when there is no `--name`, so the *URL* is
+  // filtered out and every `connect <url>` quietly goes to the default
+  // instead. The integration test — the only one that runs the real binary —
+  // is what caught it, by connecting to the hub when it had been told
+  // otherwise.
+  const positional = args.filter(
+    (arg, at) =>
+      !arg.startsWith("-") &&
+      (named === -1 || (at !== named && at !== named + 1)),
+  );
 
+  const target = positional[0] ?? DEFAULT_ORIGIN;
   const origin = normalizeOrigin(target);
   const { loaded, ingress, allowlist, budgets, spend } = await context(paths);
 
@@ -170,7 +259,7 @@ async function commandConnect(
   const result = await connect({
     client,
     daemonVersion: DAEMON_VERSION,
-    label: hostLabel(),
+    label: await labelFor(paths, name),
     capabilities,
     device: await new DeviceIdentity(paths.keys).publicIdentity(Date.now()),
     onCode: (info) => {

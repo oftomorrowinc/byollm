@@ -31,6 +31,16 @@ export interface DaemonPaths {
   /** Set while the owner has the daemon paused. */
   readonly pauseFlag: string;
   /**
+   * What this machine calls itself when it pairs.
+   *
+   * Its own file rather than a field in `config.json`, because that file is
+   * routing and backends — the things somebody edits when work is going
+   * wrong — and a name is neither. A one-line file is also a thing a person
+   * can `cat` when they are wondering why an approval screen said
+   * `todd@Todds-Mac-Studio`.
+   */
+  readonly label: string;
+  /**
    * Per-job scratch directories. A process-class backend runs with its `cwd`
    * set to an empty one of these and nothing else (byollm_004 §2).
    */
@@ -49,6 +59,7 @@ export function daemonPaths(root = defaultRoot()): DaemonPaths {
     spend: join(root, "spend.json"),
     keys: join(root, "keys.json"),
     pauseFlag: join(root, "paused"),
+    label: join(root, "label"),
     scratch: join(root, "scratch"),
   };
 }

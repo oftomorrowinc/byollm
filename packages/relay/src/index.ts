@@ -309,9 +309,20 @@ export { routeKey } from "./state.js";
  * It happened again with `ReleaseReason` (cloud_008 §2.1), added to
  * `releaseLeases` and not to this list, and found the same way: the hub
  * failed to compile. A docstring recording a lesson is not a check, which is
- * why `store-contract.test-d.ts` now implements `RoutingStore` from the
- * package entry point alone — a parameter type left private fails to build
- * rather than waiting for the next consumer to notice.
+ * why `store-contract.test-d.ts` implements `RoutingStore` from the package
+ * entry point alone.
+ *
+ * **And a third time, with `Grant` (V1-3) — through the check.** Declaring a
+ * `RoutingStore` only requires `RoutingStore` to be exported; a *return* type
+ * is reachable structurally without being nameable, so the check caught
+ * nothing and the hub caught it a release later. The restated signatures
+ * below the declaration are the part that bites, and they were a list
+ * somebody had to remember to extend.
+ *
+ * A list of signatures is the same shape as this list of exports: correct
+ * until the next member. `store-contract.test-d.ts` now restates every method
+ * whose parameters or results are named types, `renewLeases` and
+ * `cancelRequests` included.
  */
 export type {
   ClaimInput,
@@ -321,3 +332,6 @@ export type {
   RoutedJob,
   RoutedState,
 } from "./state.js";
+
+/** The grant a lease-scoped answer names — V1-3. */
+export type { Grant } from "./store.js";

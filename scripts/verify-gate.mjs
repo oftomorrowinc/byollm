@@ -34,6 +34,72 @@
 import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 
+/**
+ * A `v*` tag has to be publishable *here* — 2026-08-20.
+ *
+ * `v0.1.0-alpha.28` was created and pushed in a repository with no release
+ * workflow. Nothing ran, nothing published, and nothing said why: the tag was
+ * correct, in a repository that does not publish. This is the thing that
+ * looks.
+ *
+ * Two questions, in the order that would have caught that morning:
+ *
+ *   1. Does this repository publish at all? No `release.yml`, no `v*` tags.
+ *   2. If it does, does the tag name the version `packages/` carries?
+ *      `release.yml` asks this server-side; asking here turns a failed
+ *      workflow run into a message before the push.
+ *
+ * The twin of this function lives in the other repository's `verify-gate.mjs`
+ * and is deliberately identical — one of them refuses every `v*` tag and the
+ * other refuses a mismatched one, and which it does is decided by what is on
+ * disk rather than by the copy being different.
+ */
+function refuseUnpublishableTags() {
+  // The refs being pushed arrive on stdin as
+  // `<local ref> <local sha> <remote ref> <remote sha>` lines. Absent when a
+  // person runs this by hand, which must not hang.
+  let input = "";
+  try {
+    if (!process.stdin.isTTY) input = readFileSync(0, "utf8");
+  } catch {
+    return;
+  }
+
+  const tags = input
+    .split("\n")
+    .map((line) => line.split(" ")[0] ?? "")
+    .filter((ref) => ref.startsWith("refs/tags/v"))
+    .map((ref) => ref.slice("refs/tags/".length));
+  if (tags.length === 0) return;
+
+  if (!existsSync(".github/workflows/release.yml")) {
+    process.stderr.write(
+      `\n  refusing to push ${tags.join(", ")}: this repository has no\n` +
+        "  .github/workflows/release.yml, so a v* tag here publishes nothing.\n" +
+        "  You are probably in the wrong repository — the one that publishes\n" +
+        "  is the one with packages/ in it.\n\n",
+    );
+    process.exit(1);
+  }
+
+  if (!existsSync("packages/protocol/package.json")) return;
+  const version = JSON.parse(
+    readFileSync("packages/protocol/package.json", "utf8"),
+  ).version;
+  for (const tag of tags) {
+    if (tag !== `v${version}`) {
+      process.stderr.write(
+        `\n  refusing to push ${tag}: the packages here are ${version}.\n` +
+          "  A tag that disagrees with the version publishes nothing and\n" +
+          "  fails the workflow. `./scripts/tag.sh` makes the matching one.\n\n",
+      );
+      process.exit(1);
+    }
+  }
+}
+
+refuseUnpublishableTags();
+
 const head = execFileSync("git", ["rev-parse", "HEAD"], {
   encoding: "utf8",
 }).trim();

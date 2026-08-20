@@ -84,10 +84,31 @@ pnpm run verify
 
 # 3. Commit, push, and let CI go green.
 
-# 4. Tag it. The tag must match the version, with a leading `v`.
-git tag v0.1.0-alpha.4
+# 4. Tag it. `tag.sh` refuses to make one this repository cannot publish,
+#    and one that disagrees with packages/ — see below.
+./scripts/tag.sh
 git push origin v0.1.0-alpha.4
 ```
+
+### Why `tag.sh` rather than `git tag`
+
+On 2026-08-20 the tag for `alpha.28` was created and pushed in
+**`byollm-cloud`** — a repository with no release workflow. It sat there
+inertly while everybody waited for npm. Nothing was wrong with the tag; it was
+in a repository that does not publish, and nothing looked.
+
+So `tag.sh` asks two questions: does this repository have
+`.github/workflows/release.yml` at all, and does the tag name the version every
+`packages/*/package.json` carries. The second already exists server-side in the
+workflow; having it here turns a failed run into a message before the push.
+
+It does **not** push. npm versions are immutable, so the irreversible step
+stays something a person types.
+
+The pre-push gate refuses the same two things, in this repository and in
+`byollm-cloud` — because the mistake is made in the repository you are standing
+in, and that is usually the one that cannot publish. `byollm-cloud-web` has no
+hook installer yet; a stray tag there is still only inert.
 
 The tag push triggers the workflow. It re-runs the full gate — `verify`, the
 adversarial corpus, and conformance — before publishing anything, because a

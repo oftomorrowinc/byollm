@@ -1,6 +1,7 @@
 import type { ClaimedStub, SealedEnvelope } from "@byollm/protocol";
 import type {
   ClaimInput,
+  Grant,
   HolderRefusal,
   Presence,
   ReleaseReason,
@@ -20,6 +21,14 @@ import type {
  *
  * An exported interface whose parameter types are private is a contract
  * nobody can sign. This is that sentence as a check.
+ *
+ * **It missed the third one, and the reason is worth keeping.** `Grant`
+ * (V1-3) is a *result* type, and `declare const _contract: RoutingStore`
+ * requires only `RoutingStore` itself to be nameable — everything reachable
+ * through it is structural. What actually bites is the restated signatures
+ * below, and `renewLeases` and `cancelRequests` had none, so the hub
+ * discovered it a release later. Every method whose parameters *or results*
+ * are named types is restated now.
  *
  * Deliberately written the way a third party would write it: relay types from
  * the relay's entry point, protocol types from `@byollm/protocol`, none from
@@ -49,10 +58,21 @@ declare const _seen: (
   presence: Omit<Presence, "lastSeenAt">,
 ) => Promise<Presence>;
 declare const _sweep: () => Promise<RoutedJob[]>;
+declare const _renew: (input: {
+  runnerId: string;
+  leases: readonly { jobId: string; leaseId: string }[];
+  leaseMs: number;
+}) => Promise<{
+  renewed: readonly { jobId: string; expiresAt: number }[];
+  lost: readonly Grant[];
+}>;
+declare const _cancelRequests: (runnerId: string) => Promise<Grant[]>;
 
 export type Contract = typeof _contract &
   typeof _claim &
   typeof _release &
   typeof _complete &
   typeof _seen &
-  typeof _sweep;
+  typeof _sweep &
+  typeof _renew &
+  typeof _cancelRequests;

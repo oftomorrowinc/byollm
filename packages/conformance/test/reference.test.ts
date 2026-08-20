@@ -5,7 +5,7 @@ import {
   miscoveredMusts,
   uncoveredMusts,
 } from "../src/index.js";
-import { MUSTS, MUST_IDS } from "@byollm/protocol";
+import { MUSTS, MUST_IDS, kindsOf } from "@byollm/protocol";
 import { referenceTarget } from "./reference-target.js";
 
 /**
@@ -45,10 +45,14 @@ describe("the kit is honest about its own coverage", () => {
     expect(miscoveredMusts()).toEqual([]);
   });
 
-  it("gives every MUST a verification kind", () => {
+  it("gives every MUST at least one verification kind, and only real ones", () => {
     const KINDS = ["conformance", "adversarial", "construction", "operator"];
     for (const id of MUST_IDS) {
-      expect(KINDS, id).toContain(MUSTS[id].verifiedBy);
+      const kinds = kindsOf(MUSTS[id]);
+      // At least one, because an empty list would pass a `every` check while
+      // claiming nothing — the vacuity this file exists to refuse.
+      expect(kinds.length, id).toBeGreaterThan(0);
+      for (const kind of kinds) expect(KINDS, id).toContain(kind);
     }
   });
 

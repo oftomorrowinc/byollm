@@ -183,7 +183,7 @@ function rotated(keys: StoredKeys, encryption: string): PublicIdentity {
 }
 
 describe("a site the upstream adds", () => {
-  it("is offered, never pinned, and runs nothing until somebody says yes", async () => {
+  it("is offered, never pinned, and runs nothing until somebody says yes [SITES_LOCALLY_APPROVED]", async () => {
     // The attack, exactly as the review wrote it: the relay generates a
     // keypair and announces it as a site. Everything downstream would then
     // check out — the stub names a site in the map, the payload is sealed by
@@ -256,7 +256,7 @@ describe("a site the upstream adds", () => {
 });
 
 describe("an id that was approved once", () => {
-  it("cannot come back under a different key by leaving the set first", async () => {
+  it("cannot come back under a different key by leaving the set first [SITES_LOCALLY_APPROVED]", async () => {
     // The bypass the review found: heartbeat N drops the id, which used to
     // delete the pin, and heartbeat N+1 re-adds it with a key of the
     // upstream's choosing. With the pin gone the comparison had nothing to

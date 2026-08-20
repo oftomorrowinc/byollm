@@ -55,6 +55,32 @@ export type MustEnforcer = "daemon" | "server" | "both";
 export type MustVerification =
   "conformance" | "adversarial" | "construction" | "operator";
 
+/**
+ * How a MUST is verified — one kind, or several.
+ *
+ * Several is not hedging. `SITES_LOCALLY_APPROVED` is the case that forced it:
+ * the fence is **construction** — a daemon cannot serve a site that is not in
+ * its map, and admission refuses before a payload is fetched — while the
+ * property that a *removed and re-offered* id is still refused needs a hostile
+ * sequence of heartbeats no honest client would send, which is
+ * **adversarial**. Recording one and dropping the other would either overstate
+ * what a type check proves or understate what the suites do.
+ *
+ * The alternative was a second field for the second kind, which is two answers
+ * to one question — the shape this project keeps deleting.
+ */
+export type MustVerifiedBy =
+  MustVerification | readonly [MustVerification, ...MustVerification[]];
+
+/** The kinds a MUST claims, always as a list. */
+export function kindsOf(must: {
+  readonly verifiedBy: MustVerifiedBy;
+}): readonly MustVerification[] {
+  return typeof must.verifiedBy === "string"
+    ? [must.verifiedBy]
+    : must.verifiedBy;
+}
+
 /** A single normative requirement of the protocol. */
 export interface Must {
   /** Stable public id, cited by conformance output. */
@@ -67,7 +93,7 @@ export interface Must {
    * How this is verified. `conformance` is the only kind the kit can assert;
    * see {@link MustVerification} for why the others exist.
    */
-  readonly verifiedBy: MustVerification;
+  readonly verifiedBy: MustVerifiedBy;
   /** Spec section this was adjudicated in. */
   readonly source: string;
 }
@@ -138,6 +164,30 @@ export const MUSTS = Object.freeze({
     // envelope, which no conformance client would ever send.
     verifiedBy: "adversarial",
     source: "byollm_009 §A.3",
+  }),
+  SITES_LOCALLY_APPROVED: must({
+    id: "SITES_LOCALLY_APPROVED",
+    statement:
+      "A daemon MUST NOT run work for a site it has not approved on the " +
+      "machine itself. An upstream may propose a site set; a site the daemon " +
+      "has never approved MUST be offered to its owner and served nothing " +
+      "until they approve it. A key that has changed for an already-approved " +
+      "id MUST be refused for the life of the pairing, including after that " +
+      "id has left the set and returned.",
+    enforcedBy: "daemon",
+    // Two kinds, and the second is the one that matters — V1-1.
+    //
+    // `construction`: the daemon cannot serve a site that is not in its
+    // pinned map, and admission refuses before a payload is fetched, so the
+    // ordinary path cannot reach a site nobody approved.
+    //
+    // `adversarial`: the property that survives is about a *sequence* —
+    // remove the id, re-offer it under a different key — which no honest
+    // upstream sends and which the fence above does not see. That was the
+    // bypass: the pin was deleted with the id, so the comparison had nothing
+    // to compare against and the substitution arrived as a stranger.
+    verifiedBy: ["construction", "adversarial"],
+    source: "byollm_009 §B.2",
   }),
   KEYS_EXCHANGED_AT_CONSENT: must({
     id: "KEYS_EXCHANGED_AT_CONSENT",
@@ -604,5 +654,5 @@ export const MUST_IDS = Object.freeze(Object.keys(MUSTS) as MustId[]);
 
 /** Every MUST verified a particular way. */
 export function mustsVerifiedBy(kind: MustVerification): MustId[] {
-  return MUST_IDS.filter((id) => MUSTS[id].verifiedBy === kind);
+  return MUST_IDS.filter((id) => kindsOf(MUSTS[id]).includes(kind));
 }

@@ -523,13 +523,34 @@ labelled rather than implied.
 | `STUB_METADATA_EXHAUSTIVE` | A stub MUST carry exactly the enumerated fields. An endpoint MUST NOT emit a stub carrying others, and an upstream MUST reject one that does. | conformance |
 | `PROVENANCE_NAMES_DEVICE` | A result MUST carry the claiming device key id and its relationship to the requester. | conformance |
 | `ROSTER_NOT_DISCLOSED` | A site MUST NOT learn the membership of a group whose compute it uses. | conformance |
-| `FALLBACK_LABELED` | Work served by anything other than the user's own compute MUST be labelled as such wherever it is reported, and MUST NOT be silently substituted. | conformance |
+| `FALLBACK_LABELED` | Work served by anything other than the user's own compute MUST be labelled as such wherever it is reported, and MUST NOT be silently substituted. | **construction** |
 | `RELAY_BLIND` | A relay MUST NOT hold any key capable of decrypting a payload, a result, or a delta frame. | **operator** |
 | `SHARED_COMPUTE_DISCLOSED` | Before a user's work first runs on compute they do not own, they MUST be told in plain language that the machine's owner can see it. | **operator** |
 | `REQUESTS_SIGNED_NOT_BEARER` | Every authenticated request MUST be signed by the calling device's pinned identity key, over the endpoint, the runner id, a timestamp and the body. A bearer token MUST NOT be sufficient. | conformance |
 | `LEASE_SCOPED_BY_GRANT` | A lease-scoped request MUST name the lease it acts on, and a server MUST apply it only to that lease. Naming the job and the runner is not enough. | conformance |
 | `SITE_KEY_BY_STUB` | A daemon MUST verify a job's payload against the pinned key of the site the stub names, MUST refuse a job naming a site it has not pinned, and MUST NOT fall back to another pinned key. | adversarial |
 | `KEYS_EXCHANGED_AT_CONSENT` | Pairing MUST exchange both parties' public identities, and each side MUST verify that the encryption key is signed by the identity presenting it. | conformance |
+| `SITES_LOCALLY_APPROVED` | A daemon MUST NOT run work for a site it has not approved on the machine itself. An upstream may propose a site set; a site the daemon has never approved MUST be offered to its owner and served nothing until they approve it. A key that has changed for an already-approved id MUST be refused for the life of the pairing, including after that id has left the set and returned. | **construction + adversarial** |
+
+`FALLBACK_LABELED`'s kind was corrected here on 2026-08-20, from
+`conformance` to `construction` — the registry has said `construction`
+since it was written, with the reason beside it: nothing on the wire
+distinguishes a fallback from any other community job, so a conformance
+check would have to assert something it cannot observe. The table
+claimed a stronger verification than the registry did for weeks, and
+nothing compared the two columns until `SITES_LOCALLY_APPROVED` needed a
+pair. **This spec was the more flattering of the two, which is the
+direction that matters.**
+
+`SITES_LOCALLY_APPROVED` is Amendment B.2 as a rule, added when V1-1 was
+patched (2026-08-20). It is the one MUST here carrying two kinds, and
+the pair is the point: the fence is **construction** — a daemon cannot
+serve a site absent from its pinned map, and admission refuses before a
+payload is fetched — while what survives a *sequence* (remove the id,
+re-offer it under another key) is **adversarial**, because no honest
+upstream sends that and the fence does not see it. Recording one kind
+would either overstate what a type check proves or understate what the
+suites do.
 
 `SITE_KEY_BY_STUB` was added when cloud_009's first commit gave it a
 check (2026-08-20). It is §A.3's consequence stated as a rule: the field

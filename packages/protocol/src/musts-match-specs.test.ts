@@ -1,7 +1,13 @@
 import { readFileSync, readdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { MUSTS, MUST_IDS, RETIRED_MUSTS } from "./musts.js";
+import {
+  MUSTS,
+  MUST_IDS,
+  RETIRED_MUSTS,
+  kindsOf,
+  type MustId,
+} from "./musts.js";
 
 /**
  * Every MUST the specs declare has a registry entry — cloud_008 §1.5.
@@ -114,6 +120,44 @@ describe("the registry covers what the specs declare", () => {
       .map(([id, files]) => `${id} (${[...new Set(files)].join(", ")})`)
       .sort();
     expect(twice, twice.join("; ")).toEqual([]);
+  });
+
+  it("agrees with the registry about how each MUST is verified", () => {
+    // The column the id-only cross-check never read.
+    //
+    // A spec table's third cell says `conformance`, `adversarial`,
+    // `**operator**` or — since `SITES_LOCALLY_APPROVED` — a pair. Nothing
+    // compared it to the registry, so the two could disagree indefinitely: a
+    // MUST could be downgraded in code to a kind nothing checks while the spec
+    // went on claiming it was checked, which is the direction that matters.
+    // Found by mutating that entry and noticing the mutation was invisible.
+    const mismatched: string[] = [];
+    for (const file of readdirSync(SPECS).filter((f) => f.endsWith(".md"))) {
+      const text = readFileSync(`${SPECS}/${file}`, "utf8").replace(
+        /\r\n/g,
+        "\n",
+      );
+      for (const line of text.split(/\r?\n/)) {
+        const row =
+          /^\|\s*`([A-Z][A-Z0-9_]{4,})`\s*\|[^|]*\|\s*([^|]+?)\s*\|/.exec(line);
+        if (!row) continue;
+        const id = row[1]!;
+        if (!(id in MUSTS)) continue;
+        const claimed = row[2]!
+          .replace(/\*/g, "")
+          .split("+")
+          .map((kind) => kind.trim())
+          .filter(Boolean)
+          .sort();
+        const registered = [...kindsOf(MUSTS[id as MustId])].sort();
+        if (claimed.join(",") !== registered.join(",")) {
+          mismatched.push(
+            `${id}: ${file} says ${claimed.join(" + ")}, registry says ${registered.join(" + ")}`,
+          );
+        }
+      }
+    }
+    expect(mismatched, mismatched.join("; ")).toEqual([]);
   });
 
   it("points every retired id at a live one", () => {

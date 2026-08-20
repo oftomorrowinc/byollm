@@ -1,4 +1,5 @@
 import {
+  kindsOf,
   MUSTS,
   MUST_IDS,
   mustsVerifiedBy,
@@ -105,7 +106,7 @@ export function uncoveredMusts(checks: readonly Check[] = CHECKS): MustId[] {
  */
 export function miscoveredMusts(checks: readonly Check[] = CHECKS): MustId[] {
   return [...new Set(checks.flatMap((check) => check.musts))]
-    .filter((id) => MUSTS[id].verifiedBy !== "conformance")
+    .filter((id) => !kindsOf(MUSTS[id]).includes("conformance"))
     .sort();
 }
 
@@ -150,13 +151,13 @@ export function formatReport(report: CertificationReport): string {
   // is never read as "every MUST is satisfied". A certification that hides
   // its own scope is worth less than one that states it.
   const elsewhere = MUST_IDS.filter(
-    (id) => MUSTS[id].verifiedBy !== "conformance",
+    (id) => !kindsOf(MUSTS[id]).includes("conformance"),
   );
   if (elsewhere.length > 0) {
     lines.push("");
     lines.push("  Verified elsewhere, not by this kit:");
     for (const kind of ["adversarial", "construction", "operator"] as const) {
-      const ids = elsewhere.filter((id) => MUSTS[id].verifiedBy === kind);
+      const ids = elsewhere.filter((id) => kindsOf(MUSTS[id]).includes(kind));
       if (ids.length === 0) continue;
       lines.push(`    ${kind}: ${ids.join(", ")}`);
     }

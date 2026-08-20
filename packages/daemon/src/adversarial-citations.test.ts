@@ -1,7 +1,7 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { MUSTS } from "@byollm/protocol";
+import { MUSTS, kindsOf } from "@byollm/protocol";
 import { describe, expect, it } from "vitest";
 
 /**
@@ -50,7 +50,7 @@ describe("the adversarial kind, counted", () => {
   it("has a test naming every MUST that claims it", () => {
     const sources = testSources();
     const adversarial = Object.values(MUSTS)
-      .filter((must) => must.verifiedBy === "adversarial")
+      .filter((must) => kindsOf(must).includes("adversarial"))
       .map((must) => must.id);
 
     // Sanity, and not a formality: if this list is ever empty the assertion

@@ -119,6 +119,11 @@ export {
 export {
   MUST_IDS,
   MUSTS,
+  kindsOf,
+  // Nameable because `Must.verifiedBy` has this type and `Must` is public —
+  // the same lesson `Grant` taught in alpha.28: an exported interface whose
+  // field types are private is a contract nobody can sign.
+  type MustVerifiedBy,
   mustsVerifiedBy,
   type Must,
   type MustEnforcer,

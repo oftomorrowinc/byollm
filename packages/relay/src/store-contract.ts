@@ -576,6 +576,82 @@ export function describeStoreContract(
       await done();
     });
 
+    it("refuses a payload for a job that already finished [V1-6]", async () => {
+      // The holder and lease checks both pass for a job this runner finished
+      // moments ago — completing does not end the grant. So a replayed fetch
+      // set `state = 'running'` on a **done** job: the site stopped being able
+      // to collect its result, and the sweep requeued completed work as though
+      // the device had died holding it.
+      //
+      // Which is `RESULT_IDEMPOTENT` broken through the other door: a
+      // duplicate request undoing a finished job.
+      const { store, done } = await make();
+      await store.enqueue({ id: "a", siteId: SITE, stub: stub("a") });
+      const [granted] = await store.claim(claimArgs());
+      await store.seal({ jobId: "a", siteId: SITE, envelope: ENVELOPE });
+      await store.takePayload({
+        jobId: "a",
+        runnerId: "runner_1",
+        leaseId: granted!.lease.id,
+      });
+      await store.complete({
+        jobId: "a",
+        runnerId: "runner_1",
+        leaseId: granted!.lease.id,
+        envelope: ENVELOPE,
+        disposition: "ok",
+      });
+
+      const replay = await store.takePayload({
+        jobId: "a",
+        runnerId: "runner_1",
+        leaseId: granted!.lease.id,
+      });
+      // Its own refusal, not `not-ready`: one says keep asking and this says
+      // stop, and a daemon that read them alike would poll a finished job
+      // until its lease ran out.
+      expect(replay).toEqual({ refused: "terminal" });
+      // And the finished job is still finished, which is the property.
+      expect((await store.job(SITE, "a"))?.state).toBe("done");
+      await done();
+    });
+
+    it("tells a runner nothing about another site's job id [V1-8]", async () => {
+      // Job ids are chosen per site, so a bare id is a guess about somebody
+      // else's namespace. The answer used to depend on whether that guess
+      // landed: an id belonging to another tenant came back `not-holder`,
+      // an id belonging to nobody came back `not-found`. Two status codes,
+      // one bit of somebody else's business — finding 58's oracle, reached
+      // through the holder door instead of the site plane.
+      const { store, done } = await make();
+      // Another tenant's job, under an id this caller can guess but a site it
+      // does not route for.
+      await store.enqueue({
+        id: "secret",
+        siteId: "site_somebody_else",
+        stub: stub("secret"),
+      });
+      await store.enqueue({ id: "mine", siteId: SITE, stub: stub("mine") });
+      const granted = await store.claim(claimArgs());
+      const mine = granted.find((job) => job.id === "mine");
+
+      // Asking about a job this runner does not hold, under a lease it does.
+      const other = await store.takePayload({
+        jobId: "secret",
+        runnerId: "runner_1",
+        leaseId: mine!.lease.id,
+      });
+      const absent = await store.takePayload({
+        jobId: "no-such-job-anywhere",
+        runnerId: "runner_1",
+        leaseId: mine!.lease.id,
+      });
+
+      expect(other).toEqual(absent);
+      expect(other).toEqual({ refused: "not-found" });
+      await done();
+    });
+
     it("stamps deadlines from its own clock", async () => {
       const { store, done } = await make();
       await store.enqueue({ id: "a", siteId: SITE, stub: stub("a") });

@@ -234,7 +234,12 @@ export interface RelayStateOptions {
 
 /** Why a lease-scoped operation was refused, in the caller's vocabulary. */
 export type HolderRefusal =
-  "not-found" | "not-holder" | "stale-lease" | "not-ready";
+  | "not-found"
+  | "not-holder"
+  | "stale-lease"
+  | "not-ready"
+  /** The job already ended — V1-6. A replay must not reopen it. */
+  | "terminal";
 
 /**
  * In-memory routing state.
@@ -304,8 +309,18 @@ export class RelayState implements RoutingStore {
    * The exact grant first, and **checked against the job the caller named**:
    * a lease id belonging to another job would otherwise hand over that job's
    * payload to somebody holding a valid-looking grant. Then the same job held
-   * by this runner under an older grant, which is what `stale-lease` is. Then
-   * any job with that id, which is what `not-holder` is.
+   * by this runner under an older grant, which is what `stale-lease` is.
+   *
+   * And then nothing — V1-8. There used to be a third step: any job with that
+   * id, which produced `not-holder` where an absent job produces `not-found`.
+   * Since job ids are chosen per site, a runner could name a bare id it had
+   * no relationship with and learn from the status code whether some *other*
+   * tenant had a job by that name. Finding 58's existence oracle, through the
+   * holder door.
+   *
+   * The distinction it bought was never acted on: a daemon abandons the work
+   * either way. So a caller now learns about jobs it holds or held, and about
+   * nothing else.
    */
   #grantFor(
     jobId: string,
@@ -315,10 +330,7 @@ export class RelayState implements RoutingStore {
     const exact = this.#byLease.get(leaseId);
     if (exact?.id === jobId) return exact;
     const candidates = this.#byJobId.get(jobId) ?? [];
-    return (
-      candidates.find((job) => job.claimedBy?.runnerId === runnerId) ??
-      candidates[0]
-    );
+    return candidates.find((job) => job.claimedBy?.runnerId === runnerId);
   }
 
   #index(job: RoutedJob): void {
@@ -514,6 +526,18 @@ export class RelayState implements RoutingStore {
       return Promise.resolve({ refused: "stale-lease" });
     }
     if (!job.payload) return Promise.resolve({ refused: "not-ready" });
+    // Only a job that is still running gets handed its payload — V1-6.
+    //
+    // The holder and lease checks pass for a job this runner finished
+    // moments ago, because completing does not end the grant. A replayed
+    // fetch then set `state = 'running'` on a **done** job: `finished()`
+    // stopped returning its result to the site, and the sweep requeued
+    // completed work as though the device had died holding it. A duplicate
+    // request undoing a finished job is the shape `RESULT_IDEMPOTENT` exists
+    // to forbid, arriving through the other door.
+    if (job.state !== "ready" && job.state !== "running") {
+      return Promise.resolve({ refused: "terminal" });
+    }
     job.state = "running";
     return Promise.resolve({ envelope: job.payload });
   }

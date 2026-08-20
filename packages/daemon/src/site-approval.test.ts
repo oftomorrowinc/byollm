@@ -432,3 +432,70 @@ describe("approvals read back from disk", () => {
     expect(runner.sites.has(M)).toBe(false);
   });
 });
+
+describe("what the CLI is handed to persist", () => {
+  it("records the site set, the approvals and the open questions", async () => {
+    // `recordSites` is what the run loop calls on every heartbeat, and its
+    // four outcomes are the reason it is a function rather than a branch
+    // inside the loop. Two of them are new: `known` grows and `pending`
+    // appears, and a `pending` that outlived its offer would leave somebody
+    // being asked a question the upstream stopped asking.
+    const { mkdtemp } = await import("node:fs/promises");
+    const { tmpdir } = await import("node:os");
+    const { join } = await import("node:path");
+    const { Pairings, recordSites } = await import("./pairings.js");
+
+    const home = await mkdtemp(join(tmpdir(), "byollm-record-"));
+    const pairings = new Pairings(join(home, "pairings.json"));
+    await pairings.load();
+    // Nothing paired here yet: the loop calls this before `connect` has
+    // written a row on the very first heartbeat of a failed pairing.
+    expect(await recordSites(pairings, "https://hub.test", new Map())).toBe(
+      "unpaired",
+    );
+
+    await pairings.put({
+      origin: "https://hub.test",
+      runnerId: "runner_1",
+      owner: "me",
+      sites: {},
+      pairedAt: Date.now(),
+    });
+
+    expect(
+      await recordSites(pairings, "https://hub.test", new Map(), {
+        known: new Map(),
+        pending: new Map([[M, publicIdentityOf(RELAY_MINTED)]]),
+      }),
+    ).toBe("written");
+    expect(pairings.get("https://hub.test")?.pending?.[M]).toEqual(
+      publicIdentityOf(RELAY_MINTED),
+    );
+
+    // Nothing moved, so nothing is written — a file rewritten every five
+    // seconds is a file somebody's backup notices.
+    expect(
+      await recordSites(pairings, "https://hub.test", new Map(), {
+        known: new Map(),
+        pending: new Map([[M, publicIdentityOf(RELAY_MINTED)]]),
+      }),
+    ).toBe("unchanged");
+
+    // The question was answered: the offer leaves and the approval stays.
+    expect(
+      await recordSites(
+        pairings,
+        "https://hub.test",
+        new Map([[M, publicIdentityOf(RELAY_MINTED)]]),
+        {
+          known: new Map([[M, publicIdentityOf(RELAY_MINTED)]]),
+          pending: new Map(),
+        },
+      ),
+    ).toBe("written");
+    expect(pairings.get("https://hub.test")?.pending).toBeUndefined();
+    expect(pairings.get("https://hub.test")?.known?.[M]).toBeDefined();
+
+    await removeTemp(home);
+  });
+});

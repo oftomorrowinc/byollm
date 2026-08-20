@@ -169,4 +169,35 @@ describe("byollm approve", () => {
     expect(await runCli(["approve"], { paths, io: io() })).toBe(2);
     expect(err).toContain("usage:");
   });
+
+  it("approves one of several and leaves the rest waiting", async () => {
+    const third = publicIdentityOf(generateKeys(1_800_000_000_555));
+    const thirdId = keyId(third.identity);
+    await pairWith({
+      sites: {},
+      pending: { [WAITING_ID]: WAITING, [thirdId]: third },
+    });
+
+    expect(await runCli(["approve", WAITING_ID], { paths, io: io() })).toBe(0);
+
+    const pairings = new Pairings(paths.pairings);
+    await pairings.load();
+    const pairing = pairings.get("https://hub.test");
+    expect(Object.keys(pairing?.known ?? {})).toEqual([WAITING_ID]);
+    // The other question is still open. An approval that cleared the queue
+    // would be `--all` with extra steps.
+    expect(Object.keys(pairing?.pending ?? {})).toEqual([thirdId]);
+  });
+
+  it("counts the waiting sites in words a person can act on", async () => {
+    const third = publicIdentityOf(generateKeys(1_800_000_000_555));
+    await pairWith({
+      sites: {},
+      pending: { [WAITING_ID]: WAITING, [keyId(third.identity)]: third },
+    });
+    await runCli(["sites"], { paths, io: io() });
+    expect(out).toContain("2 sites waiting");
+    // And a pairing serving nobody says so rather than showing an empty gap.
+    expect(out).toContain("(serving nothing right now)");
+  });
 });

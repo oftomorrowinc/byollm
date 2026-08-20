@@ -685,3 +685,86 @@ describe("one job id, two sites", () => {
     runner.cancelAll();
   });
 });
+
+/**
+ * Consent ending while the work is running — V1-7.
+ *
+ * The set shrinking used to be the *whole* of what happened: the pin was
+ * dropped and the job kept going. It ran to completion on somebody's machine —
+ * their electricity, or their API credit — and then threw at the seal, because
+ * sealing needs the pin that had just been dropped. Full cost, no result, and
+ * the person who paid for it was the one who had withdrawn.
+ */
+describe("a site that withdraws mid-job", () => {
+  it("stops the work, sends no result, and hands the lease back", async () => {
+    hanging = true;
+    let announced: Record<string, PublicIdentity> = {
+      [A]: publicIdentityOf(SITE_A),
+      [B]: publicIdentityOf(SITE_B),
+    };
+    const released: { reason: string; leases: unknown[] }[] = [];
+    const job = stub("job_a", A);
+    const sealed = await sealedBy(SITE_A, "job_a");
+    let claimed = false;
+
+    const fetchImpl: typeof fetch = (input, init) => {
+      const url = String(input instanceof Request ? input.url : input);
+      const endpoint = url.split("/").pop() ?? "";
+      let body: unknown;
+      if (endpoint === "claim") {
+        body = claimed
+          ? { jobs: [], leaseMs: 60_000 }
+          : { jobs: [job], leaseMs: 60_000 };
+        claimed = true;
+      } else if (endpoint === "fetch") {
+        body = { envelope: sealed };
+      } else if (endpoint === "heartbeat") {
+        body = {
+          sites: announced,
+          awaitingConsent: [],
+          cancel: [],
+          lost: [],
+          serverTime: Date.now(),
+        };
+      } else if (endpoint === "result") {
+        const sent = JSON.parse(
+          typeof init?.body === "string" ? init.body : "{}",
+        ) as { jobId: string; envelope: SealedEnvelope };
+        results.push({ jobId: sent.jobId, envelope: sent.envelope });
+        body = { accepted: true, state: "ok" };
+      } else {
+        released.push(
+          JSON.parse(typeof init?.body === "string" ? init.body : "{}") as {
+            reason: string;
+            leases: unknown[];
+          },
+        );
+        body = { released: [] };
+      }
+      return Promise.resolve(
+        new Response(JSON.stringify(body), {
+          headers: { "content-type": "application/json" },
+        }),
+      );
+    };
+
+    const runner = await runnerOver(fetchImpl);
+    await runner.tick();
+    await settles(() => started.length === 1, "the job to reach a backend");
+
+    // A withdraws. B is untouched, which is what makes this per-site.
+    announced = { [B]: publicIdentityOf(SITE_B) };
+    await runner.tick();
+
+    await settles(() => released.length === 1, "the lease to go back");
+    expect(released[0]?.reason).toBe("revoked");
+    // No result: there is nothing to seal to, and an answer sealed to a
+    // withdrawn site is an answer nobody may read.
+    expect(results).toEqual([]);
+    expect(runner.status().activeJobs).toBe(0);
+    // And the daemon said so rather than logging a seal that threw.
+    expect(events.find((e) => e.type === "refused")?.reason ?? "").toContain(
+      "withdrew consent",
+    );
+  });
+});

@@ -188,8 +188,16 @@ export class Runner {
    */
   readonly #active = new Map<
     string,
-    { controller: AbortController; jobId: string }
+    { controller: AbortController; jobId: string; site: string | undefined }
   >();
+
+  /**
+   * Grants abandoned because their site's consent ended mid-run — V1-7.
+   *
+   * Held rather than acted on immediately: the backend call is already being
+   * aborted, and what happens next belongs where the job finishes, once.
+   */
+  readonly #abandoned = new Set<string>();
   readonly #now: () => number;
   #capabilities: Capability[] = [];
   #paused = false;
@@ -456,7 +464,11 @@ export class Runner {
     }
 
     const controller = new AbortController();
-    this.#active.set(job.lease.id, { controller, jobId: job.id });
+    this.#active.set(job.lease.id, {
+      controller,
+      jobId: job.id,
+      site: job.site,
+    });
 
     const prompt = composePrompt(job);
     const community = job.owner !== this.#options.owner;
@@ -789,6 +801,21 @@ export class Runner {
     const route = this.#routeFor(job.kind);
     const outcome = await this.runJob({ ...job, payload });
 
+    // The site's consent ended while this ran — V1-7. There is nothing to
+    // seal to: the pin went with the consent, and an answer sealed to a
+    // withdrawn site is an answer nobody may read. The lease goes back so the
+    // upstream is not left waiting out a grant nobody will finish.
+    if (this.#abandoned.delete(job.lease.id)) {
+      await this.#safely(() =>
+        this.#options.client.release({
+          runnerId: this.#options.runnerId,
+          leases: [{ jobId: job.id, leaseId: job.lease.id }],
+          reason: "revoked",
+        }),
+      );
+      return;
+    }
+
     const envelope = await this.#sealOutcome(job, outcome, {
       model: route?.model ?? "unknown",
       backendClass: route?.backendClass ?? "http",
@@ -1086,7 +1113,25 @@ export class Runner {
     }
 
     for (const id of [...this.#sites.keys()]) {
-      if (!(id in sites)) this.#sites.delete(id);
+      if (id in sites) continue;
+      this.#sites.delete(id);
+      // And stop the work already running for it — V1-7.
+      //
+      // Consent ending used to shrink the set and nothing else: a job
+      // in flight ran to completion on somebody's machine, spending their
+      // electricity or their API credit, and then failed at the seal because
+      // the pin it needed had just been dropped. Full cost, no result, and
+      // the one person who paid for it was the one who withdrew.
+      for (const [leaseId, held] of this.#active) {
+        if (held.site !== id) continue;
+        this.#abandoned.add(leaseId);
+        held.controller.abort();
+        this.#options.onEvent?.({
+          type: "refused",
+          jobId: held.jobId,
+          reason: `site ${id} withdrew consent while this job was running`,
+        });
+      }
     }
     // A pending site the upstream stopped offering is no longer a question
     // waiting for an answer. It stays out of `#known`, so if it comes back it

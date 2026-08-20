@@ -612,6 +612,16 @@ export const WireErrorCode = z.enum([
   // That is why it cannot be `not-found` or `server-error`, and why it was
   // the protocol gap that produced a bare 409 in the first place.
   "not-ready",
+  /**
+   * The job is over, and this call is about a job — V1-6, and the code the
+   * site plane has been serving without one (V1-13).
+   *
+   * Distinct from `not-found`, which says "no such job", and from
+   * `not-ready`, which says "not yet, keep asking". This one says "yes, and
+   * it finished" — so a daemon must stop rather than retry, and a replayed
+   * request must not be able to reopen it.
+   */
+  "too-late",
   // The caller's clock is too far from ours to judge a signature's freshness.
   //
   // Split out from `unauthorized` because the remedy is completely different
@@ -677,6 +687,11 @@ export const ERROR_STATUS: Readonly<Record<WireErrorCode, number>> =
     "not-found": 404,
     // 409, not 404: the job exists and is yours, it is simply not ready.
     "not-ready": 409,
+    // The same 409 as `not-ready` and the opposite instruction: that one says
+    // keep asking, this one says stop. The status is the class of the
+    // problem — a request that does not fit the resource's state — and the
+    // code is what a caller acts on.
+    "too-late": 409,
     // 401 alongside `unauthorized`, because that is what it is — the
     // signature could not be judged. The code is what carries the remedy.
     "clock-skew": 401,

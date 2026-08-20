@@ -75,6 +75,13 @@ const REFUSALS: Record<HolderRefusal, PlaneResult> = {
       message: "the site has not sealed this job yet",
     },
   },
+  // Also a 409, and deliberately a different code: `not-ready` means keep
+  // asking and this means stop. A daemon that read them as one would poll a
+  // finished job until its lease ran out.
+  terminal: {
+    status: 409,
+    body: { error: "too-late", message: "this job has already finished" },
+  },
 };
 const fail = (status: number, error: string, message: string): PlaneResult => ({
   status,

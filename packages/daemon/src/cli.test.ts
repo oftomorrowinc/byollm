@@ -257,7 +257,7 @@ describe("byollm log", () => {
     expect(out).toContain("sha256");
   });
 
-  it("strips control characters from a hostile prompt before printing", async () => {
+  it("strips control characters from a hostile prompt before printing [OUTPUT_INERT]", async () => {
     const log = new IngressLog({
       path: paths.ingressLog,
       communityPromptDays: 7,

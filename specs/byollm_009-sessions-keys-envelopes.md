@@ -835,3 +835,61 @@ by construction.
 The list §12 carries gets **shorter**, because `audienceAllow` was on
 the wire and is not enumerated anywhere. That is the honest direction
 for a threat model to move.
+
+---
+
+# Amendment B — what the upstream tells a daemon (RATIFIED 2026-08-20)
+
+cloud_009 gave a pairing a *set* of sites, and three fields carried it:
+`PairPollResponse.sites`, `HeartbeatResponse.sites`, and
+`HeartbeatResponse.awaitingConsent`. They shipped in alpha.25–27 and
+appeared in no table here, which is the rule this project keeps (no new
+wire field without a §12 row) being broken by the fields that most
+needed it. The pre-v1 review found it as V1-14; V1-1 found what it
+concealed.
+
+## B.1 The fields
+
+| field | direction | what it carries |
+|---|---|---|
+| `PairPollResponse.sites` | upstream → daemon | the sites this pairing covers, keyed by each site's identity key id, at the moment of approval |
+| `HeartbeatResponse.sites` | upstream → daemon | the same set, as it stands now; it follows consent and changes under a running daemon |
+| `HeartbeatResponse.awaitingConsent` | upstream → daemon | a **subset** of the above whose disclosure went stale: pinned, routing nothing, named so the daemon can say what the owner has to read |
+
+All three are *authored by the upstream*, so §12's enumeration of what a
+hostile upstream **observes** is unchanged — it cannot learn anything
+from a message it wrote.
+
+## B.2 What it can do with them, which is the part that matters
+
+**A hostile upstream can propose a site.** It can generate a keypair,
+put it in this map, and sign stubs with it. That is not a leak; it is
+the routing party trying to become a *site* party, which is the one
+substitution the whole envelope construction exists to prevent — and
+until V1-1 it worked, because the daemon pinned whatever the map said.
+
+**It cannot make a daemon serve one.** Three fences, in the order an
+offer meets them: the record must verify (`encryptionSig` against the
+identity presenting it, the same check `connect` makes at pairing); the
+map key must equal `keyId(site.identity)`, because `stub.site` is looked
+up here; and a site id never approved on this machine is *offered*,
+never pinned — shown with its fingerprint, served by nothing, until
+somebody at that keyboard says yes.
+
+**And it cannot change a key by taking the site away first.** Approved
+ids and their keys outlive consent on the daemon's disk, so an id that
+leaves the set and comes back under a different key is refused as a
+changed key rather than accepted as a stranger. Coming back *unchanged*
+resumes without asking again — a ceremony repeated for no reason is a
+ceremony people learn to click through.
+
+## B.3 The open question, for the version that has users
+
+Local approval is a fence around a gap: **hub-side consent is not
+forgeable by the user's own key**. A consent record is displayed and
+revocable in a control plane the relay's operator also runs, so the
+daemon has no way to tell "this user consented" from "this upstream
+says so". If consent carried a signature by a key the user holds, the
+daemon could check it and the local ceremony could be dropped rather
+than merely justified. That is a design, not a patch, and it belongs
+with rotation (A.3.1) in the work before 1.0.

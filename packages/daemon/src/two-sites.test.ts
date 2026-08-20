@@ -336,7 +336,7 @@ describe("a daemon paired with two sites", () => {
     expect(opened.ok).toBe(true);
   });
 
-  it("refuses a stub naming A wrapped around a payload sealed by B", async () => {
+  it("refuses a stub naming A wrapped around a payload sealed by B [SITE_KEY_BY_STUB]", async () => {
     // The hostile relay. It holds both halves and is the only party that
     // gains from them disagreeing, so this is the case the site check exists
     // for — and the one the crypto would also refuse, which is why the
@@ -355,7 +355,7 @@ describe("a daemon paired with two sites", () => {
     expect(results).toEqual([]);
   });
 
-  it("refuses a site it is not paired with rather than trying a key it has", async () => {
+  it("refuses a site it is not paired with rather than trying a key it has [SITE_KEY_BY_STUB]", async () => {
     // Not "unknown site" as a fallback to the only pin — the relay chooses
     // `stub.site`, so falling back hands it the choice of which key verifies
     // this machine's work.

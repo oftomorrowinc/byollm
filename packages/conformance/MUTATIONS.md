@@ -184,12 +184,55 @@ asserts anything about what she cannot see. A test whose subject is
 accidentally privileged proves the opposite of what it claims, and it proves
 it silently.
 
+## Verified 2026-08-20 — the two checks that arrived without rows (V1-15)
+
+| check                          | mutated                           | mutation                                                          | result  |
+| ------------------------------ | --------------------------------- | ----------------------------------------------------------------- | ------- |
+| `C032_SERVER_REFUSES_TO_OFFER` | `packages/server/src/memory.ts`   | Return `true` from `#isClaimable` before the `matchAudience` call | ✓ bites |
+| `C031_ROSTER_NOT_DISCLOSED`    | `packages/server/src/handlers.ts` | Spread `audienceAllow` back onto the claimed stub                 | ✓ bites |
+
+Both were added with the finding they close and neither had a row, which this
+file's own closing rule says voids it once there are two. There were two.
+
+`C031`'s mutation is worth reading twice: the field had to be added back
+through a **conditional spread**, because that is the only way to put it there
+without a type error — and it is exactly how the field survived being deleted
+from the schema in the first place (`handlers.ts` says so where it happened).
+The mutation and the original bug are the same edit.
+
 ## Not yet verified
 
-`C001`–`C004`, `C006`, `C008`–`C013`, `C016` predate this practice. They are
+`C001`–`C004`, `C006`, `C008`, `C009`, `C011`–`C013`, `C016` predate this
+practice. `C010` left this list when it was rebuilt around terminal-before-
+holder ordering — its mutation is recorded above, and naming it here as well
+said the opposite of what the table says. They are
 not suspect — several were written against bugs they then caught — but "not
 suspect" is not the same as "checked", and the distinction is the whole
 reason this file exists.
+
+## The kinds this file does not cover, and the one that now has a reader (2026-08-20)
+
+`MUTATIONS.md` is about the conformance kit. The registry has three other
+`verifiedBy` kinds, and `adversarial` — "the reference daemon's own hostile
+suites prove this" — was **counted by nothing**: no cross-check, no citation,
+no reader. `SITE_KEY_BY_STUB` is the specimen, and its own registry comment
+explains why it is the dangerous one: every honest path passes with the site
+check deleted, because `open` refuses a signature from the wrong key anyway.
+The only thing separating that MUST from unverified is a hostile pairing of
+stub and envelope — and no test named it.
+
+`packages/daemon/src/adversarial-citations.test.ts` now fails if any
+`adversarial` MUST is named by no test the daemon's suites run. It proves a
+citation rather than an enforcement, which is the honest limit: a title can
+claim anything. The mutation discipline is what makes a citation worth
+something, and this is what stops a MUST from being filed into a category
+nobody reads.
+
+`C029` remains the open one. It mutates `packages/protocol/src/envelope.ts` —
+a primitive rather than an endpoint — so its recorded mutation is caught by
+this repository's tests and would not be caught by a third-party target
+running the kit against their own server. That is the shape this file
+condemns elsewhere, recorded here rather than quietly left.
 
 ## When adding a check
 

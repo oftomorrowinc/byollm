@@ -264,3 +264,85 @@ describe("recording the site set an upstream describes", () => {
     );
   });
 });
+
+describe("one bad site entry is one site's problem — V1-9", () => {
+  it("keeps the sites it can read and names the one it dropped", async () => {
+    // The same amplification, one level further down than §2.3a reached.
+    // `sites` is a single `z.record`, so a machine paired with three sites
+    // lost all three because one entry was written by a version that spells
+    // a field differently — and the CLI reported it as "not paired".
+    const keep = publicIdentityOf(generateKeys(1_800_000_000_000));
+    const keepId = keyId(keep.identity);
+    await writeFile(
+      path,
+      JSON.stringify({
+        version: 1,
+        pairings: [
+          {
+            origin: "https://hub.test",
+            runnerId: "runner_1",
+            owner: "me",
+            sites: {
+              [keepId]: keep,
+              BROKEN: { identity: "id-only", encryption: 7 },
+            },
+            pairedAt: 1_800_000_000_000,
+          },
+        ],
+      }),
+    );
+
+    const pairings = new Pairings(path);
+    await pairings.load();
+
+    const pairing = pairings.get("https://hub.test");
+    expect(Object.keys(pairing?.sites ?? {})).toEqual([keepId]);
+    // Named, and by field path rather than by value: the entry that failed
+    // holds key material, and a diagnostic that quotes it puts key material
+    // in a log.
+    expect(pairings.skipped.map((row) => row.problem).join(" ")).toContain(
+      "sites.BROKEN",
+    );
+    expect(pairings.skipped[0]?.origin).toBe("https://hub.test");
+  });
+
+  it("says the file is unreadable rather than pretending nothing is paired", async () => {
+    // Two opposite sentences shared one branch. "No file" means run
+    // `byollm connect`; "cannot read the file" means this machine has
+    // pairings it can no longer see, and the CLI offered the first advice for
+    // both.
+    await writeFile(path, "{ not json at all");
+    const pairings = new Pairings(path);
+    await pairings.load();
+
+    expect(pairings.list()).toEqual([]);
+    expect(pairings.skipped).toHaveLength(1);
+    expect(pairings.skipped[0]?.problem).toContain("not valid JSON");
+  });
+
+  it("never leaves a half-written file where the daemon reads one", async () => {
+    // Written elsewhere and renamed into place. An in-place write makes the
+    // name exist while the bytes are still arriving, and `load` reads
+    // unparseable as never-paired — so a torn write disconnected a machine
+    // from every site it served, silently.
+    const pairings = new Pairings(path);
+    await pairings.load();
+    const site = publicIdentityOf(generateKeys(1_800_000_000_000));
+    await pairings.put({
+      origin: "https://hub.test",
+      runnerId: "runner_1",
+      owner: "me",
+      sites: { [keyId(site.identity)]: site },
+      pairedAt: 1_800_000_000_000,
+    });
+
+    // Nothing beside it: a temp file left behind is a file somebody's backup
+    // copies and somebody's `ls` asks about.
+    const { readdir } = await import("node:fs/promises");
+    expect((await readdir(home)).sort()).toEqual(["pairings.json"]);
+
+    const reread = new Pairings(path);
+    await reread.load();
+    expect(reread.list()).toHaveLength(1);
+  });
+});

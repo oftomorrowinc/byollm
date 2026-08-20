@@ -1,4 +1,5 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
+import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import { PublicIdentity } from "@byollm/protocol";
 import { z } from "zod";
@@ -70,6 +71,36 @@ export const Pairing = z
 export type Pairing = z.infer<typeof Pairing>;
 
 /**
+ * Drop the site entries that cannot be read, and name them — V1-9.
+ *
+ * Mutates the row in place before it is parsed, which is the only point where
+ * "skip what you cannot read" can be applied per entry to a `z.record`.
+ * Returns the keys removed, so a caller can say which rather than leaving
+ * somebody to wonder why a site went quiet.
+ */
+function siftEntries(row: unknown): string[] {
+  const dropped: string[] = [];
+  if (typeof row !== "object" || row === null) return dropped;
+  for (const field of ["sites", "known", "pending"] as const) {
+    const map = (row as Record<string, unknown>)[field];
+    if (typeof map !== "object" || map === null) continue;
+    const kept: Record<string, unknown> = {};
+    for (const [id, entry] of Object.entries(map as Record<string, unknown>)) {
+      if (PublicIdentity.safeParse(entry).success) {
+        kept[id] = entry;
+        continue;
+      }
+      dropped.push(`${field}.${id}`);
+    }
+    // Rebuilt rather than deleted from: a map with entries removed one by one
+    // is the same map, and this way the row that gets parsed is only ever
+    // made of entries that parsed.
+    (row as Record<string, unknown>)[field] = kept;
+  }
+  return dropped;
+}
+
+/**
  * The file's shape, with its rows left unparsed — cloud_008 §2.3a.
  *
  * `z.array(z.unknown())` on purpose. This used to be `z.array(Pairing)`, and
@@ -115,10 +146,23 @@ export class Pairings {
     let file: unknown;
     try {
       file = JSON.parse(await readFile(this.#path, "utf8"));
-    } catch {
-      // No file, or not JSON at all. Nothing to salvage row by row, and a
-      // daemon that has never paired is the ordinary case rather than an
-      // error — so this stays silent where a bad *row* does not.
+    } catch (error) {
+      // A daemon that has never paired is the ordinary case rather than an
+      // error, so a missing file stays silent. **Anything else does not** —
+      // V1-9. Unreadable and never-paired were one branch, and they say
+      // opposite things: one means "run `byollm connect`", the other means
+      // this machine has pairings it cannot see, and the CLI would have
+      // offered the first advice in both cases.
+      const code = (error as NodeJS.ErrnoException).code;
+      if (code !== "ENOENT") {
+        this.#skipped.push({
+          origin: this.#path,
+          problem:
+            code === undefined
+              ? "the pairings file is not valid JSON"
+              : `the pairings file could not be read (${code})`,
+        });
+      }
       this.#loaded = true;
       return;
     }
@@ -134,16 +178,32 @@ export class Pairings {
     }
 
     for (const row of parsed.data.pairings) {
+      // Per *entry*, one level further down than §2.3a went — V1-9.
+      //
+      // `sites` is a single `z.record`, so one unreadable site entry failed
+      // the whole pairing: the amplification this file's own comment is about,
+      // repeating itself inside the row it fixed. A machine paired with four
+      // sites lost all four because one of them was written by a version that
+      // spells a key differently.
+      const dropped = siftEntries(row);
       const pairing = Pairing.safeParse(row);
       if (pairing.success) {
         this.#pairings.push(pairing.data);
+        for (const name of dropped) {
+          this.#skipped.push({
+            origin: pairing.data.origin,
+            problem: `a site entry could not be read (${name})`,
+          });
+        }
         continue;
       }
       const origin = (row as { origin?: unknown }).origin;
       this.#skipped.push({
         origin: typeof origin === "string" ? origin : "an unnamed entry",
-        // Paths, not values: a pairing row holds a bearer token and a key,
-        // and a diagnostic that quotes the row would put both in a log.
+        // Paths, not values: a pairing row holds pinned keys, and a
+        // diagnostic that quotes the row puts key material in a log. (It held
+        // a bearer token too, until alpha.25 removed a credential nothing had
+        // ever sent — the rule outlived the secret, and so should the habit.)
         problem: pairing.error.issues.map((i) => i.path.join(".")).join(", "),
       });
     }
@@ -203,14 +263,39 @@ export class Pairings {
     if (!this.#loaded) throw new Error("pairings used before load()");
   }
 
+  /**
+   * Write the file, or leave the old one — V1-9.
+   *
+   * Written elsewhere and renamed into place, for the reason `identity.ts`
+   * gives at length about `keys.json`: an in-place write makes the name exist
+   * while the bytes are still arriving, and a daemon reading it in that window
+   * sees a truncated file. `load()` treats unparseable as never-paired, so a
+   * torn write here disconnected a machine from every site it served — and
+   * `byollm list` then said, accurately and uselessly, that nothing was
+   * paired.
+   *
+   * `rename` rather than `link`, because this replaces: `keys.json` is created
+   * once and must never be overwritten, so it wants `link`'s EEXIST. Here the
+   * whole point is that the new file takes the old one's place in one step.
+   */
   async #save(): Promise<void> {
     await mkdir(dirname(this.#path), { recursive: true });
-    await writeFile(
-      this.#path,
-      `${JSON.stringify({ version: 1, pairings: this.#pairings }, null, 2)}\n`,
-      // Tokens live here. Nobody else on a shared machine gets to read them.
-      { mode: 0o600 },
-    );
+    const body = `${JSON.stringify(
+      { version: 1, pairings: this.#pairings },
+      null,
+      2,
+    )}\n`;
+    // A unique name per attempt: two writers sharing one temp name is how the
+    // identity file's first fix broke its own race test.
+    const temp = `${this.#path}.${randomUUID()}.tmp`;
+    try {
+      // Pinned keys live here. Nobody else on a shared machine reads them.
+      await writeFile(temp, body, { mode: 0o600 });
+      await rename(temp, this.#path);
+    } catch (error) {
+      await rm(temp, { force: true });
+      throw error;
+    }
   }
 }
 

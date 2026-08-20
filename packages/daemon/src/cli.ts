@@ -341,8 +341,7 @@ async function commandRun(
  * `load` skips what it cannot parse instead of discarding the whole file, and
  * a skip nobody mentions is the same silence in a smaller box: the user would
  * see one connection missing and no reason for it. Named on stderr, by origin
- * and failing field, never by value — a pairing row holds a bearer token and
- * a key.
+ * and failing field, never by value — a pairing row holds pinned keys.
  */
 function reportSkipped(pairings: Pairings, io: CliIo): void {
   for (const row of pairings.skipped) {

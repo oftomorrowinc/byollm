@@ -936,3 +936,154 @@ because the site plane's bodies do not all carry the field — which is
 its own finding about what "version before anything else" means when
 two planes have different request shapes. Morning work, with the site
 plane's schemas in hand.
+
+---
+
+# Amendment C — Rotation (DESIGN, for review — not ratified)
+
+V1-16: A.3.1 committed to rotation as "a designed transition" and
+designed none of it. One `SiteRecord` per site id means the two-key
+window it describes does not exist, so a site that rotates today
+publishes stubs under a key id every daemon refuses within one
+heartbeat — jobs burned at best, and before V1-1 was patched, a
+substitution accepted silently at worst.
+
+This is the last Amendment A path never built, and the thing most likely
+to be frozen wrong at 1.0, because the wrong version of it is *also* the
+attack V1-1 exists to refuse. **Nothing here is implemented.** It is
+written to be argued with first.
+
+## C.1 What a rotation is
+
+A site holding identity key **K1** wants to be known by **K2**. It
+publishes a *succession*: K2, plus a signature by K1 over a statement
+naming both.
+
+    succession = sign(K1, "byollm/v1/site-succession:" + keyId(K1) + ":" + keyId(K2))
+
+That signature is the entire mechanism. **The relay cannot mint one** —
+it never holds K1 — which is why rotation can be automatic without
+becoming a hole. It is the same trust step a daemon already performs at
+pairing (verify a signature against a key it holds), applied to the
+site's own succession, and it is the reason A.3.1 called an opaque site
+id *weaker*: under an opaque id a rotation is invisible to the daemon
+and therefore unverifiable by it.
+
+The statement names **both** key ids, and that is not decoration: a
+signature over K2 alone could be replayed into any other site's record
+to move that site to K2. Naming the predecessor binds the succession to
+one chain.
+
+## C.2 What the projection carries
+
+`SiteRecord` today is `{ siteId, site }`. Proposed:
+
+```ts
+SiteRecord {
+  siteId: string
+  site: PublicIdentity          // what the site signs with now
+  succeeds?: {                  // present while, and after, a rotation
+    identity: string            // K1's public identity
+    signature: string           // K1 over the statement in C.1
+  }[]                           // ordered, oldest last
+  retiringUntil?: number        // epoch ms; K1 may still sign work until then
+}
+```
+
+Three decisions in that shape, each of which I would like ruled:
+
+**The chain is a list, not a single predecessor.** A daemon offline
+across two rotations holds K1 and meets K3. With one predecessor it
+cannot verify K3 without K2's record, so it would have to re-pair — a
+ceremony caused by *our* housekeeping rather than by anything the user
+did. A list lets it walk K3←K2←K1 and arrive at a key it holds.
+
+**The chain outlives the window.** `retiringUntil` governs which key may
+**sign work**; the succession proofs are kept indefinitely. They are
+small, self-verifying, and their absence is what forces a re-pair on a
+daemon that was simply switched off for a month. *Alternative: expire
+them, and accept re-pairing as the cost of a long absence — cheaper
+projection, worse for exactly the least-attentive user.*
+
+**Both keys route during the window.** A stub may name either key id,
+and the relay accepts an enqueue signed by either. Without that the
+rotation is a flag day: every daemon that has not yet seen the new
+record refuses live work.
+
+## C.3 What the daemon does
+
+On a heartbeat carrying a site id it does not hold:
+
+1. If the record has no `succeeds` chain → **unchanged**: it is a
+   stranger, offered for local approval (`SITES_LOCALLY_APPROVED`).
+2. If the chain reaches a key id this daemon has **approved** (in
+   `known`, including tombstoned ids), verify each link's signature in
+   order. On success, **re-key**: the approval moves to the new id, with
+   the fingerprint printed. No new ceremony — the old key vouched, and
+   requiring a second one would train people to approve keys they cannot
+   check.
+3. If a link fails to verify → refuse the whole chain, keep the existing
+   pin, and say so loudly. That is either a broken site or the attack.
+
+Work sealed under the retiring key is accepted until `retiringUntil`,
+and refused after it, whatever the projection says — the daemon holds
+its own clock for the same reason it holds its own allowlist.
+
+## C.4 The MUST this contradicts, and how
+
+`SITES_LOCALLY_APPROVED` says a key that has changed for an
+already-approved id MUST be refused **for the life of the pairing,
+including after that id has left the set and returned**. Rotation is
+exactly a key changing for a site somebody approved, so the two rules
+must be reconciled in one breath or they will be reconciled later by
+whoever is debugging at the time:
+
+> A **verified succession is not a changed key.** The refusal is about a
+> new key arriving with nothing but the upstream's word for it. A key
+> that arrives with a signature from the key already pinned is the same
+> site proving continuity, and accepting it is the pin doing its job
+> rather than being bypassed.
+
+Mechanically the distinction is sharp, which is what makes it safe to
+write: a substitution presents K2 *for the same key id*, and a
+succession presents a *new key id* plus a signature by the old. The
+first is refused because nothing vouches for it; the second is accepted
+because the thing that vouches for it is the pin.
+
+I would amend the MUST's statement rather than carve an exception into
+the code, so the rule and its one legitimate transition are read
+together.
+
+## C.5 What the user sees
+
+Not silent. `byollm sites` shows the new fingerprint, the log says which
+site rotated and that the old key signed for the new one, and the
+pairing file records the succession — so somebody who wants to compare
+fingerprints with the site's own page can, and somebody who does not is
+not stopped from working. A rotation that produced no line anywhere
+would make "your machine only serves keys you approved" quietly untrue.
+
+## C.6 What this costs, honestly
+
+A control-plane ceremony (the site proves it holds K1, publishes K2 and
+the signature), a projection field, hub plumbing, daemon code, one
+conformance case per direction, and a wire change if `stub.site` is ever
+to name a key that is not yet the current one. **It is not small**, and
+it does not need to ship before the first outside user — a site that
+never rotates is unaffected. What it needs is to be *decided* before
+1.0, because the shape above is not something you can add later without
+either a flag day or the substitution hole.
+
+## C.7 What I need ruled
+
+1. **Chain or single predecessor**, and whether the proofs expire.
+2. **Whether `retiringUntil` is the site's to choose** or a protocol
+   constant. A site choosing its own window can make it infinite, which
+   is a two-key site forever; a constant is one more number in a spec.
+3. **Whether a rotation may be refused locally** — i.e. does
+   `byollm approve` get a say? My recommendation is no: the pin
+   verified it, and asking is how ceremonies become reflexes. But it is
+   the one place this design spends the user's trust without asking.
+4. **Whether the daemon should refuse a rotation from a site whose
+   consent is paused** — the disclosure the person read named a
+   fingerprint that is about to change.

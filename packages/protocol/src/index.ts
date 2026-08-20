@@ -104,6 +104,7 @@ export {
 } from "./signing.js";
 
 export {
+  ENCRYPTION_KEY_CONTEXT,
   PublicIdentity,
   StoredKeys,
   fingerprint,

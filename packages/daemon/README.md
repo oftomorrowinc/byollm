@@ -164,11 +164,35 @@ The meter is the product, and it gets the same care as the loop.
 
 ```bash
 byollm status         # what's connected, what's running, what you've done for others
+byollm sites          # which sites this machine serves, and which are waiting on you
+byollm approve <site> # say yes to a site that asked
 byollm log            # every prompt that has ever run here
 byollm log --full     # the whole text, not the first line
 byollm pause          # stop claiming work
 byollm resume
 ```
+
+### A site cannot add itself
+
+Pairing is with an *app* — a hub, a relay, your own server — and one pairing
+can cover several sites. Which sites arrives on the heartbeat, from the same
+party that routes the work.
+
+So a site that turns up after pairing **waits**. It is listed by
+`byollm sites` with its fingerprint, nothing is claimed for it, and it starts
+being served the moment you run `byollm approve <site>`. Compare the
+fingerprint against what the site itself shows you before you do.
+
+The reason is narrow and worth stating: the daemon pins each site's keys so
+that the party routing a job cannot choose which key signed it. If that party
+could also *add* a site, it could generate a keypair, announce it, sign its
+own work with it, and every pin check downstream would pass — because the
+list they check against is the thing it wrote. Approving is the one step it
+cannot perform for you.
+
+A key that moves under a site you already approved is refused rather than
+replaced, for the life of the pairing — including when the site leaves the
+list and comes back. Rotation is an explicit path, not a silent swap.
 
 Every prompt is appended to `~/.byollm/ingress.log` **before** it executes, so
 a job that wedges the machine still leaves a record of what it was. The file is

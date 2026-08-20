@@ -40,6 +40,30 @@ export const Pairing = z
      * than migrated, and the README says so.
      */
     sites: z.record(z.string().min(1), PublicIdentity),
+    /**
+     * Every site ever approved here, with the key it was approved under —
+     * V1-1.
+     *
+     * `sites` follows consent and shrinks; this only grows. Without it, an
+     * upstream could drop a site id from one heartbeat and re-offer it on the
+     * next under a key of its own choosing, and the daemon would read the
+     * second offer as somebody new rather than as the substitution pinning
+     * exists to refuse.
+     *
+     * Optional on disk: a file written before this existed is read as "the
+     * sites in it were approved", which is true — they came through
+     * `connect`'s fingerprint compare.
+     */
+    known: z.record(z.string().min(1), PublicIdentity).optional(),
+    /**
+     * Offered by the upstream, approved by nobody — shown, never served.
+     *
+     * Kept in the file because the person who answers is at a *different*
+     * process: the daemon is in its run loop, and `byollm approve` needs the
+     * key to pin the one that was on screen rather than re-asking the
+     * upstream for it.
+     */
+    pending: z.record(z.string().min(1), PublicIdentity).optional(),
     pairedAt: z.number().int().positive(),
   })
   .strict();
@@ -208,15 +232,33 @@ export async function recordSites(
   pairings: Pairings,
   origin: string,
   sites: ReadonlyMap<string, PublicIdentity>,
+  /** Ever approved, and offered-but-unapproved — V1-1. */
+  extra: {
+    readonly known?: ReadonlyMap<string, PublicIdentity>;
+    readonly pending?: ReadonlyMap<string, PublicIdentity>;
+  } = {},
 ): Promise<"unpaired" | "unchanged" | "written"> {
   const pairing = pairings.get(origin);
   if (!pairing) return "unpaired";
-  const next = Object.fromEntries(sites);
+  const next = {
+    ...pairing,
+    sites: Object.fromEntries(sites),
+    ...(extra.known ? { known: Object.fromEntries(extra.known) } : {}),
+    // Written even when empty, and deleted rather than left behind: a
+    // `pending` map that outlived the offer would have `byollm sites` showing
+    // somebody a question the upstream stopped asking.
+    ...(extra.pending
+      ? extra.pending.size === 0
+        ? { pending: undefined }
+        : { pending: Object.fromEntries(extra.pending) }
+      : {}),
+  };
+  if (next.pending === undefined)
+    delete (next as { pending?: unknown }).pending;
   // Compared as text, deliberately: the values are small, flat and
   // JSON-shaped, and a deep-equality helper here would be a second
   // implementation of a comparison the file format already defines.
-  if (JSON.stringify(next) === JSON.stringify(pairing.sites))
-    return "unchanged";
-  await pairings.put({ ...pairing, sites: next });
+  if (JSON.stringify(next) === JSON.stringify(pairing)) return "unchanged";
+  await pairings.put(next);
   return "written";
 }

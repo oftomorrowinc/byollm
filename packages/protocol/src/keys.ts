@@ -67,7 +67,16 @@ export type StoredKeys = z.infer<typeof StoredKeys>;
 
 /** Domain separator, so a signature over an encryption key cannot be
  * replayed as a signature over anything else. */
-const ENCRYPTION_KEY_CONTEXT = "byollm/v1/encryption-key";
+/**
+ * What an encryption key's signature covers.
+ *
+ * Exported because a rotation is a real event this protocol has to be able to
+ * *test* — a record whose encryption key moved under an identity that signed
+ * the move is the one case pinning must refuse loudly, and building one
+ * outside this file otherwise means re-typing this string, which is how two
+ * copies of a constant start disagreeing.
+ */
+export const ENCRYPTION_KEY_CONTEXT = "byollm/v1/encryption-key";
 
 function rawPublic(key: KeyObject): string {
   const jwk = key.export({ format: "jwk" });

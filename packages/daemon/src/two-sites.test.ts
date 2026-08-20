@@ -2,12 +2,15 @@ import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+  ENCRYPTION_KEY_CONTEXT,
+  fingerprint,
   generateKeys,
   keyId,
   open,
   publicIdentityOf,
   seal,
   signRequest,
+  signWith,
   type PublicIdentity,
   type SealedEnvelope,
 } from "@byollm/protocol";
@@ -338,10 +341,18 @@ describe("a daemon paired with two sites", () => {
       relay(job, await sealedBy(SITE_A, "job_c")),
     );
     await runner.tick();
-    await settles(() => events.some((e) => e.type === "error"), "the refusal");
+    await settles(
+      () => events.some((e) => e.type === "refused"),
+      "the refusal",
+    );
 
-    expect(events.find((e) => e.type === "error")?.message).toContain(
-      "is not paired with",
+    // The refusal moved earlier with V1-1: admission asks whether this
+    // machine serves the site *before* the payload is fetched, so a stub
+    // naming a stranger costs a release rather than a fetch, a backend call
+    // and a seal that then throws. `#pinFor` still refuses at seal — a
+    // backstop is worth keeping — but nothing should ever reach it.
+    expect(events.find((e) => e.type === "refused")?.reason).toContain(
+      "does not serve site",
     );
     expect(results).toEqual([]);
   });
@@ -398,13 +409,39 @@ describe("a daemon paired with two sites", () => {
     const runner = await runnerOver(fetchImpl);
     // Before: C is not in the set, so its work is refused by name.
     await runner.tick();
-    await settles(() => events.some((e) => e.type === "error"), "the refusal");
-    expect(events.find((e) => e.type === "error")?.message).toContain(
-      "is not paired with",
+    await settles(
+      () => events.some((e) => e.type === "refused"),
+      "the refusal",
+    );
+    expect(events.find((e) => e.type === "refused")?.reason).toContain(
+      "does not serve site",
     );
 
-    // The upstream adds C, and the same job now opens.
+    // The upstream adds C — and that is a *request*, not an instruction
+    // (V1-1). The site is offered, its fingerprint is shown, and nothing runs
+    // for it: an upstream that could add a site by saying so could mint one,
+    // sign its own stubs, and have this machine run work nobody consented to.
     announced = { ...announced, [C]: publicIdentityOf(SITE_C) };
+    claimed = false;
+    await runner.tick();
+    await settles(
+      () => events.some((e) => e.type === "site-awaiting-approval"),
+      "the approval request",
+    );
+    const asked = events.find((e) => e.type === "site-awaiting-approval");
+    expect(asked?.site).toBe(C);
+    // The fingerprint is the whole ceremony: it is what the person compares
+    // against the site's own screen, so an event without one asks somebody to
+    // approve a string of hex they cannot check.
+    expect(asked?.fingerprint).toBe(
+      fingerprint(publicIdentityOf(SITE_C).identity),
+    );
+    expect(runner.sites.has(C)).toBe(false);
+    expect(results).toEqual([]);
+
+    // Somebody says yes — `byollm approve`, which reaches a running loop
+    // through the pairings file.
+    runner.applyApprovals(new Map([[C, publicIdentityOf(SITE_C)]]));
     claimed = false;
     await runner.tick();
     await settles(() => results.length === 1, "site C's result");
@@ -427,9 +464,21 @@ describe("a daemon paired with two sites", () => {
     // to refuse, and a relay is exactly the party that would benefit from it
     // being accepted quietly.
     const impostor = publicIdentityOf(generateKeys(1_800_000_000_009));
-    const announced = {
-      [A]: { ...publicIdentityOf(SITE_A), encryption: impostor.encryption },
+    // Signed by A's *own* identity key, which is what a real rotation looks
+    // like: the record verifies, `keyId` still resolves to A, and the only
+    // thing that moved is the key work gets sealed to. An unsigned splice
+    // would be refused one branch earlier for a different reason — and this
+    // case is about the branch that has to hold when the paperwork is in
+    // order.
+    const rotated: PublicIdentity = {
+      identity: publicIdentityOf(SITE_A).identity,
+      encryption: impostor.encryption,
+      encryptionSig: signWith(
+        SITE_A,
+        Buffer.from(`${ENCRYPTION_KEY_CONTEXT}:${impostor.encryption}`),
+      ),
     };
+    const announced = { [A]: rotated };
     const fetchImpl: typeof fetch = (input) => {
       const url = String(input instanceof Request ? input.url : input);
       const endpoint = url.split("/").pop() ?? "";

@@ -190,6 +190,8 @@ Point it at your models:
 
 ```bash
 byollm backends       # what's installed, healthy, and actually advertised
+byollm sites          # which sites this machine serves — and which are waiting on you
+byollm approve <site> # say yes to one that asked (nothing runs for it until you do)
 byollm log            # every prompt that ran here, ever
 byollm pause          # stop claiming work
 byollm allow --list   # everyone who can use this machine (empty by default)

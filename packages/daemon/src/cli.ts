@@ -30,6 +30,8 @@ const USAGE = `byollm — run an app's LLM jobs on your own models.
   byollm allow --list         who can currently use this machine
   byollm offer <backend> <scope>  who a backend is offered to (self|named|public)
   byollm disallow <url> <user>
+  byollm sites                which sites this machine serves, and which are waiting
+  byollm approve <site>       serve a site that asked (or --all)
   byollm forget <url>         drop a pairing
   byollm backends             what is installed, healthy, and advertised
 
@@ -113,6 +115,10 @@ export async function runCli(
       return commandDisallow(paths, rest, io);
     case "offer":
       return commandOffer(paths, rest, io);
+    case "sites":
+      return commandSites(paths, io);
+    case "approve":
+      return commandApprove(paths, rest, io);
     case "forget":
       return commandForget(paths, rest, io);
     case "backends":
@@ -289,10 +295,17 @@ async function commandConnect(
   reportSkipped(pairings, io);
   await pairings.put(result.pairing);
 
-  io.out(
-    ` paired as ${result.pairing.ownerLabel ?? result.pairing.owner}\n\n` +
-      `Now running jobs for ${origin}. Ctrl-C to stop.\n\n`,
-  );
+  io.out(` paired as ${result.pairing.ownerLabel ?? result.pairing.owner}\n`);
+  // The keys this machine just pinned, printed where somebody can still
+  // compare them. The approval happened in a browser, so this is the first
+  // moment the two ends of that decision are visible on the same screen —
+  // and a pin nobody can see is a pin nobody checks. Sites that arrive
+  // *later* get the same treatment through `byollm sites`, where they wait
+  // for an answer rather than being pinned (V1-1).
+  for (const [id, site] of Object.entries(result.pairing.sites)) {
+    io.out(`   ${id}\n     ${fingerprint(site.identity)}\n`);
+  }
+  io.out(`\nNow running jobs for ${origin}. Ctrl-C to stop.\n\n`);
 
   return runLoop(paths, [result.pairing.origin], io, signal);
 }
@@ -383,6 +396,9 @@ async function runLoop(
         // What was on disk. The runner replaces it from each heartbeat and
         // the loop below writes changes back — cloud_009 §5.
         sites: new Map(Object.entries(pairing.sites)),
+        // And what was ever approved, which is what a re-offered id is
+        // compared against — V1-1.
+        known: new Map(Object.entries(pairing.known ?? {})),
       },
       daemonVersion: DAEMON_VERSION,
       loaded,
@@ -397,14 +413,28 @@ async function runLoop(
         // an event handler that throws takes the runner with it, and a file
         // that cannot be written is worth a message rather than a crash.
         if (event.type === "heartbeat") {
-          void recordSites(pairings, origin, runner.sites).catch(
-            (error: unknown) => {
+          void recordSites(pairings, origin, runner.sites, {
+            known: runner.known,
+            pending: runner.pending,
+          })
+            .then(async () => {
+              // Then read the file back, because somebody may have answered
+              // in another terminal: `byollm approve` cannot call into a
+              // running loop, so approval arrives the only way one process
+              // can hand something to another here — through the file both
+              // of them already share.
+              await pairings.load();
+              const answered = pairings.get(origin)?.known;
+              if (answered) {
+                runner.applyApprovals(new Map(Object.entries(answered)));
+              }
+            })
+            .catch((error: unknown) => {
               io.err(
                 `could not record the site list for ${origin}: ` +
                   `${error instanceof Error ? error.message : "unknown error"}\n`,
               );
-            },
-          );
+            });
         }
 
         // Revocation drops the pairing — cloud_008 §2.3, finding 24.
@@ -532,6 +562,25 @@ function report(origin: string, event: RunnerEvent, io: CliIo): void {
         `${at} ${host} refused a changed key for site ${event.site}. ` +
           `Nothing was re-pinned. If this site rotated its keys on purpose, ` +
           `re-pair with \`byollm connect\`.\n`,
+      );
+      break;
+    case "site-awaiting-approval":
+      // The one sentence in this log that asks for something. A site nobody
+      // here approved is offered no work at all, so the failure it prevents
+      // is silent — which is exactly why it has to be said out loud, with the
+      // fingerprint the site displays next to it.
+      io.out(
+        `${at} ${host} site ${event.site} is asking this machine to serve ` +
+          `it.\n    fingerprint: ${event.fingerprint}\n` +
+          `    Compare that against what the site shows you, then run ` +
+          `\`byollm approve ${event.site}\`.\n` +
+          `    Nothing runs for it until you do.\n`,
+      );
+      break;
+    case "site-refused":
+      io.err(
+        `${at} ${host} refused site ${event.site}: ` +
+          `${stripControlChars(event.reason)}. Nothing was pinned.\n`,
       );
       break;
     case "consent-resumed":
@@ -1000,6 +1049,138 @@ async function commandForget(
       ? `forgot ${normalizeOrigin(target)} — the app may still list this runner ` +
           `until you revoke it there too\n`
       : `not paired with ${normalizeOrigin(target)}\n`,
+  );
+  return 0;
+}
+
+// -- sites / approve ---------------------------------------------------------
+
+/**
+ * Which sites this machine serves, which are waiting on an answer, and which
+ * it has served before — V1-1.
+ *
+ * The pinned fingerprints were already in `byollm status`; what was missing
+ * was the *question*. A site the upstream added arrives on a heartbeat, and
+ * before V1-1 it was simply pinned — so the one screen where somebody could
+ * have compared a fingerprint never existed. This is that screen.
+ */
+async function commandSites(paths: DaemonPaths, io: CliIo): Promise<ExitCode> {
+  const pairings = new Pairings(paths.pairings);
+  await pairings.load();
+  reportSkipped(pairings, io);
+
+  const list = pairings.list();
+  if (list.length === 0) {
+    io.out("not paired with anything — run `byollm connect`\n");
+    return 0;
+  }
+
+  let waiting = 0;
+  for (const pairing of list) {
+    io.out(`${pairing.origin}\n`);
+    const served = Object.entries(pairing.sites);
+    if (served.length === 0) io.out("  (serving nothing right now)\n");
+    for (const [id, site] of served) {
+      io.out(`  serving  ${id}\n           ${fingerprint(site.identity)}\n`);
+    }
+    for (const [id, site] of Object.entries(pairing.pending ?? {})) {
+      waiting += 1;
+      io.out(
+        `  WAITING  ${id}\n           ${fingerprint(site.identity)}\n` +
+          `           compare that with the site, then ` +
+          `\`byollm approve ${id}\`\n`,
+      );
+    }
+    // Approved once, not being offered now — consent ended, or the site is
+    // quiet. Shown because a key kept for a site nobody mentions is exactly
+    // what somebody should be able to see they are still holding.
+    for (const id of Object.keys(pairing.known ?? {})) {
+      if (id in pairing.sites) continue;
+      if (id in (pairing.pending ?? {})) continue;
+      io.out(`  approved ${id} (not offered right now)\n`);
+    }
+  }
+  if (waiting > 0) {
+    io.out(
+      `\n${String(waiting)} site${waiting === 1 ? "" : "s"} waiting. ` +
+        "Nothing runs for them until you approve them.\n",
+    );
+  }
+  return 0;
+}
+
+/**
+ * Say yes to a site that asked — the local half of the trust model.
+ *
+ * The key that gets pinned is the one this file was shown, not one re-fetched
+ * from the upstream: approving is answering the question that was on screen,
+ * and a re-fetch would let the answer land on a different question.
+ *
+ * `--all` exists because a person connecting three sites in a dashboard
+ * should not have to type three ids — but it approves what is *currently*
+ * waiting and nothing else, so it can never mean "and anything that turns up
+ * later".
+ */
+async function commandApprove(
+  paths: DaemonPaths,
+  args: readonly string[],
+  io: CliIo,
+): Promise<ExitCode> {
+  const which = args[0];
+  if (which === undefined) {
+    io.err("usage: byollm approve <site-id> | --all\n");
+    return 2;
+  }
+
+  const pairings = new Pairings(paths.pairings);
+  await pairings.load();
+  reportSkipped(pairings, io);
+
+  let approved = 0;
+  for (const pairing of pairings.list()) {
+    const pending = Object.entries(pairing.pending ?? {});
+    const taking = pending.filter(
+      ([id, site]) =>
+        which === "--all" ||
+        id === which ||
+        fingerprint(site.identity) === which,
+    );
+    if (taking.length === 0) continue;
+
+    const known = { ...(pairing.known ?? {}) };
+    const takenIds = new Set(taking.map(([id]) => id));
+    const rest = Object.fromEntries(
+      Object.entries(pairing.pending ?? {}).filter(([id]) => !takenIds.has(id)),
+    );
+    for (const [id, site] of taking) {
+      known[id] = site;
+      approved += 1;
+      io.out(`approved ${id} for ${pairing.origin}\n`);
+      io.out(`  ${fingerprint(site.identity)}\n`);
+    }
+    // Built without `pending` and then given one back only if anything is
+    // still waiting. Spreading the old row and overwriting would leave the
+    // approved site listed as waiting forever — the whole row is replaced, so
+    // what is not written is what is gone.
+    const { pending: _dropped, ...rest_of_pairing } = pairing;
+    await pairings.put({
+      ...rest_of_pairing,
+      known,
+      ...(Object.keys(rest).length === 0 ? {} : { pending: rest }),
+    });
+  }
+
+  if (approved === 0) {
+    io.err(
+      which === "--all"
+        ? "nothing is waiting for approval\n"
+        : `nothing waiting matches ${which} — run \`byollm sites\`\n`,
+    );
+    return 1;
+  }
+  io.out(
+    "A running `byollm run` picks this up on its next heartbeat.\n" +
+      "Work for these sites starts then.\n",
   );
   return 0;
 }

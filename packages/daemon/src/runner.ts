@@ -5,6 +5,8 @@ import {
   publicIdentityOf,
   seal,
   sizeClassCeiling,
+  fingerprint,
+  verifyPublicIdentity,
   type ClaimedStub,
   type JobPayload,
   type PublicIdentity,
@@ -77,6 +79,17 @@ export interface RunnerOptions {
      * is this project's most repeated bug.
      */
     readonly sites: ReadonlyMap<string, PublicIdentity>;
+    /**
+     * Every site this machine has ever *approved*, with the key it was
+     * approved under — including sites whose consent has since ended.
+     *
+     * The pinning half that the site set alone cannot carry. `sites` follows
+     * consent, so a site that leaves it is gone; if that were the only
+     * record, an upstream could drop an id and re-offer it under a key of
+     * its own choosing and the daemon would read it as somebody new. This map
+     * only grows, so the second offer is compared against the first.
+     */
+    readonly known?: ReadonlyMap<string, PublicIdentity>;
   };
   /** Heartbeat cadence before jitter. */
   readonly heartbeatMs?: number;
@@ -94,6 +107,21 @@ export type RunnerEvent =
   | { readonly type: "consent-resumed" }
   /** A pinned site's encryption key moved under its identity — refused. */
   | { readonly type: "site-key-changed"; readonly site: string }
+  /**
+   * A site this machine has never approved arrived on the heartbeat. Nothing
+   * is served for it until somebody at this keyboard says so — V1-1.
+   */
+  | {
+      readonly type: "site-awaiting-approval";
+      readonly site: string;
+      readonly fingerprint: string;
+    }
+  /** A site the upstream offered whose own account of itself did not add up. */
+  | {
+      readonly type: "site-refused";
+      readonly site: string;
+      readonly reason: string;
+    }
   | { readonly type: "claimed"; readonly jobId: string; readonly kind: string }
   | {
       readonly type: "refused";
@@ -110,6 +138,22 @@ export type RunnerEvent =
   | { readonly type: "error"; readonly message: string };
 
 const DEFAULT_HEARTBEAT_MS = 10_000;
+
+/**
+ * Whether two accounts of a site are the same key material.
+ *
+ * All three fields, not the encryption key alone: the identity is what a
+ * fingerprint is taken of, the encryption key is what work is sealed to, and
+ * the signature is what ties them together. A comparison that skipped any of
+ * them would call two different keys the same.
+ */
+function sameKey(a: PublicIdentity, b: PublicIdentity): boolean {
+  return (
+    a.identity === b.identity &&
+    a.encryption === b.encryption &&
+    a.encryptionSig === b.encryptionSig
+  );
+}
 
 /**
  * The daemon's loop: heartbeat, claim, execute, report.
@@ -151,11 +195,60 @@ export class Runner {
     // one is what the upstream last said. Sharing them would let a heartbeat
     // rewrite a file nobody wrote.
     this.#sites = new Map(options.identity?.sites ?? []);
+    // Everything on disk was approved once: the sites in a pairing came
+    // through `connect`'s fingerprint compare, and the `known` map holds the
+    // ones whose consent has since ended. Seeded from both so a daemon that
+    // restarts asks nobody to re-approve what they already did.
+    this.#known = new Map([
+      ...(options.identity?.known ?? []),
+      ...(options.identity?.sites ?? []),
+    ]);
   }
 
   /** The sites this daemon holds pins for, so the CLI can persist changes. */
   get sites(): ReadonlyMap<string, PublicIdentity> {
     return this.#sites;
+  }
+
+  /** Every site ever approved here, so the CLI can persist the tombstones. */
+  get known(): ReadonlyMap<string, PublicIdentity> {
+    return this.#known;
+  }
+
+  /**
+   * Sites the upstream offered that nobody here has approved yet.
+   *
+   * Persisted by the CLI so `byollm sites` can show their fingerprints and
+   * `byollm approve` can pin the key the person was shown — an approval that
+   * re-fetched the key from the upstream would be approving a different
+   * question than the one on screen.
+   */
+  get pending(): ReadonlyMap<string, PublicIdentity> {
+    return this.#pending;
+  }
+
+  /**
+   * Take approvals recorded on disk by a `byollm approve` run.
+   *
+   * `byollm approve` is a different process — the daemon is in the middle of
+   * a run loop — so approval arrives through the pairings file rather than a
+   * call. Re-checked here rather than trusted: this reads a file, and a file
+   * on a shared machine is not a smaller thing to verify than a heartbeat.
+   */
+  applyApprovals(known: ReadonlyMap<string, PublicIdentity>): void {
+    for (const [id, site] of known) {
+      if (this.#known.has(id)) continue;
+      if (!verifyPublicIdentity(site) || keyId(site.identity) !== id) continue;
+      this.#known.set(id, site);
+      const offered = this.#pending.get(id);
+      // Serve it now only if the key that was approved is the key the
+      // upstream is currently offering. If they differ, nothing is served and
+      // the next heartbeat says `site-key-changed` — which is the true
+      // sentence about a key that moved between approval and use.
+      if (offered && sameKey(offered, site)) this.#sites.set(id, site);
+      this.#pending.delete(id);
+      this.#announced.delete(id);
+    }
   }
 
   status(): RunnerStatus {
@@ -266,6 +359,21 @@ export class Runner {
    * reason `refused`, which the server remembers so it is never offered back.
    */
   admit(job: ClaimedStub): { ok: true } | { ok: false; reason: string } {
+    // Before anything else, and before a payload is fetched: is this a site
+    // this machine serves? `#pinFor` asks the same question at seal time,
+    // which is *after* a backend has been paid to answer a prompt from a site
+    // nobody here approved. Asked here, the answer costs a release.
+    if (this.#options.identity && !this.#sites.has(job.site)) {
+      return {
+        ok: false,
+        reason: this.#pending.has(job.site)
+          ? `this machine has not approved site ${job.site} yet — ` +
+            "run `byollm sites` to see it and `byollm approve` to allow it"
+          : `this machine does not serve site ${job.site} ` +
+            `(serving ${[...this.#sites.keys()].sort().join(", ") || "nothing"})`,
+      };
+    }
+
     const route = this.#routeFor(job.kind);
     if (!route) {
       // An unknown or unrouted kind is refused, never guessed
@@ -823,6 +931,18 @@ export class Runner {
    */
   #sites: Map<string, PublicIdentity>;
 
+  /** Every site ever approved here, with the key it was approved under. */
+  readonly #known: Map<string, PublicIdentity>;
+
+  /** Offered, never approved: shown to the user, served to nobody. */
+  readonly #pending = new Map<string, PublicIdentity>();
+
+  /**
+   * Pending ids already reported, so a five-second heartbeat does not repeat
+   * itself — the same rule `awaitingConsent` follows.
+   */
+  readonly #announced = new Set<string>();
+
   /**
    * Take the upstream's site set, refusing a key that moved under an id.
    *
@@ -836,22 +956,90 @@ export class Runner {
    */
   #applySites(sites: Record<string, PublicIdentity>): void {
     for (const [id, site] of Object.entries(sites)) {
-      const pinned = this.#sites.get(id);
-      if (pinned === undefined) {
-        this.#sites.set(id, site);
+      // The upstream's account of a site, checked before anything is pinned.
+      // A key that is not signed by the identity presenting it is what
+      // `connect` refuses at pairing (`connect.ts`), and the heartbeat is the
+      // same claim arriving later — an upstream that could add a site here
+      // without this check would have a door around the ceremony.
+      if (!verifyPublicIdentity(site)) {
+        this.#refuseSite(
+          id,
+          "its encryption key is not signed by the identity presenting it",
+        );
         continue;
       }
-      if (
-        pinned.encryption !== site.encryption ||
-        pinned.encryptionSig !== site.encryptionSig
-      ) {
+      // The map key is the site's identity key id (Amendment A §A.3) and
+      // `stub.site` names the same id. If the key and the identity disagree,
+      // a stub could name an id whose pin belongs to a different identity —
+      // the pin lookup would succeed while pointing at the wrong site.
+      if (keyId(site.identity) !== id) {
+        this.#refuseSite(id, "the id it is filed under is not its key id");
+        continue;
+      }
+
+      const approved = this.#known.get(id);
+      if (approved === undefined) {
+        // Never approved on this machine. **Not pinned, and nothing runs for
+        // it** — this is the fence V1-1 found missing. Consent to serve a
+        // site lives on the site's side of the relay, where the relay itself
+        // could write it; the machine that will do the work says yes here.
+        const offered = this.#pending.get(id);
+        if (!offered || !sameKey(offered, site)) {
+          this.#pending.set(id, site);
+          this.#announced.delete(id);
+        }
+        if (!this.#announced.has(id)) {
+          this.#announced.add(id);
+          this.#options.onEvent?.({
+            type: "site-awaiting-approval",
+            site: id,
+            fingerprint: fingerprint(site.identity),
+          });
+        }
+        continue;
+      }
+
+      if (!sameKey(approved, site)) {
+        // A key that moved under an id somebody already compared a
+        // fingerprint of. Refused whether the id is currently served or was
+        // dropped and re-offered: `#known` outlives consent precisely so
+        // remove-then-re-add is not a way around this branch.
         this.#options.onEvent?.({ type: "site-key-changed", site: id });
         continue;
       }
+
+      // Pinned from `#known` rather than from the heartbeat: the bytes this
+      // machine seals to come off its own disk, having been approved once,
+      // rather than off the wire every few seconds.
+      this.#sites.set(id, approved);
     }
+
     for (const id of [...this.#sites.keys()]) {
       if (!(id in sites)) this.#sites.delete(id);
     }
+    // A pending site the upstream stopped offering is no longer a question
+    // waiting for an answer. It stays out of `#known`, so if it comes back it
+    // is asked again rather than assumed.
+    for (const id of [...this.#pending.keys()]) {
+      if (id in sites) continue;
+      this.#pending.delete(id);
+      this.#announced.delete(id);
+    }
+  }
+
+  /**
+   * Refuse an offer without touching what was approved.
+   *
+   * Deliberately *not* a removal. A site that is being served was approved
+   * here, key and all; an upstream that starts sending a malformed record for
+   * it has said nothing about consent, and treating garbage as revocation
+   * would hand any upstream a way to unpin a site by sending nonsense. The
+   * only thing that stops a site being served is its absence from the set,
+   * which is the signal consent actually speaks through.
+   */
+  #refuseSite(id: string, reason: string): void {
+    if (!this.#known.has(id)) this.#pending.delete(id);
+    this.#options.onEvent?.({ type: "site-refused", site: id, reason });
   }
 
   #pinFor(job: ClaimedStub): PublicIdentity {

@@ -368,7 +368,7 @@ describe("the loop", () => {
 
     await runner.tick();
     await settles(
-      () => events.some((e) => e.type === "error"),
+      () => events.some((e) => e.type === "refused"),
       "the daemon to refuse the job",
     );
 
@@ -377,13 +377,18 @@ describe("the loop", () => {
     expect(backend.seen).toEqual([]);
     // And the message names both sites, because "refused" alone is what makes
     // this class of failure take an afternoon.
-    const error =
+    //
+    // It arrives as `refused` rather than `error` since V1-1: admission now
+    // asks whether this machine serves the site, so the job is released
+    // before its payload is fetched. It used to travel all the way to the
+    // seal and throw — a refusal that had already paid for the answer.
+    const reason =
       events.find(
-        (e): e is RunnerEvent & { type: "error"; message: string } =>
-          e.type === "error",
-      )?.message ?? "";
-    expect(error).toContain("BYOLLM-A-SITE-THIS-MACHINE-NEVER-PAIRED-WITH");
-    expect(error).toContain(TEST_SITE_ID);
+        (e): e is RunnerEvent & { type: "refused"; reason: string } =>
+          e.type === "refused",
+      )?.reason ?? "";
+    expect(reason).toContain("BYOLLM-A-SITE-THIS-MACHINE-NEVER-PAIRED-WITH");
+    expect(reason).toContain(TEST_SITE_ID);
   });
 
   it("runs a claimed job and reports it", async () => {

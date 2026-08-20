@@ -150,6 +150,13 @@ export async function connect(options: ConnectOptions): Promise<ConnectResult> {
               ? {}
               : { ownerLabel: polled.ownerLabel }),
             sites: polled.sites,
+            // Approved by the act of pairing: these are the sites the app
+            // named while somebody was typing its code into a browser it
+            // opened themselves. Recorded as approved so that a site whose
+            // consent later ends and then resumes is not a new question, and
+            // so that a key which moves under one of these ids is refused
+            // rather than read as somebody new (V1-1).
+            known: polled.sites,
             pairedAt: now(),
           },
         };

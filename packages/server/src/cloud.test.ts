@@ -267,3 +267,107 @@ describe("what the site refuses to believe", () => {
     );
   });
 });
+
+describe("a relay that says ask me later — alpha.31", () => {
+  /**
+   * Every deploy drains, and a draining pod answers `503 not-ready` to every
+   * routed call for the length of its `preStop` window. That is the drain
+   * design working: readiness goes false, the pod keeps serving, and callers
+   * are told to come back rather than meeting a closed socket.
+   *
+   * This lane read the body of that answer, found no `jobs` in it, and threw
+   * `TypeError: finished.jobs is not iterable` — a site falling over because
+   * its relay was polite. Found by `roll.sh`'s own wire proof, on the deploy
+   * that introduced nothing to do with it.
+   *
+   * The bug's shape is "a response body used without checking the status", so
+   * the cases below present the refusal on **each endpoint in turn**: fixing
+   * the one loop that crashed would have left the same crash two calls away.
+   */
+
+  /** A relay that refuses one endpoint and answers the rest normally. */
+  function refusing(endpoint: string, status: number, error: string) {
+    const bodies: Record<string, unknown> = {
+      pending: { jobs: [] },
+      results: { jobs: [] },
+      enqueue: { accepted: true },
+      payload: { accepted: true },
+      cancel: { cancelled: true },
+    };
+    const impl: typeof fetch = (input) => {
+      const url = String(input instanceof Request ? input.url : input);
+      const called = url.split("?")[0]!.split("/").pop()!;
+      if (called === endpoint) {
+        return Promise.resolve(
+          new Response(JSON.stringify({ error, message: "later" }), {
+            status,
+            headers: { "content-type": "application/json" },
+          }),
+        );
+      }
+      return Promise.resolve(
+        new Response(JSON.stringify(bodies[called] ?? {}), {
+          headers: { "content-type": "application/json" },
+        }),
+      );
+    };
+    return impl;
+  }
+
+  for (const endpoint of ["pending", "results"]) {
+    it(`defers rather than crashing when ${endpoint} is draining`, async () => {
+      const { app } = appWith(refusing(endpoint, 503, "not-ready"));
+      const report = await app.cloud!.pump();
+      // Not a throw, and not silence either: the reason is on the report, so
+      // a site that did nothing and a site that was told to wait do not look
+      // the same in a log.
+      expect(report.deferred).toContain(endpoint);
+      expect(report.sealed).toEqual([]);
+    });
+  }
+
+  it("comes back on the next cycle, once the pod has gone", async () => {
+    // The half that makes deferring correct rather than merely quiet: the
+    // work is still there, and the next pump finds it.
+    let draining = true;
+    const impl: typeof fetch = () => {
+      if (draining) {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({ error: "not-ready", message: "later" }),
+            {
+              status: 503,
+              headers: { "content-type": "application/json" },
+            },
+          ),
+        );
+      }
+      return Promise.resolve(
+        new Response(JSON.stringify({ jobs: [], accepted: true }), {
+          headers: { "content-type": "application/json" },
+        }),
+      );
+    };
+    const { app } = appWith(impl);
+
+    expect((await app.cloud!.pump()).deferred).toBeDefined();
+    draining = false;
+    const after = await app.cloud!.pump();
+    expect(after.deferred).toBeUndefined();
+  });
+
+  it("does not defer a refusal that will still be true tomorrow", async () => {
+    // A bad signature, an unknown site, a version this relay does not speak.
+    // Swallowing these would leave a site silently disconnected from its own
+    // users with nothing in any log to say so — the opposite failure, and the
+    // more expensive one.
+    for (const [status, error] of [
+      [401, "unauthorized"],
+      [403, "forbidden"],
+      [400, "unsupported-protocol-version"],
+    ] as const) {
+      const { app } = appWith(refusing("pending", status, error));
+      await expect(app.cloud!.pump()).rejects.toThrow(/pending/);
+    }
+  });
+});

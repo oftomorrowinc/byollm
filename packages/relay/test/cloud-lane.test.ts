@@ -287,6 +287,87 @@ describe.each(CASES)("the cloud lane over $name", (storeCase) => {
     const report = await app.cloud!.pump();
     expect(report.completed).not.toContain(handle.id);
   });
+
+  it("survives a relay that is mid-deploy, and finishes the job after", async () => {
+    // What a draining pod actually does: readiness goes false, the pod keeps
+    // answering for the length of its `preStop` window, and every routed call
+    // gets `503 {"error":"not-ready"}`. That is the drain design working —
+    // callers are told to come back rather than meeting a closed socket.
+    //
+    // This lane used to read that answer's body without looking at the status
+    // and throw `TypeError: finished.jobs is not iterable`: a site falling
+    // over because its relay was polite. Found by a deploy's own wire proof,
+    // on a release that had nothing to do with it.
+    //
+    // The property is not "pump does not throw" — it is that the work is
+    // still there afterwards. So the drain happens *around a real job*, and
+    // the assertion is that the job completes once the pod has gone.
+    const { store, owner } = await storeCase.make();
+    const siteKeys = generateSiteKeys();
+    const site = publicIdentityOf(siteKeys);
+    const fixture = fixtureFor(site, {
+      consents: [{ owner, siteId: SITE_ID, paused: false }],
+    });
+    const relay = new Relay({ fixture });
+
+    let draining = false;
+    const app = new ByollmApp({
+      store,
+      siteKeys,
+      lane: {
+        relayOrigin: "http://relay.test",
+        siteId: SITE_ID,
+        fetch: (input, init) =>
+          draining
+            ? Promise.resolve(
+                new Response(
+                  JSON.stringify({ error: "not-ready", message: "draining" }),
+                  {
+                    status: 503,
+                    headers: { "content-type": "application/json" },
+                  },
+                ),
+              )
+            : relay.handle(new Request(input, init)),
+      },
+    });
+
+    const daemon = await makeDaemon(relay, fixture, { owner, site });
+    disposers.push(daemon.dispose);
+
+    const handle = await app.enqueue({
+      kind: "llm.generate",
+      owner,
+      audience: "self",
+      payload: { prompt: "across a deploy" },
+    });
+
+    draining = true;
+    for (let i = 0; i < 3; i += 1) {
+      // No throw, and not silence either: a site that had nothing to do and a
+      // site that was told to wait must not look the same in a log.
+      const report = await app.cloud!.pump();
+      expect(report.deferred).toBeDefined();
+      expect(report.sealed).toEqual([]);
+      expect(report.completed).toEqual([]);
+    }
+    draining = false;
+
+    for (let i = 0; i < 100; i += 1) {
+      await daemon.runner.tick();
+      const report = await app.cloud!.pump();
+      expect(report.deferred).toBeUndefined();
+      expect(report.refused).toEqual([]);
+      if ((await app.job(handle.id))?.state === "ok") break;
+      await new Promise((r) => setTimeout(r, 20));
+    }
+
+    const delivered = await app.result(handle.id);
+    expect(delivered?.outcome).toMatchObject({
+      outcome: "ok",
+      text: "echo: across a deploy",
+    });
+  });
 });
 
 describe("provenance names a person, not a key", () => {

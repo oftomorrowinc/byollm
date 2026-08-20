@@ -61,6 +61,26 @@ export interface CloudLaneOptions {
 }
 
 /** What one pump cycle did, for logging and for tests. */
+/**
+ * A relay that could not answer this request — alpha.31.
+ *
+ * `retryable` is the whole point: a draining pod and a bad signature are both
+ * failures, and treating them alike is how a site either falls over on every
+ * deploy or stays silently disconnected for a week.
+ */
+export class RelayUnavailable extends Error {
+  readonly retryable: boolean;
+  /** The protocol's own code, when the relay sent one. */
+  readonly code: string;
+
+  constructor(message: string, retryable: boolean, code: string) {
+    super(message);
+    this.name = "RelayUnavailable";
+    this.retryable = retryable;
+    this.code = code;
+  }
+}
+
 export interface PumpReport {
   /** Jobs sealed to a claiming device this cycle. */
   readonly sealed: string[];
@@ -74,6 +94,20 @@ export interface PumpReport {
    * exactly the case `awaiting-payload` exists to bound.
    */
   readonly refused: string[];
+  /**
+   * Why this cycle stopped early, when it did — alpha.31.
+   *
+   * A relay can legitimately say "ask me later": a pod draining through its
+   * `preStop` window answers `503 not-ready` to every routed call, and that
+   * happens on **every deploy**. Before this existed the lane read the body
+   * of that answer, found no `jobs` in it, and threw `TypeError: finished.jobs
+   * is not iterable` — a site falling over because its relay was polite.
+   *
+   * Absent on an ordinary cycle. Present, with the reason, when the lane
+   * deferred: a site that quietly did nothing and a site that was told to wait
+   * must not look the same in a log.
+   */
+  readonly deferred?: string;
 }
 
 export class CloudLane {
@@ -180,6 +214,25 @@ export class CloudLane {
     const refused: string[] = [];
     const completed: string[] = [];
 
+    try {
+      return await this.#cycle(sealed, refused, completed);
+    } catch (error) {
+      // Retryable: end the cycle, keep what was done, say why. Anything else
+      // is a fact about this site's configuration and belongs to the caller —
+      // a swallowed 401 is a site disconnected from its users with nothing in
+      // any log to say so.
+      if (error instanceof RelayUnavailable && error.retryable) {
+        return { sealed, completed, refused, deferred: error.message };
+      }
+      throw error;
+    }
+  }
+
+  async #cycle(
+    sealed: string[],
+    refused: string[],
+    completed: string[],
+  ): Promise<PumpReport> {
     const pending = (await this.#get("pending")) as {
       jobs: {
         jobId: string;
@@ -380,6 +433,51 @@ export class CloudLane {
     };
   }
 
+  /**
+   * A relay answer, checked before it is believed — alpha.31.
+   *
+   * The bug this closes is one line long and its shape is general: a response
+   * body used without looking at the status. The daemon's client has always
+   * done this properly (`client.ts` maps every status to a typed refusal); the
+   * site's lane parsed JSON and hoped.
+   *
+   * Two classes, because they need opposite handling. **Retryable** — 503 from
+   * a draining pod, 429, 5xx, and the protocol's own `not-ready` — means the
+   * work is still there and this cycle should end quietly. **Refused** — a bad
+   * signature, an unknown site, a version this relay does not speak — will
+   * still be true in five seconds, and swallowing it would leave a site
+   * silently disconnected from its own users.
+   */
+  async #answer(response: Response, endpoint: string): Promise<unknown> {
+    if (response.ok) return response.json();
+
+    let code = "";
+    let message: string;
+    try {
+      const body = (await response.json()) as {
+        error?: string;
+        message?: string;
+      };
+      code = body.error ?? "";
+      message = body.message ?? "";
+    } catch {
+      // A body that is not JSON is an intermediary answering, not the relay.
+      message = `HTTP ${String(response.status)}`;
+    }
+
+    const retryable =
+      response.status >= 500 ||
+      response.status === 429 ||
+      code === "not-ready" ||
+      code === "server-error";
+
+    throw new RelayUnavailable(
+      `${endpoint}: ${code || "refused"} — ${message}`,
+      retryable,
+      code,
+    );
+  }
+
   async #post(endpoint: string, body: unknown): Promise<unknown> {
     // The version travels in the body, as it does on the daemon plane — §B.4.
     // Added here rather than at each call site so a new site-plane call cannot
@@ -400,7 +498,7 @@ export class CloudLane {
         body: rawBody,
       },
     );
-    return response.json();
+    return this.#answer(response, endpoint);
   }
 
   async #get(endpoint: string): Promise<unknown> {
@@ -415,6 +513,6 @@ export class CloudLane {
     const response = await this.#fetch(url, {
       headers: this.#headers(endpoint, ""),
     });
-    return response.json();
+    return this.#answer(response, endpoint);
   }
 }

@@ -5,7 +5,7 @@ import type {
   SealedEnvelope,
 } from "@byollm/protocol";
 import { randomUUID } from "node:crypto";
-import type { RoutingStore } from "./store.js";
+import type { Grant, RoutingStore } from "./store.js";
 
 /**
  * The relay's routing state — byollm_009 §7, reachable at last.
@@ -650,14 +650,21 @@ export class RelayState implements RoutingStore {
   }
 
   /** {@link RoutingStore.cancelRequests} — cancelled jobs this runner holds. */
-  cancelRequests(runnerId: string): Promise<string[]> {
+  cancelRequests(runnerId: string): Promise<Grant[]> {
     return Promise.resolve(
       [...this.#jobs.values()]
         .filter(
           (job) =>
             job.cancelled === true && job.claimedBy?.runnerId === runnerId,
         )
-        .map((job) => job.id),
+        // The grant, not the id — V1-3. Two sites may have chosen the same
+        // job id, and a daemon holding both cannot tell which of them a bare
+        // id means.
+        .map((job) => ({
+          jobId: job.id,
+          leaseId: job.claimedBy?.leaseId ?? "",
+        }))
+        .filter((grant) => grant.leaseId !== ""),
     );
   }
 
@@ -668,14 +675,14 @@ export class RelayState implements RoutingStore {
     leaseMs: number;
   }): Promise<{
     renewed: { jobId: string; expiresAt: number }[];
-    lost: string[];
+    lost: Grant[];
   }> {
     // The store's clock, not the caller's — cloud_006 §3.4. A lease extended
     // against one replica's `Date.now()` and swept against another's is a
     // lease with no length.
     const now = await this.now();
     const renewed: { jobId: string; expiresAt: number }[] = [];
-    const lost: string[] = [];
+    const lost: Grant[] = [];
 
     for (const { jobId, leaseId } of input.leases) {
       const job = this.#grantFor(jobId, input.runnerId, leaseId);
@@ -689,7 +696,7 @@ export class RelayState implements RoutingStore {
         held?.leaseId !== leaseId ||
         held.runnerId !== input.runnerId
       ) {
-        lost.push(jobId);
+        lost.push({ jobId, leaseId });
         continue;
       }
       // Replaced rather than mutated: the grant is a readonly record, which

@@ -326,7 +326,8 @@ describe("runJob [INGRESS_LOGGED_BEFORE_EXECUTION]", () => {
     // Wait for the backend to actually hold it, rather than guessing with a
     // sleep — the race this used to lose is the bug it is meant to catch.
     while (backend.seen.length === 0) await new Promise(setImmediate);
-    runner.cancelJob("job_1");
+    // By lease, because a cancel names the grant — V1-3.
+    runner.cancelLease("lease_test");
     expect(await running).toEqual({ outcome: "canceled" });
   });
 

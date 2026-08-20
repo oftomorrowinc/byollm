@@ -357,8 +357,18 @@ export const HeartbeatResponse = z
     /**
      * Per-job cancel (byollm_001 Rev 1 §C). The daemon aborts these jobs'
      * in-flight backend calls and reports them `canceled`.
+     *
+     * **The grant, not the id** — V1-3. Job ids are chosen per site, so two
+     * sites may pick the same one, and a bare id told a daemon holding both
+     * to abort whichever it happened to have filed under that name. The lease
+     * is the unique grant and the daemon already keys its work by it; this is
+     * the same shape `activeLeases` sends in the other direction.
      */
-    cancel: z.array(z.string().min(1)),
+    cancel: z.array(
+      z
+        .object({ jobId: z.string().min(1), leaseId: z.string().min(1) })
+        .strict(),
+    ),
     // `leases` is deliberately absent — cloud_008 §1.4b, finding 16.
     //
     // It carried "these leases were renewed, and here is the new expiry", and
@@ -382,8 +392,16 @@ export const HeartbeatResponse = z
     /**
      * Jobs the daemon thinks it holds but the server has reassigned or
      * expired. The daemon must stop work on these and not report results.
+     *
+     * Named by grant rather than by id, for V1-3's reason: a bare id is
+     * ambiguous across sites, and "the lease you no longer hold" is exactly
+     * what this field means anyway.
      */
-    lost: z.array(z.string().min(1)),
+    lost: z.array(
+      z
+        .object({ jobId: z.string().min(1), leaseId: z.string().min(1) })
+        .strict(),
+    ),
     /** Server clock, so a daemon with a skewed clock still honors leases. */
     serverTime: z.number().int().positive(),
     /**

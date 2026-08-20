@@ -184,7 +184,7 @@ export class MemoryStore implements ByollmStore {
     this.#expireDueSync(args.now);
 
     const renewed: { jobId: string; expiresAt: number }[] = [];
-    const lost: string[] = [];
+    const lost: { jobId: string; leaseId: string }[] = [];
 
     for (const { jobId, leaseId } of args.leases) {
       const job = this.#jobs.get(jobId);
@@ -194,12 +194,13 @@ export class MemoryStore implements ByollmStore {
         job.lease.id !== leaseId
       ) {
         // Reclaimed by someone else, terminal, or a different grant than the
-        // one being renewed — either way this runner must stop.
-        lost.push(jobId);
+        // one being renewed — either way this runner must stop. Named by the
+        // grant the daemon asked about, which is the one it must abandon.
+        lost.push({ jobId, leaseId });
         continue;
       }
       if (job.state !== "claimed" && job.state !== "running") {
-        lost.push(jobId);
+        lost.push({ jobId, leaseId });
         continue;
       }
       const expiresAt = args.now + args.leaseMs;
@@ -524,11 +525,15 @@ export class MemoryStore implements ByollmStore {
     );
   }
 
-  listCancelRequests(runnerId: string): Promise<string[]> {
+  listCancelRequests(
+    runnerId: string,
+  ): Promise<{ jobId: string; leaseId: string }[]> {
     return Promise.resolve(
-      [...this.#cancelRequests].filter(
-        (jobId) => this.#jobs.get(jobId)?.lease?.runnerId === runnerId,
-      ),
+      [...this.#cancelRequests]
+        .map((jobId) => ({ jobId, lease: this.#jobs.get(jobId)?.lease }))
+        .filter((row) => row.lease?.runnerId === runnerId)
+        // The grant, not the id — V1-3.
+        .map((row) => ({ jobId: row.jobId, leaseId: row.lease?.id ?? "" })),
     );
   }
 

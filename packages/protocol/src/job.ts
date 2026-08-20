@@ -107,6 +107,19 @@ export const ClaimedJob = z
     audience: Audience,
     /** The app's id for the user who enqueued it. */
     owner: z.string().min(1),
+    /**
+     * Which site's job — V1-3.
+     *
+     * The stub has always carried it; the opened job did not, so everything
+     * downstream of the payload — the ingress line above all — recorded a job
+     * id that belongs to a site without saying which. Two sites can choose
+     * the same id, and the meter is the product.
+     *
+     * Optional so a caller assembling a job by hand is not forced to invent
+     * one, and so this reads as what it is: a fact about where the work came
+     * from, not a second copy of the routing key.
+     */
+    site: z.string().min(1).optional(),
     lease: Lease,
   })
   .strict();

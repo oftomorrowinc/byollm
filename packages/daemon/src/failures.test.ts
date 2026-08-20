@@ -381,8 +381,13 @@ describe("reporting failures never lose the job", () => {
               sites: HEARTBEAT_SITES,
               awaitingConsent: [],
               cancel: [],
-              // On the second heartbeat the server says the job is gone.
-              lost: heartbeats > 1 ? ["job_1"] : [],
+              // On the second heartbeat the server says the grant is gone —
+              // named by lease as well as job (V1-3), because a daemon
+              // serving two sites can hold two jobs called `job_1`.
+              lost:
+                heartbeats > 1
+                  ? [{ jobId: "job_1", leaseId: "lease_test" }]
+                  : [],
               serverTime: Date.now(),
             }),
             { headers: { "content-type": "application/json" } },

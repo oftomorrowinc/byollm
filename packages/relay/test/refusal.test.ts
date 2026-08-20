@@ -72,9 +72,16 @@ describe("cancel, which never reached the relay at all", () => {
       ],
       paused: false,
     });
-    const body = (await beat.json()) as { cancel: string[] };
+    const body = (await beat.json()) as {
+      cancel: { jobId: string; leaseId: string }[];
+    };
 
-    expect(body.cancel).toEqual([jobId]);
+    expect(body.cancel).toEqual([
+      {
+        jobId,
+        leaseId: (await relay.state.job(SITE_ID, jobId))!.claimedBy!.leaseId,
+      },
+    ]);
   });
 
   it("stops offering a cancelled job to anyone else", async () => {

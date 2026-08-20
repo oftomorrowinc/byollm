@@ -470,25 +470,10 @@ export class ByollmHandlers {
       return fail("unauthorized", "runner id does not match the signing key");
     }
     const now = this.#now();
-    const revoked = runner.revokedAt !== null;
-
-    if (revoked) {
-      // Nothing is renewed for a revoked runner: every job it holds is
-      // reported lost so it abandons the queue rather than finishing it.
-      const held = await this.#store.listClaimedBy(runner.id);
-      const response: HeartbeatResponse = {
-        // Empty, which is what `revoked: true` used to say — cloud_008
-        // finding 59. A direct site has one site to withdraw, so revocation
-        // here is the whole set going; under a hub it is one entry leaving.
-        // One field, one fact, on both lanes.
-        sites: {},
-        awaitingConsent: [],
-        cancel: [],
-        lost: held.map((job) => job.id),
-        serverTime: now,
-      };
-      return ok(response);
-    }
+    // No revoked branch here any more — V1-2. A revoked runner is refused by
+    // `#authed` before this handler is reached, on heartbeat as on every
+    // other endpoint, because "revoked" and "nothing consented right now"
+    // must not arrive as the same empty body.
 
     await this.#store.touchRunner({
       runnerId: runner.id,
@@ -515,7 +500,7 @@ export class ByollmHandlers {
       // A direct site has no disclosure of its own to go stale: consent to it
       // *is* the pairing, and withdrawing it empties the set above.
       awaitingConsent: [],
-      cancel,
+      cancel: [...cancel],
       lost: [...lost],
       serverTime: now,
     };

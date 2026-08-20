@@ -156,6 +156,9 @@ describe("what heartbeat tells the daemon", () => {
     });
 
     expect(renewed.renewed).toEqual([]);
-    expect(renewed.lost).toEqual([jobId]);
+    // Both halves — V1-3. A bare id is ambiguous to a daemon serving two
+    // sites that chose the same one, and "the grant you no longer hold" is
+    // what this list has always meant.
+    expect(renewed.lost).toEqual([{ jobId, leaseId: "a-grant-that-ended" }]);
   });
 });

@@ -496,7 +496,7 @@ describe("heartbeat", () => {
     // property is that the lease was extended, and a response saying so is
     // one step removed from it. The long-job specimen in MUTATIONS.md is the
     // same lesson: renewal is a property of the grant, so check the grant.
-    expect((res.body as { lost: string[] }).lost).toEqual([]);
+    expect((res.body as { lost: unknown[] }).lost).toEqual([]);
     const after = (await h.store.get(held!.jobId))?.lease?.expiresAt;
     expect(after).toBe(before! + 30_000);
   });
@@ -525,7 +525,13 @@ describe("heartbeat", () => {
       },
       runner,
     );
-    expect((res.body as { lost: string[] }).lost).toEqual([handle.id]);
+    // The grant, not the id — V1-3.
+    expect(
+      (res.body as { lost: { jobId: string }[] }).lost.map((g) => g.jobId),
+    ).toEqual([handle.id]);
+    expect((res.body as { lost: { leaseId: string }[] }).lost[0]?.leaseId).toBe(
+      leasesFrom(claimed)[0]?.leaseId,
+    );
   });
 
   it("refuses a revoked runner on heartbeat too, by code [REVOCATION_HONORED]", async () => {
@@ -595,7 +601,9 @@ describe("heartbeat", () => {
       },
       runner,
     );
-    expect((res.body as { cancel: string[] }).cancel).toEqual([handle.id]);
+    expect((res.body as { cancel: { jobId: string }[] }).cancel).toEqual([
+      { jobId: handle.id, leaseId: leasesFrom(claimed)[0]?.leaseId },
+    ]);
   });
 });
 

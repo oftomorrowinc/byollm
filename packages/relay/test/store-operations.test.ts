@@ -369,7 +369,7 @@ describe("the deadline, which the relay never read", () => {
       leaseMs: 60_000,
     });
     expect(renewed).toEqual([]);
-    expect(lost).toEqual(["late"]);
+    expect(lost).toEqual([{ jobId: "late", leaseId: granted!.lease.id }]);
   });
 });
 

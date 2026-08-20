@@ -333,10 +333,9 @@ export function supabaseStore(options: SupabaseStoreOptions): ByollmStore {
           jobId: row.id,
           expiresAt: args.now + args.leaseMs,
         })),
-        // Anything the runner thinks it holds but did not renew is gone.
-        lost: args.leases
-          .map((l) => l.jobId)
-          .filter((id) => !renewedIds.has(id)),
+        // Anything the runner thinks it holds but did not renew is gone,
+        // named by the grant it asked about rather than by a bare id — V1-3.
+        lost: args.leases.filter((lease) => !renewedIds.has(lease.jobId)),
       };
     },
 
@@ -524,14 +523,25 @@ export function supabaseStore(options: SupabaseStoreOptions): ByollmStore {
       return rows.map(toJob);
     },
 
-    async listCancelRequests(runnerId: string): Promise<string[]> {
-      const rows = unwrap<{ job_id: string }[]>(
+    async listCancelRequests(runnerId: string): Promise<LeaseRef[]> {
+      // The lease comes back with the row — V1-3. A bare job id is ambiguous
+      // to a daemon serving two sites that chose the same one, and the lease
+      // is already on the joined row.
+      const rows = unwrap<{ job_id: string; byollm_jobs: unknown }[]>(
         await db
           .from("byollm_job_cancels")
-          .select("job_id, byollm_jobs!inner(lease_runner)")
+          .select("job_id, byollm_jobs!inner(lease_runner, lease_id)")
           .eq("byollm_jobs.lease_runner", runnerId),
-      ) as { job_id: string }[];
-      return rows.map((row) => row.job_id);
+      ) as {
+        job_id: string;
+        byollm_jobs: { lease_id: string | null };
+      }[];
+      return rows
+        .filter((row) => row.byollm_jobs.lease_id !== null)
+        .map((row) => ({
+          jobId: row.job_id,
+          leaseId: row.byollm_jobs.lease_id ?? "",
+        }));
     },
 
     // -- pairing and runners -------------------------------------------------

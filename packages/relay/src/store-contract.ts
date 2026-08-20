@@ -296,7 +296,9 @@ export function describeStoreContract(
       });
 
       expect(renewed.renewed).toEqual([]);
-      expect(renewed.lost).toEqual(["a"]);
+      expect(renewed.lost).toEqual([
+        { jobId: "a", leaseId: "a-grant-that-ended" },
+      ]);
       // A refusal must not advance anything — the current holder's grant is
       // untouched by somebody else's stale renewal.
       expect((await store.job(SITE, "a"))?.claimedBy?.leaseExpiresAt).toBe(
@@ -448,7 +450,12 @@ export function describeStoreContract(
       await store.claim(claimArgs());
 
       expect(await store.cancel({ jobId: "a", siteId: SITE })).toBe(true);
-      expect(await store.cancelRequests("runner_1")).toEqual(["a"]);
+      // Named by grant — V1-3, so a daemon holding two sites' `a` knows
+      // which one the site withdrew.
+      const held = (await store.job(SITE, "a"))?.claimedBy?.leaseId;
+      expect(await store.cancelRequests("runner_1")).toEqual([
+        { jobId: "a", leaseId: held },
+      ]);
 
       // Scoped to the caller's site: a site must not reach another's work by
       // guessing an id.

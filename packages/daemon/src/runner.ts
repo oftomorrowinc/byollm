@@ -174,14 +174,21 @@ export class Runner {
   /**
    * Jobs in flight, by job id → the grant and how to stop it.
    *
-   * The lease id is kept because every lease-scoped call has to name the
-   * grant it means: a release that names only the job releases whatever
-   * lease exists when it arrives, which for a replayed request is not the
-   * one this daemon meant (byollm_009 §4.2, `Lease.id`).
+   * **Keyed by lease id, not by job id** — V1-3. A job id is chosen by its
+   * site, so a daemon serving two sites can hold two different jobs called
+   * `job_1`; keyed by id, the second overwrote the first, and the first lost
+   * the `AbortController` that could stop it and the lease id that could
+   * release it. Its lease then lapsed mid-run, the upstream offered the work
+   * to somebody else, and the same prompt ran twice on somebody's machine.
+   *
+   * The lease id is the unique grant (byollm_009 §4.2, `Lease.id`), which is
+   * also why every lease-scoped call names it: a release that names only the
+   * job releases whatever lease exists when it arrives, which for a replayed
+   * request is not the one this daemon meant.
    */
   readonly #active = new Map<
     string,
-    { controller: AbortController; leaseId: string }
+    { controller: AbortController; jobId: string }
   >();
   readonly #now: () => number;
   #capabilities: Capability[] = [];
@@ -449,7 +456,7 @@ export class Runner {
     }
 
     const controller = new AbortController();
-    this.#active.set(job.id, { controller, leaseId: job.lease.id });
+    this.#active.set(job.lease.id, { controller, jobId: job.id });
 
     const prompt = composePrompt(job);
     const community = job.owner !== this.#options.owner;
@@ -459,6 +466,7 @@ export class Runner {
       at: this.#now(),
       origin: this.#options.client.origin,
       jobId: job.id,
+      ...(job.site === undefined ? {} : { site: job.site }),
       kind: job.kind,
       audience: job.audience,
       owner: job.owner,
@@ -505,6 +513,7 @@ export class Runner {
       await this.#options.ingress.recordOutcome({
         at: this.#now(),
         jobId: job.id,
+        ...(job.site === undefined ? {} : { site: job.site }),
         outcome: outcome.outcome,
         durationMs: result.durationMs,
         outputChars: result.ok ? result.text.length : 0,
@@ -535,13 +544,20 @@ export class Runner {
       });
       return outcome;
     } finally {
-      this.#active.delete(job.id);
+      this.#active.delete(job.lease.id);
     }
   }
 
-  /** Abort a job's in-flight backend call ({@link MUSTS.CANCEL_HONORED}). */
-  cancelJob(jobId: string): void {
-    this.#active.get(jobId)?.controller.abort();
+  /**
+   * Abort one grant's in-flight backend call ({@link MUSTS.CANCEL_HONORED}).
+   *
+   * By lease, because that is what a cancel names — V1-3. Cancelling by job
+   * id aborted whichever job this daemon happened to have filed under that
+   * name, which for two sites that chose the same id is a coin flip: one
+   * site's cancel stopped another site's work and left its own running.
+   */
+  cancelLease(leaseId: string): void {
+    this.#active.get(leaseId)?.controller.abort();
   }
 
   /** Abort everything — revocation, or shutdown. */
@@ -627,9 +643,9 @@ export class Runner {
       runnerId: this.#options.runnerId,
       daemonVersion: this.#options.daemonVersion,
       capabilities,
-      activeLeases: [...this.#active.entries()].map(([jobId, held]) => ({
-        jobId,
-        leaseId: held.leaseId,
+      activeLeases: [...this.#active.entries()].map(([leaseId, held]) => ({
+        jobId: held.jobId,
+        leaseId,
       })),
       paused: this.#paused,
     });
@@ -672,8 +688,8 @@ export class Runner {
 
     // A job the server says we lost must be abandoned, not finished
     // ({@link MUSTS.LEASE_HONORED}).
-    for (const jobId of heartbeat.lost) this.cancelJob(jobId);
-    for (const jobId of heartbeat.cancel) this.cancelJob(jobId);
+    for (const grant of heartbeat.lost) this.cancelLease(grant.leaseId);
+    for (const grant of heartbeat.cancel) this.cancelLease(grant.leaseId);
 
     // An empty set is **not** revocation — V1-2.
     //
@@ -743,6 +759,7 @@ export class Runner {
       await this.#options.ingress.recordOutcome({
         at: this.#now(),
         jobId: job.id,
+        site: job.site,
         outcome: "refused",
         detail: admission.reason,
       });
@@ -1134,9 +1151,9 @@ export class Runner {
   /** Release everything on shutdown, so nothing waits for a lease to lapse. */
   async shutdown(reason: "shutdown" | "pause"): Promise<void> {
     this.#stopped = true;
-    const leases = [...this.#active.entries()].map(([jobId, held]) => ({
-      jobId,
-      leaseId: held.leaseId,
+    const leases = [...this.#active.entries()].map(([leaseId, held]) => ({
+      jobId: held.jobId,
+      leaseId,
     }));
     this.cancelAll();
     if (leases.length === 0) return;

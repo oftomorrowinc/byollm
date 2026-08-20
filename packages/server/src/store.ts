@@ -104,7 +104,7 @@ export interface JobStore {
   listClaimedBy(runnerId: string): Promise<JobRecord[]>;
 
   /** Jobs awaiting cancellation that a given runner holds. */
-  listCancelRequests(runnerId: string): Promise<string[]>;
+  listCancelRequests(runnerId: string): Promise<LeaseRef[]>;
 }
 
 export interface ClaimArgs {
@@ -154,8 +154,13 @@ export interface RenewArgs {
 
 export interface RenewResult {
   readonly renewed: readonly { jobId: string; expiresAt: number }[];
-  /** Jobs the runner claimed to hold but no longer does. */
-  readonly lost: readonly string[];
+  /**
+   * Grants the runner claimed to hold but no longer does — V1-3.
+   *
+   * Both halves, because a job id is chosen per site: a daemon serving two
+   * sites that picked the same id cannot act on a bare one without guessing.
+   */
+  readonly lost: readonly LeaseRef[];
 }
 
 /**

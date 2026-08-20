@@ -52,6 +52,18 @@ import type {
  * express an opinion about who may route, only about what it was told. That is
  * what keeps `RELAY_BLIND` a property of the shape rather than of the code.
  */
+/**
+ * One grant, named by both halves — V1-3.
+ *
+ * A job id is chosen per site, so two sites can pick the same one; the lease
+ * id is the unique thing an upstream and a daemon can both point at. Anywhere
+ * this store says "this piece of work, held by you", it says it with both.
+ */
+export interface Grant {
+  readonly jobId: string;
+  readonly leaseId: string;
+}
+
 export interface RoutingStore {
   /** The one clock every deadline in this store is stamped from. */
   now(): Promise<number>;
@@ -172,7 +184,7 @@ export interface RoutingStore {
     leaseMs: number;
   }): Promise<{
     renewed: readonly { jobId: string; expiresAt: number }[];
-    lost: readonly string[];
+    lost: readonly Grant[];
   }>;
 
   /**
@@ -191,7 +203,7 @@ export interface RoutingStore {
    * a job it had already withdrawn — a device went on running work whose
    * result nobody would accept, on somebody's own machine, at their expense.
    */
-  cancelRequests(runnerId: string): Promise<string[]>;
+  cancelRequests(runnerId: string): Promise<Grant[]>;
 
   /** Record a device as present. The store stamps when. */
   seen(presence: Omit<Presence, "lastSeenAt">): Promise<Presence>;

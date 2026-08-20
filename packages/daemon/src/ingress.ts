@@ -18,6 +18,17 @@ export const PromptEntry = z
     /** Origin of the server that sent the job. */
     origin: z.string().min(1),
     jobId: z.string().min(1),
+    /**
+     * Which site sent it — V1-3.
+     *
+     * A job id belongs to a site, so the log's own primary fact was ambiguous
+     * the moment a machine served two of them: two lines saying `job_1` were
+     * two different prompts, and nothing on the line said so. Optional
+     * because lines written before this existed are still readable, and a
+     * reader that refused them would be a meter that stops working when it
+     * changes.
+     */
+    site: z.string().min(1).optional(),
     kind: z.string().min(1),
     audience: z.string().min(1),
     /** Who this prompt is *for* — which, for community work, is not you. */
@@ -44,6 +55,8 @@ export const OutcomeEntry = z
     type: z.literal("outcome"),
     at: z.number().int().positive(),
     jobId: z.string().min(1),
+    /** Which site's job — V1-3, same reason as the prompt line. */
+    site: z.string().min(1).optional(),
     outcome: z.enum(["ok", "error", "canceled", "refused"]),
     /** Present for a job that ran; absent for one refused before execution. */
     durationMs: z.number().int().nonnegative().optional(),
@@ -87,6 +100,7 @@ export class IngressLog {
     at: number;
     origin: string;
     jobId: string;
+    site?: string;
     kind: string;
     audience: Audience;
     owner: string;
@@ -105,6 +119,7 @@ export class IngressLog {
       at: input.at,
       origin: input.origin,
       jobId: input.jobId,
+      ...(input.site === undefined ? {} : { site: input.site }),
       kind: input.kind,
       audience: input.audience,
       owner: input.owner,
@@ -121,6 +136,7 @@ export class IngressLog {
   async recordOutcome(input: {
     at: number;
     jobId: string;
+    site?: string;
     outcome: OutcomeEntry["outcome"];
     durationMs?: number;
     outputChars?: number;
@@ -130,6 +146,7 @@ export class IngressLog {
       type: "outcome",
       at: input.at,
       jobId: input.jobId,
+      ...(input.site === undefined ? {} : { site: input.site }),
       outcome: input.outcome,
       ...(input.durationMs === undefined
         ? {}

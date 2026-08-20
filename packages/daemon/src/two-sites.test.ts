@@ -123,6 +123,9 @@ function stub(jobId: string, site: string) {
   };
 }
 
+/** Set by the collision cases: hold every call open until it is aborted. */
+let hanging = false;
+
 class StubBackend implements Backend {
   readonly id = "openai-http" as const;
   readonly class = "http" as const;
@@ -130,13 +133,34 @@ class StubBackend implements Backend {
     return Promise.resolve({ healthy: true, models: ["m"] });
   }
   execute(request: BackendRequest): Promise<BackendResult> {
-    return Promise.resolve({
-      ok: true,
-      text: `ran ${request.prompt}`,
-      durationMs: 1,
+    if (!hanging) {
+      return Promise.resolve({
+        ok: true,
+        text: `ran ${request.prompt}`,
+        durationMs: 1,
+      });
+    }
+    started.push(request.prompt);
+    return new Promise((resolve) => {
+      request.signal.addEventListener(
+        "abort",
+        () => {
+          resolve({
+            ok: false,
+            code: "canceled",
+            message: "aborted",
+            retryable: false,
+            durationMs: 1,
+          });
+        },
+        { once: true },
+      );
     });
   }
 }
+
+/** Prompts a hanging backend is currently holding. */
+let started: string[] = [];
 
 let dir: string;
 let events: RunnerEvent[];
@@ -146,6 +170,8 @@ beforeEach(async () => {
   dir = await mkdtemp(join(tmpdir(), "byollm-two-sites-"));
   events = [];
   results = [];
+  started = [];
+  hanging = false;
 });
 
 afterEach(async () => {
@@ -509,5 +535,153 @@ describe("a daemon paired with two sites", () => {
     expect(runner.sites.get(A)?.encryption).toBe(
       publicIdentityOf(SITE_A).encryption,
     );
+  });
+});
+
+/**
+ * Two sites, one job id — V1-3.
+ *
+ * Job ids are chosen per site, so `job_1` is not one thing. The store learned
+ * that (per-(site,id) keys closed the oracle); the daemon had not. It filed
+ * work in flight by bare id, which meant the second `job_1` **overwrote the
+ * first**: the first lost the handle that could abort it and the lease that
+ * could release it, so its lease lapsed mid-run, the upstream offered the work
+ * to somebody else, and the same prompt ran twice on somebody's machine.
+ *
+ * The same ambiguity ran the other way. `cancel` and `lost` were bare ids, so
+ * one site withdrawing its `job_1` aborted whichever `job_1` this daemon
+ * happened to have filed — a site cancelling another site's work, through no
+ * fault of either.
+ */
+describe("one job id, two sites", () => {
+  /** Two jobs called `job_1`, from A and B, claimed in one response. */
+  function collidingRelay(): typeof fetch {
+    const jobA = {
+      ...stub("job_1", A),
+      lease: {
+        id: "lease_a",
+        runnerId: "runner_1",
+        expiresAt: Date.now() + 60_000,
+      },
+    };
+    const jobB = {
+      ...stub("job_1", B),
+      lease: {
+        id: "lease_b",
+        runnerId: "runner_1",
+        expiresAt: Date.now() + 60_000,
+      },
+    };
+    let claimed = false;
+    return (input, init) => {
+      const url = String(input instanceof Request ? input.url : input);
+      const endpoint = url.split("/").pop() ?? "";
+      let body: unknown;
+      if (endpoint === "claim") {
+        body = claimed
+          ? { jobs: [], leaseMs: 60_000 }
+          : { jobs: [jobA, jobB], leaseMs: 60_000 };
+        claimed = true;
+      } else if (endpoint === "fetch") {
+        // Which site's payload depends on which grant asked — the fetch names
+        // the lease, so this fixture answers the way a relay would.
+        const asked = JSON.parse(
+          typeof init?.body === "string" ? init.body : "{}",
+        ) as { leaseId?: string };
+        body = { envelope: asked.leaseId === "lease_b" ? sealedB : sealedA };
+      } else if (endpoint === "heartbeat") {
+        const asked = JSON.parse(
+          typeof init?.body === "string" ? init.body : "{}",
+        ) as { activeLeases?: { jobId: string; leaseId: string }[] };
+        beats.push(asked.activeLeases ?? []);
+        body = {
+          sites: {
+            [A]: publicIdentityOf(SITE_A),
+            [B]: publicIdentityOf(SITE_B),
+          },
+          awaitingConsent: [],
+          cancel: cancelNext,
+          lost: [],
+          serverTime: Date.now(),
+        };
+        cancelNext = [];
+      } else if (endpoint === "result") {
+        const sent = JSON.parse(
+          typeof init?.body === "string" ? init.body : "{}",
+        ) as { jobId: string; envelope: SealedEnvelope; disposition: string };
+        results.push({ jobId: sent.jobId, envelope: sent.envelope });
+        dispositions.push(sent.disposition);
+        body = { accepted: true, state: "ok" };
+      } else {
+        body = { released: [] };
+      }
+      return Promise.resolve(
+        new Response(JSON.stringify(body), {
+          headers: { "content-type": "application/json" },
+        }),
+      );
+    };
+  }
+
+  let sealedA: SealedEnvelope;
+  let sealedB: SealedEnvelope;
+  let beats: { jobId: string; leaseId: string }[][];
+  let cancelNext: { jobId: string; leaseId: string }[];
+  let dispositions: string[];
+
+  beforeEach(async () => {
+    hanging = true;
+    beats = [];
+    cancelNext = [];
+    dispositions = [];
+    sealedA = await sealedBy(SITE_A, "job_1");
+    sealedB = await sealedBy(SITE_B, "job_1");
+  });
+
+  it("holds both, and names both grants on the heartbeat", async () => {
+    const runner = await runnerOver(collidingRelay());
+    await runner.tick();
+    await settles(() => started.length === 2, "both jobs to reach a backend");
+
+    // Two pieces of work, not one. Keyed by id, the second arrival replaced
+    // the first here and the count read 1 — with the first still running,
+    // untracked and unstoppable.
+    expect(runner.status().activeJobs).toBe(2);
+
+    await runner.tick();
+    const named = beats.at(-1) ?? [];
+    expect(named.map((lease) => lease.leaseId).sort()).toEqual([
+      "lease_a",
+      "lease_b",
+    ]);
+    // Which is the property that matters: a grant this daemon holds but does
+    // not name is a lease the upstream lets lapse, and lapsed work is offered
+    // to somebody else while it is still running here.
+    runner.cancelAll();
+  });
+
+  it("cancels the grant that was cancelled, and only that one", async () => {
+    const runner = await runnerOver(collidingRelay());
+    await runner.tick();
+    await settles(() => started.length === 2, "both jobs to reach a backend");
+
+    // Site B withdraws its `job_1`. Site A's is a different job that happens
+    // to share a name.
+    cancelNext = [{ jobId: "job_1", leaseId: "lease_b" }];
+    await runner.tick();
+
+    await settles(() => dispositions.length === 1, "B's cancellation");
+    expect(dispositions).toEqual(["canceled"]);
+    expect(runner.status().activeJobs).toBe(1);
+
+    // **Which** one survived, not merely how many. A count is satisfied by
+    // aborting the wrong job — which is exactly the failure this case is
+    // about, and a mutation that cancelled the first matching id passed the
+    // count assertion alone.
+    await runner.tick();
+    expect((beats.at(-1) ?? []).map((lease) => lease.leaseId)).toEqual([
+      "lease_a",
+    ]);
+    runner.cancelAll();
   });
 });

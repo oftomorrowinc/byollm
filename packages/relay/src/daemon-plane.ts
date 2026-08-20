@@ -409,7 +409,10 @@ export class DaemonPlane {
             sites,
             awaitingConsent,
             cancel: [],
-            lost: request.activeLeases.map((lease) => lease.jobId),
+            lost: request.activeLeases.map((lease) => ({
+              jobId: lease.jobId,
+              leaseId: lease.leaseId,
+            })),
             serverTime: now,
           });
         }

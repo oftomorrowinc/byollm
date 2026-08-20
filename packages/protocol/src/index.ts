@@ -146,6 +146,7 @@ export {
   PROTOCOL_PREFIX,
   SUPPORTED_PROTOCOL_VERSIONS,
   checkProtocolVersion,
+  declaredVersion,
   type VersionRefusal,
   PROTOCOL_VERSION,
   PairPollRequest,

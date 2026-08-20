@@ -1,3 +1,4 @@
+import { checkProtocolVersion, declaredVersion } from "@byollm/protocol";
 import { DaemonPlane, type PlaneResult } from "./daemon-plane.js";
 import { debugPage } from "./debug.js";
 import { Projection, type RelayFixture } from "./fixture.js";
@@ -187,6 +188,37 @@ export class Relay {
       rawBody,
       signature: signatureFrom(request.headers, "x-byollm-runner"),
     };
+    // **The handshake, before anything else** — byollm_009 §B.4.
+    //
+    // The direct server has done this since its own version defect was found;
+    // this relay never did, so every mismatch on every endpoint arrived as a
+    // bare `bad-request` from a `z.literal` buried in a schema — a daemon and
+    // a relay discovering they disagreed by failing, with nothing in the
+    // answer naming the disagreement or the fix.
+    //
+    // One helper, both planes, every endpoint. The first attempt at this
+    // refused every site request in the suite, because the site plane's
+    // requests carried no version at all: the check was right and the wire was
+    // incomplete, which is why B.4 was written down rather than patched at
+    // 4 a.m. The site plane declares a version now.
+    //
+    // Health and the debug page are above this line deliberately: they are not
+    // protocol endpoints, and a probe that has to speak the version to ask
+    // whether the process is alive is a probe that stops working on the day
+    // the version moves.
+    // **Protocol paths only.** An unknown path is a 404, not a lecture about
+    // versions: written the other way first, and a request for `/healthz` —
+    // or anything a scanner tries — came back with what this relay speaks and
+    // how to upgrade. The handshake is part of the protocol, not of the HTTP
+    // surface, and answering it for a path that does not exist both misleads
+    // the caller and describes us to somebody who was only knocking.
+    if (path.startsWith("/byollm/") || path.startsWith("/relay/")) {
+      const refusal = checkProtocolVersion({
+        protocolVersion: declaredVersion({ body, query: url.searchParams }),
+      });
+      if (refusal) return json({ status: 400, body: refusal });
+    }
+
     // The caller header differs by plane, so a signature meant for one can
     // never be presented to the other by moving the request. The endpoint's
     // domain separator (`site/…`) already covers this; the header makes it

@@ -1,6 +1,11 @@
 import { connect as tlsConnect } from "node:tls";
 import { request as httpsRequest } from "node:https";
-import { generateKeys, signRequest, signSiteRequest } from "@byollm/protocol";
+import {
+  PROTOCOL_VERSION,
+  generateKeys,
+  signRequest,
+  signSiteRequest,
+} from "@byollm/protocol";
 
 /**
  * The deployment posture audit — what an outsider can do to a running relay.
@@ -220,7 +225,16 @@ export const POSTURE_CHECKS: readonly PostureCheck[] = Object.freeze([
       const response = await f(`${origin}/relay/site/enqueue`, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ siteId: "any-site", stub: STUB }),
+        // The version, because the auditor is a site-plane client like any
+        // other (§B.4). Without it the relay refuses on the handshake and
+        // this check would report "refused" for a reason that has nothing to
+        // do with signatures — success for an unrelated reason, which is the
+        // failure this whole file was written against.
+        body: JSON.stringify({
+          protocolVersion: PROTOCOL_VERSION,
+          siteId: "any-site",
+          stub: STUB,
+        }),
       });
       // The finding, exactly: a relay that accepts this routes unsolicited
       // work to consenting users' private hardware. The payload that follows
@@ -244,7 +258,7 @@ export const POSTURE_CHECKS: readonly PostureCheck[] = Object.freeze([
       let ok = true;
       for (const path of ["pending", "results"]) {
         const response = await f(
-          `${origin}/relay/site/${path}?siteId=any-site`,
+          `${origin}/relay/site/${path}?siteId=any-site&protocolVersion=${PROTOCOL_VERSION}`,
         );
         const refusal = await refusedByByollm(response);
         ok &&= refusal.ok;
@@ -286,7 +300,11 @@ export const POSTURE_CHECKS: readonly PostureCheck[] = Object.freeze([
       const stranger = generateKeys(Date.now());
       const now = Date.now();
 
-      const siteBody = JSON.stringify({ siteId: "any-site", stub: STUB });
+      const siteBody = JSON.stringify({
+        protocolVersion: PROTOCOL_VERSION,
+        siteId: "any-site",
+        stub: STUB,
+      });
       const siteSignature = signSiteRequest(stranger, {
         endpoint: "enqueue",
         siteId: "any-site",
@@ -335,6 +353,75 @@ export const POSTURE_CHECKS: readonly PostureCheck[] = Object.freeze([
       );
     },
   },
+  {
+    id: "D011_VERSION_NAMED_ON_BOTH_PLANES",
+    title: "an unknown protocol version is refused by name, not by accident",
+    cites: ["VERSION_HANDSHAKE_REQUIRED"],
+    async run({ origin, fetch: f }) {
+      // byollm_009 §B.4. A mismatch that arrives as a generic `bad-request`
+      // leaves a daemon and a server to discover they disagree by failing,
+      // with nothing in the answer naming the disagreement or the fix — which
+      // is what this relay did on every endpoint until the handshake landed.
+      //
+      // **Both planes, because the gap was a whole plane.** The daemon plane
+      // had version literals in its schemas and the site plane had none, so a
+      // check that probed one would have reported a handshake the other did
+      // not have.
+      const probes: { where: string; response: Response }[] = [
+        {
+          where: "daemon",
+          response: await f(`${origin}/byollm/claim`, {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ protocolVersion: "99", max: 1 }),
+          }),
+        },
+        {
+          where: "site",
+          response: await f(`${origin}/relay/site/enqueue`, {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({
+              protocolVersion: "99",
+              siteId: "any-site",
+              stub: STUB,
+            }),
+          }),
+        },
+      ];
+
+      const wrong: string[] = [];
+      for (const probe of probes) {
+        let body: { error?: string; supported?: unknown } = {};
+        try {
+          body = (await probe.response.json()) as typeof body;
+        } catch {
+          wrong.push(
+            `${probe.where}: answered ${String(probe.response.status)} and not as byollm`,
+          );
+          continue;
+        }
+        if (body.error !== "unsupported-protocol-version") {
+          wrong.push(
+            `${probe.where}: answered ${String(probe.response.status)} ${String(body.error)}`,
+          );
+          continue;
+        }
+        // Named, not merely refused: the field a client acts on.
+        if (!Array.isArray(body.supported)) {
+          wrong.push(`${probe.where}: refused without naming what it speaks`);
+        }
+      }
+
+      return outcome(
+        wrong.length === 0,
+        wrong.length === 0
+          ? "both planes name the version they speak"
+          : wrong.join("; "),
+      );
+    },
+  },
+
   {
     id: "D005_NO_DEBUG_SURFACE",
     title: "the debug page is not on the internet",

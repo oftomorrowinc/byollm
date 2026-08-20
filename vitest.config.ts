@@ -22,6 +22,14 @@ const sourceAliases = {
   "@byollm/relay": fileURLToPath(
     new URL("./packages/relay/src/index.ts", import.meta.url),
   ),
+  // Missing until 2026-08-20, and it cost an hour: the posture suite imports
+  // `auditDeployment` from here, so every relay test that runs an audit was
+  // reading whatever `dist` happened to hold. An edit to a probe looked like a
+  // failure in the relay — which is precisely the shadowing this list exists
+  // to prevent, with the one package that *audits* the others left off it.
+  "@byollm/conformance": fileURLToPath(
+    new URL("./packages/conformance/src/index.ts", import.meta.url),
+  ),
   byollm: fileURLToPath(
     new URL("./packages/daemon/src/index.ts", import.meta.url),
   ),

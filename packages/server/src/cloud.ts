@@ -1,4 +1,5 @@
 import {
+  PROTOCOL_VERSION,
   SealedOutcome,
   type SealedEnvelope,
   keyId,
@@ -380,7 +381,14 @@ export class CloudLane {
   }
 
   async #post(endpoint: string, body: unknown): Promise<unknown> {
-    const rawBody = JSON.stringify(body);
+    // The version travels in the body, as it does on the daemon plane — §B.4.
+    // Added here rather than at each call site so a new site-plane call cannot
+    // be written without it, which is how the site plane came to be outside
+    // the handshake in the first place.
+    const rawBody = JSON.stringify({
+      protocolVersion: PROTOCOL_VERSION,
+      ...(body as Record<string, unknown>),
+    });
     const response = await this.#fetch(
       `${this.#options.relayOrigin}/relay/site/${endpoint}`,
       {
@@ -396,7 +404,12 @@ export class CloudLane {
   }
 
   async #get(endpoint: string): Promise<unknown> {
-    const url = `${this.#options.relayOrigin}/relay/site/${endpoint}?siteId=${encodeURIComponent(this.#options.siteId)}`;
+    // A GET has no body, so the version rides in the query — the other half
+    // of `declaredVersion`, and the reason that helper takes both.
+    const url =
+      `${this.#options.relayOrigin}/relay/site/${endpoint}` +
+      `?siteId=${encodeURIComponent(this.#options.siteId)}` +
+      `&protocolVersion=${encodeURIComponent(PROTOCOL_VERSION)}`;
     // A read signs an empty body: the site id is in the query and in the
     // signed caller slot, and the relay refuses the request unless they agree.
     const response = await this.#fetch(url, {

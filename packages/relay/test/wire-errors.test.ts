@@ -1,4 +1,6 @@
 import {
+  MIN_PROTOCOL_VERSION,
+  PROTOCOL_VERSION,
   ERROR_STATUS,
   WireErrorCode,
   MAX_CLOCK_SKEW_MS,
@@ -87,9 +89,12 @@ describe("the daemon plane's refusals", () => {
     const { relay, siteKeys } = await relayWithDaemon();
     const stale = Date.now() - MAX_CLOCK_SKEW_MS - 60_000;
     const response = await relay.handle(
-      new Request(`http://relay.test/relay/site/pending?siteId=${SITE_ID}`, {
-        headers: siteHeaders(siteKeys, "pending", "", stale),
-      }),
+      new Request(
+        `http://relay.test/relay/site/pending?siteId=${SITE_ID}&protocolVersion=0`,
+        {
+          headers: siteHeaders(siteKeys, "pending", "", stale),
+        },
+      ),
     );
     expect(await refusal(response)).toBe("clock-skew");
   });
@@ -98,9 +103,12 @@ describe("the daemon plane's refusals", () => {
     const { relay, siteKeys } = await relayWithDaemon();
     const stale = Date.now() - MAX_CLOCK_SKEW_MS - 60_000;
     const response = await relay.handle(
-      new Request(`http://relay.test/relay/site/pending?siteId=${SITE_ID}`, {
-        headers: siteHeaders(siteKeys, "pending", "", stale),
-      }),
+      new Request(
+        `http://relay.test/relay/site/pending?siteId=${SITE_ID}&protocolVersion=0`,
+        {
+          headers: siteHeaders(siteKeys, "pending", "", stale),
+        },
+      ),
     );
     const body = WireError.parse(await response.json());
     // Without these a daemon can say "something is wrong" and nothing more.
@@ -143,9 +151,12 @@ describe("an identified caller refused", () => {
   it("refuses a site asking about another site's work", async () => {
     const { relay, siteKeys } = await relayWithDaemon();
     const response = await relay.handle(
-      new Request(`http://relay.test/relay/site/pending?siteId=someone_else`, {
-        headers: siteHeaders(siteKeys, "pending", ""),
-      }),
+      new Request(
+        `http://relay.test/relay/site/pending?siteId=someone_else&protocolVersion=0`,
+        {
+          headers: siteHeaders(siteKeys, "pending", ""),
+        },
+      ),
     );
     expect(await refusal(response)).toBe("forbidden");
   });
@@ -304,24 +315,22 @@ describe("the codes an identified caller gets — V1-13", () => {
   });
 });
 
-describe("the version a request declares — V1-17", () => {
-  it("refuses a fetch declaring a version this relay does not speak", async () => {
-    // `FetchRequest.protocolVersion` was `string().min(1)` where every other
-    // request is a literal, so the one endpoint that hands over a **sealed
-    // payload** accepted any version string at all. It is a literal now, and
-    // the refusal is `bad-request` because the relay checks versions through
-    // its schemas rather than through a handshake.
-    //
-    // Which is the larger finding this one uncovered, and it is written into
-    // the spec rather than patched at 4am: `@byollm/server` runs
-    // `checkProtocolVersion` before anything else — a named refusal that says
-    // what it speaks and how to upgrade — and the relay never has. Two
-    // upstreams, one wire, and only one of them answers "which version?"
-    // usefully. Deliberately left for a morning: it is a serving-path change
-    // on every endpoint, and the first attempt refused every site request in
-    // the suite because site-plane bodies do not all carry the field.
-    const { relay, connector, daemon } = await relayWithDaemon();
-    void relay;
+describe("the version handshake, on both planes — B.4", () => {
+  /**
+   * Ratified as the last pre-1.0 wire change, and it closes a gap this file
+   * recorded and could not fix at 4 a.m.: `@byollm/server` has refused an
+   * unknown version by name since its own defect was found, and the relay
+   * never did — every mismatch arrived as a bare `bad-request` from a
+   * `z.literal` buried in a schema. Two upstreams, one wire, and only one of
+   * them answered the question usefully.
+   *
+   * One case per plane, because the first attempt refused every site request
+   * in the suite: the site plane's requests carried no version at all, so a
+   * handshake there was a wire change rather than a check. It is one now.
+   */
+
+  it("refuses a daemon speaking a version this relay does not", async () => {
+    const { connector, daemon } = await relayWithDaemon();
     const { jobId } = await connector.enqueue({
       prompt: "for a daemon from the future",
       owner: "alice",
@@ -331,7 +340,68 @@ describe("the version a request declares — V1-17", () => {
       jobId,
       leaseId: "whatever",
     });
-    expect(await refusal(response)).toBe("bad-request");
+    expect(await refusal(response)).toBe("unsupported-protocol-version");
+  });
+
+  it("refuses a site speaking one either", async () => {
+    // The half that did not exist. A site's requests now declare a version
+    // like a daemon's, and the same helper refuses both — so a relay cannot
+    // be half-versioned, which is exactly what it was.
+    const { relay, siteKeys } = await relayWithDaemon();
+    const body = JSON.stringify({
+      protocolVersion: "99",
+      siteId: SITE_ID,
+      jobId: "job_1",
+    });
+    const response = await relay.handle(
+      new Request("http://relay.test/relay/site/cancel", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          ...siteHeaders(siteKeys, "cancel", body),
+        },
+        body,
+      }),
+    );
+    expect(await refusal(response)).toBe("unsupported-protocol-version");
+  });
+
+  it("names what it speaks and how to fix it, rather than only refusing", async () => {
+    // The reason this is not just a status code. A daemon that learns *only*
+    // that it was refused tells its owner nothing they can act on; §4's whole
+    // argument for a handshake is that the answer names the disagreement.
+    const { daemon } = await relayWithDaemon();
+    const response = await daemon.signedFetch("claim", {
+      protocolVersion: "99",
+      capabilities: [],
+      max: 1,
+    });
+    const body = (await response.json()) as {
+      supported?: string[];
+      minimum?: string;
+      message?: string;
+    };
+    expect(body.supported).toContain(PROTOCOL_VERSION);
+    expect(body.minimum).toBe(MIN_PROTOCOL_VERSION);
+    expect(body.message).toMatch(/upgrad/i);
+    // Both versions named, so the reader can tell which end is behind.
+    expect(body.message).toContain(PROTOCOL_VERSION);
+    expect(body.message).toContain("99");
+  });
+
+  it("does not lecture a caller about versions on a path that does not exist", async () => {
+    // Written the other way first, and it was worse than wrong: a request for
+    // `/healthz` — or anything a scanner tries — came back naming what this
+    // relay speaks and how to upgrade it. The handshake belongs to the
+    // protocol, not to the HTTP surface, so an unknown path is still a plain
+    // refusal that describes us to nobody.
+    const { relay } = await relayWithDaemon();
+    const response = await relay.handle(
+      new Request("http://relay.test/healthz"),
+    );
+    const body = (await response.json()) as { error?: string };
+    expect(body.error).not.toBe("unsupported-protocol-version");
+    expect(response.status).toBe(404);
   });
 });
 

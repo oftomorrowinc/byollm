@@ -3,6 +3,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+  PROTOCOL_VERSION,
   ENVELOPE_MAX_AGE_MS,
   type JobOutcome,
   SealedOutcome,
@@ -243,7 +244,14 @@ export class SiteConnector {
   }
 
   async #post(endpoint: string, body: unknown): Promise<unknown> {
-    const rawBody = JSON.stringify(body);
+    // The version, as a real site sends it (§B.4). In `#post` rather than at
+    // each call above for the same reason `cloud.ts` puts it there: a site
+    // request that can be written without one is how a plane ends up outside
+    // the handshake.
+    const rawBody = JSON.stringify({
+      protocolVersion: PROTOCOL_VERSION,
+      ...(body as Record<string, unknown>),
+    });
     const res = await this.#relay.handle(
       new Request(`http://relay.test/relay/site/${endpoint}`, {
         method: "POST",
@@ -260,7 +268,8 @@ export class SiteConnector {
   async #get(endpoint: string): Promise<unknown> {
     const res = await this.#relay.handle(
       new Request(
-        `http://relay.test/relay/site/${endpoint}?siteId=${SITE_ID}`,
+        `http://relay.test/relay/site/${endpoint}?siteId=${SITE_ID}` +
+          `&protocolVersion=${PROTOCOL_VERSION}`,
         { headers: this.#headers(endpoint, "") },
       ),
     );

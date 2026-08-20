@@ -1,4 +1,5 @@
 import {
+  PROTOCOL_VERSION,
   generateKeys,
   publicIdentityOf,
   signRequest,
@@ -69,7 +70,14 @@ describe("the site plane refuses anyone it cannot verify", () => {
       new Request(`http://relay.test/relay/site/${endpoint}`, {
         method: "POST",
         headers: { "content-type": "application/json", ...headers },
-        body: JSON.stringify(body),
+        // A well-formed request in every respect but the one under test:
+        // the version check runs before authentication (§B.4, and byollm_009
+        // §4's "version before anything else"), so a request omitting it is
+        // refused for the wrong reason and proves nothing about signatures.
+        body: JSON.stringify({
+          protocolVersion: PROTOCOL_VERSION,
+          ...(body as Record<string, unknown>),
+        }),
       }),
     );
 
@@ -88,11 +96,15 @@ describe("the site plane refuses anyone it cannot verify", () => {
   it("refuses an unsigned read of who is online", async () => {
     const { relay } = setup();
     const response = await relay.handle(
-      new Request(`http://relay.test/relay/site/pending?siteId=${SITE_ID}`),
+      new Request(
+        `http://relay.test/relay/site/pending?siteId=${SITE_ID}&protocolVersion=0`,
+      ),
     );
     expect(response.status).toBe(401);
     const results = await relay.handle(
-      new Request(`http://relay.test/relay/site/results?siteId=${SITE_ID}`),
+      new Request(
+        `http://relay.test/relay/site/results?siteId=${SITE_ID}&protocolVersion=0`,
+      ),
     );
     expect(results.status).toBe(401);
   });
@@ -103,6 +115,7 @@ describe("the site plane refuses anyone it cannot verify", () => {
     // right about it except whose key it is.
     const impostor = generateKeys(Date.now());
     const body = JSON.stringify({
+      protocolVersion: PROTOCOL_VERSION,
       siteId: SITE_ID,
       stub: stubFor("job_impostor"),
     });
@@ -142,6 +155,7 @@ describe("the site plane refuses anyone it cannot verify", () => {
       },
     });
     const body = JSON.stringify({
+      protocolVersion: PROTOCOL_VERSION,
       siteId: SITE_ID,
       stub: stubFor("job_ghost"),
     });
@@ -167,6 +181,7 @@ describe("the site plane refuses anyone it cannot verify", () => {
     relay.project(fixture);
 
     const body = JSON.stringify({
+      protocolVersion: PROTOCOL_VERSION,
       siteId: "site_other",
       stub: stubFor("job_other"),
     });
@@ -227,6 +242,7 @@ describe("the site plane refuses anyone it cannot verify", () => {
     // The signature covers the body, so this is not tampering in flight — it
     // is a site asking for a site it is not, which is its own refusal.
     const body = JSON.stringify({
+      protocolVersion: PROTOCOL_VERSION,
       siteId: "site_someone_else",
       stub: stubFor("job_crossed"),
     });
@@ -250,9 +266,12 @@ describe("the site plane refuses anyone it cannot verify", () => {
     // signature would authenticate the other. It is in there.
     const headers = siteHeaders(siteKeys, "pending", "");
     const response = await relay.handle(
-      new Request(`http://relay.test/relay/site/results?siteId=${SITE_ID}`, {
-        headers,
-      }),
+      new Request(
+        `http://relay.test/relay/site/results?siteId=${SITE_ID}&protocolVersion=0`,
+        {
+          headers,
+        },
+      ),
     );
     expect(response.status).toBe(401);
   });
@@ -274,13 +293,16 @@ describe("the site plane refuses anyone it cannot verify", () => {
       body: "",
     });
     const response = await relay.handle(
-      new Request(`http://relay.test/relay/site/pending?siteId=${SITE_ID}`, {
-        headers: {
-          "x-byollm-site": daemon.runnerId,
-          "x-byollm-issued-at": String(signature.issuedAt),
-          "x-byollm-signature": signature.signature,
+      new Request(
+        `http://relay.test/relay/site/pending?siteId=${SITE_ID}&protocolVersion=0`,
+        {
+          headers: {
+            "x-byollm-site": daemon.runnerId,
+            "x-byollm-issued-at": String(signature.issuedAt),
+            "x-byollm-signature": signature.signature,
+          },
         },
-      }),
+      ),
     );
     expect(response.status).toBe(401);
 

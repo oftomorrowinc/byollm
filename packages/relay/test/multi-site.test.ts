@@ -1,4 +1,5 @@
 import {
+  PROTOCOL_VERSION,
   cryptoReady,
   generateKeys,
   keyId,
@@ -71,7 +72,10 @@ async function enqueueAs(
   keys: ReturnType<typeof generateKeys>,
   body: unknown,
 ): Promise<Response> {
-  const rawBody = JSON.stringify(body);
+  const rawBody = JSON.stringify({
+    protocolVersion: PROTOCOL_VERSION,
+    ...(body as Record<string, unknown>),
+  });
   return relay.handle(
     new Request("http://relay.test/relay/site/enqueue", {
       method: "POST",

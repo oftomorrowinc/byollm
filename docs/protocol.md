@@ -71,6 +71,17 @@ that accepts one is not implementing this protocol.
 | `rate-limited` | 429 | back off; honour `Retry-After` |
 | `server-error` | 500 | transient; back off |
 
+**Every protocol request declares its version**, and a mismatch is refused by
+name before anything else is checked — including before the signature, because
+a caller that does not speak this version cannot be expected to sign the way
+this version signs. A POST declares it in the body; a GET declares it in the
+query string, because it has no body. The refusal carries `supported` and
+`minimum` so a client can say something its owner can act on.
+
+A path that is not a protocol endpoint is **not** subject to the handshake: an
+unknown path answers 404 rather than describing what this server speaks to
+whoever was knocking.
+
 A daemon MUST NOT retry 400- or 404-class responses. It MUST honour
 `Retry-After` on 429 and 500.
 

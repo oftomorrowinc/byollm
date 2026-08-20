@@ -1,4 +1,5 @@
 import {
+  PROTOCOL_VERSION,
   cryptoReady,
   generateKeys,
   keyId,
@@ -180,6 +181,7 @@ describe("the freeze gate — cloud_004 §14", () => {
 
     // And a late seal is refused rather than landing on a claim that moved.
     const lateBody = JSON.stringify({
+      protocolVersion: PROTOCOL_VERSION,
       siteId: SITE_ID,
       jobId,
       envelope: {

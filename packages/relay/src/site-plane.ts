@@ -1,4 +1,5 @@
 import {
+  PROTOCOL_VERSION,
   keyId,
   JobStub,
   RequestSignature,
@@ -66,6 +67,7 @@ import type { RoutingStore } from "./store.js";
 
 const EnqueueRequest = z
   .object({
+    protocolVersion: z.literal(PROTOCOL_VERSION),
     siteId: z.string().min(1),
     /**
      * Everything the relay learns about the job.
@@ -80,6 +82,7 @@ const EnqueueRequest = z
 
 const PayloadRequest = z
   .object({
+    protocolVersion: z.literal(PROTOCOL_VERSION),
     siteId: z.string().min(1),
     jobId: z.string().min(1),
     /** Sealed to the claiming device. Opaque to us and to the schema. */
@@ -90,9 +93,16 @@ const PayloadRequest = z
 /** A read: the site id arrives in the query and is signed as an empty body. */
 /** What a site sends to withdraw a job. */
 const CancelRequest = z
-  .object({ siteId: z.string().min(1), jobId: z.string().min(1) })
+  .object({
+    protocolVersion: z.literal(PROTOCOL_VERSION),
+    siteId: z.string().min(1),
+    jobId: z.string().min(1),
+  })
   .strict();
 
+// No version here: a read declares it in the query string, which is where
+// `declaredVersion` looks for a GET, and this object is built from that same
+// query rather than parsed from a body.
 const QueryRequest = z.object({ siteId: z.string().min(1) }).strict();
 
 const ok = (body: unknown): PlaneResult => ({ status: 200, body });

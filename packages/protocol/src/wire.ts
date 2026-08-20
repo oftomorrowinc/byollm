@@ -40,6 +40,34 @@ export interface VersionRefusal {
 }
 
 /**
+ * The version a request declares, wherever it carries it.
+ *
+ * A POST declares it in its body, which is where every request schema has
+ * always put it. A GET has no body, and the relay has one — the site plane's
+ * `pending` read — so it declares it in the query string instead.
+ *
+ * **Two carriers, one rule.** That asymmetry is HTTP's rather than ours, and
+ * the alternative was worse in both directions: a header for everything would
+ * change every existing daemon's request, and skipping GETs would leave an
+ * endpoint outside the handshake — which is precisely the shape B.4 found,
+ * where a whole plane was outside it.
+ */
+export function declaredVersion(input: {
+  body?: unknown;
+  query?: URLSearchParams;
+}): unknown {
+  const { body, query } = input;
+  if (
+    typeof body === "object" &&
+    body !== null &&
+    Object.hasOwn(body, "protocolVersion")
+  ) {
+    return (body as { protocolVersion: unknown }).protocolVersion;
+  }
+  return query?.get("protocolVersion") ?? undefined;
+}
+
+/**
  * Check the protocol version on an incoming request
  * ({@link MUSTS.VERSION_HANDSHAKE_REQUIRED}).
  *
@@ -638,6 +666,21 @@ export const WireError = z
   .object({
     error: WireErrorCode,
     message: z.string().min(1),
+    /**
+     * What this server speaks, on `unsupported-protocol-version` — §B.4.
+     *
+     * The refusal has carried these since the version handshake existed and
+     * the enumeration did not model them, so the one error that exists to be
+     * *acted on* was the one that failed to parse as a wire error. Found by
+     * the relay's own suite the day the relay started sending it: a refusal
+     * outside the enumerated shape is a refusal a client cannot branch on,
+     * which is the whole reason §1.4 enumerates them.
+     *
+     * Modelled the way `clock-skew`'s two fields already are — code-specific
+     * extras, refused on any other code by the refinement below.
+     */
+    supported: z.array(z.string().min(1)).optional(),
+    minimum: z.string().min(1).optional(),
     /** Seconds; mirrors Retry-After for `rate-limited` and `server-error`. */
     retryAfter: z.number().int().nonnegative().optional(),
     /**
@@ -671,6 +714,25 @@ export const WireError = z
       ctx.addIssue({
         code: "custom",
         message: `${error.error} must not carry serverTime or maxSkewMs`,
+      });
+    }
+    // The same rule for the version fields — §B.4. A code-specific extra on
+    // the wrong code is how an enumeration stops meaning anything: every
+    // reader has to guess whether the field applies.
+    const version = error.error === "unsupported-protocol-version";
+    const versionFields =
+      error.supported !== undefined || error.minimum !== undefined;
+    if (version && !versionFields) {
+      ctx.addIssue({
+        code: "custom",
+        message:
+          "unsupported-protocol-version must carry supported and minimum",
+      });
+    }
+    if (!version && versionFields) {
+      ctx.addIssue({
+        code: "custom",
+        message: `${error.error} must not carry supported or minimum`,
       });
     }
   });

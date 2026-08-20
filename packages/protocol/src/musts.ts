@@ -173,7 +173,12 @@ export const MUSTS = Object.freeze({
       "has never approved MUST be offered to its owner and served nothing " +
       "until they approve it. A key that has changed for an already-approved " +
       "id MUST be refused for the life of the pairing, including after that " +
-      "id has left the set and returned.",
+      "id has left the set and returned. A **verified succession** is not a " +
+      "changed key: a new key id carrying a signature, by a key this daemon " +
+      "has already approved, over a statement naming both key ids MUST be " +
+      "accepted without a new local approval — provided the control plane " +
+      "projects the same successor — and MUST be announced rather than " +
+      "applied silently.",
     enforcedBy: "daemon",
     // Two kinds, and the second is the one that matters — V1-1.
     //

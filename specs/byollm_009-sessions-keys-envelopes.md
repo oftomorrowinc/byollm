@@ -530,7 +530,7 @@ labelled rather than implied.
 | `LEASE_SCOPED_BY_GRANT` | A lease-scoped request MUST name the lease it acts on, and a server MUST apply it only to that lease. Naming the job and the runner is not enough. | conformance |
 | `SITE_KEY_BY_STUB` | A daemon MUST verify a job's payload against the pinned key of the site the stub names, MUST refuse a job naming a site it has not pinned, and MUST NOT fall back to another pinned key. | adversarial |
 | `KEYS_EXCHANGED_AT_CONSENT` | Pairing MUST exchange both parties' public identities, and each side MUST verify that the encryption key is signed by the identity presenting it. | conformance |
-| `SITES_LOCALLY_APPROVED` | A daemon MUST NOT run work for a site it has not approved on the machine itself. An upstream may propose a site set; a site the daemon has never approved MUST be offered to its owner and served nothing until they approve it. A key that has changed for an already-approved id MUST be refused for the life of the pairing, including after that id has left the set and returned. | **construction + adversarial** |
+| `SITES_LOCALLY_APPROVED` | A daemon MUST NOT run work for a site it has not approved on the machine itself. An upstream may propose a site set; a site the daemon has never approved MUST be offered to its owner and served nothing until they approve it. A key that has changed for an already-approved id MUST be refused for the life of the pairing, including after that id has left the set and returned. A **verified succession** is not a changed key: a new key id carrying a signature, by a key this daemon has already approved, over a statement naming both key ids MUST be accepted without a new local approval — provided the control plane projects the same successor — and MUST be announced rather than applied silently. | **construction + adversarial** |
 
 `FALLBACK_LABELED`'s kind was corrected here on 2026-08-20, from
 `conformance` to `construction` — the registry has said `construction`
@@ -939,7 +939,7 @@ plane's schemas in hand.
 
 ---
 
-# Amendment C — Rotation (DESIGN, for review — not ratified)
+# Amendment C — Rotation (RATIFIED 2026-08-20; not yet built)
 
 V1-16: A.3.1 committed to rotation as "a designed transition" and
 designed none of it. One `SiteRecord` per site id means the two-key
@@ -1074,16 +1074,60 @@ never rotates is unaffected. What it needs is to be *decided* before
 1.0, because the shape above is not something you can add later without
 either a flag day or the substitution hole.
 
-## C.7 What I need ruled
+## C.7 The four rulings (2026-08-20)
 
-1. **Chain or single predecessor**, and whether the proofs expire.
-2. **Whether `retiringUntil` is the site's to choose** or a protocol
-   constant. A site choosing its own window can make it infinite, which
-   is a two-key site forever; a constant is one more number in a spec.
-3. **Whether a rotation may be refused locally** — i.e. does
-   `byollm approve` get a say? My recommendation is no: the pin
-   verified it, and asking is how ceremonies become reflexes. But it is
-   the one place this design spends the user's trust without asking.
-4. **Whether the daemon should refuse a rotation from a site whose
-   consent is paused** — the disclosure the person read named a
-   fingerprint that is about to change.
+**1. Chains, walkable, and the proofs never expire.** A daemon offline
+across two rotations walks K1→K2→K3 from its pin. The alternative
+rebuilds V1-2 on a timer — absence read as betrayal — and charges the
+re-pair to whoever was least attentive. Chain length is bounded by a
+generous protocol constant as a **denial-of-service guard, not policy**:
+the bound exists so a projection cannot make a daemon verify ten
+thousand signatures, not to express an opinion about how often a site
+may rotate.
+
+**2. The retirement window is a protocol constant.** Not the site's to
+choose. Per-site overlap arithmetic is exactly the kind of number that
+must mean one thing everywhere — and a site that could choose it could
+choose *forever*, which is a two-key site permanently and a second key
+nobody ever notices retiring.
+
+**3. No ceremony — with two conditions, because of what automatic
+succession costs.** The threat this choice must answer is stated
+plainly: **a stolen K1 rotates the site to the thief, permanently, in
+silence.** So:
+
+* **The control plane is a second authority.** A daemon accepts a
+  succession only when the proof *and* the projection agree on the
+  successor. A succession the dashboard does not reflect is **held, not
+  applied** — one stolen key is then not enough, and the attacker needs
+  the site's control-plane account as well.
+* **Acceptance is always loud.** "site X rotated: old fp → new fp,
+  verified by succession", with the history in `byollm sites`. Noise is
+  cheap; silent key movement is the attack's best friend.
+
+**4. A paused consent does not block a rotation.** The pause machinery
+already delivers what the concern wanted: a paused consent routes
+nothing until re-consent, and re-consent renders the *current*
+fingerprint — so what the person reads is true by construction.
+Coupling a site's operational act to individual consent states would let
+one paused user block a thousand-user site's rotation. The requirement
+that survives: **consent screens and the site card always render the
+current key, with succession history available.**
+
+## C.8 What this obliges elsewhere
+
+**The control plane needs its own build for this, and it is not
+protocol work.** Migration 0006 makes a verified site's identity
+immutable by design — the whole point being that a group cannot rotate
+its own key past the verification path. So rotation there is a
+deliberate `service_role` action with **its own audit row**, in the same
+family as the verification writes: who rotated, when, and the succession
+proof as evidence. web_002-adjacent, and it should be specified there
+rather than assumed here.
+
+**And one adversarial case the design already justifies.** A succession
+naming *only* the successor, replayed against another site's record,
+must be refused — both ids named is load-bearing (C.1), so a test proves
+it rather than a comment claiming it. That case belongs with the daemon's
+own hostile suites, beside the tombstone one, and cites
+`SITES_LOCALLY_APPROVED`.

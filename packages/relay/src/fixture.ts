@@ -307,6 +307,31 @@ export class Projection {
     return consent !== null && !consent.paused;
   }
 
+  /**
+   * Has this owner's relationship *ended* — V1-2?
+   *
+   * Not "is there nothing to serve". Those were one question until the pre-v1
+   * review pulled them apart, and the difference is a machine's pinned keys:
+   * an empty answer made the daemon stop, cancel everything and **delete its
+   * pairings file**, so a projection that arrived empty or half-written — one
+   * bad control-plane push — cost every daemon its pins and every user a
+   * re-pair they never asked for.
+   *
+   * Revocation is a thing somebody did, and this asks for the evidence of it:
+   * a revocation record for this owner, and nothing left standing. A
+   * projection that simply knows nothing says nothing — the relay answers
+   * normally, the daemon serves nobody, and the pairing survives to be
+   * correct again when the next push lands.
+   *
+   * The `revoked` list exists precisely for this and was consulted by
+   * nothing. Its own doc said why: "the row is gone" and "the row was
+   * revoked" are different answers, and only one of them is a decision.
+   */
+  revokedOutright(owner: string): boolean {
+    if (this.sitesFor(owner).length > 0) return false;
+    return this.#fixture.revoked.some((record) => record.owner === owner);
+  }
+
   /** Whether this pair is consented and paused — what heartbeat reports. */
   pausedFor(owner: string, siteId: string): boolean {
     return this.consentFor(owner, siteId)?.paused === true;

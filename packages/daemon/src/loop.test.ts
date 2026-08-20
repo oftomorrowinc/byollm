@@ -280,7 +280,26 @@ describe("the loop", () => {
     expect(events.filter((e) => e.type === "consent-resumed")).toHaveLength(1);
   });
 
-  it("stops and reports itself revoked when the heartbeat says so", async () => {
+  it("stops and reports itself revoked when the upstream refuses by code", async () => {
+    // The refusal, not an empty set — V1-2. An upstream that has ended the
+    // relationship says so with `revoked`; an upstream with nothing consented
+    // right now sends an empty set and this daemon keeps its pairing. The two
+    // used to be the same sentence, and only one of them is a decision.
+    const runner = await makeRunner(() =>
+      Promise.resolve(
+        new Response(JSON.stringify({ error: "revoked", message: "over" }), {
+          status: 403,
+          headers: { "content-type": "application/json" },
+        }),
+      ),
+    );
+    await runner.tick();
+    expect(runner.status().revoked).toBe(true);
+    expect(events.some((e) => e.type === "revoked")).toBe(true);
+  });
+
+  it("keeps its pairing when the heartbeat has nothing to serve", async () => {
+    // The other half, and the one that used to cost somebody their pins.
     const runner = await makeRunner(
       routed({
         heartbeat: {
@@ -293,8 +312,9 @@ describe("the loop", () => {
       }),
     );
     await runner.tick();
-    expect(runner.status().revoked).toBe(true);
-    expect(events.some((e) => e.type === "revoked")).toBe(true);
+    expect(runner.status().revoked).toBe(false);
+    expect(events.some((e) => e.type === "revoked")).toBe(false);
+    expect(events.some((e) => e.type === "serving-nothing")).toBe(true);
   });
 
   it("claims nothing while paused", async () => {

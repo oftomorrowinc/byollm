@@ -65,18 +65,11 @@ async function revokingServer(): Promise<void> {
     req.on("data", (chunk: Buffer) => (body += chunk.toString()));
     req.on("end", () => {
       res.setHeader("content-type", "application/json");
-      if (req.url?.endsWith("/heartbeat")) {
-        res.end(
-          JSON.stringify({
-            sites: {},
-            awaitingConsent: [],
-            cancel: [],
-            lost: [],
-            serverTime: Date.now(),
-          }),
-        );
-        return;
-      }
+      // Every endpoint, heartbeat included — V1-2. This server used to answer
+      // heartbeat 200 with an empty site set and let the daemon infer the
+      // rest; the inference is gone, and this test would otherwise be
+      // asserting that a daemon deletes its pairing over a projection that
+      // happened to be empty.
       res.statusCode = 403;
       res.end(JSON.stringify({ error: "revoked", message: "no" }));
     });

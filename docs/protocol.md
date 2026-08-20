@@ -74,8 +74,16 @@ A daemon MUST NOT retry 400- or 404-class responses. It MUST honour
 
 These codes exist so a daemon can tell apart four different truths that MUST
 NOT share a message: **server unreachable** (no response at all), **revoked**
-(403 / heartbeat `revoked: true`), **no matching work** (a `200` with an empty
-job list), and **backend down** (a local condition, never a wire event).
+(`403` with code `revoked`, on **every** endpoint including heartbeat), **no
+matching work** (a `200` with an empty job list), and **backend down** (a
+local condition, never a wire event).
+
+A fifth was folded into one of those and had to be pulled back out: **nothing
+consented right now** is a `200` with an empty `sites` map, and it is *not*
+revocation. A daemon's response to revocation is to drop its pairing and the
+keys it pinned, so that response must never rest on an absence — a projection
+can arrive empty because a control plane pushed it half-written. Revocation is
+a decision somebody made, and it says so with a code.
 
 ---
 
@@ -234,8 +242,19 @@ has it paused.
 
 The response carries:
 
-- `revoked` — once true the daemon stops claiming and abandons in-flight work
-  by the next heartbeat at the latest `[REVOCATION_HONORED]`.
+- `sites` — the sites this pairing covers, keyed by each site's identity key
+  id. The set follows consent: a site that leaves it is revoked *for that
+  site*, and the daemon drops that pin and keeps the rest. An **empty** map
+  means nothing is consented right now — the pairing stands and the daemon
+  keeps beating. A revoked runner is refused outright instead
+  (`403 revoked`, here as on every other endpoint), which is how it learns to
+  stop claiming and abandon in-flight work by the next heartbeat at the latest
+  `[REVOCATION_HONORED]`. Heartbeat carries the refusal rather than being
+  exempt from it because it is the one call every daemon makes: one whose own
+  backend is down never claims, and would otherwise never find out.
+- `awaitingConsent: [siteId]` — sites whose consent exists but is **paused**:
+  they keep their pin, route nothing, and name what the owner has to go and
+  read. A subset of `sites`.
 - `cancel: [jobId]` — per-job cancellation. The daemon aborts those jobs'
   in-flight backend calls (HTTP abort, process kill) and reports them
   `canceled` `[CANCEL_HONORED]`.

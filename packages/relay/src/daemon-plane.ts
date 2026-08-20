@@ -238,15 +238,24 @@ export class DaemonPlane {
     // is a message, not an authority, and the authority is the projection.
     // Two copies of one value where one is a stale mirror of the other is this
     // project's most-repeated bug; here it was also an enforcement hole.
-    // Nothing left to serve, for anyone — cloud_008 finding 59. Per-site
-    // revocation is the *set* changing, which heartbeat reports; this guard
-    // is the whole relationship ending, and it is the only thing that should
-    // refuse a call outright.
-    const revoked = this.#deps.projection.sitesFor(known.owner).length === 0;
+    // The whole relationship ending — cloud_008 finding 59, corrected by
+    // V1-2. Per-site revocation is the *set* changing, which heartbeat
+    // reports; this guard is the end of everything, and it is the only thing
+    // that should refuse a call outright.
+    //
+    // It used to read "nothing to serve" as "revoked", which made an empty or
+    // half-written projection indistinguishable from a human's decision — and
+    // the daemon's answer to revocation is to delete its pairings file. One
+    // bad push, every pin gone. `revokedOutright` asks for the evidence
+    // instead: a revocation on record, and nothing left standing.
+    const revoked = this.#deps.projection.revokedOutright(known.owner);
     if (revoked && options.allowRevoked !== true) {
-      // Revocation reaches the daemon through heartbeat too, so heartbeat
-      // itself must be answerable by a revoked runner — bouncing it with a 403
-      // would read as a transport problem and it would keep trying.
+      // Every endpoint, heartbeat included — V1-2. Heartbeat used to be
+      // answerable by a revoked runner so it could be told through an empty
+      // set; that inference is gone, because an empty set is also what a
+      // half-written projection looks like. The refusal is the message now,
+      // and it reaches even a daemon that never claims because no backend of
+      // its own is running.
       return fail(403, "revoked", "routing for this runner has been revoked");
     }
 
@@ -434,7 +443,6 @@ export class DaemonPlane {
           serverTime: now,
         });
       },
-      { allowRevoked: true },
     );
   }
 

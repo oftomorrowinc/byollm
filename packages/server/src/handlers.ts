@@ -172,16 +172,22 @@ export class ByollmHandlers {
       case "claim":
         return this.#authed(auth, body, ClaimRequest, this.#claim.bind(this));
       case "heartbeat":
-        // Heartbeat is the channel revocation travels on, so a revoked runner
-        // must reach the handler and be told `revoked: true` rather than be
-        // bounced with a 403 it would treat as a transport problem
-        // ({@link MUSTS.REVOCATION_HONORED}).
+        // Heartbeat is the channel revocation travels on — and since V1-2 it
+        // travels as the refusal itself ({@link MUSTS.REVOCATION_HONORED}).
+        //
+        // It used to be answered with an empty site set, which the daemon
+        // read as "revoked". That reading is gone: an empty set now means
+        // "nothing is consented right now", because a projection can arrive
+        // empty by accident and the daemon's response to revocation is to
+        // delete its pairing. So the one call every daemon always makes — a
+        // daemon with no working backend never claims — carries the
+        // unambiguous version: 403 with `revoked`, which is a code and not an
+        // inference.
         return this.#authed(
           auth,
           body,
           HeartbeatRequest,
           this.#heartbeat.bind(this),
-          { allowRevoked: true },
         );
       case "fetch":
         return this.#authed(auth, body, FetchRequest, this.#fetch.bind(this));

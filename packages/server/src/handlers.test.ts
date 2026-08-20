@@ -528,7 +528,19 @@ describe("heartbeat", () => {
     expect((res.body as { lost: string[] }).lost).toEqual([handle.id]);
   });
 
-  it("tells a revoked runner it is revoked rather than 403ing it [REVOCATION_HONORED]", async () => {
+  it("refuses a revoked runner on heartbeat too, by code [REVOCATION_HONORED]", async () => {
+    // Reversed by V1-2, and the reversal is the finding.
+    //
+    // Heartbeat used to answer a revoked runner 200 with an empty site set,
+    // and the daemon read the emptiness as revocation. But an empty set is
+    // also what a half-written projection looks like — and the daemon's
+    // response to revocation is to cancel everything and delete its pairings
+    // file. One bad push and every machine loses the keys it pinned.
+    //
+    // So the fact travels as a code rather than as an absence. On heartbeat
+    // specifically, because it is the only call a daemon always makes: one
+    // with no working backend of its own never claims, and would otherwise
+    // never find out.
     const h = createHarness();
     const runner = await h.pair();
     await h.app.revokeRunner(runner.runnerId);
@@ -545,12 +557,8 @@ describe("heartbeat", () => {
       },
       runner,
     );
-    expect(res.status).toBe(200);
-    // The set going empty is what revocation says now — cloud_008 finding
-    // 59. It used to be a boolean, and a boolean is device-wide: under a hub
-    // one site's revocation would end the machine's relationship with every
-    // other site it served.
-    expect(Object.keys((res.body as { sites: object }).sites)).toEqual([]);
+    expect(res.status).toBe(403);
+    expect((res.body as { error: string }).error).toBe("revoked");
   });
 
   it("403s a revoked runner on every other endpoint", async () => {

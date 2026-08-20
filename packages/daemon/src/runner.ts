@@ -135,6 +135,11 @@ export type RunnerEvent =
       readonly durationMs: number;
     }
   | { readonly type: "revoked" }
+  /**
+   * Nothing is consented for this machine right now — V1-2. Not revocation:
+   * the pairing stands, the pins stand, and the loop keeps beating.
+   */
+  | { readonly type: "serving-nothing" }
   | { readonly type: "error"; readonly message: string };
 
 const DEFAULT_HEARTBEAT_MS = 10_000;
@@ -183,6 +188,7 @@ export class Runner {
   #paused = false;
   #revoked = false;
   #awaitingConsent = "";
+  #servingNothing = false;
   #stopped = false;
   #lastError: string | undefined;
   #completed = 0;
@@ -563,12 +569,7 @@ export class Runner {
           type: "error",
           message: this.#lastError,
         });
-        if (error instanceof ClientError && error.kind === "revoked") {
-          this.#revoked = true;
-          this.cancelAll();
-          this.#options.onEvent?.({ type: "revoked" });
-          return;
-        }
+        if (this.#revoked) return;
         const backoff =
           error instanceof ClientError && error.retryAfter !== undefined
             ? error.retryAfter * 1000
@@ -582,8 +583,44 @@ export class Runner {
     }
   }
 
+  /**
+   * Note a refusal that means the relationship is over.
+   *
+   * The **only** way this daemon learns it was revoked — V1-2. It used to
+   * infer revocation from an empty site set, which made a control-plane
+   * glitch indistinguishable from somebody's decision and cost the machine
+   * its pinned keys. An upstream that means "stop" says so with a code.
+   *
+   * Handled here rather than only in {@link Runner.run} because `tick` is
+   * what tests and embedders call: a rule that only holds when the loop is
+   * driving it is a rule with a shape somebody will step around.
+   */
+  #revokedBy(error: unknown): boolean {
+    if (!(error instanceof ClientError) || error.kind !== "revoked") {
+      return false;
+    }
+    this.#revoked = true;
+    this.#stopped = true;
+    this.cancelAll();
+    this.#options.onEvent?.({ type: "revoked" });
+    return true;
+  }
+
   /** One heartbeat-and-claim cycle. Exposed so tests can step deterministically. */
   async tick(): Promise<void> {
+    try {
+      await this.#tick();
+    } catch (error) {
+      // Revocation is an answer, not a failure. Swallowed once recorded, so
+      // that a caller stepping this loop by hand — a test, an embedder, the
+      // conformance kit — sees a daemon that has stopped rather than an
+      // exception it has to know to interpret. Everything else still throws.
+      if (this.#revokedBy(error)) return;
+      throw error;
+    }
+  }
+
+  async #tick(): Promise<void> {
     const capabilities = await this.detectCapabilities();
 
     const heartbeat = await this.#options.client.heartbeat({
@@ -633,20 +670,37 @@ export class Runner {
       }
     }
 
-    // An empty set is what `revoked: true` used to say, read for itself
-    // rather than told twice — two fields for one fact is how they drift.
-    if (Object.keys(heartbeat.sites).length === 0) {
-      this.#revoked = true;
-      this.cancelAll();
-      this.#options.onEvent?.({ type: "revoked" });
-      this.#stopped = true;
-      return;
-    }
-
     // A job the server says we lost must be abandoned, not finished
     // ({@link MUSTS.LEASE_HONORED}).
     for (const jobId of heartbeat.lost) this.cancelJob(jobId);
     for (const jobId of heartbeat.cancel) this.cancelJob(jobId);
+
+    // An empty set is **not** revocation — V1-2.
+    //
+    // It used to be read as one: the daemon stopped for good, cancelled
+    // everything and dropped its pairing, which meant a projection that
+    // arrived empty for a moment cost this machine every pin it held. Absence
+    // of consent and withdrawal of consent are different facts, and only the
+    // second is somebody's decision. Revocation now arrives the one way it
+    // can be certain — the upstream refusing the call with `revoked`, handled
+    // in the loop above.
+    //
+    // The leases named above are still abandoned: whether or not consent has
+    // ended, work with no route to return to is work that should stop.
+    if (Object.keys(heartbeat.sites).length === 0) {
+      if (!this.#servingNothing) {
+        this.#servingNothing = true;
+        this.#options.onEvent?.({ type: "serving-nothing" });
+      }
+      // And the claim below still goes out. That is the point: asking for
+      // work is what tells these two states apart. An upstream that has
+      // ended the relationship answers `revoked` and this daemon stops; one
+      // that simply has nothing consented answers with no jobs and this
+      // daemon keeps its pairing. Inferring either from silence is what V1-2
+      // was.
+    } else {
+      this.#servingNothing = false;
+    }
 
     if (this.#paused || capabilities.length === 0) return;
 

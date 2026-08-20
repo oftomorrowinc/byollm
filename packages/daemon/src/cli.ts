@@ -583,6 +583,16 @@ function report(origin: string, event: RunnerEvent, io: CliIo): void {
           `${stripControlChars(event.reason)}. Nothing was pinned.\n`,
       );
       break;
+    case "serving-nothing":
+      // Said once, and said as the ordinary thing it is. This used to print
+      // "this runner was revoked" and delete the pairing — a sentence that
+      // was true only when it happened to be, and destructive when it was
+      // not.
+      io.out(
+        `${at} ${host} nothing is consented for this machine right now. ` +
+          `The pairing stands; work resumes when a site is connected again.\n`,
+      );
+      break;
     case "consent-resumed":
       io.out(`${at} ${host} resumed — thank you.\n`);
       break;

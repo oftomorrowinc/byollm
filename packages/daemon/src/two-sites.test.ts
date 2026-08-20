@@ -657,7 +657,14 @@ describe("one job id, two sites", () => {
     // Which is the property that matters: a grant this daemon holds but does
     // not name is a lease the upstream lets lapse, and lapsed work is offered
     // to somebody else while it is still running here.
+    //
+    // Stopped *and waited for*: aborting a hanging backend resolves the job,
+    // which then seals and posts a result. Leaving that in flight let it land
+    // in the next test's `results` — which is how this file first failed on
+    // CI and passed here, the timing difference being the only thing between
+    // them.
     runner.cancelAll();
+    await settles(() => results.length === 2, "both jobs to finish cancelling");
   });
 
   it("cancels the grant that was cancelled, and only that one", async () => {
@@ -683,6 +690,7 @@ describe("one job id, two sites", () => {
       "lease_a",
     ]);
     runner.cancelAll();
+    await settles(() => results.length === 2, "A's job to finish cancelling");
   });
 });
 

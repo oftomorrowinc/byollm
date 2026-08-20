@@ -1,4 +1,8 @@
-import { PublicIdentity } from "@byollm/protocol";
+import {
+  MAX_SUCCESSION_CHAIN,
+  Succession,
+  PublicIdentity,
+} from "@byollm/protocol";
 import { routeKey } from "./state.js";
 import { z } from "zod";
 
@@ -65,6 +69,30 @@ export const SiteRecord = z
      * (cloud_004 §3), and both endpoints pin what they receive.
      */
     site: PublicIdentity,
+    /**
+     * How this site's current key can be traced back to one a daemon holds —
+     * byollm_009 Amendment C, ordered oldest last.
+     *
+     * A list rather than one predecessor because a daemon offline across two
+     * rotations holds K1 and meets K3: with a single predecessor it could not
+     * verify K3 without K2's record, so it would have to re-pair over
+     * housekeeping it did not ask for. The proofs are small, self-verifying,
+     * and kept indefinitely for the same reason.
+     *
+     * **The relay distributes these and cannot mint one.** Each is a signature
+     * by a key it does not hold, which is what lets rotation be automatic
+     * without becoming the substitution `SITES_LOCALLY_APPROVED` refuses.
+     */
+    succeeds: z.array(Succession).max(MAX_SUCCESSION_CHAIN).optional(),
+    /**
+     * Until when the retired key may still sign work — epoch ms.
+     *
+     * Absent on a site that has never rotated. The daemon holds its own clock
+     * against this for the reason it holds its own allowlist: a projection
+     * that could extend the window indefinitely would be a two-key site
+     * forever, decided by the party the design does not trust.
+     */
+    retiringUntil: z.number().int().positive().optional(),
   })
   .strict();
 export type SiteRecord = z.infer<typeof SiteRecord>;

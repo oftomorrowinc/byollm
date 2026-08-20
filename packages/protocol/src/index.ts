@@ -117,6 +117,19 @@ export {
 } from "./keys.js";
 
 export {
+  MAX_SUCCESSION_CHAIN,
+  RETIREMENT_WINDOW_MS,
+  SUCCESSION_CONTEXT,
+  Succession,
+  signSuccession,
+  successionStatement,
+  verifyLink,
+  walkSuccession,
+  type SuccessionFailure,
+  type SuccessionWalk,
+} from "./succession.js";
+
+export {
   MUST_IDS,
   MUSTS,
   kindsOf,

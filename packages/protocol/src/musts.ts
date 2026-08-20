@@ -191,8 +191,20 @@ export const MUSTS = Object.freeze({
     // upstream sends and which the fence above does not see. That was the
     // bypass: the pin was deleted with the id, so the comparison had nothing
     // to compare against and the substitution arrived as a stranger.
+    // **Not `conformance`, and that is a live gap rather than a judgement.**
+    // Amendment C's succession clause is a rule about two implementations
+    // agreeing, which is what a conformance check is for — but rotating a
+    // site's key is not something `ConformanceTarget` can express, and adding
+    // an optional hook that most targets omit would produce a check reporting
+    // success for a reason unrelated to the property it claims. That is this
+    // project's most-repeated bug, and it is not worth reintroducing for a
+    // stronger-sounding word in a table. The rotation path is verified by
+    // `site-rotation.test.ts` (both directions, against the shipped runner)
+    // and `relay/test/rotation.test.ts` (both planes, against the reference
+    // relay); the missing piece is a second *independent* implementation to
+    // check them against, and there is not one yet.
     verifiedBy: ["construction", "adversarial"],
-    source: "byollm_009 §B.2",
+    source: "byollm_009 §B.2, Amendment C",
   }),
   KEYS_EXCHANGED_AT_CONSENT: must({
     id: "KEYS_EXCHANGED_AT_CONSENT",

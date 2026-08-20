@@ -1,4 +1,7 @@
 import {
+  type Succession,
+  RETIREMENT_WINDOW_MS,
+  walkSuccession,
   ENVELOPE_MAX_AGE_MS,
   keyId,
   open,
@@ -115,6 +118,25 @@ export type RunnerEvent =
       readonly type: "site-awaiting-approval";
       readonly site: string;
       readonly fingerprint: string;
+    }
+  /**
+   * A site proved continuity from a key this machine already approved, and the
+   * approval moved with it — byollm_009 Amendment C.
+   *
+   * Loud by design (C.5, ruling 3). Rotation is automatic because requiring a
+   * second ceremony would train people to approve keys they cannot check, and
+   * the price of automatic is that it is never silent: a rotation that
+   * produced no line anywhere would make "your machine only serves keys you
+   * approved" quietly untrue.
+   */
+  | {
+      readonly type: "site-rotated";
+      readonly site: string;
+      readonly from: string;
+      readonly fromFingerprint: string;
+      readonly fingerprint: string;
+      /** Every key id passed through, oldest first. */
+      readonly path: readonly string[];
     }
   /** A site the upstream offered whose own account of itself did not add up. */
   | {
@@ -234,6 +256,17 @@ export class Runner {
   /** Every site ever approved here, so the CLI can persist the tombstones. */
   get known(): ReadonlyMap<string, PublicIdentity> {
     return this.#known;
+  }
+
+  /**
+   * Superseded ids still being served, and until when — Amendment C.
+   *
+   * Exposed for the same reason `known` is: what this machine is willing to
+   * verify against is a thing a person should be able to read, and a window
+   * nobody can see is a window nobody can check has closed.
+   */
+  get retiring(): ReadonlyMap<string, number> {
+    return this.#retiring;
   }
 
   /**
@@ -675,7 +708,7 @@ export class Runner {
     // an identity somebody already compared a fingerprint of, which pinning
     // exists to refuse. Amendment A.3.1's rotation is an explicit path, not
     // a silent swap.
-    this.#applySites(heartbeat.sites);
+    this.#applySites(heartbeat.sites, heartbeat.successions);
 
     // Announced *after* the set is applied — V1-17. The CLI persists
     // `runner.sites` when it sees this event, so firing it first wrote the
@@ -1038,6 +1071,24 @@ export class Runner {
   /** Every site ever approved here, with the key it was approved under. */
   readonly #known: Map<string, PublicIdentity>;
 
+  /**
+   * Ids whose key has been superseded, and until when this machine will still
+   * serve them — byollm_009 Amendment C, `retiringUntil`.
+   *
+   * A rotation is not instant on the wire. Work enqueued a minute before it
+   * was signed by the old key and names the old id, and a daemon that dropped
+   * that pin the moment the projection moved would refuse jobs that are
+   * perfectly good — a flag day, for everyone whose heartbeat happened to
+   * arrive on the wrong side of the change.
+   *
+   * **This machine's clock decides**, not the projection's deadline alone.
+   * The upstream proposes a moment; a value in the past is already over and a
+   * value beyond the protocol's window is clamped to it. A projection that
+   * could extend this at will would be a two-key site forever, decided by the
+   * party the design does not trust.
+   */
+  readonly #retiring = new Map<string, number>();
+
   /** Offered, never approved: shown to the user, served to nobody. */
   readonly #pending = new Map<string, PublicIdentity>();
 
@@ -1058,7 +1109,15 @@ export class Runner {
    * Pinning exists to refuse exactly that, so it is kept and reported rather
    * than replaced. Amendment A.3.1's rotation is an explicit path.
    */
-  #applySites(sites: Record<string, PublicIdentity>): void {
+  #applySites(
+    sites: Record<string, PublicIdentity>,
+    successions:
+      | Record<
+          string,
+          { succeeds: Succession[]; retiringUntil?: number | undefined }
+        >
+      | undefined,
+  ): void {
     for (const [id, site] of Object.entries(sites)) {
       // The upstream's account of a site, checked before anything is pinned.
       // A key that is not signed by the identity presenting it is what
@@ -1082,6 +1141,12 @@ export class Runner {
       }
 
       const approved = this.#known.get(id);
+      if (approved === undefined && this.#rotateInto(id, site, successions)) {
+        // A verified succession. Handled above rather than here because it is
+        // not a stranger and not a substitution: it is a key this machine
+        // already vouched for, signing for the one in front of it.
+        continue;
+      }
       if (approved === undefined) {
         // Never approved on this machine. **Not pinned, and nothing runs for
         // it** — this is the fence V1-1 found missing. Consent to serve a
@@ -1120,6 +1185,14 @@ export class Runner {
 
     for (const id of [...this.#sites.keys()]) {
       if (id in sites) continue;
+      // Superseded rather than withdrawn: keep serving it until this machine's
+      // own clock says the window is over. Checked here rather than at pin
+      // time so that a site which withdraws consent *and* rotates still has
+      // its work stopped — `sites` not containing the id is the only signal
+      // for consent, and the window only holds the pin open, never the route.
+      const until = this.#retiring.get(id);
+      if (until !== undefined && Date.now() < until) continue;
+      this.#retiring.delete(id);
       this.#sites.delete(id);
       // And stop the work already running for it — V1-7.
       //
@@ -1159,6 +1232,114 @@ export class Runner {
    * only thing that stops a site being served is its absence from the set,
    * which is the signal consent actually speaks through.
    */
+  /**
+   * Accept a site whose current key proves descent from one already approved.
+   *
+   * byollm_009 Amendment C, and the reason `SITES_LOCALLY_APPROVED` was
+   * amended rather than exempted: **a verified succession is not a changed
+   * key.** The refusal that rule exists for is a new key arriving with nothing
+   * but the upstream's word for it. A key that arrives with a signature by the
+   * key already pinned is the same site proving continuity, and accepting it
+   * is the pin doing its job rather than being bypassed.
+   *
+   * Mechanically the two are far apart, which is what makes this safe to
+   * write: a substitution presents different bytes *for the same key id* and
+   * is refused a few lines below; a succession presents a *new key id* plus a
+   * signature by the old one over a statement naming both.
+   *
+   * ## What the chain is walked against
+   *
+   * `#known`, which outlives consent — every site ever approved here,
+   * including ids that were dropped. That is deliberate: a site that left the
+   * allowlist and came back is still one this machine vouched for, and
+   * rotation must not become a way to launder that distinction in either
+   * direction.
+   *
+   * ## Where the succession is allowed to come from
+   *
+   * The projection, and nowhere else. Ruling 3 makes the control plane a
+   * second authority precisely so that a stolen identity key is not by itself
+   * enough to move a site: the proof must be one the control plane is also
+   * publishing, which means somebody got at the dashboard as well. A
+   * succession arriving on a stub, a request, or any other path a site
+   * controls alone would give that second authority away, so there is exactly
+   * one caller of this and it is the heartbeat.
+   *
+   * Returns whether the id was adopted. `false` means "not a succession" —
+   * the caller carries on to the stranger path, which is the right answer for
+   * a chain that verifies but reaches nobody this machine knows.
+   */
+  #rotateInto(
+    id: string,
+    site: PublicIdentity,
+    successions:
+      | Record<
+          string,
+          { succeeds: Succession[]; retiringUntil?: number | undefined }
+        >
+      | undefined,
+  ): boolean {
+    const offered = successions?.[id];
+    if (!offered || offered.succeeds.length === 0) return false;
+
+    const walk = walkSuccession({
+      current: id,
+      chain: offered.succeeds,
+      approved: (candidate) => this.#known.has(candidate),
+    });
+
+    if (walk.failure === "broken-link" || walk.failure === "too-long") {
+      // Either a broken site or the attack, and this daemon cannot tell which
+      // — so it does what it does for every unverifiable claim: keeps the pin
+      // it has and says so. Loudly, because a chain that fails to verify is
+      // the one event here that nobody should have to go looking for.
+      this.#refuseSite(
+        id,
+        walk.failure === "too-long"
+          ? "its succession chain is longer than this daemon will walk"
+          : "a link in its succession chain is not signed by the key before it",
+      );
+      return true;
+    }
+
+    if (walk.from === undefined) return false;
+
+    const previous = this.#known.get(walk.from);
+    /* c8 ignore next */
+    if (!previous) return false;
+
+    // The approval moves. Both ids stay in `#known`: the old one because
+    // tombstones are how `SITES_LOCALLY_APPROVED` refuses remove-then-re-add,
+    // and the new one because it is now a key this machine has approved — by
+    // the only ceremony that was ever available for it, which is the previous
+    // key's signature.
+    this.#known.set(id, site);
+    this.#sites.set(id, site);
+    this.#pending.delete(id);
+    this.#announced.delete(id);
+
+    // The predecessor keeps its pin for the length of the window, so work
+    // already signed under it still verifies. Clamped to the protocol's
+    // constant: the upstream may retire a key sooner than the window, never
+    // later — ruling 2 makes the overlap a protocol fact rather than the
+    // site's to choose, and "forever" is the value a site would pick.
+    const ceiling = Date.now() + RETIREMENT_WINDOW_MS;
+    const proposed = offered.retiringUntil ?? ceiling;
+    this.#retiring.set(walk.from, Math.min(proposed, ceiling));
+
+    // Announced once per rotation rather than every heartbeat: the id is in
+    // `#known` from here on, so this branch is not reached again for it.
+    this.#options.onEvent?.({
+      type: "site-rotated",
+      site: id,
+      from: walk.from,
+      fromFingerprint: fingerprint(previous.identity),
+      fingerprint: fingerprint(site.identity),
+      path: walk.path,
+    });
+    return true;
+  }
+
   #refuseSite(id: string, reason: string): void {
     if (!this.#known.has(id)) this.#pending.delete(id);
     this.#options.onEvent?.({ type: "site-refused", site: id, reason });

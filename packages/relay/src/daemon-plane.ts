@@ -409,6 +409,30 @@ export class DaemonPlane {
         const sites = Object.fromEntries(
           pinned.map((record) => [keyId(record.site.identity), record.site]),
         );
+        // How each of those keys can be traced back to one the daemon already
+        // holds — byollm_009 Amendment C. Composed here rather than folded
+        // into `sites` because `sites` is the one statement of which key is
+        // current and this is evidence about how it got there; the relay
+        // distributes both and can mint neither.
+        //
+        // Only for sites that have actually rotated, so the field is absent
+        // for every site today and a daemon that has never seen a rotation
+        // never parses one.
+        const successions = Object.fromEntries(
+          pinned
+            .filter((record) => (record.succeeds?.length ?? 0) > 0)
+            .map((record) => [
+              keyId(record.site.identity),
+              {
+                succeeds: record.succeeds ?? [],
+                ...(record.retiringUntil === undefined
+                  ? {}
+                  : { retiringUntil: record.retiringUntil }),
+              },
+            ]),
+        );
+        const rotations =
+          Object.keys(successions).length > 0 ? { successions } : {};
         // A subset: paused sites keep their pin and route nothing, so the
         // daemon can name what the user has to go and read.
         const awaitingConsent = pinned
@@ -425,6 +449,7 @@ export class DaemonPlane {
           // must not depend on that.
           return ok({
             sites,
+            ...rotations,
             awaitingConsent,
             cancel: [],
             lost: request.activeLeases.map((lease) => ({
@@ -458,6 +483,7 @@ export class DaemonPlane {
 
         return ok({
           sites,
+          ...rotations,
           awaitingConsent,
           cancel,
           lost,

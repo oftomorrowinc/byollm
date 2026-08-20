@@ -638,6 +638,31 @@ The first two of those were **not true of the first draft of this
 spec**, which specified anonymous sealed boxes — see §6. They are true
 of the construction above, and they are the reason it changed.
 
+**Rotation adds two projected fields, and they are on this list.**
+Amendment C puts a site's succession chain and its retirement deadline
+in the projection the relay serves, so an upstream **can** observe that
+a site rotated, when, and which key ids it has held — the history is
+public by construction, since a daemon that cannot read it cannot
+verify it. That is a genuine addition to the metadata surface and it is
+here rather than in an appendix, because a deliberate disclosure
+missing from the disclosure list is how "exhaustive" quietly stops
+meaning anything.
+
+It **cannot** mint one. A succession is a signature by the retiring
+identity key, which the relay never holds, so the only rotations it can
+project are ones the site actually signed. What a hostile upstream can
+do is *withhold* a genuine succession — which stalls a rotation and is
+visible as a site whose key stops working — or replay a genuine one
+into a different site's record, which C.1's both-ids-named statement
+refuses and `succession.test.ts` proves.
+
+The residual risk the design names plainly: **a stolen identity key
+rotates the site to the thief.** Amendment C's ruling 3 answers it with
+a second authority rather than with cryptography — the daemon applies a
+succession only when the proof and the control plane's projection agree
+on the same successor, so one stolen key is not enough. It is not
+nothing, and it is written down rather than argued away.
+
 **Traffic analysis is not addressed.** Size class and timing are
 visible by construction, and padding at this layer is not obviously
 worth its cost. Anyone whose threat model includes an upstream
@@ -939,7 +964,7 @@ plane's schemas in hand.
 
 ---
 
-# Amendment C — Rotation (RATIFIED 2026-08-20; not yet built)
+# Amendment C — Rotation (RATIFIED 2026-08-20; BUILT 2026-08-21)
 
 V1-16: A.3.1 committed to rotation as "a designed transition" and
 designed none of it. One `SiteRecord` per site id means the two-key
@@ -950,8 +975,9 @@ substitution accepted silently at worst.
 
 This is the last Amendment A path never built, and the thing most likely
 to be frozen wrong at 1.0, because the wrong version of it is *also* the
-attack V1-1 exists to refuse. **Nothing here is implemented.** It is
-written to be argued with first.
+attack V1-1 exists to refuse. It was written to be argued with first, and
+it was: the four rulings in C.7 are Todd's, and C.9 below records what
+they turned into.
 
 ## C.1 What a rotation is
 
@@ -1131,3 +1157,67 @@ must be refused — both ids named is load-bearing (C.1), so a test proves
 it rather than a comment claiming it. That case belongs with the daemon's
 own hostile suites, beside the tombstone one, and cites
 `SITES_LOCALLY_APPROVED`.
+
+## C.9 What was built (2026-08-21)
+
+All four rulings, in the shape they were ruled.
+
+**`packages/protocol/src/succession.ts`** holds the mechanism and the
+two constants. `signSuccession` is the only thing that can produce a
+link and it takes `StoredKeys`, which is the whole design in a type
+signature: the relay cannot mint one because it does not have the
+private half. `verifyLink` takes the successor's key id **as an
+argument** rather than reading it from the statement it is checking —
+a verifier that recovered it from the signed bytes would accept a
+genuine signature about a successor nobody installed, which is C.1's
+replay.
+
+**The projection carries `succeeds` and `retiringUntil`**, and the
+heartbeat carries them in a `successions` field that is *absent* for a
+site that has never rotated — which is every site today. §12 has the
+row: a site's rotation history is public by construction, because a
+daemon that cannot read it cannot verify it.
+
+**The daemon walks the chain from the key in front of it back to one
+it has approved**, `#known` included tombstones, and re-keys without a
+ceremony. Three outcomes, told apart deliberately: a verified
+succession is adopted and announced with both fingerprints; a broken
+link is refused loudly and the existing pin is kept; a chain that
+verifies but reaches nobody is a **stranger, not an attack** — offered
+for local approval like any other. Collapsing those last two would
+make the loud refusal mean nothing.
+
+**The retirement window is enforced by the daemon's own clock**, and
+the projection's deadline is clamped to `RETIREMENT_WINDOW_MS` rather
+than trusted. Both keys route while it is open, on both planes: the
+daemon keeps the superseded pin so work signed a minute ago still
+verifies, and the site plane accepts a signature from any key in the
+chain until the window closes. That is what stops a rotation being a
+flag day, and it is the half that would have been discovered in
+production.
+
+**Mutation-verified in five places**, each killed by a case naming the
+property it lost: dropping either id from the signed statement,
+skipping the encryption-key check inside a link, accepting a chain
+that reaches a key this machine never approved, rotating silently, and
+trusting the projection's retirement deadline.
+
+### What was deliberately not built
+
+**No `conformance` kind for `SITES_LOCALLY_APPROVED`.** The succession
+clause is a rule about two implementations agreeing, which is what a
+conformance check is for — but rotating a site's key is not something
+`ConformanceTarget` can express, and an optional hook most targets omit
+would produce a check reporting success for a reason unrelated to the
+property it claims. The registry says `construction + adversarial` and
+the comment beside it says why, so the gap is recorded rather than
+papered over. What is missing is a second independent implementation to
+check against; there is not one yet.
+
+**The control plane's half is still owed** — C.8, unchanged. Migration
+0006 makes a verified site's identity immutable by design, so rotation
+there is a deliberate `service_role` action with its own audit row.
+Until that exists a site cannot actually rotate in production, and
+everything above is the protocol being ready for it rather than the
+feature being live. That is the right order: the shape had to be
+decided before 1.0, and it now is.

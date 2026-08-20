@@ -176,13 +176,55 @@ export class SitePlane {
       return fail(401, "unauthorized", "this site is not registered");
     }
 
-    const failure = verifySiteRequest({
-      identityPublic: site.site.identity,
-      endpoint: auth.endpoint,
-      body: auth.rawBody,
-      signature: signature.data,
-      now: this.#deps.now(),
-    });
+    /**
+     * Which keys may sign for this site right now — byollm_009 Amendment C.
+     *
+     * The current one, and — while a retirement window is open — the key it
+     * just superseded. **Both keys route while the window is open** (C.2): a
+     * site that rotated is a site with two processes mid-deploy and a queue of
+     * work signed a minute ago, and refusing the old key the instant the
+     * record moves makes rotation a flag day.
+     *
+     * The site id in the caller slot does not change across a rotation — it is
+     * the control plane's name for the site, not a key id — so this cannot be
+     * decided by looking at who is calling. It is decided by which key
+     * verifies, which is the honest question.
+     *
+     * The predecessors come from the chain the site itself signed, so this
+     * widens nothing: a key that can authenticate here is one the current key
+     * has vouched for in a statement naming both. And the window is measured
+     * against the relay's clock, because a window a caller could assert would
+     * not be a window.
+     */
+    const acceptable = [
+      site.site.identity,
+      ...(site.retiringUntil !== undefined &&
+      this.#deps.now() < site.retiringUntil
+        ? (site.succeeds ?? []).map((link) => link.identity.identity)
+        : []),
+    ];
+
+    // Tried in order, current key first, and the *last* failure is the one
+    // reported: a site whose clock has drifted fails every key with `stale`,
+    // and telling it its signature was wrong would send it looking in the one
+    // place the problem is not — finding 17, which this loop could quietly
+    // undo.
+    // Seeded with a refusal rather than left unassigned: `acceptable` always
+    // has at least the current key, but a loop that can be entered zero times
+    // must not be able to fall through into an authenticated request.
+    let failure: ReturnType<typeof verifySiteRequest> = "bad-signature";
+    for (const identityPublic of acceptable) {
+      failure = verifySiteRequest({
+        identityPublic,
+        endpoint: auth.endpoint,
+        body: auth.rawBody,
+        signature: signature.data,
+        now: this.#deps.now(),
+      });
+      if (!failure) break;
+      // A stale signature is stale against every key; no point asking again.
+      if (failure === "stale") break;
+    }
     // `stale` is not a bad signature — cloud_008 §1.4, finding 17.
     //
     // `verifySiteRequest` distinguishes the two and this used to throw the

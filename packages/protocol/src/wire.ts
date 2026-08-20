@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { PublicIdentity } from "./keys.js";
+import { MAX_SUCCESSION_CHAIN, Succession } from "./succession.js";
 import { OfferScope } from "./audience.js";
 import { BackendClass, BackendIdSchema } from "./backends.js";
 import { ClaimedStub } from "./job.js";
@@ -382,6 +383,43 @@ export const HeartbeatResponse = z
      * they drift.
      */
     sites: z.record(z.string().min(1), PublicIdentity),
+    /**
+     * How a site's current key traces back to one this daemon already holds —
+     * byollm_009 Amendment C.
+     *
+     * Keyed by the same id as `sites`, and **additive on purpose**: `sites`
+     * remains the one statement of which key is current, and this says only
+     * how that key got there. Two fields for one fact is how they drift; this
+     * is two facts, and the second is evidence about the first.
+     *
+     * Optional because a site that has never rotated has no chain, which is
+     * every site today. A daemon that receives one for an id it already holds
+     * ignores it: the pin it has is the pin it approved.
+     *
+     * §12 carries what this adds to the metadata surface — a site's rotation
+     * history is public by construction, because a daemon that cannot read it
+     * cannot verify it.
+     */
+    successions: z
+      .record(
+        z.string().min(1),
+        z
+          .object({
+            /** Oldest last, as the projection carries it. */
+            succeeds: z.array(Succession).max(MAX_SUCCESSION_CHAIN),
+            /**
+             * Until when the superseded key may still sign work — epoch ms.
+             *
+             * The daemon holds its own clock against this, for the reason it
+             * holds its own allowlist: a projection that could extend the
+             * window indefinitely would be a two-key site forever, decided by
+             * the party this design does not trust.
+             */
+            retiringUntil: z.number().int().positive().optional(),
+          })
+          .strict(),
+      )
+      .optional(),
     /**
      * Per-job cancel (byollm_001 Rev 1 §C). The daemon aborts these jobs'
      * in-flight backend calls and reports them `canceled`.

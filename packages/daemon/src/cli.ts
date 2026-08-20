@@ -563,6 +563,24 @@ function report(origin: string, event: RunnerEvent, io: CliIo): void {
           `re-pair with \`byollm connect\`.\n`,
       );
       break;
+    case "site-rotated":
+      // Loud, and on stdout rather than stderr: this is not a fault. It is a
+      // key movement that verified, which is the one thing that must never
+      // happen quietly — C.5. Both fingerprints are printed because the whole
+      // point is that somebody can compare the new one against what the site
+      // now shows, and the old one against what they remember approving.
+      io.out(
+        `${at} ${host} site ${event.site} rotated its key.\n` +
+          `    was: ${event.fromFingerprint}\n` +
+          `    now: ${event.fingerprint}\n` +
+          `    Accepted because the previous key signed for this one. ` +
+          `Nothing was re-approved by hand.\n` +
+          (event.path.length > 2
+            ? `    Through ${String(event.path.length - 1)} rotations since ` +
+              `the key this machine approved.\n`
+            : ""),
+      );
+      break;
     case "site-awaiting-approval":
       // The one sentence in this log that asks for something. A site nobody
       // here approved is offered no work at all, so the failure it prevents

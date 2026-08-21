@@ -390,3 +390,12 @@ export type {
 
 /** The grant a lease-scoped answer names — V1-3. */
 export type { Grant } from "./store.js";
+
+export {
+  MemoryPairingCodes,
+  PAIRING_CODE_TTL_MS,
+  newDeviceCode,
+  newUserCode,
+  type PairingCodes,
+  type PendingPairing,
+} from "./pairing-codes.js";

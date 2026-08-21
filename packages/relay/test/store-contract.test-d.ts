@@ -1,6 +1,8 @@
 import type { ClaimedStub, SealedEnvelope } from "@byollm/protocol";
 import type {
   ClaimInput,
+  PairingCodes,
+  PendingPairing,
   Grant,
   HolderRefusal,
   Presence,
@@ -76,3 +78,24 @@ export type Contract = typeof _contract &
   typeof _sweep &
   typeof _renew &
   typeof _cancelRequests;
+
+/**
+ * `RelayOptions` is satisfiable from the package's public surface too.
+ *
+ * The same packaging bug, a fourth time, in a new place: `pairingCodes` was
+ * added to `RelayOptions` and its type was not exported, so the hub could
+ * declare the option and had no way to name what goes in it. Found — again —
+ * by another repository failing to compile, one release after publishing.
+ *
+ * The rule these keep teaching: **a public option whose type is private is an
+ * option nobody outside can fill.** `declare const _options: RelayOptions` is
+ * not enough on its own, for the reason the `Grant` note above gives — the
+ * shape is structural. So the seam is restated by name, which is what actually
+ * requires the export to exist.
+ */
+declare const _pairingCodes: PairingCodes;
+declare const _pending: PendingPairing;
+declare const _relayOptions: {
+  pairingCodes?: PairingCodes;
+  verificationUrl?: string;
+};

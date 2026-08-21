@@ -6,7 +6,13 @@ import { generateKeys, publicIdentityOf } from "@byollm/protocol";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { normalizeOrigin } from "./allowlist.js";
 import { composePrompt } from "./compose.js";
-import { DEFAULT_ORIGIN, main, runCli, type CliIo } from "./cli.js";
+import {
+  DEFAULT_ORIGIN,
+  connectTarget,
+  main,
+  runCli,
+  type CliIo,
+} from "./cli.js";
 import { daemonPaths, type DaemonPaths } from "./paths.js";
 import { Pairings } from "./pairings.js";
 import { removeTemp } from "./test-support.js";
@@ -73,24 +79,22 @@ describe("byollm connect — when it cannot", () => {
     expect(out).toContain("Connecting to");
   });
 
-  it("goes to the reference hub when nobody says otherwise", async () => {
+  it("goes to the reference hub when nobody says otherwise", () => {
     // It used to refuse without a URL. Every user would have pasted the same
     // string, from a page they had not opened yet — so the daemon knows it.
     //
-    // A *default*, not a lock: `connect <url>` still goes where it is
-    // pointed, which is what keeps the protocol something other people can
-    // host. The assertion is on the URL it reaches for, not on reaching it:
-    // there is no hub in a unit test, and the failure to connect is the
-    // proof it tried.
-    // This test could not see the origin until connect stopped refusing at
-    // zero backends: the run ended before it named one, so the assertion was
-    // "it accepted no argument" plus the constant. Now it says where it is
-    // going before it tries, so the default is observable rather than
-    // inferred — which is what the comment above always wanted.
-    const code = await runCli(["connect"], { paths, io: io() });
-    expect(code).not.toBe(2);
-    expect(err).not.toContain("usage:");
-    expect(out).toContain(DEFAULT_ORIGIN);
+    // **Asserted as the constant, and deliberately not by running `connect`.**
+    // This test used to call the CLI with no argument, which sent a real pair
+    // request to the real hub on every run: tolerable while the hub refused
+    // that shape in 400ms, and not tolerable now that it answers — the run
+    // hung for the full poll and left a pending code in production Valkey
+    // behind it. A unit test that reaches the internet is a unit test that
+    // fails when somebody is on a train, and this one had also become a
+    // little machine for littering the live service.
+    //
+    // The behaviour it was reaching for — "no argument means the default" —
+    // is covered where it can be checked without a network: the integration
+    // test drives the whole `connect` path against a local server.
     expect(DEFAULT_ORIGIN).toBe("https://hub.byollm.cloud");
   });
 
@@ -204,5 +208,36 @@ describe("what this machine calls itself", () => {
     await runCli(["name", "x".repeat(200)], { paths, io: io() });
     await runCli(["name"], { paths, io: io() });
     expect(out.trim().split("\n").pop()).toHaveLength(120);
+  });
+});
+
+describe("which upstream connect was pointed at", () => {
+  // Checked without a network, which is the point: the version of this that
+  // ran the real command sent a pair request to the live hub on every test
+  // run.
+
+  it("uses the reference hub when nobody says otherwise", () => {
+    expect(connectTarget([])).toBe(DEFAULT_ORIGIN);
+    expect(connectTarget(["--name", "studio-mac"])).toBe(DEFAULT_ORIGIN);
+  });
+
+  it("goes where it is pointed, which is what keeps this hostable by others", () => {
+    expect(connectTarget(["https://acme.test"])).toBe("https://acme.test");
+  });
+
+  it("finds the url on either side of --name", () => {
+    // The bug this guard exists for: without checking that `--name` is
+    // present, its index arithmetic filters out the *url* instead, and every
+    // `connect <url>` quietly goes to the default.
+    expect(connectTarget(["https://acme.test", "--name", "box"])).toBe(
+      "https://acme.test",
+    );
+    expect(connectTarget(["--name", "box", "https://acme.test"])).toBe(
+      "https://acme.test",
+    );
+  });
+
+  it("is not fooled by a flag that looks like a url", () => {
+    expect(connectTarget(["--verbose"])).toBe(DEFAULT_ORIGIN);
   });
 });

@@ -182,6 +182,32 @@ async function commandName(
 export const DEFAULT_ORIGIN = "https://hub.byollm.cloud";
 
 /**
+ * Which upstream `connect` was pointed at — the argument, or the default.
+ *
+ * Its own function so it can be checked without a network. The test that
+ * covered "no argument means the reference hub" did it by *running* connect
+ * with no argument, which sent a real pair request to the real hub on every
+ * run — tolerable while the hub refused that shape in 400ms, and not
+ * tolerable once it started answering: the run hung for a full poll and left
+ * a pending code in production behind it.
+ *
+ * The `--name` guard is the whole of the filter and the reason this is
+ * fiddly: without checking `named !== -1`, `named + 1` is `0` when there is no
+ * `--name`, so the *URL* gets filtered out and every `connect <url>` quietly
+ * goes to the default instead. That shipped once and was caught by the
+ * integration test connecting to the hub when it had been told otherwise.
+ */
+export function connectTarget(args: readonly string[]): string {
+  const named = args.indexOf("--name");
+  const positional = args.filter(
+    (arg, at) =>
+      !arg.startsWith("-") &&
+      (named === -1 || (at !== named && at !== named + 1)),
+  );
+  return positional[0] ?? DEFAULT_ORIGIN;
+}
+
+/**
  * What this machine calls itself, in the order the answers were given.
  *
  * A flag beats a saved name beats the environment beats the hostname. Every
@@ -223,14 +249,7 @@ async function commandConnect(
   // instead. The integration test — the only one that runs the real binary —
   // is what caught it, by connecting to the hub when it had been told
   // otherwise.
-  const positional = args.filter(
-    (arg, at) =>
-      !arg.startsWith("-") &&
-      (named === -1 || (at !== named && at !== named + 1)),
-  );
-
-  const target = positional[0] ?? DEFAULT_ORIGIN;
-  const origin = normalizeOrigin(target);
+  const origin = normalizeOrigin(connectTarget(args));
   const { loaded, ingress, allowlist, budgets, spend } = await context(paths);
 
   for (const problem of loaded.problems) {
@@ -303,9 +322,25 @@ async function commandConnect(
           1,
           Math.round((info.expiresAt - Date.now()) / 60_000),
         );
+        /**
+         * Numbered steps, because this is the one moment the daemon needs
+         * somebody to go and do something.
+         *
+         * It printed a URL and a code as two labelled values, which reads as
+         * status rather than as instruction — Todd, who designed the flow,
+         * watched his own code expire waiting for the terminal to do
+         * something. If the author sits still, everybody sits still.
+         *
+         * "Enter" rather than "find the button": where the code goes is the
+         * dashboard's problem, and the approval URL carries whatever it needs
+         * to open on the right screen. A step here naming a button would be a
+         * step that goes stale the first time the page is redesigned.
+         */
         io.out(
-          `\n  Open:  ${info.verificationUrl}\n` +
-            `  Code:  ${info.userCode}      (expires in ${String(minutes)}m)\n\n` +
+          `\n  Your steps:\n` +
+            `    1) Open:       ${info.verificationUrl}\n` +
+            `    2) Enter code: ${info.userCode}   ` +
+            `(expires in ${String(minutes)} minutes)\n\n` +
             `  waiting for approval…`,
         );
       },

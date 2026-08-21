@@ -211,14 +211,25 @@ describe("byollm connect — the whole path", () => {
     controller.abort();
     await cli;
 
-    expect(out).toContain("Code:");
+    // What the operator was actually told, in the words they were told it —
+    // this is the one place the pairing prompt's wording is asserted, and it
+    // is worth asserting because somebody watched their own code expire while
+    // the terminal looked like it was working on something.
+    expect(out).toContain("Your steps:");
+    expect(out).toContain("Enter code:");
+    expect(out).toContain("expires in");
     expect(out).toContain("paired as alice");
   });
 
   async function waitForCode(): Promise<string> {
     const deadline = Date.now() + 10_000;
     for (;;) {
-      const match = /Code:\s+([A-Z0-9-]{9})/.exec(out);
+      // Matched on the code's shape rather than on the label beside it —
+      // the wording moved from "Code:" to numbered steps and this broke, which
+      // is a test asserting a sentence while claiming to assert a flow.
+      const match = /\b([0-9A-HJKMNP-TV-Z]{4}-[0-9A-HJKMNP-TV-Z]{4})\b/.exec(
+        out,
+      );
       if (match?.[1] !== undefined) return match[1];
       if (Date.now() >= deadline)
         throw new Error(`no pairing code in:\n${out}`);

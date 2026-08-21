@@ -6,6 +6,7 @@ import { backendDescriptor, resolveCost } from "@byollm/protocol";
 import { Allowlist, normalizeOrigin } from "./allowlist.js";
 import { Budgets } from "./budgets.js";
 import { ClientError, ProtocolClient } from "./client.js";
+import { diagnoseRoute } from "./diagnose.js";
 import { DaemonConfig, loadConfig } from "./config.js";
 import { connect } from "./connect.js";
 import { IngressLog, stripControlChars } from "./ingress.js";
@@ -250,40 +251,78 @@ async function commandConnect(
   });
 
   const capabilities = await runner.detectCapabilities();
+
+  /**
+   * Zero healthy backends is a warning, not a refusal — cloud_002, ruled
+   * 2026-08-21.
+   *
+   * This used to return 1. The stated reason was that "pairing while
+   * advertising nothing would produce a runner that silently never receives
+   * work", and the invariant does not hold: a paired daemon whose model server
+   * dies an hour later is already in exactly that state, and the daemon
+   * handles it by not advertising. The refusal guarded t=0 only.
+   *
+   * The real requirement is never to *silently* receive no work, and the
+   * answer to silence is loudness. So identity first, capability second: the
+   * fingerprint comparison is the moment that matters and the machine
+   * appearing on the page is the reward; the model server is the follow-up.
+   * The runtime already declines to claim at zero capabilities, so nothing
+   * routes here until a route goes healthy — and then it starts on its own,
+   * with no second pairing.
+   */
   if (capabilities.length === 0) {
-    // Pairing while advertising nothing would produce a runner that silently
-    // never receives work — a failure the user could not diagnose.
     io.err(
-      "No backend is reachable, so there is nothing to offer this app yet.\n" +
-        "Run `byollm backends` to see what is configured and what is wrong.\n",
+      "\n0 backends are healthy, so nothing will route to this machine yet.\n" +
+        "Pairing anyway — set a model server up " +
+        "(docs.byollm.cloud/guides/models),\nthen check `byollm backends`. " +
+        "Work starts arriving on its own once one is healthy.\n",
     );
-    return 1;
   }
 
   io.out(`\nConnecting to ${origin}\n`);
 
-  const result = await connect({
-    client,
-    daemonVersion: DAEMON_VERSION,
-    label: await labelFor(paths, name),
-    capabilities,
-    device: await new DeviceIdentity(paths.keys).publicIdentity(Date.now()),
-    onCode: (info) => {
-      const minutes = Math.max(
-        1,
-        Math.round((info.expiresAt - Date.now()) / 60_000),
-      );
-      io.out(
-        `\n  Open:  ${info.verificationUrl}\n` +
-          `  Code:  ${info.userCode}      (expires in ${String(minutes)}m)\n\n` +
-          `  waiting for approval…`,
-      );
-    },
-    onPoll: () => {
-      io.out(".");
-    },
-    ...(signal === undefined ? {} : { signal }),
-  });
+  /**
+   * An unreachable hub is a sentence, not a stack trace.
+   *
+   * `connect` used to return before this line whenever no backend was healthy,
+   * so the unreachable-upstream path was mostly unreached — and it throws a
+   * `ClientError` that nothing caught. Now that pairing proceeds at zero
+   * capabilities, this is the ordinary failure for somebody offline, on a
+   * captive-portal wifi, or pointed at a hub that is down.
+   */
+  let result: Awaited<ReturnType<typeof connect>>;
+  try {
+    result = await connect({
+      client,
+      daemonVersion: DAEMON_VERSION,
+      label: await labelFor(paths, name),
+      capabilities,
+      device: await new DeviceIdentity(paths.keys).publicIdentity(Date.now()),
+      onCode: (info) => {
+        const minutes = Math.max(
+          1,
+          Math.round((info.expiresAt - Date.now()) / 60_000),
+        );
+        io.out(
+          `\n  Open:  ${info.verificationUrl}\n` +
+            `  Code:  ${info.userCode}      (expires in ${String(minutes)}m)\n\n` +
+            `  waiting for approval…`,
+        );
+      },
+      onPoll: () => {
+        io.out(".");
+      },
+      ...(signal === undefined ? {} : { signal }),
+    });
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    io.err(
+      `\n  Could not pair with ${origin}.\n  ${detail}\n\n` +
+        `  Check the URL and your connection, then try again. Nothing was ` +
+        `changed on this machine.\n`,
+    );
+    return 1;
+  }
 
   if (!result.ok) {
     io.out(`\n\n  ${result.message}\n`);
@@ -1251,6 +1290,13 @@ async function commandBackends(
         `${route.baseUrl === undefined ? "" : ` @ ${route.baseUrl}`}\n` +
         `      ${pays}\n`,
     );
+    // Why, and what to do about it — cloud_002's detection-first ruling.
+    // "0 of 2 routes are healthy" is a true sentence that leaves the reader
+    // exactly as stuck as before it was printed.
+    if (!ok) {
+      const hint = await diagnoseRoute({ baseUrl: route.baseUrl });
+      if (hint !== undefined) io.out(`      ${hint}\n`);
+    }
   }
   for (const problem of loaded.problems) {
     io.out(`  ! ${problem.where}: ${problem.message}\n`);

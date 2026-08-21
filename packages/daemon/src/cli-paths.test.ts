@@ -45,7 +45,7 @@ afterEach(async () => {
 });
 
 describe("byollm connect — when it cannot", () => {
-  it("refuses to pair while advertising nothing, and says where to look", async () => {
+  it("pairs while advertising nothing, and says so loudly", async () => {
     await writeFile(
       paths.config,
       JSON.stringify({
@@ -56,13 +56,21 @@ describe("byollm connect — when it cannot", () => {
       }),
     );
 
-    // Pairing while offering nothing produces a runner that silently never
-    // gets work — a failure the user could not diagnose.
-    expect(
-      await runCli(["connect", "http://127.0.0.1:1"], { paths, io: io() }),
-    ).toBe(1);
-    expect(err).toContain("nothing to offer");
+    // Reversed by cloud_002's connect-first ruling. This used to return 1,
+    // on the argument that pairing while offering nothing produces a runner
+    // that silently never gets work — but a paired daemon whose model server
+    // dies an hour later is already in that state, so the refusal guarded t=0
+    // and nothing else. The requirement is never to be *silent* about it.
+    //
+    // There is no hub at this URL, so the run still fails; what matters is
+    // that it failed at the *network*, having said its piece and tried.
+    await runCli(["connect", "http://127.0.0.1:1"], { paths, io: io() });
+    expect(err).toContain("0 backends are healthy");
     expect(err).toContain("byollm backends");
+    expect(err).not.toContain("nothing to offer");
+    // It got past the backend check to the part where it names where it is
+    // going — the proof that pairing was attempted rather than refused.
+    expect(out).toContain("Connecting to");
   });
 
   it("goes to the reference hub when nobody says otherwise", async () => {
@@ -74,14 +82,15 @@ describe("byollm connect — when it cannot", () => {
     // host. The assertion is on the URL it reaches for, not on reaching it:
     // there is no hub in a unit test, and the failure to connect is the
     // proof it tried.
-    // Asserted as "it accepted no argument" plus the constant itself, because
-    // this path cannot show more: `connect` detects backends *before* it says
-    // where it is going, and a unit test has none — so the run ends at "no
-    // backend is reachable" without ever naming an origin. Asserting the
-    // message it does print would be asserting the backend check.
+    // This test could not see the origin until connect stopped refusing at
+    // zero backends: the run ended before it named one, so the assertion was
+    // "it accepted no argument" plus the constant. Now it says where it is
+    // going before it tries, so the default is observable rather than
+    // inferred — which is what the comment above always wanted.
     const code = await runCli(["connect"], { paths, io: io() });
     expect(code).not.toBe(2);
     expect(err).not.toContain("usage:");
+    expect(out).toContain(DEFAULT_ORIGIN);
     expect(DEFAULT_ORIGIN).toBe("https://hub.byollm.cloud");
   });
 

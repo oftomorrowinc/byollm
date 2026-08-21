@@ -34,6 +34,44 @@ describe("siteKeysFromEnv", () => {
     ).toEqual(keys);
   });
 
+  it("prints the public half as one pasteable line", () => {
+    // The gap this closes, found by Todd trying to register a real site: the
+    // dashboard asks for a *public identity* and keygen printed only the
+    // base64 secret and a fingerprint. There was no path between them that did
+    // not involve decoding the secret — which is the one thing nobody should
+    // do to get a value they are about to paste into a web page.
+    const keys = generateSiteKeys();
+    const printed = formatSiteKeys(keys);
+    const line = printed
+      .split("\n")
+      .find((l) => l.startsWith("{") && l.includes("encryptionSig"));
+
+    expect(line, "no pasteable public line in keygen output").toBeTruthy();
+    expect(JSON.parse(line!)).toEqual(publicIdentityOf(keys));
+  });
+
+  it("keeps the secret and the public half apart, and says which is which", () => {
+    // Both halves in one output is a design that fails one way: somebody
+    // pastes the wrong one. So each is labelled with what it is and where it
+    // goes, and the secret says "never pasted into a dashboard" in the place
+    // somebody is looking when they are about to do exactly that.
+    const printed = formatSiteKeys(generateSiteKeys());
+
+    expect(printed).toMatch(/SECRET — set this on your server/);
+    expect(printed).toMatch(/never pasted into a dashboard/);
+    expect(printed).toMatch(
+      /PUBLIC — paste this line into the byollm dashboard/,
+    );
+    // And the secret must never appear on the public line.
+    const secret = printed
+      .split("\n")
+      .find((l) => l.startsWith("BYOLLM_SITE_KEYS="))!
+      .slice("BYOLLM_SITE_KEYS=".length);
+    const pub = printed.split("\n").find((l) => l.startsWith("{"))!;
+    expect(pub).not.toContain(secret);
+    expect(pub).not.toContain("identityPrivate");
+  });
+
   it("prints a fingerprint alongside, and marks it as not secret", () => {
     const printed = formatSiteKeys(generateSiteKeys());
     expect(printed).toMatch(/BYOLLM(-[0-9A-HJKMNP-TV-Z]{4}){6}/);

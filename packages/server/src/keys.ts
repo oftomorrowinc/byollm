@@ -71,13 +71,27 @@ export function siteKeysFromEnv(
 /** What to print from `keygen`: the secret to store, and how to check it. */
 export function formatSiteKeys(keys: StoredKeys): string {
   const encoded = Buffer.from(JSON.stringify(keys)).toString("base64");
+  const pub = publicIdentityOf(keys);
   return (
-    `# Set this as BYOLLM_SITE_KEYS. It is a secret: it is this site's\n` +
-    `# identity, and anything holding it can be this site.\n` +
+    `# ── 1. SECRET — set this on your server, and nowhere else ────────────\n` +
+    `#\n` +
+    `# This is the site's identity. Anything holding it can *be* this site,\n` +
+    `# so it goes wherever your deployment keeps secrets — never in a repo,\n` +
+    `# never in a browser, never pasted into a dashboard.\n` +
     `BYOLLM_SITE_KEYS=${encoded}\n` +
     `\n` +
-    `# Fingerprint (not secret — show it to users so they can check what\n` +
-    `# their daemon pinned):\n` +
-    `# ${fingerprint(publicIdentityOf(keys).identity)}\n`
+    `# ── 2. PUBLIC — paste this line into the byollm dashboard ────────────\n` +
+    `#\n` +
+    `# The public half. It proves signatures and seals nothing, so it is\n` +
+    `# safe to publish — which is the point: users pin it, and the relay\n` +
+    `# cannot forge work without the secret above.\n` +
+    `${JSON.stringify(pub)}\n` +
+    `\n` +
+    `# ── 3. Fingerprint — what a person compares by eye ───────────────────\n` +
+    `#\n` +
+    `# A fingerprint is not secret. Show it on your site so somebody\n` +
+    `# connecting can check it against what their daemon printed.\n` +
+    `# The dashboard derives this itself, so there is nothing to paste.\n` +
+    `# ${fingerprint(pub.identity)}\n`
   );
 }

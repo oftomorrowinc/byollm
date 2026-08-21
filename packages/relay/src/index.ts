@@ -2,6 +2,7 @@ import { checkProtocolVersion, declaredVersion } from "@byollm/protocol";
 import { DaemonPlane, type PlaneResult } from "./daemon-plane.js";
 import { debugPage } from "./debug.js";
 import { Projection, type RelayFixture } from "./fixture.js";
+import { MemoryPairingCodes, type PairingCodes } from "./pairing-codes.js";
 import { SitePlane } from "./site-plane.js";
 import { RelayState } from "./state.js";
 import type { RoutingStore } from "./store.js";
@@ -45,6 +46,23 @@ export interface RelayOptions {
   readonly leaseMs?: number;
   /** Injectable clock, so tests move time instead of sleeping. */
   readonly now?: () => number;
+  /**
+   * Where pending pairing codes live — cloud_009's device-code flow.
+   *
+   * Defaults to an in-memory store, which is right for the reference relay
+   * and wrong for a hub: two replicas mean a code minted on one must be
+   * pollable on the other, the same reason the routing store is not a `Map`.
+   */
+  readonly pairingCodes?: PairingCodes;
+  /**
+   * Where a human approves a code. The control plane's own URL.
+   *
+   * Given rather than derived: the relay cannot approve anything, because
+   * approving is looking at a fingerprint while signed in and that session
+   * lives in the dashboard. Absent, the device-code flow is refused as
+   * unsupported rather than pointed somewhere useless.
+   */
+  readonly verificationUrl?: string;
   /** Where the daemon plane is mounted. */
   readonly basePath?: string;
   /**
@@ -108,6 +126,11 @@ export class Relay {
       projection: this.projection,
       now: this.#now,
       leaseMs: options.leaseMs ?? 60_000,
+      pairingCodes:
+        options.pairingCodes ?? new MemoryPairingCodes(() => this.#now()),
+      ...(options.verificationUrl === undefined
+        ? {}
+        : { verificationUrl: options.verificationUrl }),
     });
     this.#site = new SitePlane({
       state: this.state,

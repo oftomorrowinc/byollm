@@ -1,4 +1,6 @@
 import {
+  PairPollRequest,
+  PairStartRequest,
   ClaimRequest,
   FetchRequest,
   HeartbeatRequest,
@@ -13,6 +15,13 @@ import {
 } from "@byollm/protocol";
 import { z } from "zod";
 import type { Projection } from "./fixture.js";
+import {
+  PAIRING_CODE_TTL_MS,
+  newDeviceCode,
+  newUserCode,
+  type PairingCodes,
+  type PendingPairing,
+} from "./pairing-codes.js";
 import type { HolderRefusal } from "./state.js";
 import { clockSkewRefusal } from "./refusals.js";
 import type { RoutingStore } from "./store.js";
@@ -100,6 +109,22 @@ export interface DaemonPlaneDeps {
   readonly now: () => number;
   readonly leaseMs: number;
   /**
+   * Where pending pairing codes live — cloud_009.
+   *
+   * Optional so a relay that only serves pre-approved devices keeps working
+   * unchanged; when absent, the device-code flow answers "not supported"
+   * rather than pretending.
+   */
+  readonly pairingCodes?: PairingCodes | undefined;
+  /**
+   * Where a human goes to approve a code — the control plane, always.
+   *
+   * The relay cannot approve anything: approving is looking at a fingerprint
+   * while signed in, and the session that makes that meaningful lives in the
+   * dashboard. So this is a URL the relay is *given*, not one it derives.
+   */
+  readonly verificationUrl?: string | undefined;
+  /**
    * Which site this relay routes for.
    *
    * The skeleton relays for one site because that is all the freeze gate
@@ -127,6 +152,17 @@ export class DaemonPlane {
    * need a private key to do it, which is why it has none.
    */
   async pair(body: unknown): Promise<PlaneResult> {
+    // The device-code flow — cloud_009, and the reason cloud pairing did not
+    // work at all. `byollm connect` has always sent this shape; nothing on
+    // this side accepted it, so every cloud user's first command failed
+    // schema validation. Direct mode implemented it, the conformance kit
+    // drove direct mode, and the seam between them was what nothing checked.
+    const start = PairStartRequest.safeParse(body);
+    if (start.success) return this.#pairStart(start.data);
+
+    const poll = PairPollRequest.safeParse(body);
+    if (poll.success) return this.#pairPoll(poll.data);
+
     const parsed = PairFixtureRequest.safeParse(body);
     if (!parsed.success) {
       return fail(400, "bad-request", "pair request failed schema validation");
@@ -202,6 +238,106 @@ export class DaemonPlane {
        * its pin so re-consenting never costs a re-pair, and what it does not
        * do is route.
        */
+      sites: Object.fromEntries(
+        sites.map((record) => [keyId(record.site.identity), record.site]),
+      ),
+    });
+  }
+
+  /**
+   * Mint a code, remember the keys it stands for, and send the human away.
+   *
+   * Nothing is decided here. The relay holds an assertion — "this keypair
+   * would like to be a machine" — for ten minutes, and the decision happens
+   * where the person is signed in.
+   */
+  async #pairStart(request: PairStartRequest): Promise<PlaneResult> {
+    const codes = this.#deps.pairingCodes;
+    const verificationUrl = this.#deps.verificationUrl;
+    if (!codes || verificationUrl === undefined) {
+      // Said plainly rather than answered with a schema error: a relay
+      // without a code store cannot do this, and the daemon's user deserves
+      // to know that rather than to read "bad request".
+      return fail(
+        501,
+        "bad-request",
+        "this relay does not offer device-code pairing",
+      );
+    }
+    if (!verifyPublicIdentity(request.device)) {
+      return fail(400, "bad-request", "the device identity is not consistent");
+    }
+
+    const pending: PendingPairing = {
+      deviceCode: newDeviceCode(),
+      userCode: newUserCode(),
+      device: request.device,
+      label: request.daemon.label,
+      platform: request.daemon.platform,
+      expiresAt: this.#deps.now() + PAIRING_CODE_TTL_MS,
+    };
+    await codes.put(pending);
+
+    return ok({
+      deviceCode: pending.deviceCode,
+      userCode: pending.userCode,
+      verificationUrl,
+      expiresAt: pending.expiresAt,
+      // Two seconds: fast enough that approving feels immediate, slow enough
+      // that a forgotten terminal is not a load generator.
+      pollIntervalMs: 2_000,
+    });
+  }
+
+  /**
+   * Has anybody approved this keypair yet?
+   *
+   * The answer comes from the **projection** — the control plane's own record
+   * of devices a human approved — and never from a flag set here. That is the
+   * whole shape of the fence: the dashboard writes the approval to its own
+   * database, the hub's projection catches up within a poll, and this notices.
+   * No write crosses in either direction.
+   */
+  async #pairPoll(request: PairPollRequest): Promise<PlaneResult> {
+    const codes = this.#deps.pairingCodes;
+    if (!codes) {
+      return fail(
+        501,
+        "bad-request",
+        "this relay does not offer device-code pairing",
+      );
+    }
+
+    const pending = await codes.byDeviceCode(request.deviceCode);
+    // Expired and never-existed answer the same way, deliberately: a poll
+    // loop cannot tell them apart and does not need to, and distinguishing
+    // them would let somebody test codes for existence.
+    if (!pending) return ok({ status: "expired" });
+
+    const approved = this.#deps.projection.deviceByFingerprint(
+      pending.device.identity,
+    );
+    if (!approved) return ok({ status: "pending" });
+
+    const sites = this.#deps.projection.sitesFor(approved.owner);
+    // Approved with nothing consented is still approved: the machine exists,
+    // it belongs to somebody, and the site set is a projection of consent
+    // that changes on every heartbeat anyway. Refusing here would make a
+    // brand-new account's first pairing fail for a reason it cannot act on
+    // from a terminal.
+    await this.#deps.state.seen({
+      runnerId: approved.runnerId,
+      owner: approved.owner,
+      device: pending.device,
+    });
+    // Single use. The keypair is approved from here on and the code has no
+    // further job; leaving it would be a second way to ask the same question.
+    await codes.drop(pending.deviceCode);
+
+    return ok({
+      status: "approved",
+      runnerId: approved.runnerId,
+      owner: approved.owner,
       sites: Object.fromEntries(
         sites.map((record) => [keyId(record.site.identity), record.site]),
       ),

@@ -16,6 +16,18 @@ import { Pairings, recordSites } from "./pairings.js";
 import { SpendLedger } from "./spend.js";
 import { daemonPaths, type DaemonPaths } from "./paths.js";
 import { Runner, type RunnerEvent } from "./runner.js";
+import {
+  installService,
+  serviceState,
+  spawnCommand,
+  uninstallService,
+  type CommandRunner,
+} from "./install.js";
+import {
+  servicePlan,
+  type ServicePlatform,
+  type ServiceTarget,
+} from "./service.js";
 import { DAEMON_VERSION, formatVersion } from "./index.js";
 
 const USAGE = `byollm — run an app's LLM jobs on your own models.
@@ -35,6 +47,8 @@ const USAGE = `byollm — run an app's LLM jobs on your own models.
   byollm approve <site>       serve a site that asked (or --all)
   byollm forget <url>         drop a pairing
   byollm backends             what is installed, healthy, and advertised
+  byollm install              keep running in the background, across restarts
+  byollm uninstall            stop running in the background
 
 Config lives in ~/.byollm/config.json. Everything this daemon has ever run is
 in ~/.byollm/ingress.log — it is yours to read and yours to delete.
@@ -76,12 +90,23 @@ export async function runCli(
      * way rather than by killing the process.
      */
     signal?: AbortSignal;
+    /**
+     * The machine's service supervisor. Injected by the tests so that neither
+     * `install` nor `status` ever spawns a real `launchctl` — a unit test that
+     * shells out to the host's init system is a unit test that installs
+     * something on whoever runs it.
+     */
+    service?: ServiceIo;
   } = {},
 ): Promise<ExitCode> {
   const [command, ...rest] = argv;
   const paths = options.paths ?? daemonPaths();
   const io: CliIo = { ...defaultIo, ...options.io };
   const signal = options.signal;
+  // Resolved once: three call sites each falling back separately is three
+  // chances to pass the wrong one, and the object is a description of this
+  // process, not a connection to anything.
+  const service = options.service ?? defaultServiceIo();
 
   switch (command) {
     case undefined:
@@ -103,7 +128,7 @@ export async function runCli(
     case "run":
       return commandRun(paths, rest, io, signal);
     case "status":
-      return commandStatus(paths, io);
+      return commandStatus(paths, io, service);
     case "log":
       return commandLog(paths, rest, io);
     case "pause":
@@ -124,9 +149,122 @@ export async function runCli(
       return commandForget(paths, rest, io);
     case "backends":
       return commandBackends(paths, io);
+    case "install":
+      return commandInstall(paths, io, service);
+    case "uninstall":
+      return commandUninstall(paths, io, service);
     default:
       io.err(`unknown command: ${command}\n\n${USAGE}`);
       return 2;
+  }
+}
+
+// -- install ------------------------------------------------------------------
+
+/**
+ * Everything the install commands touch outside themselves.
+ *
+ * Injected so the tests drive the real code with a fake `launchctl`: the
+ * alternative is a command nobody can test on the machine they are writing it
+ * on, which for three operating systems means two of them are checked by
+ * hoping.
+ */
+export interface ServiceIo {
+  readonly platform: ServicePlatform;
+  readonly execPath: string;
+  readonly scriptPath: string;
+  readonly run: CommandRunner;
+  readonly home?: string;
+}
+
+/**
+ * How this process was started, as something a service file can point at.
+ *
+ * `process.argv[1]` is the CLI's own entry script. It is the right answer for
+ * a global install and the wrong one for `npx`, which is why the plan refuses
+ * the second — see `refuseToSupervise`.
+ */
+export function defaultServiceIo(): ServiceIo {
+  return {
+    platform:
+      process.platform === "win32"
+        ? "win32"
+        : process.platform === "darwin"
+          ? "darwin"
+          : "linux",
+    execPath: process.execPath,
+    scriptPath: process.argv[1] ?? "",
+    run: spawnCommand,
+  };
+}
+
+function serviceTarget(paths: DaemonPaths, service: ServiceIo): ServiceTarget {
+  return {
+    platform: service.platform,
+    execPath: service.execPath,
+    scriptPath: service.scriptPath,
+    ...(service.home === undefined ? {} : { home: service.home }),
+    root: paths.root,
+  };
+}
+
+/**
+ * Run in the background from now on — cloud_002.
+ *
+ * The command that makes a machine keep its promise. Everything a roster
+ * assumes — that this machine is there, that work sent to it runs — depends on
+ * a process that outlives the window somebody typed in.
+ */
+async function commandInstall(
+  paths: DaemonPaths,
+  io: CliIo,
+  service: ServiceIo,
+): Promise<ExitCode> {
+  const result = await installService(
+    serviceTarget(paths, service),
+    service.run,
+  );
+  for (const line of result.lines) (result.ok ? io.out : io.err)(`${line}\n`);
+  return result.ok ? 0 : 1;
+}
+
+async function commandUninstall(
+  paths: DaemonPaths,
+  io: CliIo,
+  service: ServiceIo,
+): Promise<ExitCode> {
+  const result = await uninstallService(
+    serviceTarget(paths, service),
+    service.run,
+  );
+  for (const line of result.lines) io.out(`${line}\n`);
+  return 0;
+}
+
+/**
+ * One line about supervision, for `status`.
+ *
+ * "It says it is paired" and "it is actually running" are different facts, and
+ * the second is the one that matters at 2 a.m. The line is deliberately
+ * blunt about the third state — installed but stopped — because that is the
+ * one that looks fine from the dashboard and serves nothing.
+ */
+async function supervisionLine(
+  paths: DaemonPaths,
+  service: ServiceIo,
+): Promise<string> {
+  const plan = servicePlan(serviceTarget(paths, service));
+  const state = await serviceState(plan, service.run);
+  switch (state.state) {
+    case "running":
+      return `service: running under ${plan.supervisor}\n`;
+    case "installed":
+      return (
+        `service: installed but NOT running (${state.detail}) — ` +
+        `this machine is on rosters and serving nothing. See ${plan.logPath}\n`
+      );
+    case "absent":
+      return `service: not installed — jobs only run while \`byollm run\` is open (\`byollm install\` fixes that)\n`;
   }
 }
 
@@ -717,7 +855,11 @@ function report(origin: string, event: RunnerEvent, io: CliIo): void {
 
 // -- status ------------------------------------------------------------------
 
-async function commandStatus(paths: DaemonPaths, io: CliIo): Promise<ExitCode> {
+async function commandStatus(
+  paths: DaemonPaths,
+  io: CliIo,
+  service: ServiceIo,
+): Promise<ExitCode> {
   const { loaded, ingress, allowlist, budgets, spend } = await context(paths);
   const pairings = new Pairings(paths.pairings);
   await pairings.load();
@@ -733,7 +875,9 @@ async function commandStatus(paths: DaemonPaths, io: CliIo): Promise<ExitCode> {
   io.out(
     `identity: ${await new DeviceIdentity(paths.keys).fingerprint(now)}\n`,
   );
-  io.out(`state: ${paused ? "PAUSED" : "running"}\n\n`);
+  io.out(`state: ${paused ? "PAUSED" : "running"}\n`);
+  io.out(await supervisionLine(paths, service));
+  io.out("\n");
 
   io.out("paired apps\n");
   const list = pairings.list();

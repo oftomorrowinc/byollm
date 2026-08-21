@@ -22,7 +22,7 @@ import { IngressLog } from "./ingress.js";
 import { daemonPaths, type DaemonPaths } from "./paths.js";
 import { Runner } from "./runner.js";
 import { SpendLedger } from "./spend.js";
-import { removeTemp } from "./test-support.js";
+import { noSupervisor, removeTemp } from "./test-support.js";
 
 /** A daemon identity for tests: real keys, signing the real canonical form. */
 const TEST_KEYS = generateKeys(1_800_000_000_000);
@@ -254,7 +254,8 @@ describe("what the user is told about their money", () => {
     },
     confirm: () => Promise.resolve(true),
   });
-  const run = (...argv: string[]) => runCli(argv, { paths, io: io() });
+  const run = (...argv: string[]) =>
+    runCli(argv, { paths, io: io(), service: noSupervisor() });
 
   beforeEach(async () => {
     home = await mkdtemp(join(tmpdir(), "byollm-metered-cli-"));
@@ -359,7 +360,8 @@ describe("byollm offer — the command the config error names", () => {
       return Promise.resolve(answer);
     },
   });
-  const run = (...argv: string[]) => runCli(argv, { paths, io: io() });
+  const run = (...argv: string[]) =>
+    runCli(argv, { paths, io: io(), service: noSupervisor() });
 
   beforeEach(async () => {
     home = await mkdtemp(join(tmpdir(), "byollm-offer-"));

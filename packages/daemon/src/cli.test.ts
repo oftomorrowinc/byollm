@@ -7,7 +7,7 @@ import { runCli, type CliIo } from "./cli.js";
 import { IngressLog } from "./ingress.js";
 import { daemonPaths, type DaemonPaths } from "./paths.js";
 import { Pairings } from "./pairings.js";
-import { removeTemp } from "./test-support.js";
+import { noSupervisor, removeTemp } from "./test-support.js";
 
 const SITE = publicIdentityOf(generateKeys(1_800_000_000_000));
 
@@ -42,7 +42,8 @@ function io(): Partial<CliIo> {
   };
 }
 
-const run = (...argv: string[]) => runCli(argv, { paths, io: io() });
+const run = (...argv: string[]) =>
+  runCli(argv, { paths, io: io(), service: noSupervisor() });
 
 beforeEach(async () => {
   home = await mkdtemp(join(tmpdir(), "byollm-cli-"));

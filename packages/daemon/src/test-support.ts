@@ -25,3 +25,23 @@ export async function removeTemp(dir: string): Promise<void> {
   // A leaked temp directory is not worth failing a test run over.
   await rm(dir, { recursive: true, force: true }).catch(() => undefined);
 }
+
+import type { ServiceIo } from "./cli.js";
+
+/**
+ * A machine with no service supervisor, for tests.
+ *
+ * `status` asks the platform whether the daemon is supervised, and without
+ * this every test that runs `status` would shell out to the host's real
+ * `launchctl` or `systemctl` — a unit test that queries (and could install
+ * into) whoever runs it. The runner reports the shape of a missing binary,
+ * which is what a container without an init system actually returns.
+ */
+export function noSupervisor(): ServiceIo {
+  return {
+    platform: "linux",
+    execPath: "/usr/bin/node",
+    scriptPath: "/tmp/byollm/bin.js",
+    run: () => Promise.resolve({ code: 127, output: "" }),
+  };
+}

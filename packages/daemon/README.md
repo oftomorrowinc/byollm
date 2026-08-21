@@ -158,6 +158,39 @@ URL, a path or a flag — there is no field on the wire for any of them.
 therefore advertised. A backend that is down is never advertised, so you never
 get work you cannot run.
 
+## Keep it running
+
+By default `byollm connect` and `byollm run` hold a terminal — close the
+window and the machine stops serving. Nothing breaks (your pairings live in
+`~/.byollm/pairings.json` and survive), but the machine goes quiet without
+telling anyone, and if it is on a team's roster, the first person to notice is
+a teammate whose job did not run.
+
+```bash
+byollm install     # keep running in the background, and restart if it stops
+byollm status      # says whether it is actually supervised right now
+byollm uninstall
+```
+
+It installs at the user level on every platform — a launchd `LaunchAgent` on
+macOS, a `systemd --user` unit on Linux, a logon task on Windows. No root, no
+system directories: it runs as you, it stops when you say so, and you can read
+every file it wrote. Output goes to `~/.byollm/service.log` on all three.
+
+Two things worth knowing:
+
+- **Install `byollm` properly first.** `byollm install` refuses to supervise a
+  copy running from `npx`'s cache, because npm deletes that directory without
+  warning and the service would stop working at some later boot with nothing
+  to show for it. `npm install -g byollm@alpha` first.
+- **On Linux, `systemd --user` stops when you log out** unless lingering is
+  enabled. `byollm install` prints the one command for that rather than
+  running it — it changes something outside your session, so it is your call.
+
+`byollm status` reports three states, not two: running under supervision,
+*installed but not running* (the one that looks fine from an app's dashboard
+and serves nothing), and not installed at all.
+
 ## The trust surface
 
 The meter is the product, and it gets the same care as the loop.

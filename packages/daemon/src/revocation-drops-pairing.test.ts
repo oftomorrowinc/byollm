@@ -94,6 +94,22 @@ const PAIRED_SITES = { [keyId(PAIRED_SITE.identity)]: PAIRED_SITE };
 const HEARTBEAT_SITES = PAIRED_SITES;
 
 describe("a revoked daemon", () => {
+  /**
+   * Twenty seconds, not vitest's default five — 2026-08-21.
+   *
+   * Both cases here start a real run loop against a real local server, let it
+   * heartbeat, abort it, and wait for it to wind down. That is several rounds
+   * of filesystem and socket work, and on the Windows runner it has now
+   * exceeded five seconds twice — blocking a release the second time. The
+   * default is a budget for a test that computes something; this one operates
+   * a daemon.
+   *
+   * Raising the ceiling rather than shortening the work, deliberately: the
+   * timing *is* the subject. The comment below records that an earlier version
+   * hung for five seconds by assuming `run` returns on its own, and a test
+   * trimmed until it fits a default is a test that stops being able to notice
+   * that again.
+   */
   it("drops the pairing rather than keeping a key for a dead relationship", async () => {
     await writeConfig();
     await revokingServer();
@@ -133,7 +149,7 @@ describe("a revoked daemon", () => {
     // vanishes silently is indistinguishable from one that broke.
     expect(out).toContain("pairing dropped");
     expect(out).toContain("byollm connect");
-  });
+  }, 20_000);
 
   it("keeps the pairing when the upstream has not revoked it", async () => {
     await writeConfig();
@@ -186,5 +202,6 @@ describe("a revoked daemon", () => {
     const after = new Pairings(paths.pairings);
     await after.load();
     expect(after.get(origin)).toBeDefined();
-  });
+    // Same budget, same reason: this one flaked on Windows first.
+  }, 20_000);
 });

@@ -309,6 +309,23 @@ async function commandConnect(
    * capabilities, this is the ordinary failure for somebody offline, on a
    * captive-portal wifi, or pointed at a hub that is down.
    */
+  /**
+   * This machine's own fingerprint, printed *with* the code.
+   *
+   * The approval screen says "this must match the fingerprint `byollm connect`
+   * printed on that machine" — and it did not print one. Todd found it the
+   * only way anybody could: standing at the screen with nothing to compare
+   * against.
+   *
+   * A comparison with one side missing is not a weaker ceremony, it is
+   * theatre: the person clicks approve because the flow expects them to, and
+   * the check the whole trust model rests on has quietly become a formality.
+   * The keys are already in hand here — this is the moment to say so.
+   */
+  const deviceIdentity = await new DeviceIdentity(paths.keys).publicIdentity(
+    Date.now(),
+  );
+
   let result: Awaited<ReturnType<typeof connect>>;
   try {
     result = await connect({
@@ -316,7 +333,7 @@ async function commandConnect(
       daemonVersion: DAEMON_VERSION,
       label: await labelFor(paths, name),
       capabilities,
-      device: await new DeviceIdentity(paths.keys).publicIdentity(Date.now()),
+      device: deviceIdentity,
       onCode: (info) => {
         const minutes = Math.max(
           1,
@@ -340,7 +357,10 @@ async function commandConnect(
           `\n  Your steps:\n` +
             `    1) Open:       ${info.verificationUrl}\n` +
             `    2) Enter code: ${info.userCode}   ` +
-            `(expires in ${String(minutes)} minutes)\n\n` +
+            `(expires in ${String(minutes)} minutes)\n` +
+            `    3) Check the screen shows this machine's fingerprint, ` +
+            `then approve:\n\n` +
+            `       ${fingerprint(deviceIdentity.identity)}\n\n` +
             `  waiting for approval…`,
         );
       },

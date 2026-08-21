@@ -218,6 +218,21 @@ describe("byollm connect — the whole path", () => {
     expect(out).toContain("Your steps:");
     expect(out).toContain("Enter code:");
     expect(out).toContain("expires in");
+    // **Both sides of the comparison.** The approval screen tells somebody to
+    // check the fingerprint against what this printed, and for one release it
+    // printed no fingerprint at all — so the check the trust model rests on
+    // was a formality nobody could perform.
+    //
+    // Asserted **inside the steps block**, not anywhere in the output. The
+    // first version of this matched the whole transcript and passed happily
+    // with the fingerprint removed: the *site* keys are printed after
+    // approval, and they are the same shape. An assertion that cannot tell
+    // which fingerprint it found is not an assertion about this one.
+    const steps = out.slice(
+      out.indexOf("Your steps:"),
+      out.indexOf("waiting for approval"),
+    );
+    expect(steps).toMatch(/BYOLLM(-[0-9A-HJKMNP-TV-Z]{4}){6}/);
     expect(out).toContain("paired as alice");
   });
 

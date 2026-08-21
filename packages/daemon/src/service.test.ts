@@ -504,16 +504,19 @@ describe("the states a supervisor reports, in its own words", () => {
     expect(result.lines.join("\n")).toContain("unit not loaded");
   });
 
-  it("runs launchd's domain target through a shell, since it contains $UID", async () => {
-    const { spawnCommand } = await import("./install.js");
-    // The plan's macOS commands use `gui/$UID`, which only means anything
-    // after a shell expands it. Sending that as a literal argv would target a
-    // domain named `gui/$UID` and fail in a way that reads like a permissions
-    // problem.
-    const result = await spawnCommand(["echo", "gui/$UID"]);
-    expect(result.code).toBe(0);
-    expect(result.output.trim()).not.toBe("gui/$UID");
-    expect(result.output.trim()).toMatch(/^gui\/\d+$/);
+  it("names launchd's domain with a real uid, not a shell variable", () => {
+    const plan = servicePlan({ ...target("darwin"), uid: 501 });
+    for (const command of [...plan.activate, ...plan.deactivate, plan.query]) {
+      expect(command.join(" ")).not.toContain("$UID");
+    }
+    expect(plan.activate[1]?.[1]).toBe("bootstrap");
+    expect(plan.activate[1]?.[2]).toBe("gui/501");
+
+    // The bug this replaced: `gui/$UID` was left for a shell to expand, which
+    // worked on macOS only because `/bin/sh` there sets `UID`. On CI's `dash`
+    // it became the literal `gui/`, and a command that would have failed on a
+    // real machine in a way that reads like a permissions problem.
+    expect(plan.query.join(" ")).toContain("gui/501/cloud.byollm.daemon");
   });
 });
 

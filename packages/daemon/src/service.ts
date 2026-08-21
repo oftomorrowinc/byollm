@@ -83,6 +83,18 @@ export interface ServiceTarget {
   readonly home?: string;
   /** `~/.byollm`, so the service and the CLI agree about state. */
   readonly root?: string;
+  /**
+   * This user's numeric id, for launchd's domain target.
+   *
+   * Resolved in Node rather than left as `$UID` for a shell to expand. The
+   * first version did the latter and it worked on macOS purely because
+   * `/bin/sh` there is bash in disguise and sets `UID`; CI's `dash` does not,
+   * so the target became the literal `gui/` — a command that would have
+   * failed on a real machine in a way that reads like a permissions problem.
+   * A plan whose meaning depends on which shell happens to run it is not a
+   * plan, and no command here needs a shell now.
+   */
+  readonly uid?: number;
 }
 
 /** XML-escape a path — a home directory can contain `&` and an apostrophe. */
@@ -136,7 +148,7 @@ export function servicePlan(target: ServiceTarget): ServicePlan {
     // real error when the plist is malformed instead of failing quietly,
     // which is the difference between finding a typo now and finding it at
     // the next reboot.
-    const domain = "gui/$UID";
+    const domain = `gui/${String(target.uid ?? 0)}`;
     return {
       platform: "darwin",
       unitPath,

@@ -175,6 +175,7 @@ export interface ServiceIo {
   readonly scriptPath: string;
   readonly run: CommandRunner;
   readonly home?: string;
+  readonly uid?: number;
 }
 
 /**
@@ -195,6 +196,8 @@ export function defaultServiceIo(): ServiceIo {
     execPath: process.execPath,
     scriptPath: process.argv[1] ?? "",
     run: spawnCommand,
+    // `getuid` is absent on Windows, where nothing reads it.
+    uid: process.getuid?.() ?? 0,
   };
 }
 
@@ -204,6 +207,7 @@ function serviceTarget(paths: DaemonPaths, service: ServiceIo): ServiceTarget {
     execPath: service.execPath,
     scriptPath: service.scriptPath,
     ...(service.home === undefined ? {} : { home: service.home }),
+    ...(service.uid === undefined ? {} : { uid: service.uid }),
     root: paths.root,
   };
 }

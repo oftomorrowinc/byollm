@@ -197,20 +197,10 @@ export const spawnCommand: CommandRunner = async (command) => {
   const { spawn } = await import("node:child_process");
   const [file, ...args] = command;
   return new Promise((resolve) => {
-    // `$UID` appears in launchd's domain target, so those commands go through
-    // a shell; nothing here interpolates user input, and the paths are
-    // quoted. Elsewhere the argv form is used directly.
-    const needsShell = command.some((part) => part.includes("$UID"));
-    const child = needsShell
-      ? spawn(
-          command
-            .map((part) => (part.includes(" ") ? `"${part}"` : part))
-            .join(" "),
-          {
-            shell: true,
-          },
-        )
-      : spawn(file ?? "", args);
+    // No shell, ever. Every argument is passed through as itself, so nothing
+    // here can be re-interpreted by whichever `/bin/sh` a platform ships —
+    // and there is nothing left to quote.
+    const child = spawn(file ?? "", args);
     let output = "";
     child.stdout.on("data", (chunk: Buffer) => {
       output += chunk.toString();

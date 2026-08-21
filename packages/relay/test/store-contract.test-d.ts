@@ -3,6 +3,7 @@ import type {
   ClaimInput,
   PairingCodes,
   PendingPairing,
+  PutResult,
   Grant,
   HolderRefusal,
   Presence,
@@ -99,3 +100,14 @@ declare const _relayOptions: {
   pairingCodes?: PairingCodes;
   verificationUrl?: string;
 };
+
+/**
+ * And the *result* type `put` answers with, restated by name.
+ *
+ * The `Grant` note above is exactly this trap: a declared `PairingCodes` is
+ * satisfied structurally, so a private `PutResult` would sail through and
+ * break the hub's build a release later. Writing the signature out is what
+ * requires the export.
+ */
+declare const _putResult: (pending: PendingPairing) => Promise<PutResult>;
+void _putResult;

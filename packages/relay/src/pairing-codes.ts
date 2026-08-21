@@ -48,8 +48,27 @@ export interface PendingPairing {
   readonly expiresAt: number;
 }
 
+/**
+ * What happened when a code was offered for storage.
+ *
+ * `put` can refuse, and the reason it can is the whole of the rate-limit
+ * story on this surface: **anybody can ask to pair.** That is not a bug — a
+ * machine with no pairing has no credential to present — but it means a
+ * stranger with a script can mint pending codes in a loop, and each one
+ * occupies memory in a shared store for ten minutes. Without a ceiling the
+ * only limit is somebody's patience.
+ *
+ * So the store has a capacity and says so, and the daemon is told to try
+ * again shortly rather than given a code that crowds out a real one. A cap is
+ * a blunt instrument — under a flood, a person pairing a laptop is refused
+ * alongside the attacker — but a refusal that resolves in ten minutes is a
+ * better failure than a hub that stops routing. Per-IP limits belong at the
+ * edge, where the IP actually is.
+ */
+export type PutResult = "stored" | "at-capacity";
+
 export interface PairingCodes {
-  put(pending: PendingPairing): Promise<void>;
+  put(pending: PendingPairing): Promise<PutResult>;
   /** By the secret the daemon holds. */
   byDeviceCode(deviceCode: string): Promise<PendingPairing | undefined>;
   /** By the short code a human typed. */
@@ -87,6 +106,17 @@ export const newDeviceCode = (): string =>
 export const PAIRING_CODE_TTL_MS = 10 * 60 * 1000;
 
 /**
+ * How many pairings may be in flight at once, across a whole relay.
+ *
+ * Sized against reality rather than fear: a pairing takes under a minute of
+ * human attention, so five hundred outstanding at the same instant is a
+ * number this product will not reach honestly for a long time — and one an
+ * attacker reaches in a second. Small enough to bound the store, large enough
+ * that nobody legitimate meets it.
+ */
+export const MAX_OUTSTANDING_PAIRINGS = 500;
+
+/**
  * The in-memory implementation, for the reference relay and its tests.
  *
  * The hub replaces it with one backed by Valkey, because a hub is two
@@ -96,9 +126,14 @@ export const PAIRING_CODE_TTL_MS = 10 * 60 * 1000;
 export class MemoryPairingCodes implements PairingCodes {
   readonly #byDevice = new Map<string, PendingPairing>();
   readonly #now: () => number;
+  readonly #capacity: number;
 
-  constructor(now: () => number = Date.now) {
+  constructor(
+    now: () => number = Date.now,
+    capacity: number = MAX_OUTSTANDING_PAIRINGS,
+  ) {
     this.#now = now;
+    this.#capacity = capacity;
   }
 
   #live(pending: PendingPairing | undefined): PendingPairing | undefined {
@@ -108,9 +143,30 @@ export class MemoryPairingCodes implements PairingCodes {
     return pending.expiresAt > this.#now() ? pending : undefined;
   }
 
-  put(pending: PendingPairing): Promise<void> {
+  put(pending: PendingPairing): Promise<PutResult> {
+    // Expired entries are dropped before counting. Without this the cap would
+    // latch: ten minutes of traffic would fill it and nothing would ever
+    // pair again, which is a worse outage than the flood it defends against.
+    const now = this.#now();
+    for (const [code, held] of this.#byDevice) {
+      if (held.expiresAt <= now) this.#byDevice.delete(code);
+    }
+
+    // One outstanding code per keypair. A daemon that restarts pairing —
+    // a fat-fingered code, a second terminal — replaces its own pending
+    // request instead of adding to the pile, so the code on screen is always
+    // the live one. An attacker must mint a fresh keypair per code, which is
+    // cheap; the ceiling below is what actually bounds them.
+    const fingerprint = pending.device.identity;
+    for (const [code, held] of this.#byDevice) {
+      if (held.device.identity === fingerprint) this.#byDevice.delete(code);
+    }
+
+    if (this.#byDevice.size >= this.#capacity)
+      return Promise.resolve("at-capacity");
+
     this.#byDevice.set(pending.deviceCode, pending);
-    return Promise.resolve();
+    return Promise.resolve("stored");
   }
 
   byDeviceCode(deviceCode: string): Promise<PendingPairing | undefined> {

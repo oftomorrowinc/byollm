@@ -6,6 +6,7 @@ import {
 } from "@byollm/protocol";
 import { beforeAll, describe, expect, it } from "vitest";
 import { Relay } from "../src/index.js";
+import { MemoryPairingCodes } from "../src/pairing-codes.js";
 import { SITE_ID, fixtureFor } from "./harness.js";
 
 /**
@@ -221,5 +222,26 @@ describe("what a code is worth on its own", () => {
     const relay = new Relay({ fixture: unapproved() });
     const response = await pair(relay, start());
     expect(response.status).toBe(501);
+  });
+});
+
+describe("when the relay is full of pending pairings", () => {
+  it("tells the daemon to come back, in the protocol's own word", async () => {
+    const relay = new Relay({
+      fixture: unapproved(),
+      verificationUrl: "https://dashboard.test/machines/approve",
+      // A capacity of zero: whatever arrives first is one too many, which is
+      // the state a flood produces without waiting for one.
+      pairingCodes: new MemoryPairingCodes(() => 2_100_000_000_000, 0),
+    });
+
+    const response = await pair(relay, start());
+    expect(response.status).toBe(429);
+    const body = (await response.json()) as { error: string; message: string };
+    expect(body.error).toBe("rate-limited");
+    // The instruction, not just the classification: somebody is standing at a
+    // terminal reading this, and "try again in a few minutes" is what they
+    // need to know.
+    expect(body.message).toContain("try again");
   });
 });

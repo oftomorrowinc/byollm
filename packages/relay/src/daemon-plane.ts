@@ -12,6 +12,7 @@ import {
   verifyRequest,
   verifyPublicIdentity,
   PublicIdentity,
+  ERROR_STATUS,
 } from "@byollm/protocol";
 import { z } from "zod";
 import type { Projection } from "./fixture.js";
@@ -276,7 +277,18 @@ export class DaemonPlane {
       platform: request.daemon.platform,
       expiresAt: this.#deps.now() + PAIRING_CODE_TTL_MS,
     };
-    await codes.put(pending);
+    if ((await codes.put(pending)) === "at-capacity") {
+      // The protocol already has one word for "too much traffic, back off",
+      // and this is that. Nothing this caller did was wrong — the relay is
+      // full of other people's pending pairings — but the instruction is the
+      // same one `rate-limited` always carries, and a second vocabulary for
+      // the same idea would be a worse answer than a slightly generous code.
+      return fail(
+        ERROR_STATUS["rate-limited"],
+        "rate-limited",
+        "too many pairings are in progress right now — try again in a few minutes",
+      );
+    }
 
     return ok({
       deviceCode: pending.deviceCode,

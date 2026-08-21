@@ -392,10 +392,16 @@ export type {
 export type { Grant } from "./store.js";
 
 export {
+  MAX_OUTSTANDING_PAIRINGS,
   MemoryPairingCodes,
   PAIRING_CODE_TTL_MS,
   newDeviceCode,
   newUserCode,
   type PairingCodes,
   type PendingPairing,
+  // `put` returns it, so an implementor outside this package needs to be able
+  // to name it. Four separate releases have shipped a public option whose type
+  // was not exported; the type test next door is what makes the fifth fail
+  // here instead of in somebody else's build.
+  type PutResult,
 } from "./pairing-codes.js";

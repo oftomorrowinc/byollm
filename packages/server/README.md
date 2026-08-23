@@ -211,7 +211,16 @@ const job = await getApp().enqueue({
 
 const { outcome } = await job.result({
   timeoutMs: 120_000,
-  onNoRunner: () => runOnHostedModel(transcript),
+  // Return a whole result, not just the text: this substitutes for the
+  // record the daemon would have produced, so it carries the same shape.
+  onNoRunner: async () => ({
+    jobId: job.id,
+    state: "ok" as const,
+    outcome: {
+      outcome: "ok" as const,
+      text: await runOnHostedModel(transcript),
+    },
+  }),
 });
 ```
 

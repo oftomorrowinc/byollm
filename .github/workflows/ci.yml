@@ -122,6 +122,34 @@ jobs:
       - run: pnpm run build
       - run: pnpm run conformance
 
+  next-build:
+    name: Next.js example builds (${{ matrix.os }})
+    # The same matrix byollm_010 requires for anything we let people install:
+    # a bundler's behaviour is not one of the things that is the same
+    # everywhere, and this is the integration nearly every adopter copies.
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run build
+      # byollm_014. **No `BYOLLM_SITE_KEYS` in this environment**, and that
+      # absence is the test — a build that only passes with keys set is not
+      # reproducing what an integrator's CI does. Issue #4 was exactly this:
+      # the documented pattern built its config at module scope, `next build`
+      # imports route modules to collect page data, and it failed on a
+      # credential it could not have. Unit tests could not see it; only a
+      # framework's own build observes a failure inside that build.
+      - run: pnpm --filter @byollm/example-next build
+
   freeze-gate:
     name: Freeze gate — skeleton relay
     runs-on: ubuntu-latest

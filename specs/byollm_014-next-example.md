@@ -1,6 +1,7 @@
 # byollm_014 — An example that a real `next build` compiles
 
-**Status: open. Filed 2026-08-17 from
+**Status: done 2026-08-23 — `examples/next` builds in CI on all three
+platforms, mutation-verified both ways. Filed 2026-08-17 from
 [issue #5](https://github.com/oftomorrowinc/byollm/issues/5), which exists
 because of Kevin Samsoe's (@KSamsoe) integration report in
 [#4](https://github.com/oftomorrowinc/byollm/issues/4).**
@@ -81,3 +82,38 @@ that stops it coming back.
   version is a build step that is not testing the bug it was written for.)
 - `docs/standards.md`'s "every example runs in CI" is true of the examples that
   matter, not only the one that was easy.
+
+## What it found on its first build — 2026-08-23
+
+Two documentation defects, before it had run in CI once.
+
+**The `onNoRunner` snippet did not typecheck.** The README's step 3 showed
+`onNoRunner: () => runOnHostedModel(transcript)`, and the option requires a
+whole `DeliveredResult` — `jobId`, `state`, `outcome` — because it substitutes
+for the record a daemon would have produced. Any reader following that snippet
+with a function that returns text got a type error, and nothing here would
+have noticed: the shape is only checked where somebody compiles it. Fixed in
+the README, and the example carries the corrected version.
+
+Worth a decision separately: making an app construct a result record to supply
+fallback text is unpleasant, and `onNoRunner` accepting a string is a small
+API change. Deliberately not made here — the spec asked for a build, not for a
+redesign — but it is the ergonomic wart the example exposed.
+
+**The build only tested half the pattern at first.** `getApp` was unused,
+which `knip` caught: the mount compiled and the *enqueue* half did not. It has
+a server action now, which is also where an integrator is most likely to
+reintroduce the module-scope bug, because an action feels like ordinary server
+code.
+
+Mutation-verified two ways, both reproducing #4 exactly — `Failed to collect
+page data`, on the missing key:
+
+- `createHandler({...})` instead of `createHandler(() => ({...}))`
+- the app constructed at module scope in `lib/byollm.ts`
+
+One methodological note. The first mutation run reported the second mutation
+as *surviving*, and it had not: `git checkout` cannot restore an untracked
+file, so the restore silently failed and the run measured a file in an
+unintended state. A mutation that appears to survive is exactly the moment to
+distrust the harness before the code.

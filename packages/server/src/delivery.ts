@@ -30,12 +30,28 @@ export interface WaitOptions {
   readonly timeoutMs?: number;
   /**
    * Called instead of throwing when no runner can take the job. Return a
-   * substitute result (a hosted-model answer, say) and the wait resolves with
-   * it; return nothing and {@link NoRunnerAvailableError} is thrown.
+   * substitute and the wait resolves with it; return nothing and
+   * {@link NoRunnerAvailableError} is thrown.
+   *
+   * **A string is enough.** It is the app's own fallback answer — a hosted
+   * model's text, a cached reply — not wire data, and requiring a whole
+   * `DeliveredResult` for it was ceremony that invited invented shapes. The
+   * README's own example got it wrong, which is how this was found.
+   *
+   * **Whatever comes back is labelled `fallback: true` by the wait, not by
+   * the caller** — {@link MUSTS.FALLBACK_LABELED}. Work that did not come
+   * from the user's own compute must not be reportable as though it did, and
+   * that stays true whether an app returns a bare string or a full record it
+   * assembled itself. The stamp is applied after this function returns, so
+   * there is no shape an app can hand back that hides what it is.
    */
   readonly onNoRunner?: (
     reason: string,
-  ) => DeliveredResult | undefined | Promise<DeliveredResult | undefined>;
+  ) =>
+    | string
+    | DeliveredResult
+    | undefined
+    | Promise<string | DeliveredResult | undefined>;
   /** Abort the wait. */
   readonly signal?: AbortSignal;
 }
@@ -126,7 +142,9 @@ export class PollingDelivery implements ResultDelivery {
         if (now() - noRunnerSince >= graceMs) {
           const reason = availability.reason ?? "no-runner-online";
           const substitute = await options.onNoRunner?.(reason);
-          if (substitute) return substitute;
+          if (substitute !== undefined) {
+            return labelFallback(jobId, substitute);
+          }
           throw new NoRunnerAvailableError(jobId, reason);
         }
       }
@@ -146,4 +164,36 @@ function isTerminalState(state: string): boolean {
     state === "canceled" ||
     state === "expired"
   );
+}
+
+/**
+ * Turn an app's fallback into a delivered result, marked as one.
+ *
+ * Exported because there are two delivery channels — polling here, Supabase
+ * Realtime next door — and a label applied by one of them is a label an app
+ * gets or does not get depending on which store it chose. That is exactly the
+ * kind of divergence a "delivery adapter must not change what a result means"
+ * rule exists to prevent.
+ *
+ * Two jobs, and the second is the one that matters. A string becomes the
+ * obvious record — that is the sugar. Everything, string or record, gets
+ * `fallback: true` — that is {@link MUSTS.FALLBACK_LABELED}, and it is
+ * applied here rather than trusted from the caller because an app that
+ * assembled its own record could otherwise return something indistinguishable
+ * from a runner's answer. Spreading the caller's object first and the flag
+ * second is deliberate: a supplied `fallback` cannot overwrite it.
+ */
+export function labelFallback(
+  jobId: string,
+  substitute: string | DeliveredResult,
+): DeliveredResult {
+  if (typeof substitute === "string") {
+    return {
+      jobId,
+      state: "ok",
+      outcome: { outcome: "ok", text: substitute },
+      fallback: true,
+    };
+  }
+  return { ...substitute, fallback: true };
 }

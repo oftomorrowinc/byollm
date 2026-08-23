@@ -126,7 +126,9 @@ describe("PollingDelivery", () => {
         return hosted;
       },
     });
-    expect(result).toEqual(hosted);
+    // Labelled by the wait, not by the caller — the substitution is the
+    // whole reason FALLBACK_LABELED exists.
+    expect(result).toEqual({ ...hosted, fallback: true });
   });
 
   it("still throws when onNoRunner declines to substitute", async () => {
@@ -161,5 +163,72 @@ describe("PollingDelivery", () => {
     const error = new NoRunnerAvailableError("job_1", "no-runner-online");
     expect(error.message).toContain("hosted model");
     expect(error.message).toContain("start their runner");
+  });
+});
+
+describe("a fallback is sugar, and is still labelled [FALLBACK_LABELED]", () => {
+  const noRunner = {
+    reads: [pending],
+    availability: [
+      { available: false, reason: "no-runner-online", blocked: false },
+    ],
+  };
+
+  it("accepts a bare string — the app's own answer, not wire data", async () => {
+    const { delivery } = makeDelivery(noRunner);
+
+    const result = await delivery.waitFor("job_1", {
+      onNoRunner: () => "the hosted model said this",
+    });
+
+    expect(result).toEqual({
+      jobId: "job_1",
+      state: "ok",
+      outcome: { outcome: "ok", text: "the hosted model said this" },
+      fallback: true,
+    });
+  });
+
+  it("cannot be talked out of the label by the app", async () => {
+    const { delivery } = makeDelivery(noRunner);
+
+    const result = await delivery.waitFor("job_1", {
+      // Why the stamp is applied here rather than trusted from the caller: an
+      // app assembling its own record could otherwise return something
+      // indistinguishable from a runner's answer, which is precisely the
+      // silent substitution the MUST forbids.
+      onNoRunner: () => ({
+        jobId: "job_1",
+        state: "ok" as const,
+        outcome: { outcome: "ok" as const, text: "looks runner-made" },
+        fallback: undefined,
+      }),
+    });
+
+    expect(result.fallback).toBe(true);
+  });
+
+  it("leaves a real runner's result unlabelled", async () => {
+    // Absence is the signal for the ordinary path, so it has to stay absent.
+    // If everything carried the flag, the flag would say nothing.
+    const finished: DeliveredResult = {
+      jobId: "job_1",
+      state: "ok",
+      outcome: { outcome: "ok", text: "a machine ran this" },
+    };
+    const { delivery } = makeDelivery({ reads: [finished] });
+
+    const result = await delivery.waitFor("job_1");
+    expect(result.fallback).toBeUndefined();
+  });
+
+  it("treats an empty string as an answer, not as declining", async () => {
+    const { delivery } = makeDelivery(noRunner);
+
+    // `""` is falsy and is still a value somebody chose to return; only
+    // `undefined` declines. The check is `!== undefined` for this reason.
+    const empty = await delivery.waitFor("job_1", { onNoRunner: () => "" });
+    expect(empty.outcome).toEqual({ outcome: "ok", text: "" });
+    expect(empty.fallback).toBe(true);
   });
 });

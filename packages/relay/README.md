@@ -1,5 +1,5 @@
 > [!WARNING]
-> **Alpha (`0.1.0-alpha.40`) — under active development. Don't use this yet.**
+> **Alpha (`0.1.0-alpha.41`) — under active development. Don't use this yet.**
 >
 > This is a walking skeleton. It routes real jobs between real daemons and real
 > sites, and it is the fixture byollm_009 freezes against — but it keeps its
@@ -72,7 +72,7 @@
 > packages published and `@byollm/server` did not: a Sigstore
 > transparency-log 409 on its provenance attestation. The workflow's
 > "already published" guard correctly refuses to resume a partial publish,
-> so `0.1.0-alpha.40` is that release, whole.
+> so `0.1.0-alpha.41` is that release, whole.
 >
 > If you run the Supabase adapter, `alpha.21` needs
 > `20260819010000_completed_by_lease_id.sql`: alpha.19 shipped §3.6's
@@ -90,6 +90,23 @@ which looks fine from an app's dashboard and serves nothing.
 If you are running via `npx`, install properly first (`npm install -g
 byollm@alpha`) — `install` refuses to supervise a copy in npx's cache, because
 npm deletes that directory and the service would fail at some later boot.
+
+<!-- release-note 0.1.0-alpha.41 -->
+**`onNoRunner` takes a string.** Your fallback answer is your own value, not
+wire data, and handing back a whole result record for it was ceremony — the
+README's own example got the shape wrong, which is how this was found.
+
+```ts
+const { outcome, fallback } = await job.result({
+  onNoRunner: () => runOnHostedModel(transcript),
+});
+```
+
+Whatever you return, `result()` labels it `fallback: true` — the stamp is
+applied by the wait, not taken from you, so an answer that did not run on
+somebody's machine cannot be reported as though it did (`FALLBACK_LABELED`).
+Both delivery channels do it, polling and Supabase Realtime. Records still
+work; they just get labelled too.
 
 # `@byollm/relay`
 
@@ -166,7 +183,7 @@ daemons pin at pairing, verified against the `sites` half of the projection.
 Nothing here trusts a `siteId` in a body or a query string.
 
 That is newer than the rest of this package. The site plane took the caller's
-word for who it was until `0.1.0-alpha.40`, which on a relay reachable from the
+word for who it was until `0.1.0-alpha.41`, which on a relay reachable from the
 internet is an open enqueue endpoint into consenting users' machines and an
 open read of who is online. It was blind the whole time — nothing could open a
 payload — and blind is not the same as safe.
@@ -174,7 +191,7 @@ payload — and blind is not the same as safe.
 If you are running this: the site plane is authenticated but this is still a
 single-tenant relay with in-memory state. One site, one replica.
 
-## Breaking in `0.1.0-alpha.40`: `RelayState` is async
+## Breaking in `0.1.0-alpha.41`: `RelayState` is async
 
 Every method on `RelayState` now returns a `Promise`, and `Relay.sweep()` and
 `debugPage()` with it. `RelayState.requeue` is private — it was only ever a

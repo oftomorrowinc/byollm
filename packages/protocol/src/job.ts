@@ -255,6 +255,21 @@ export const DeliveredResult = z
     state: JobState,
     outcome: JobOutcome.optional(),
     provenance: ResultProvenance.optional(),
+    /**
+     * Present, and always `true`, when this did not come from a runner —
+     * {@link MUSTS.FALLBACK_LABELED}.
+     *
+     * The app's own `onNoRunner` value produced it: a hosted model, a cached
+     * answer, an apology. It never travels on the wire, because nothing on
+     * the wire produced it; it exists so that a result which did not come
+     * from the user's own compute cannot be reported as though it did.
+     *
+     * A literal rather than a boolean, so `fallback: false` is not a
+     * spelling anybody can reach for. The absence of this field means a
+     * runner ran the job, and the *server* stamps it — an app cannot supply
+     * a substitute that hides what it is.
+     */
+    fallback: z.literal(true).optional(),
   })
   .strict();
 export type DeliveredResult = z.infer<typeof DeliveredResult>;

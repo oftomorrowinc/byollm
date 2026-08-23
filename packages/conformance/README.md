@@ -1,5 +1,5 @@
 > [!WARNING]
-> **Alpha (`0.1.0-alpha.40`) — under active development. Don't use this yet.**
+> **Alpha (`0.1.0-alpha.41`) — under active development. Don't use this yet.**
 >
 > Install it deliberately: `npm install @byollm/conformance@alpha`.
 >
@@ -79,7 +79,7 @@
 > packages published and `@byollm/server` did not: a Sigstore
 > transparency-log 409 on its provenance attestation. The workflow's
 > "already published" guard correctly refuses to resume a partial publish,
-> so `0.1.0-alpha.40` is that release, whole.
+> so `0.1.0-alpha.41` is that release, whole.
 >
 > If you run the Supabase adapter, `alpha.21` needs
 > `20260819010000_completed_by_lease_id.sql`: alpha.19 shipped §3.6's
@@ -97,6 +97,23 @@ which looks fine from an app's dashboard and serves nothing.
 If you are running via `npx`, install properly first (`npm install -g
 byollm@alpha`) — `install` refuses to supervise a copy in npx's cache, because
 npm deletes that directory and the service would fail at some later boot.
+
+<!-- release-note 0.1.0-alpha.41 -->
+**`onNoRunner` takes a string.** Your fallback answer is your own value, not
+wire data, and handing back a whole result record for it was ceremony — the
+README's own example got the shape wrong, which is how this was found.
+
+```ts
+const { outcome, fallback } = await job.result({
+  onNoRunner: () => runOnHostedModel(transcript),
+});
+```
+
+Whatever you return, `result()` labels it `fallback: true` — the stamp is
+applied by the wait, not taken from you, so an answer that did not run on
+somebody's machine cannot be reported as though it did (`FALLBACK_LABELED`).
+Both delivery channels do it, polling and Supabase Realtime. Records still
+work; they just get labelled too.
 
 # `@byollm/conformance`
 

@@ -23,19 +23,21 @@ export async function summarize(transcript: string): Promise<string> {
     payload: { prompt: `Summarize this transcript:\n\n${transcript}` },
   });
 
-  const { outcome } = await job.result({
+  const { outcome, fallback } = await job.result({
     timeoutMs: 120_000,
-    // A whole result, not just the text. This substitutes for the record the
-    // daemon would have produced, so it carries the same shape — which the
-    // README got wrong until this file was compiled against it. That is the
-    // second documentation defect this example has caught, and it had been
-    // there since the fallback was written.
-    onNoRunner: () => ({
-      jobId: job.id,
-      state: "ok" as const,
-      outcome: { outcome: "ok" as const, text: "Nobody was online." },
-    }),
+    // A string — the sugar. Whatever comes back is labelled `fallback: true`
+    // by the wait itself, so an answer that did not run on somebody's machine
+    // cannot be reported as though it did.
+    onNoRunner: () => "Nobody was online to run this.",
   });
 
+  if (fallback === true) {
+    return `[not run on your machine] ${describe(outcome)}`;
+  }
+
+  return describe(outcome);
+}
+
+function describe(outcome: unknown): string {
   return typeof outcome === "string" ? outcome : JSON.stringify(outcome);
 }

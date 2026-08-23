@@ -6,6 +6,7 @@ import {
   type PollingDeliveryDeps,
   type ResultDelivery,
   type WaitOptions,
+  labelFallback,
 } from "../delivery.js";
 
 const DEFAULT_TIMEOUT_MS = 5 * 60_000;
@@ -136,8 +137,11 @@ class SupabaseRealtimeDelivery implements ResultDelivery {
 
         const reason = availability.reason ?? "no-runner-online";
         const substitute = await options.onNoRunner?.(reason);
-        if (substitute) {
-          settled.resolve(substitute);
+        if (substitute !== undefined) {
+          // The same labelling the polling channel applies, from the same
+          // function — {@link MUSTS.FALLBACK_LABELED} cannot depend on which
+          // store an app happened to choose.
+          settled.resolve(labelFallback(jobId, substitute));
         } else {
           settled.reject(new NoRunnerAvailableError(jobId, reason));
         }

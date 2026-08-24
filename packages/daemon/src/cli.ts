@@ -930,14 +930,14 @@ async function commandStatus(
   const spentToday = spend.summary(now);
   const metered = loaded.routes.filter((r) => r.cost === "metered");
   if (metered.length > 0) {
-    io.out("\nmetered backends — your money\n");
+    io.out("\nmetered services — your money\n");
     for (const route of metered) {
-      const spent = spentToday[route.backendKey] ?? 0;
+      const spent = spentToday[route.service] ?? 0;
       io.out(
         route.spendAcknowledged
-          ? `  ${route.backendKey}: ${spent.toFixed(1)}c spent today of ` +
+          ? `  ${route.service}: ${spent.toFixed(1)}c spent today of ` +
               `${String(route.spendDailyCapCents ?? 0)}c\n`
-          : `  ${route.backendKey}: not shared — your work only\n`,
+          : `  ${route.service}: not shared — your work only\n`,
       );
     }
   }
@@ -1143,8 +1143,8 @@ async function commandOffer(
   args: readonly string[],
   io: CliIo,
 ): Promise<ExitCode> {
-  const [backendKey, scope, ...rest] = args;
-  if (backendKey === undefined || scope === undefined) {
+  const [serviceKey, scope, ...rest] = args;
+  if (serviceKey === undefined || scope === undefined) {
     io.err(
       "usage: byollm offer <backend> <self|named|public> [--cap <cents>]\n",
     );
@@ -1191,19 +1191,19 @@ async function commandOffer(
     return 1;
   }
 
-  const backend = result.data.backends[backendKey];
-  if (!backend) {
-    const known = Object.keys(result.data.backends);
+  const service = result.data.services[serviceKey];
+  if (!service) {
+    const known = Object.keys(result.data.services);
     io.err(
-      `no backend named "${backendKey}" in ${paths.config}\n` +
+      `no service named "${serviceKey}" in ${paths.config}\n` +
         (known.length > 0 ? `configured: ${known.join(", ")}\n` : ""),
     );
     return 2;
   }
 
-  const descriptor = backendDescriptor(backend.backend);
-  const baseUrl = backend.baseUrl ?? descriptor.defaultBaseUrl;
-  const cost = resolveCost(backend.backend, baseUrl);
+  const descriptor = backendDescriptor(service.type);
+  const baseUrl = service.baseUrl ?? descriptor.defaultBaseUrl;
+  const cost = resolveCost(service.type, baseUrl);
   const widening = scope !== "self";
 
   // A subscription backend cannot be offered at all, so say that instead of
@@ -1217,12 +1217,12 @@ async function commandOffer(
   }
 
   if (cost === "metered" && widening) {
-    const cap = capCents ?? backend.spend?.dailyCapCents;
+    const cap = capCents ?? service.spend?.dailyCapCents;
     if (cap === undefined) {
       io.err(
         `${descriptor.label} bills you per token, so sharing it needs a daily\n` +
           "ceiling. Add one: `byollm offer " +
-          `${backendKey} ${scope} --cap <cents>\`\n`,
+          `${serviceKey} ${scope} --cap <cents>\`\n`,
       );
       return 2;
     }
@@ -1233,31 +1233,31 @@ async function commandOffer(
         `your account per token. You would be paying for their work, up to\n` +
         `$${dollars} a day, every day, until you change it.\n` +
         `Spending stops at that ceiling and resumes the next day.\n\n` +
-        `Offer ${backendKey} to ${scope === "public" ? "anyone" : "people you have allowed"}?`,
+        `Offer ${serviceKey} to ${scope === "public" ? "anyone" : "people you have allowed"}?`,
     );
     if (!confirmed) {
       io.out("nothing changed\n");
       return 0;
     }
 
-    result.data.backends[backendKey] = {
-      ...backend,
+    result.data.services[serviceKey] = {
+      ...service,
       offer: scope,
       spend: {
-        centsPerMillionTokens: backend.spend?.centsPerMillionTokens ?? 1500,
-        ...backend.spend,
+        centsPerMillionTokens: service.spend?.centsPerMillionTokens ?? 1500,
+        ...service.spend,
         acknowledged: true,
         dailyCapCents: cap,
       },
     };
   } else {
-    result.data.backends[backendKey] = {
-      ...backend,
+    result.data.services[serviceKey] = {
+      ...service,
       offer: scope,
       // Narrowing back to `self` withdraws the consent too, so a later
       // widening has to be agreed to again rather than inherited.
-      ...(cost === "metered" && !widening && backend.spend !== undefined
-        ? { spend: { ...backend.spend, acknowledged: false } }
+      ...(cost === "metered" && !widening && service.spend !== undefined
+        ? { spend: { ...service.spend, acknowledged: false } }
         : {}),
     };
   }
@@ -1265,9 +1265,9 @@ async function commandOffer(
   await mkdir(dirname(paths.config), { recursive: true });
   await writeFile(paths.config, `${JSON.stringify(result.data, null, 2)}\n`);
 
-  const written = result.data.backends[backendKey].spend?.dailyCapCents;
+  const written = result.data.services[serviceKey].spend?.dailyCapCents;
   io.out(
-    `${backendKey} is now offered to ${scope}` +
+    `${serviceKey} is now offered to ${scope}` +
       (written === undefined || !widening
         ? ""
         : `, capped at ${String(written)}c a day`) +

@@ -368,7 +368,7 @@ export class Runner {
   }
 
   #backendFor(route: ResolvedRoute): Backend {
-    const key = `${route.backendKey}:${route.backendId}`;
+    const key = `${route.service}:${route.backendId}`;
     let backend = this.#backends.get(key);
     if (!backend) {
       backend =
@@ -392,7 +392,7 @@ export class Runner {
   #spendCeilingReached(route: ResolvedRoute): boolean {
     if (route.cost !== "metered") return false;
     return this.#options.spend.hasReachedCeiling(
-      route.backendKey,
+      route.service,
       route.spendDailyCapCents,
       this.#now(),
     );
@@ -570,7 +570,7 @@ export class Runner {
       // counted: their machine, their key, their call.
       if (community && route.cost === "metered") {
         await this.#options.spend.record(
-          route.backendKey,
+          route.service,
           estimateCents(
             prompt.length,
             result.ok ? result.text.length : 0,

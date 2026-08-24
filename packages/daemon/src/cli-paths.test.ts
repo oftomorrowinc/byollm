@@ -55,10 +55,14 @@ describe("byollm connect — when it cannot", () => {
     await writeFile(
       paths.config,
       JSON.stringify({
-        backends: {
-          local: { backend: "openai-http", baseUrl: "http://127.0.0.1:1/v1" },
+        services: {
+          local: {
+            model: "m",
+            kinds: ["llm.generate"],
+            type: "openai-http",
+            baseUrl: "http://127.0.0.1:1/v1",
+          },
         },
-        routes: { "llm.generate": { backend: "local", model: "m" } },
       }),
     );
 
@@ -107,8 +111,9 @@ describe("byollm connect — when it cannot", () => {
     await writeFile(
       paths.config,
       JSON.stringify({
-        backends: { ghost: { backend: "openai-http" } },
-        routes: { "llm.generate": { backend: "ghost", model: "m" } },
+        services: {
+          ghost: { model: "m", kinds: ["llm.generate"], type: "openai-http" },
+        },
       }),
     );
     await runCli(["connect", "http://127.0.0.1:1"], { paths, io: io() });

@@ -98,16 +98,17 @@ async function makeRunner(
 ) {
   const loaded = resolveConfig(
     DaemonConfig.parse({
-      backends: {
+      services: {
         primary: {
-          backend: options.subscription === true ? "claude-cli" : "openai-http",
+          model: "m",
+          kinds: ["llm.generate"],
+          type: options.subscription === true ? "claude-cli" : "openai-http",
           ...(options.subscription === true
             ? {}
             : { baseUrl: "http://127.0.0.1:11434/v1" }),
           offer: options.offer ?? "self",
         },
       },
-      routes: { "llm.generate": { backend: "primary", model: "m" } },
     }),
   );
 

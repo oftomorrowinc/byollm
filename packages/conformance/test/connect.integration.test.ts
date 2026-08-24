@@ -95,10 +95,14 @@ beforeEach(async () => {
   await writeFile(
     paths.config,
     JSON.stringify({
-      backends: {
-        local: { backend: "openai-http", baseUrl: `${origin}/model/v1` },
+      services: {
+        local: {
+          model: "echo-model",
+          kinds: ["llm.generate"],
+          type: "openai-http",
+          baseUrl: `${origin}/model/v1`,
+        },
       },
-      routes: { "llm.generate": { backend: "local", model: "echo-model" } },
     }),
   );
 });

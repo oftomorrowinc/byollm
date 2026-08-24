@@ -77,10 +77,7 @@ describe("loadConfig", () => {
 
   it("refuses a config that fails the schema, listing what is wrong", async () => {
     const path = join(dir, "config.json");
-    await writeFile(
-      path,
-      JSON.stringify({ backends: {}, routes: {}, concurrency: 99 }),
-    );
+    await writeFile(path, JSON.stringify({ services: {}, concurrency: 99 }));
     await expect(loadConfig(path)).rejects.toThrow(/concurrency/);
   });
 

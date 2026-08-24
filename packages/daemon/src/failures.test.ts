@@ -141,13 +141,14 @@ afterEach(async () => {
 async function makeRunner(fetchImpl: typeof fetch, backend: Backend) {
   const loaded = resolveConfig(
     DaemonConfig.parse({
-      backends: {
+      services: {
         primary: {
-          backend: "openai-http",
+          model: "m",
+          kinds: ["llm.generate"],
+          type: "openai-http",
           baseUrl: "http://127.0.0.1:11434/v1",
         },
       },
-      routes: { "llm.generate": { backend: "primary", model: "m" } },
     }),
   );
   const allowlist = new Allowlist(join(dir, "allow.json"));

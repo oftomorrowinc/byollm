@@ -2,10 +2,14 @@ import { describe, expect, it } from "vitest";
 import { DaemonConfig, resolveConfig } from "./config.js";
 
 const base = {
-  backends: {
-    local: { backend: "openai-http", baseUrl: "http://127.0.0.1:11434/v1" },
+  services: {
+    local: {
+      model: "gemma4:26b",
+      kinds: ["llm.generate"],
+      type: "openai-http",
+      baseUrl: "http://127.0.0.1:11434/v1",
+    },
   },
-  routes: { "llm.generate": { backend: "local", model: "gemma4:26b" } },
 };
 
 const parse = (overrides: Record<string, unknown> = {}) =>
@@ -20,8 +24,8 @@ describe("config defaults", () => {
     expect(config.concurrency).toBe(2);
   });
 
-  it("defaults a backend's offer scope to self", () => {
-    expect(parse().backends["local"]?.offer).toBe("self");
+  it("defaults a service's offer scope to self", () => {
+    expect(parse().services["local"]?.offer).toBe("self");
   });
 
   it("refuses an unknown key rather than ignoring it", () => {
@@ -32,11 +36,16 @@ describe("config defaults", () => {
     );
   });
 
-  it("refuses an unregistered backend id", () => {
+  it("refuses an unregistered transport type", () => {
     expect(
       DaemonConfig.safeParse({
-        backends: { x: { backend: "curl-whatever" } },
-        routes: {},
+        services: {
+          x: {
+            type: "curl-whatever",
+            model: "m",
+            kinds: ["llm.generate"],
+          },
+        },
       }).success,
     ).toBe(false);
   });
@@ -46,9 +55,13 @@ describe("resolveConfig — the subscription self-lock [SUBSCRIPTION_SELF_LOCK]"
   it("ignores a widened offer on a subscription backend and says so", () => {
     const { routes, problems } = resolveConfig(
       DaemonConfig.parse({
-        backends: { claude: { backend: "claude-cli", offer: "public" } },
-        routes: {
-          "llm.generate": { backend: "claude", model: "claude-opus-5" },
+        services: {
+          claude: {
+            model: "claude-opus-5",
+            kinds: ["llm.generate"],
+            type: "claude-cli",
+            offer: "public",
+          },
         },
       }),
     );
@@ -59,14 +72,15 @@ describe("resolveConfig — the subscription self-lock [SUBSCRIPTION_SELF_LOCK]"
   it("honours a widened offer on an open backend", () => {
     const { routes } = resolveConfig(
       DaemonConfig.parse({
-        backends: {
+        services: {
           local: {
-            backend: "openai-http",
+            model: "gemma4:26b",
+            kinds: ["llm.generate"],
+            type: "openai-http",
             baseUrl: "http://127.0.0.1:11434/v1",
             offer: "public",
           },
         },
-        routes: { "llm.generate": { backend: "local", model: "gemma4:26b" } },
       }),
     );
     expect(routes[0]?.offerScope).toBe("public");
@@ -74,22 +88,99 @@ describe("resolveConfig — the subscription self-lock [SUBSCRIPTION_SELF_LOCK]"
 });
 
 describe("resolveConfig — a broken route is dropped, not fatal", () => {
-  it("drops a route whose backend is not defined", () => {
+  // "a route whose backend is not defined" no longer exists as a state: a
+  // service carries its own transport, so there is no second name to dangle.
+  // What replaced it is ambiguity — two services answering one kind with
+  // nobody saying which serves.
+  it("does not advertise a kind two services claim, and says so", () => {
     const { routes, problems } = resolveConfig(
       DaemonConfig.parse({
-        backends: {},
-        routes: { "llm.generate": { backend: "ghost", model: "m" } },
+        services: {
+          qwen: {
+            type: "openai-http",
+            baseUrl: "http://127.0.0.1:6999/v1",
+            model: "qwen3",
+            kinds: ["llm.generate"],
+          },
+          llama: {
+            type: "openai-http",
+            baseUrl: "http://127.0.0.1:11434/v1",
+            model: "llama3.2",
+            kinds: ["llm.generate"],
+          },
+        },
+      }),
+    );
+    // Not advertised, deliberately. Announcing a kind it cannot resolve
+    // deterministically would turn a config ambiguity into a job-time
+    // mystery three hops away.
+    expect(routes).toHaveLength(0);
+    expect(problems[0]?.where).toBe("defaults.llm.generate");
+    expect(problems[0]?.message).toContain("qwen, llama");
+  });
+
+  it("serves the kind once a default names one of them", () => {
+    const { routes, problems } = resolveConfig(
+      DaemonConfig.parse({
+        services: {
+          qwen: {
+            type: "openai-http",
+            baseUrl: "http://127.0.0.1:6999/v1",
+            model: "qwen3",
+            kinds: ["llm.generate"],
+          },
+          llama: {
+            type: "openai-http",
+            baseUrl: "http://127.0.0.1:11434/v1",
+            model: "llama3.2",
+            kinds: ["llm.generate"],
+          },
+        },
+        defaults: { "llm.generate": "qwen" },
+      }),
+    );
+    expect(problems).toEqual([]);
+    expect(routes).toHaveLength(1);
+    expect(routes[0]?.service).toBe("qwen");
+    expect(routes[0]?.model).toBe("qwen3");
+  });
+
+  it("refuses a default naming a service that does not answer the kind", () => {
+    const { routes, problems } = resolveConfig(
+      DaemonConfig.parse({
+        services: {
+          qwen: {
+            type: "openai-http",
+            baseUrl: "http://127.0.0.1:6999/v1",
+            model: "qwen3",
+            kinds: ["llm.generate"],
+          },
+          llama: {
+            type: "openai-http",
+            baseUrl: "http://127.0.0.1:11434/v1",
+            model: "llama3.2",
+            kinds: ["llm.generate"],
+          },
+        },
+        defaults: { "llm.generate": "claude" },
       }),
     );
     expect(routes).toHaveLength(0);
-    expect(problems[0]?.message).toContain("not defined");
+    expect(problems[0]?.message).toContain("does not answer");
+  });
+
+  it("needs no default when one service answers a kind", () => {
+    const { routes, problems } = resolveConfig(DaemonConfig.parse(base));
+    expect(problems).toEqual([]);
+    expect(routes.map((r) => r.service)).toEqual(["local"]);
   });
 
   it("drops an HTTP backend with no baseUrl", () => {
     const { routes, problems } = resolveConfig(
       DaemonConfig.parse({
-        backends: { local: { backend: "openai-http" } },
-        routes: { "llm.generate": { backend: "local", model: "m" } },
+        services: {
+          local: { model: "m", kinds: ["llm.generate"], type: "openai-http" },
+        },
       }),
     );
     expect(routes).toHaveLength(0);
@@ -99,49 +190,63 @@ describe("resolveConfig — a broken route is dropped, not fatal", () => {
   it("drops an HTTP backend pointed at a metadata endpoint", () => {
     const { routes, problems } = resolveConfig(
       DaemonConfig.parse({
-        backends: {
+        services: {
           local: {
-            backend: "openai-http",
+            model: "m",
+            kinds: ["llm.generate"],
+            type: "openai-http",
             baseUrl: "http://169.254.169.254/v1",
           },
         },
-        routes: { "llm.generate": { backend: "local", model: "m" } },
       }),
     );
     expect(routes).toHaveLength(0);
     expect(problems[0]?.message).toContain("metadata");
   });
 
-  it("keeps the good routes when one is broken", () => {
+  it("keeps the good services when one is broken", () => {
+    // A device with two services and one bad address serves the other and
+    // says so, rather than refusing to start. What it must never do is
+    // advertise the broken one.
     const { routes, problems } = resolveConfig(
       DaemonConfig.parse({
-        backends: {
+        services: {
           local: {
-            backend: "openai-http",
+            type: "openai-http",
             baseUrl: "http://127.0.0.1:11434/v1",
+            model: "gemma4:26b",
+            kinds: ["llm.generate"],
           },
-        },
-        routes: {
-          "llm.generate": { backend: "local", model: "gemma4:26b" },
-          "llm.chat": { backend: "ghost", model: "m" },
+          broken: {
+            type: "openai-http",
+            baseUrl: "http://169.254.169.254/v1",
+            model: "m",
+            kinds: ["llm.chat"],
+          },
         },
       }),
     );
     expect(routes.map((r) => r.kind)).toEqual(["llm.generate"]);
+    expect(routes.map((r) => r.service)).toEqual(["local"]);
     expect(problems).toHaveLength(1);
   });
 });
 
 describe("byollm_007 — cost class and providers", () => {
-  const route = (backend: string) => ({
-    routes: { "llm.generate": { backend, model: "m" } },
+  /** One service, named for the transport it uses, answering one kind. */
+  const only = (
+    name: string,
+    service: Record<string, unknown>,
+  ): Record<string, unknown> => ({
+    services: {
+      [name]: { model: "m", kinds: ["llm.generate"], ...service },
+    },
   });
 
   it("resolves a named provider's default base URL, so an id and a key suffice", () => {
     const { routes, problems } = resolveConfig(
       DaemonConfig.parse({
-        backends: { gpt: { backend: "openai", apiKeyEnv: "OPENAI_API_KEY" } },
-        ...route("gpt"),
+        ...only("gpt", { type: "openai", apiKeyEnv: "OPENAI_API_KEY" }),
       }),
     );
     expect(problems).toEqual([]);
@@ -153,10 +258,7 @@ describe("byollm_007 — cost class and providers", () => {
     // The bug byollm_007 closes: a paid key offered publicly by accident.
     const { routes, problems } = resolveConfig(
       DaemonConfig.parse({
-        backends: {
-          gpt: { backend: "openai", apiKeyEnv: "K", offer: "public" },
-        },
-        ...route("gpt"),
+        ...only("gpt", { type: "openai", apiKeyEnv: "K", offer: "public" }),
       }),
     );
     expect(routes[0]?.offerScope).toBe("self");
@@ -167,15 +269,12 @@ describe("byollm_007 — cost class and providers", () => {
   it("refuses to share a metered backend without a ceiling", () => {
     const { routes, problems } = resolveConfig(
       DaemonConfig.parse({
-        backends: {
-          gpt: {
-            backend: "openai",
-            apiKeyEnv: "K",
-            offer: "public",
-            spend: { acknowledged: true },
-          },
-        },
-        ...route("gpt"),
+        ...only("gpt", {
+          type: "openai",
+          apiKeyEnv: "K",
+          offer: "public",
+          spend: { acknowledged: true },
+        }),
       }),
     );
     // Refused outright rather than given an unlimited ceiling.
@@ -186,15 +285,12 @@ describe("byollm_007 — cost class and providers", () => {
   it("shares a metered backend once acknowledged with a ceiling", () => {
     const { routes, problems } = resolveConfig(
       DaemonConfig.parse({
-        backends: {
-          gpt: {
-            backend: "openai",
-            apiKeyEnv: "K",
-            offer: "named",
-            spend: { acknowledged: true, dailyCapCents: 500 },
-          },
-        },
-        ...route("gpt"),
+        ...only("gpt", {
+          type: "openai",
+          apiKeyEnv: "K",
+          offer: "named",
+          spend: { acknowledged: true, dailyCapCents: 500 },
+        }),
       }),
     );
     expect(problems).toEqual([]);
@@ -207,15 +303,12 @@ describe("byollm_007 — cost class and providers", () => {
     // metered rules. There is no `cost` field to set, and the base URL decides.
     const { routes, problems } = resolveConfig(
       DaemonConfig.parse({
-        backends: {
-          sneaky: {
-            backend: "openai-http",
-            baseUrl: "https://api.openai.com/v1",
-            apiKeyEnv: "K",
-            offer: "public",
-          },
-        },
-        ...route("sneaky"),
+        ...only("sneaky", {
+          type: "openai-http",
+          baseUrl: "https://api.openai.com/v1",
+          apiKeyEnv: "K",
+          offer: "public",
+        }),
       }),
     );
     expect(routes[0]?.cost).toBe("metered");
@@ -226,14 +319,11 @@ describe("byollm_007 — cost class and providers", () => {
   it("leaves a local generic backend free and shareable", () => {
     const { routes, problems } = resolveConfig(
       DaemonConfig.parse({
-        backends: {
-          local: {
-            backend: "openai-http",
-            baseUrl: "http://127.0.0.1:11434/v1",
-            offer: "public",
-          },
-        },
-        ...route("local"),
+        ...only("local", {
+          type: "openai-http",
+          baseUrl: "http://127.0.0.1:11434/v1",
+          offer: "public",
+        }),
       }),
     );
     expect(problems).toEqual([]);
@@ -246,8 +336,7 @@ describe("byollm_007 — cost class and providers", () => {
     // inventing one is a parse failure rather than something ignored.
     expect(
       DaemonConfig.safeParse({
-        backends: { gpt: { backend: "openai", cost: "free" } },
-        ...route("gpt"),
+        ...only("gpt", { type: "openai", cost: "free" }),
       }).success,
     ).toBe(false);
   });
@@ -255,14 +344,11 @@ describe("byollm_007 — cost class and providers", () => {
   it("still locks a subscription backend, consent or not", () => {
     const { routes } = resolveConfig(
       DaemonConfig.parse({
-        backends: {
-          claude: {
-            backend: "claude-cli",
-            offer: "public",
-            spend: { acknowledged: true, dailyCapCents: 10_000 },
-          },
-        },
-        ...route("claude"),
+        ...only("claude", {
+          type: "claude-cli",
+          offer: "public",
+          spend: { acknowledged: true, dailyCapCents: 10_000 },
+        }),
       }),
     );
     expect(routes[0]?.offerScope).toBe("self");

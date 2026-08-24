@@ -78,9 +78,11 @@ async function makeRunner(options: {
 }) {
   const loaded = resolveConfig(
     DaemonConfig.parse({
-      backends: {
+      services: {
         paid: {
-          backend: "openai",
+          model: "m",
+          kinds: ["llm.generate"],
+          type: "openai",
           offer: options.offer,
           spend: {
             acknowledged: options.acknowledged,
@@ -90,7 +92,6 @@ async function makeRunner(options: {
           },
         },
       },
-      routes: { "llm.generate": { backend: "paid", model: "m" } },
     }),
   );
   expect(loaded.problems, JSON.stringify(loaded.problems)).toEqual([]);
@@ -144,6 +145,19 @@ const job = (
   },
   ...overrides,
 });
+
+/**
+ * One `paid` service on disk.
+ *
+ * The caller passes the service's own fields; `model` and `kinds` are what
+ * used to live in a separate `routes` stanza pointing back at it.
+ */
+const paidService = (fields: Record<string, unknown>) =>
+  JSON.stringify({
+    services: {
+      paid: { model: "m", kinds: ["llm.generate"], ...fields },
+    },
+  });
 
 describe("the ledger is written by the work, not by hand", () => {
   it("charges community work on a metered backend to the ledger", async () => {
@@ -205,8 +219,14 @@ describe("the ledger is written by the work, not by hand", () => {
     // A free route must not be gated on a ceiling it has no reason to carry.
     const loaded = resolveConfig(
       DaemonConfig.parse({
-        backends: { local: { backend: "ollama", offer: "public" } },
-        routes: { "llm.generate": { backend: "local", model: "m" } },
+        services: {
+          local: {
+            model: "m",
+            kinds: ["llm.generate"],
+            type: "ollama",
+            offer: "public",
+          },
+        },
       }),
     );
     const allowlist = new Allowlist(join(dir, "a2.json"));
@@ -266,30 +286,22 @@ describe("what the user is told about their money", () => {
     await removeTemp(home);
   });
 
-  const config = (backends: unknown) =>
-    writeFile(
-      paths.config,
-      JSON.stringify({
-        backends,
-        routes: { "llm.generate": { backend: "paid", model: "m" } },
-      }),
-    );
+  const config = (fields: Record<string, unknown>) =>
+    writeFile(paths.config, paidService(fields));
 
   it("says a shared metered backend costs money, and what the cap is", async () => {
     await config({
-      paid: {
-        backend: "openai",
-        // A dead local port: no test may touch the real network. Note the
-        // cost stays `metered` anyway — the registry decides that, not the
-        // base URL ({@link MUSTS.COST_NOT_CONFIGURABLE}).
-        baseUrl: "http://127.0.0.1:1/v1",
-        offer: "public",
-        spend: { acknowledged: true, dailyCapCents: 250 },
-      },
+      type: "openai",
+      // A dead local port: no test may touch the real network. Note the
+      // cost stays `metered` anyway — the registry decides that, not the
+      // base URL ({@link MUSTS.COST_NOT_CONFIGURABLE}).
+      baseUrl: "http://127.0.0.1:1/v1",
+      offer: "public",
+      spend: { acknowledged: true, dailyCapCents: 250 },
     });
 
     await run("status");
-    expect(out).toContain("metered backends — your money");
+    expect(out).toContain("metered services — your money");
     expect(out).toContain("250c");
 
     out = "";
@@ -298,9 +310,7 @@ describe("what the user is told about their money", () => {
   });
 
   it("says an unshared metered backend is the owner's work only", async () => {
-    await config({
-      paid: { backend: "openai", baseUrl: "http://127.0.0.1:1/v1" },
-    });
+    await config({ type: "openai", baseUrl: "http://127.0.0.1:1/v1" });
 
     await run("status");
     expect(out).toContain("not shared — your work only");
@@ -314,13 +324,9 @@ describe("what the user is told about their money", () => {
     await writeFile(
       paths.config,
       JSON.stringify({
-        backends: {
-          paid: { backend: "ollama" },
-          sub: { backend: "claude-cli" },
-        },
-        routes: {
-          "llm.generate": { backend: "paid", model: "m" },
-          "llm.chat": { backend: "sub", model: "sonnet" },
+        services: {
+          paid: { model: "m", kinds: ["llm.generate"], type: "ollama" },
+          sub: { model: "sonnet", kinds: ["llm.chat"], type: "claude-cli" },
         },
       }),
     );
@@ -331,7 +337,7 @@ describe("what the user is told about their money", () => {
     // A machine with no metered backend is not told about money it never spends.
     out = "";
     await run("status");
-    expect(out).not.toContain("metered backends");
+    expect(out).not.toContain("metered services");
   });
 });
 
@@ -374,26 +380,20 @@ describe("byollm offer — the command the config error names", () => {
     await removeTemp(home);
   });
 
-  const write = (backends: unknown) =>
-    writeFile(
-      paths.config,
-      JSON.stringify({
-        backends,
-        routes: { "llm.generate": { backend: "paid", model: "m" } },
-      }),
-    );
+  const write = (fields: Record<string, unknown>) =>
+    writeFile(paths.config, paidService(fields));
   /** The `paid` backend as it now stands on disk. */
   const read = async (): Promise<WrittenBackend> => {
     const config = JSON.parse(await readFile(paths.config, "utf8")) as {
-      backends: Record<string, WrittenBackend>;
+      services: Record<string, WrittenBackend>;
     };
-    const paid = config.backends["paid"];
-    if (!paid) throw new Error("the paid backend vanished from the config");
+    const paid = config.services["paid"];
+    if (!paid) throw new Error("the paid service vanished from the config");
     return paid;
   };
 
   it("is a real command — the error message does not lie", async () => {
-    await write({ paid: { backend: "openai", offer: "public" } });
+    await write({ type: "openai", offer: "public" });
 
     // The message resolveConfig prints tells the owner to run this. Whatever
     // else it does, it must not be "unknown command".
@@ -403,7 +403,7 @@ describe("byollm offer — the command the config error names", () => {
   });
 
   it("names the money before widening a metered backend", async () => {
-    await write({ paid: { backend: "openai" } });
+    await write({ type: "openai" });
 
     await run("offer", "paid", "public", "--cap", "250");
 
@@ -420,7 +420,7 @@ describe("byollm offer — the command the config error names", () => {
   });
 
   it("changes nothing when the owner says no", async () => {
-    await write({ paid: { backend: "openai" } });
+    await write({ type: "openai" });
     answer = false;
 
     expect(await run("offer", "paid", "public", "--cap", "250")).toBe(0);
@@ -429,7 +429,7 @@ describe("byollm offer — the command the config error names", () => {
   });
 
   it("refuses to widen a metered backend with no ceiling [METERED_REQUIRES_CEILING]", async () => {
-    await write({ paid: { backend: "openai" } });
+    await write({ type: "openai" });
 
     expect(await run("offer", "paid", "public")).toBe(2);
     expect(out).toContain("daily");
@@ -440,7 +440,7 @@ describe("byollm offer — the command the config error names", () => {
   });
 
   it("refuses to offer a subscription backend at all [SUBSCRIPTION_SELF_LOCK]", async () => {
-    await write({ paid: { backend: "claude-cli" } });
+    await write({ type: "claude-cli" });
 
     expect(await run("offer", "paid", "named")).toBe(1);
     expect(out).toContain("cannot be offered");
@@ -448,7 +448,7 @@ describe("byollm offer — the command the config error names", () => {
   });
 
   it("widens a free backend without asking about money there is none of", async () => {
-    await write({ paid: { backend: "ollama" } });
+    await write({ type: "ollama" });
 
     expect(await run("offer", "paid", "public")).toBe(0);
     expect(asked).toEqual([]);
@@ -457,11 +457,9 @@ describe("byollm offer — the command the config error names", () => {
 
   it("withdraws consent when narrowing back to self", async () => {
     await write({
-      paid: {
-        backend: "openai",
-        offer: "public",
-        spend: { acknowledged: true, dailyCapCents: 250 },
-      },
+      type: "openai",
+      offer: "public",
+      spend: { acknowledged: true, dailyCapCents: 250 },
     });
 
     expect(await run("offer", "paid", "self")).toBe(0);
@@ -473,10 +471,10 @@ describe("byollm offer — the command the config error names", () => {
   });
 
   it("says what it does not recognise rather than guessing", async () => {
-    await write({ paid: { backend: "ollama" } });
+    await write({ type: "ollama" });
 
     expect(await run("offer", "nope", "public")).toBe(2);
-    expect(out).toContain("no backend named");
+    expect(out).toContain("no service named");
     expect(out).toContain("paid");
 
     out = "";

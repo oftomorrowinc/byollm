@@ -299,14 +299,15 @@ export async function makeDaemon(
   const identity = new DeviceIdentity(join(home, "keys.json"));
   const loaded = resolveConfig(
     DaemonConfig.parse({
-      backends: {
+      services: {
         primary: {
-          backend: "openai-http",
+          model: "echo-model",
+          kinds: ["llm.generate"],
+          type: "openai-http",
           baseUrl: "http://127.0.0.1:11434/v1",
           offer: "public",
         },
       },
-      routes: { "llm.generate": { backend: "primary", model: "echo-model" } },
       concurrency: 2,
     }),
   );

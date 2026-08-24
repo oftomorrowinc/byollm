@@ -121,14 +121,15 @@ afterEach(async () => {
 async function makeRunner(fetchImpl: typeof fetch, owner = "me") {
   const loaded = resolveConfig(
     DaemonConfig.parse({
-      backends: {
+      services: {
         primary: {
-          backend: "openai-http",
+          model: "m",
+          kinds: ["llm.generate"],
+          type: "openai-http",
           baseUrl: "http://127.0.0.1:11434/v1",
           offer: "self",
         },
       },
-      routes: { "llm.generate": { backend: "primary", model: "m" } },
       concurrency: 2,
     }),
   );

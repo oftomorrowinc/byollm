@@ -50,10 +50,14 @@ async function writeConfig(): Promise<void> {
   await writeFile(
     paths.config,
     JSON.stringify({
-      backends: {
-        local: { backend: "openai-http", baseUrl: "http://127.0.0.1:1/v1" },
+      services: {
+        local: {
+          model: "m",
+          kinds: ["llm.generate"],
+          type: "openai-http",
+          baseUrl: "http://127.0.0.1:1/v1",
+        },
       },
-      routes: { "llm.generate": { backend: "local", model: "m" } },
     }),
   );
 }

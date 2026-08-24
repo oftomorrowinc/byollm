@@ -46,14 +46,13 @@ export {
   DaemonConfig,
   loadConfig,
   resolveConfig,
-  type BackendConfig,
+  type ServiceConfig,
   type CommunityBudget,
   type ConfigProblem,
   type IngressRetention,
   type LoadedConfig,
   type Limits,
   type ResolvedRoute,
-  type RouteConfig,
 } from "./config.js";
 
 export {

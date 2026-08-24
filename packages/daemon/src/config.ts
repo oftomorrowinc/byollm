@@ -19,15 +19,40 @@ import { checkBaseUrl } from "./ssrf.js";
  * runs (Ollama here, `mlx_lm.server` there, a llama.cpp box on the LAN). That
  * is byollm_001 Rev 1 §A's "one backend, N base URLs".
  */
-export const BackendConfig = z
+export const ServiceConfig = z
   .object({
-    backend: BackendIdSchema,
-    /** Required for HTTP-class backends; meaningless for process-class. */
+    /**
+     * How it is reached — the transport, not the thing.
+     *
+     * Renamed from `backend` because that was the noun doing the work, and it
+     * named the wrong thing: an owner running two Ollama models has two
+     * services and one transport. The service is what they think about and
+     * what they will name; the transport is a detail of reaching it.
+     */
+    type: BackendIdSchema,
+    /** Required for HTTP-class transports; meaningless for process-class. */
     baseUrl: z.string().optional(),
     /**
-     * What the owner is willing to run for others. Subscription-class
-     * backends ignore this and are locked to `self`
-     * ({@link MUSTS.SUBSCRIPTION_SELF_LOCK}).
+     * The model this service serves. Owner-chosen; a payload can never
+     * influence it ({@link MUSTS.NO_PAYLOAD_ROUTING}).
+     *
+     * Moved here from the route, which is the whole reorganization in one
+     * field: the model was a property of *what serves a kind*, and that thing
+     * had no name. Now it does.
+     */
+    model: z.string().min(1),
+    /**
+     * What this service answers.
+     *
+     * Declared, then detected — declaring a kind does not advertise it
+     * ({@link MUSTS.CAPABILITY_IS_DETECTED}). A kind that cannot be served is
+     * dropped with a loud problem, never a silent advertisement.
+     */
+    kinds: z.array(JobKind).min(1),
+    /**
+     * What the owner is willing to run for others, **per service** — which is
+     * what owners actually mean. Subscription-class services ignore this and
+     * are locked to `self` ({@link MUSTS.SUBSCRIPTION_SELF_LOCK}).
      */
     offer: OfferScope.default("self"),
     /**
@@ -65,18 +90,7 @@ export const BackendConfig = z
       .optional(),
   })
   .strict();
-export type BackendConfig = z.infer<typeof BackendConfig>;
-
-/** Which backend instance and model serves a job kind. */
-export const RouteConfig = z
-  .object({
-    /** Key into {@link DaemonConfig.backends}. */
-    backend: z.string().min(1),
-    /** The model name, owner-chosen. A payload can never influence this. */
-    model: z.string().min(1),
-  })
-  .strict();
-export type RouteConfig = z.infer<typeof RouteConfig>;
+export type ServiceConfig = z.infer<typeof ServiceConfig>;
 
 /**
  * Budgets applied to jobs whose owner is not this machine's owner
@@ -129,13 +143,26 @@ export type Limits = z.infer<typeof Limits>;
 
 export const DaemonConfig = z
   .object({
-    backends: z.record(z.string().min(1), BackendConfig),
-    // `partialRecord`, not `record`: zod 4's `record` with an enum key
-    // demands every member be present, which would force an owner who only
-    // wants `llm.generate` to also configure `llm.chat`. Routing one kind and
-    // not the other is a legitimate setup — the unrouted kind is simply never
-    // advertised.
-    routes: z.partialRecord(JobKind, RouteConfig),
+    /**
+     * The services this device runs, by the names their owner gave them.
+     *
+     * A name is the owner's word — `qwen`, `gwen-voice`, `claude` — and it is
+     * what a job may later select. It is never a model id and never a vendor.
+     */
+    services: z.record(z.string().min(1), ServiceConfig),
+    /**
+     * Which service serves a kind when a job does not say.
+     *
+     * Optional, and it earns its place only under ambiguity: one service
+     * offering a kind simply serves it. Two or more and the config will not
+     * load without a default — loudly, in the owner's terminal, rather than
+     * as a job-time mystery three hops away.
+     *
+     * `partialRecord`, not `record`: an owner with an ambiguous
+     * `llm.generate` and a single `llm.chat` needs a default for one and not
+     * the other.
+     */
+    defaults: z.partialRecord(JobKind, z.string().min(1)).prefault({}),
     /** How many jobs to run at once. */
     concurrency: z.number().int().min(1).max(32).default(2),
     // `prefault`, not `default`: zod 4's `.default()` takes an *output* value,
@@ -149,10 +176,17 @@ export const DaemonConfig = z
   .strict();
 export type DaemonConfig = z.infer<typeof DaemonConfig>;
 
-/** A route resolved against its backend, ready to execute. */
+/** One kind, served by one named service, ready to execute. */
 export interface ResolvedRoute {
   readonly kind: z.infer<typeof JobKind>;
-  readonly backendKey: string;
+  /**
+   * The owner's name for the service serving this kind.
+   *
+   * Carried onto the wire in the capability matrix, so a device advertises
+   * *which* of its services answers a kind rather than only that something
+   * does. Phase B lets a job select by this name.
+   */
+  readonly service: string;
   readonly backendId: BackendId;
   readonly backendClass: "http" | "process";
   readonly model: string;
@@ -182,12 +216,13 @@ export interface LoadedConfig {
 
 /** The config used when the owner has not written one. */
 export const DEFAULT_CONFIG: DaemonConfig = DaemonConfig.parse({
-  backends: {
-    ollama: { backend: "openai-http", baseUrl: "http://127.0.0.1:11434/v1" },
-  },
-  routes: {
-    "llm.generate": { backend: "ollama", model: "llama3.2" },
-    "llm.chat": { backend: "ollama", model: "llama3.2" },
+  services: {
+    ollama: {
+      type: "openai-http",
+      baseUrl: "http://127.0.0.1:11434/v1",
+      model: "llama3.2",
+      kinds: ["llm.generate", "llm.chat"],
+    },
   },
 });
 
@@ -240,37 +275,75 @@ export function resolveConfig(config: DaemonConfig): LoadedConfig {
   const routes: ResolvedRoute[] = [];
   const problems: ConfigProblem[] = [];
 
-  for (const [kind, route] of Object.entries(config.routes)) {
-    const where = `routes.${kind}`;
-    const backend = config.backends[route.backend];
-    if (!backend) {
+  /**
+   * Who claims each kind, decided before anything is resolved.
+   *
+   * Ambiguity is a property of the whole config, not of one service, so it
+   * cannot be judged inside the loop that walks them.
+   */
+  const claimants = new Map<z.infer<typeof JobKind>, string[]>();
+  for (const [name, service] of Object.entries(config.services)) {
+    for (const kind of service.kinds) {
+      claimants.set(kind, [...(claimants.get(kind) ?? []), name]);
+    }
+  }
+
+  /**
+   * Which service actually serves each kind.
+   *
+   * One claimant serves without ceremony. Two or more need the owner to say,
+   * and until they do the kind is **not advertised at all** — a device that
+   * announced a kind it could not resolve deterministically would turn a
+   * config ambiguity into a job-time mystery three hops away, which is the
+   * shape this whole reorganization exists to remove.
+   */
+  const serves = new Map<z.infer<typeof JobKind>, string>();
+  for (const [kind, names] of claimants) {
+    const [sole] = names;
+    if (names.length === 1 && sole !== undefined) {
+      serves.set(kind, sole);
+      continue;
+    }
+    const chosen = config.defaults[kind];
+    if (chosen === undefined) {
       problems.push({
-        where,
-        message: `backend "${route.backend}" is not defined in backends`,
+        where: `defaults.${kind}`,
+        message:
+          `${String(names.length)} services answer ${kind} (${names.join(", ")}) ` +
+          `— set defaults.${kind} to the one that should serve it. Until then ` +
+          `${kind} is not advertised.`,
       });
       continue;
     }
+    if (!names.includes(chosen)) {
+      problems.push({
+        where: `defaults.${kind}`,
+        message: `"${chosen}" does not answer ${kind}. It is served by: ${names.join(", ")}.`,
+      });
+      continue;
+    }
+    serves.set(kind, chosen);
+  }
 
-    const descriptor = backendDescriptor(backend.backend);
+  for (const [name, service] of Object.entries(config.services)) {
+    const where = `services.${name}`;
+    const descriptor = backendDescriptor(service.type);
 
-    // A named provider supplies its own address; the generic backend and any
+    // A named provider supplies its own address; the generic transport and any
     // override still have to be given one.
-    const baseUrl = backend.baseUrl ?? descriptor.defaultBaseUrl;
+    const baseUrl = service.baseUrl ?? descriptor.defaultBaseUrl;
 
     if (descriptor.class === "http") {
       if (baseUrl === undefined) {
         problems.push({
-          where: `backends.${route.backend}`,
-          message: "an HTTP-class backend needs a baseUrl",
+          where,
+          message: "an HTTP-class service needs a baseUrl",
         });
         continue;
       }
       const check = checkBaseUrl(baseUrl);
       if (!check.ok) {
-        problems.push({
-          where: `backends.${route.backend}.baseUrl`,
-          message: check.detail,
-        });
+        problems.push({ where: `${where}.baseUrl`, message: check.detail });
         continue;
       }
     }
@@ -278,13 +351,13 @@ export function resolveConfig(config: DaemonConfig): LoadedConfig {
     // Cost comes from the registry, or from where the request goes — never
     // from config ({@link MUSTS.COST_NOT_CONFIGURABLE},
     // {@link MUSTS.REMOTE_IS_NEVER_FREE}).
-    const cost = resolveCost(backend.backend, baseUrl);
-    const acknowledged = backend.spend?.acknowledged === true;
-    const capCents = backend.spend?.dailyCapCents;
+    const cost = resolveCost(service.type, baseUrl);
+    const acknowledged = service.spend?.acknowledged === true;
+    const capCents = service.spend?.dailyCapCents;
 
-    // A widened metered backend without a ceiling is refused rather than
+    // A widened metered service without a ceiling is refused rather than
     // silently given an unlimited one ({@link MUSTS.METERED_REQUIRES_CEILING}).
-    const widened = backend.offer !== "self";
+    const widened = service.offer !== "self";
     if (
       cost === "metered" &&
       widened &&
@@ -292,45 +365,52 @@ export function resolveConfig(config: DaemonConfig): LoadedConfig {
       capCents === undefined
     ) {
       problems.push({
-        where: `backends.${route.backend}.spend`,
+        where: `${where}.spend`,
         message:
-          "sharing a metered backend needs spend.dailyCapCents — an " +
+          "sharing a metered service needs spend.dailyCapCents — an " +
           "unlimited ceiling is not something anyone means on purpose",
       });
       continue;
     }
 
-    const configured = backend.offer;
+    const configured = service.offer;
     const offerScope = effectiveOfferScope(configured, cost, {
       acknowledged: acknowledged && capCents !== undefined,
     });
     if (offerScope !== configured) {
       problems.push({
-        where: `backends.${route.backend}.offer`,
+        where: `${where}.offer`,
         message:
           cost === "subscription"
             ? `"${configured}" was ignored: ${descriptor.label} runs on your ` +
               `own subscription, so it is locked to your work only`
             : `"${configured}" was narrowed to "self": ${descriptor.label} ` +
-              `bills you per token. \`byollm offer ${route.backend} ` +
+              `bills you per token. \`byollm offer ${name} ` +
               `${configured}\` to share it deliberately, with a ceiling`,
       });
     }
 
-    routes.push({
-      kind: kind as z.infer<typeof JobKind>,
-      backendKey: route.backend,
-      backendId: backend.backend,
-      backendClass: descriptor.class,
-      model: route.model,
-      cost,
-      offerScope,
-      spendAcknowledged: acknowledged,
-      spendDailyCapCents: capCents,
-      spendCentsPerMillionTokens: backend.spend?.centsPerMillionTokens ?? 1500,
-      baseUrl,
-      apiKeyEnv: backend.apiKeyEnv,
-    });
+    for (const kind of service.kinds) {
+      // Only the service that serves this kind is advertised. A second
+      // claimant is configured and idle until Phase B lets a job name it —
+      // advertising it now would promise a selection nothing can make.
+      if (serves.get(kind) !== name) continue;
+      routes.push({
+        kind,
+        service: name,
+        backendId: service.type,
+        backendClass: descriptor.class,
+        model: service.model,
+        cost,
+        offerScope,
+        spendAcknowledged: acknowledged,
+        spendDailyCapCents: capCents,
+        spendCentsPerMillionTokens:
+          service.spend?.centsPerMillionTokens ?? 1500,
+        baseUrl,
+        apiKeyEnv: service.apiKeyEnv,
+      });
+    }
   }
 
   return { config, routes, problems };

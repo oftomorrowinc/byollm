@@ -160,9 +160,11 @@ function daemonConfig(options: {
       : "http://127.0.0.1:11434/v1";
   return resolveConfig(
     DaemonConfig.parse({
-      backends: {
+      services: {
         primary: {
-          backend: backendId,
+          model: "echo-model",
+          kinds: ["llm.generate", "llm.chat"],
+          type: backendId,
           ...(baseUrl === undefined ? {} : { baseUrl }),
           offer: options.offer,
           ...(metered === undefined
@@ -176,10 +178,6 @@ function daemonConfig(options: {
                 },
               }),
         },
-      },
-      routes: {
-        "llm.generate": { backend: "primary", model: "echo-model" },
-        "llm.chat": { backend: "primary", model: "echo-model" },
       },
       concurrency: 4,
     }),

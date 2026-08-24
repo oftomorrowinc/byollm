@@ -776,6 +776,20 @@ export class RelayState implements RoutingStore {
     return Promise.resolve(this.#presence.get(runnerId));
   }
 
+  /**
+   * Lose a record, the way a real store does.
+   *
+   * A shared store drops presence for reasons this one never will — a TTL, a
+   * reschedule, a restart — and the interesting behaviour is what the relay
+   * does next. `ValkeyRoutingStore` has carried the same helper since
+   * finding 52; this is its memory twin, so the case can be written once
+   * against the implementation that is easy to reason about.
+   */
+  dropPresenceForTests(runnerId: string): Promise<void> {
+    this.#presence.delete(runnerId);
+    return Promise.resolve();
+  }
+
   everyone(): Promise<Presence[]> {
     return Promise.resolve([...this.#presence.values()]);
   }

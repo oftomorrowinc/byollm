@@ -381,9 +381,39 @@ export class DaemonPlane {
     if (!signature.success) {
       return fail(401, "unauthorized", "this request is not signed");
     }
-    const known = await this.#deps.state.presence(signature.data.runnerId);
+    // **Presence is a cache, and a cache miss is not an answer about identity.**
+    //
+    // This used to refuse outright, which made a store blip into a fleet-wide
+    // outage: the hub keeps presence in Valkey with no persistence and no
+    // volume, so a reschedule — bin-packing on Autopilot, a node upgrade,
+    // anything — dropped every record at once and every daemon alive was told
+    // `this runner is not recognised` until a human re-paired it, one machine
+    // at a time. The one-hour TTL was the same failure arriving more slowly.
+    //
+    // Who a runner is has never lived here. It lives in the projection, put
+    // there by a person comparing a fingerprint, and this file already says so
+    // three times over — revocation is asked of the projection rather than a
+    // cached flag, for exactly this reason. So a miss is repaired from the
+    // authority instead of being reported as a verdict.
+    let known = await this.#deps.state.presence(signature.data.runnerId);
+    let rebuilt = false;
     if (!known) {
-      return fail(401, "unauthorized", "this runner is not recognised");
+      const approved = this.#deps.projection.deviceFor(signature.data.runnerId);
+      // Still the honest refusal when the *projection* does not know it: no
+      // human ever approved this machine, and no amount of signing changes
+      // that.
+      if (!approved) {
+        return fail(401, "unauthorized", "this runner is not recognised");
+      }
+      known = {
+        ...approved,
+        lastSeenAt: this.#deps.now(),
+        // Not invented. The heartbeat is the authority on what a machine can
+        // run, and it is seconds away; claiming a matrix here would be this
+        // file guessing about a backend it cannot see.
+        capabilities: [],
+      };
+      rebuilt = true;
     }
 
     const failure = verifyRequest({
@@ -395,6 +425,20 @@ export class DaemonPlane {
     });
     if (failure === "stale") return this.#clockSkew();
     if (failure) return fail(401, "unauthorized", "signature check failed");
+
+    // Written only now, and the order is the whole safety argument: a record
+    // restored *before* the signature was checked would let anybody who knows
+    // a runner id repopulate presence for a machine they do not hold the keys
+    // to. A verified signature over this request is proof the caller holds the
+    // key a human approved, which is the same proof pairing produced.
+    if (rebuilt) {
+      await this.#deps.state.seen({
+        runnerId: known.runnerId,
+        owner: known.owner,
+        device: known.device,
+        capabilities: [],
+      });
+    }
 
     // Asked of the projection, not of the cached flag.
     //

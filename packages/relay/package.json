@@ -1,6 +1,6 @@
 {
   "name": "@byollm/relay",
-  "version": "0.1.0-alpha.42",
+  "version": "0.1.0-alpha.43",
   "type": "module",
   "description": "The reference relay: routes sealed byollm jobs between sites and daemons, holding no decryption keys by construction.",
   "license": "MIT",

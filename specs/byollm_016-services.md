@@ -335,3 +335,32 @@ review lands, which is exactly where his feedback bears.
 Estimate: each phase on the order of a day of focused work plus test
 churn (config fixtures thread through dozens of files; pinned copy
 will fail loudly, as designed).
+
+## Phase A minimized (Todd, 2026-08-24): the break, and only the break
+
+Ruling: Phase A ships the reorganization with none of the review
+additions. A service entry is today's information, re-homed:
+
+```json
+"services": {
+  "qwen": { "type": "openai-http", "baseUrl": "http://127.0.0.1:6999/v1",
+            "model": "<as listed by /v1/models>",
+            "kinds": ["llm.generate", "llm.chat"], "offer": "named" }
+},
+"defaults": { }
+```
+
+`type`, `baseUrl`, `model`, `kinds`, `offer`, plus `apiKeyEnv` and
+`spend` carried over unchanged. Nothing else. `defaults` required
+only where a kind is ambiguous.
+
+The additions (`system`, `sampling`, `request`, `label`,
+`description`, `enabled`, per-service `concurrency`, per-service
+community overrides) remain specced above and **deferred**: every one
+is an optional field, and adding an optional field to a settled shape
+is a non-event — each lands later, individually, when something needs
+it, with its own small review. The breaking change is the
+reorganization; do the break minimal, grow the shape additively.
+(Consequence: the MLX-adapter path still waits — `request` is the
+field it needs — which is consistent, since the LoRA itself is an
+open question with Lis.)

@@ -392,3 +392,32 @@ per the both-sides rule; and NO_PAYLOAD_ROUTING — the load-bearing
 security law — is rewritten precisely enough that "select from the
 owner's menu" can never drift into "sites demand models." The full
 contract price, paid once.
+
+## Phase A progress (CCC, 2026-08-24 evening, 13ddc8c)
+
+The config break is in: backends + routes → services + defaults, 1000
+tests green. CCC's summary of the old shape's flaw is worth keeping:
+the servable thing — the one an owner would actually name — existed
+only as the intersection of a backends entry and a routes key.
+Implemented property: one service answering a kind serves silently;
+two or more and the kind is not advertised until the owner names a
+default — a device never announces what it can't resolve
+deterministically. Cowork's confirmation request on that property:
+the withholding must be loud on the owner's side — the load problem
+names it AND `byollm services` shows the kind as withheld-pending-
+default, never merely absent — else the de-advertisement is the quiet
+kind of correct (owner adds a second service, team jobs stop
+matching, nothing says why).
+
+Specimen kept (CCC's find): a bulk-regex fixture migration turned a
+regex quantifier `{4,}` into `{4 }` — a comma-before-brace cleanup
+rule applied to source, matching a quantifier — and the MUST-table
+parser then found zero tables. Minutes instead of weeks, only because
+a check existed whose entire job was noticing the tables had stopped
+being read. Same class as every silent-success bug this week; the
+checks are earning compound interest now.
+
+Remaining Phase A, agreed order: capability carries service id →
+per-service detection (incl. the :cloud-is-metered case) → hub
+presence + /devices + chips → CLI renames → docs rewrite. Then the
+alpha Todd promotes.

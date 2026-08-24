@@ -185,3 +185,26 @@ declared `free` (tested); the built-in providers resolve to working
 config with only an id and an API key env var; `docs/security.md` and
 the landing page carry the cost table; and the adversarial coverage
 check still refuses a backend without hostile-payload rows.
+
+---
+
+## Landmine filed 2026-08-24: cloud-proxied models pierce URL locality
+
+Ollama's cloud models (`<model>:cloud`) are served through the *local*
+ollama endpoint — a loopback URL proxying to remote, metered compute
+billed to the owner's account. `REMOTE_IS_NEVER_FREE` infers cost
+from URL locality, so such a service would classify free-class,
+be offerable `named`/`public` without spend acknowledgment, and let
+an audience quietly spend the owner's cloud quota — the donated-
+credit-balance hole this spec closed for API keys, reopened through a
+proxy. Cost is a property of the *model being served*, not only of
+the endpoint's address.
+
+Until the registry can see through the proxy (e.g. treating
+`:cloud`-suffixed models, or any model the local server reports as
+remote, as `metered`), the rule is: a cloud-proxied model configured
+as a service MUST be treated as metered — `self` by default, spend
+acknowledgment + ceiling to widen. Needs its own detection story and
+corpus rows when byollm_016 Phase A touches per-service detection.
+Filed from the field: press is testing glm-5.1 via ollama cloud
+tonight; the moment it wins a bake-off, someone will want to share it.

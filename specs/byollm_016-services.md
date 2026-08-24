@@ -307,3 +307,31 @@ lives — which mediated tools a service may reach, bound by 012's
 laws. Recorded so the shape leaves room; byollm_012 remains the
 authority on whether and what. Like managed services: a stanza later,
 never a redesign.
+
+## Phasing ruling (Todd, 2026-08-24, night): build it now, in two phases
+
+Todd ruled the re-shape happens now — the current shape cannot hold
+two models of one kind, and every pre-stranger day makes the break
+cheaper than it will ever be again.
+
+**Phase A — the shape, wire-neutral.** Config (services, defaults,
+system/sampling/request), the capability matrix advertising service
+ids + labels, daemon internals, CLI (`services`, `offer <service>`),
+detection per service, hub presence + /devices + web chips consuming
+the new shape, docs rewritten. Enqueue stays kind-only; `defaults`
+picks the server. Known ripple, accepted out loud: alpha.43's
+`Presence.capabilities` changes shape again — pre-1.0 liberty, noted
+not hidden. Acceptance: base Qwen on the Studio as a `named` service,
+Kevin running real jobs against it — the config he integrates
+against is final-shape and never rewritten under him.
+
+**Phase B — the wire.** (kind, service?) on enqueue, the
+NO_PAYLOAD_ROUTING amendment, hub matching, server SDK, and the full
+contract suite (select-unadvertised, select-unoffered-to-you,
+default-ambiguity), mutation-verified. Needed only when a second
+service shares a kind — nothing does yet — and starts after Kevin's
+review lands, which is exactly where his feedback bears.
+
+Estimate: each phase on the order of a day of focused work plus test
+churn (config fixtures thread through dozens of files; pinned copy
+will fail loudly, as designed).

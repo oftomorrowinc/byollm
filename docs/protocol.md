@@ -16,7 +16,7 @@ without a test cannot exist in this protocol.
 
 ## 1. Model
 
-A **daemon** runs on an end user's machine. A **server** is an app's backend.
+A **daemon** runs on an end user's computer. A **server** is an app's backend.
 A **job** is typed data describing one model call.
 
 All communication is **outbound from the daemon**. The server never connects
@@ -364,7 +364,7 @@ A job MAY carry `dependsOn: [jobId]`. The server MUST keep it unclaimable
 until every dependency is `ok` `[DEPENDS_ON_GATING]`. This is one field and
 one claim predicate, not a DAG engine: the app still creates the jobs, it just
 no longer orchestrates the wait. Per-job audience routing is unchanged, so the
-halves of a multi-job flow correctly land on different machines in order.
+halves of a multi-job flow correctly land on different devices in order.
 
 ### 7.3 TTL and the no-runner signal
 
@@ -400,7 +400,7 @@ poll, the adapter's choice — never an implied in-request `await`.
 ## 8. The return trip is untrusted too
 
 A `named`/`public` result is **attacker-controlled text**. The volunteer's
-machine, or a compromised one, can return anything, and the app would
+device, or a compromised one, can return anything, and the app would
 otherwise render it as its own AI's output.
 
 Every result carries provenance to the delivery seam
@@ -416,7 +416,7 @@ NOT treat a result with `untrusted: true` as its own AI's answer: do not
 render it as trusted HTML, do not feed it to a privileged downstream step, and
 disclose its origin to the reader.
 
-This is the mirror of §9. §9 protects the volunteer's machine from the app's
+This is the mirror of §9. §9 protects the volunteer's computer from the app's
 payload; this section protects the app from the volunteer's result.
 
 ---
@@ -449,7 +449,7 @@ The full threat model is `docs/security.md`. The protocol-level MUSTs:
   rate limits, daily cap, and resource budget `[COMMUNITY_BUDGETS]`.
 
 **Breakout is structurally impossible; prompt injection is not prevented.**
-Payload text cannot escape into the machine. Payload text absolutely can steer
+Payload text cannot escape into the computer. Payload text absolutely can steer
 what the model *says* — no daemon can prevent that, and the guarantee here is
 bounded precisely because the model has no tools and the output is inert. We
 state the boundary rather than blurring it.

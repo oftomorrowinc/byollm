@@ -80,7 +80,7 @@
 
 <!-- release-note 0.1.0-alpha.40 -->
 **`byollm install` — stop keeping a terminal open.** The daemon can now run
-under your machine's own supervisor and restart itself if it stops: a launchd
+under your computer's own supervisor and restart itself if it stops: a launchd
 agent on macOS, a `systemd --user` unit on Linux, a logon task on Windows. All
 user-level — no root, no system directories, and `byollm uninstall` takes it
 away. `byollm status` gained a line saying whether it is actually supervised
@@ -104,14 +104,14 @@ const { outcome, fallback } = await job.result({
 
 Whatever you return, `result()` labels it `fallback: true` — the stamp is
 applied by the wait, not taken from you, so an answer that did not run on
-somebody's machine cannot be reported as though it did (`FALLBACK_LABELED`).
+somebody's device cannot be reported as though it did (`FALLBACK_LABELED`).
 Both delivery channels do it, polling and Supabase Realtime. Records still
 work; they just get labelled too.
 
 # `@byollm/relay`
 
 The **reference relay**: it routes byollm jobs between a site and someone's
-machine while holding no key that can open either end's traffic.
+device while holding no key that can open either end's traffic.
 
 ```
   site ──stub──▶  relay  ◀──claim── daemon
@@ -122,7 +122,7 @@ machine while holding no key that can open either end's traffic.
 
 ## Why a relay can be blind
 
-A payload is encrypted to the machine that runs it. Nobody knows which machine
+A payload is encrypted to the device that runs it. Nobody knows which device
 that is until one claims the job — so the site publishes a **stub** first
 (byollm_009 §6: user, kind, size class, audience, deadline, streaming flag, and
 nothing else), a daemon claims it, and only then does the site seal the work to
@@ -184,7 +184,7 @@ Nothing here trusts a `siteId` in a body or a query string.
 
 That is newer than the rest of this package. The site plane took the caller's
 word for who it was until `0.1.0-alpha.43`, which on a relay reachable from the
-internet is an open enqueue endpoint into consenting users' machines and an
+internet is an open enqueue endpoint into consenting users' devices and an
 open read of who is online. It was blind the whole time — nothing could open a
 payload — and blind is not the same as safe.
 

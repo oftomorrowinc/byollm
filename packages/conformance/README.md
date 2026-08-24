@@ -87,7 +87,7 @@
 
 <!-- release-note 0.1.0-alpha.40 -->
 **`byollm install` — stop keeping a terminal open.** The daemon can now run
-under your machine's own supervisor and restart itself if it stops: a launchd
+under your computer's own supervisor and restart itself if it stops: a launchd
 agent on macOS, a `systemd --user` unit on Linux, a logon task on Windows. All
 user-level — no root, no system directories, and `byollm uninstall` takes it
 away. `byollm status` gained a line saying whether it is actually supervised
@@ -111,7 +111,7 @@ const { outcome, fallback } = await job.result({
 
 Whatever you return, `result()` labels it `fallback: true` — the stamp is
 applied by the wait, not taken from you, so an answer that did not run on
-somebody's machine cannot be reported as though it did (`FALLBACK_LABELED`).
+somebody's device cannot be reported as though it did (`FALLBACK_LABELED`).
 Both delivery channels do it, polling and Supabase Realtime. Records still
 work; they just get labelled too.
 

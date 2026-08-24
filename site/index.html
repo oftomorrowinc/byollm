@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>BYOLLM — Bring Your Own LLM</title>
-<meta name="description" content="Let your app's users run its AI on their own models and subscriptions — their Ollama box, their MLX machine, their claude CLI — through a tiny daemon they run and control.">
+<meta name="description" content="Let your app's users run its AI on their own models and subscriptions — their Ollama box, their Mac running MLX, their claude CLI — through a tiny daemon they run and control.">
 <link rel="canonical" href="https://byo-llm.com/">
 <meta property="og:type" content="website">
 <meta property="og:url" content="https://byo-llm.com/">
@@ -13,7 +13,7 @@
 <meta property="og:image" content="https://byo-llm.com/og.svg">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="BYOLLM — Bring Your Own LLM">
-<meta name="twitter:description" content="Your users' AI, on their own machines. Outbound-only daemon, typed jobs, no keys leaving the box. Alpha.">
+<meta name="twitter:description" content="Your users' AI, on their own computers. Outbound-only daemon, typed jobs, no keys leaving the box. Alpha.">
 <meta name="twitter:image" content="https://byo-llm.com/og.svg">
 <!-- The green dot from the nav, as the tab icon. Inline so the page stays
      dependency-free and openable straight from the filesystem. -->
@@ -163,8 +163,8 @@
 
 <header class="hero"><div class="wrap">
   <span class="kicker">Bring Your Own LLM</span>
-  <h1>Your users' AI,<br>on <span class="g">their own machines</span>.</h1>
-  <p class="sub">Let your app run its LLM jobs on your users' own models and subscriptions — their Ollama box, their MLX machine, their <span class="mono">claude</span> CLI — through a tiny daemon they run and control. No keys leave their computer. No tunnels. No inbound ports.</p>
+  <h1>Your users' AI,<br>on <span class="g">their own computers</span>.</h1>
+  <p class="sub">Let your app run its LLM jobs on your users' own models and subscriptions — their Ollama box, their Mac running MLX, their <span class="mono">claude</span> CLI — through a tiny daemon they run and control. No keys leave their computer. No tunnels. No inbound ports.</p>
   <div class="cmd mono">
     <span class="p">$</span><span class="c">npx byollm@alpha connect https://your-app.com</span>
     <button class="cp" id="cp" aria-label="Copy the connect command">copy</button>
@@ -185,7 +185,7 @@
                                       │
                                       │   your job queue — Supabase, Postgres, memory…
                                       ▼
-   <span class="u">user's machine</span>  <b>──outbound poll──▶</b>  claim ─▶ run locally ─▶ result
+   <span class="u">user's device</span>  <b>──outbound poll──▶</b>  claim ─▶ run locally ─▶ result
      <span class="c">(byollm)</span>                                    │
                                           Ollama · MLX · claude CLI
   </pre></div>
@@ -207,7 +207,7 @@
     <pre class="block"><span class="c">// enqueue from anywhere in your app</span>
 <span class="k">const</span> job = <span class="k">await</span> app.<span class="f">enqueue</span>({
   kind: <span class="s">"llm.generate"</span>,
-  audience: <span class="s">"self"</span>,      <span class="c">// their machine only</span>
+  audience: <span class="s">"self"</span>,      <span class="c">// their device only</span>
   owner: userId,
   payload: { prompt },
 });
@@ -225,7 +225,7 @@
   <div class="steps">
     <div class="step"><span class="n">1</span><div><h4>Connect</h4><p><code>npx byollm@alpha connect https://the-app.com</code> — opens your browser to pair with one click. Nothing to configure on your network.</p></div></div>
     <div class="step"><span class="n">2</span><div><h4>Route your models</h4><p>Map job kinds to whatever you've got installed: <code>"llm.generate": { "backend": "local", "model": "gemma3:12b" }</code>. The daemon only advertises models that are actually there and healthy.</p></div></div>
-    <div class="step"><span class="n">3</span><div><h4>Stay in control</h4><p><code>byollm log</code> shows every prompt that ever ran on your machine. <code>byollm pause</code> stops it. The daemon is your meter — that's the point.</p></div></div>
+    <div class="step"><span class="n">3</span><div><h4>Stay in control</h4><p><code>byollm log</code> shows every prompt that ever ran on your device. <code>byollm pause</code> stops it. The daemon is your meter — that's the point.</p></div></div>
   </div>
 </div></section>
 
@@ -255,7 +255,7 @@
       <tr data-provider="deepseek"><td><b>DeepSeek</b></td><td>DeepSeek's models on your API key</td><td><span class="tag lock">metered</span></td></tr>
       <tr data-provider="mistral"><td><b>Mistral</b></td><td>Mistral's models on your API key</td><td><span class="tag lock">metered</span></td></tr>
       <tr><td colspan="3"><b>Your subscription</b> — a personal plan · never shared, enforced by the protocol</td></tr>
-      <tr data-provider="claude-cli"><td><b>claude CLI</b></td><td>Your Claude plan, on your machine, yours alone</td><td><span class="tag lock">subscription</span></td></tr>
+      <tr data-provider="claude-cli"><td><b>claude CLI</b></td><td>Your Claude plan, on your computer, yours alone</td><td><span class="tag lock">subscription</span></td></tr>
     </tbody>
   </table>
   <p class="note"><b>Anthropic</b> appears twice, in two cost classes — a platform key bills per token, a Claude plan covers one person's work. The axis asks who pays and under what terms, not which company answers.</p>
@@ -265,7 +265,7 @@
 <section id="sharing" class="band"><div class="wrap">
   <p class="eyebrow">The audience model</p>
   <h2>Share your GPU — safely, and only if you want to.</h2>
-  <p class="lead">Every job carries an <span class="hl">audience</span> and every backend an <span class="hl">offer scope</span>. A job runs on a machine only when both agree. Cost class comes from the protocol, not your config — point a backend at a remote endpoint and it is metered whatever you call it, because "free" is derived from where the request goes.</p>
+  <p class="lead">Every job carries an <span class="hl">audience</span> and every backend an <span class="hl">offer scope</span>. A job runs on a device only when both agree. Cost class comes from the protocol, not your config — point a backend at a remote endpoint and it is metered whatever you call it, because "free" is derived from where the request goes.</p>
   <table>
     <thead><tr><th>Backend</th><th>Cost</th><th>Can offer</th><th>Why</th></tr></thead>
     <tbody>
@@ -273,7 +273,7 @@
         <td><b>Ollama · MLX · llama.cpp · vLLM · LM Studio</b><br><span class="mono" style="color:var(--faint);font-size:13px">local models</span></td>
         <td><span class="tag self">free</span></td>
         <td><span class="tag self">self</span> → <span class="tag self">named</span> → <span class="tag self">public</span></td>
-        <td>Local compute. Costs electricity, not money — the folding@home posture. Lend your machine to friends or the whole community.</td>
+        <td>Local compute. Costs electricity, not money — the folding@home posture. Lend your computer to friends or the whole community.</td>
       </tr>
       <tr>
         <td><b>OpenAI · Gemini · Grok · Groq · OpenRouter</b><br><span class="mono" style="color:var(--faint);font-size:13px">your API key</span></td>
@@ -294,11 +294,11 @@
 <section id="security" class="band"><div class="wrap">
   <p class="eyebrow">Security</p>
   <h2>Breakout isn't detected. It's impossible.</h2>
-  <p class="lead">The daemon runs prompts on the owner's machine, so every payload is treated as hostile input. The design makes escape structurally impossible rather than trying to spot it.</p>
+  <p class="lead">The daemon runs prompts on the owner's computer, so every payload is treated as hostile input. The design makes escape structurally impossible rather than trying to spot it.</p>
   <div class="grid g2">
     <div class="card"><div class="ic">⌘</div><h3>No command line, ever</h3><p>HTTP backends receive the prompt as a request body; process backends (the <span class="mono">claude</span> CLI) receive it on stdin with a fixed argv. Either way, <span class="mono">--flags</span>, <span class="mono">$(…)</span> and shell metacharacters are just characters the model reads — no code path turns a payload into a command.</p></div>
     <div class="card"><div class="ic">⚙</div><h3>Config is local-only</h3><p>Model, backend, and flags come from the owner's config. A job can never name a model, a path, a URL, or a flag. Unknown job kind is refused, not guessed.</p></div>
-    <div class="card"><div class="ic">▣</div><h3>Sandboxed children</h3><p>Process backends spawn with a stripped environment (no API key), an empty scratch directory, no inherited file descriptors, and hard timeout and output caps. HTTP backends spawn nothing at all. Either way a job can't wedge or OOM the machine.</p></div>
+    <div class="card"><div class="ic">▣</div><h3>Sandboxed children</h3><p>Process backends spawn with a stripped environment (no API key), an empty scratch directory, no inherited file descriptors, and hard timeout and output caps. HTTP backends spawn nothing at all. Either way a job can't wedge or OOM the computer.</p></div>
     <div class="card"><div class="ic">✓</div><h3>An adversarial gate</h3><p>A named corpus of command-injection, argv-injection, path-traversal and exfiltration payloads runs as a blocking CI check. Every backend ships its own hostile-payload suite before it can be added.</p></div>
   </div>
   <p class="note">We're precise about the boundary: BYOLLM makes <span class="hl">breakout</span> impossible; <span class="hl">prompt injection</span> — steering the model's words — is the model's problem, bounded here because the model has no tools and the output is inert. We don't promise more than we can keep.</p>

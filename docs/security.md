@@ -3,7 +3,7 @@
 **Premise: every job payload is hostile input.** A server the daemon paired
 with — or an attacker who reached that server, or another user whose `public`
 job we claimed — is untrusted from the daemon's seat. The daemon runs prompts
-on the owner's machine, so it MUST be incapable of turning a prompt into code
+on the owner's computer, so it MUST be incapable of turning a prompt into code
 execution, tool use, file access, or network calls beyond the model call
 itself.
 
@@ -18,7 +18,7 @@ suite runs on every PR and its failure blocks publish.
 These are constantly conflated, and conflating them is how a product ends up
 promising something it cannot deliver.
 
-**Breakout** — payload text escaping the model call into the machine. This is
+**Breakout** — payload text escaping the model call into the computer. This is
 made _structurally impossible_, not detected. §3 is how.
 
 **Prompt injection** — payload text manipulating what the model _says_. No
@@ -26,7 +26,7 @@ daemon can prevent this, and BYOLLM does not claim to. What it does is bound
 the consequences: the model has no tools, no retrieval and no MCP, and its
 output is inert bytes that travel back over the protocol and into a log.
 
-> **The guarantee, in one sentence:** your machine runs one model call and
+> **The guarantee, in one sentence:** your computer runs one model call and
 > nothing else; what the model _says_ is between you and the app that sent it.
 
 An app that feeds a BYOLLM result into a privileged downstream step has
@@ -85,7 +85,7 @@ What remains is the destination:
 
 **On SSRF filtering, honestly.** The spec calls this surface "SSRF-shaped".
 The shape matters: since the base URL has no attacker-controlled input channel
-at all, what remains is an owner who misconfigures their own machine. So the
+at all, what remains is an owner who misconfigures their own computer. So the
 check deliberately **allows loopback and private LAN addresses** —
 `http://127.0.0.1:11434` is Ollama's default and the entire point of the
 product — and refuses only cloud-metadata and link-local addresses, where a
@@ -191,15 +191,15 @@ Four carry nothing the allowlist does not already give: `HOMEDRIVE` and
 `USERPROFILE`.
 
 **Two do carry something new, and this is the honest cost of running a
-process-class backend on Windows.** On a domain-joined machine `USERDOMAIN`
+process-class backend on Windows.** On a domain-joined computer `USERDOMAIN`
 is the Active Directory domain and `LOGONSERVER` names a domain controller —
 organisational identity and an internal hostname, neither implied by anything
-in the allowlist. A hostile job running on a corporate Windows machine learns
+in the allowlist. A hostile job running on a corporate Windows computer learns
 both. What prevents it acting on that is the same thing as everywhere else:
 **having no tools, no shell, and no network egress it can reach through the
 model**. But the information is visible, we cannot close it, and if that is
 not acceptable to you, do not configure a process-class backend on a
-domain-joined machine — the HTTP-class one spawns nothing at all.
+domain-joined computer — the HTTP-class one spawns nothing at all.
 
 **No OS-level sandbox yet.** There is no seatbelt profile, no seccomp filter,
 no namespace. The isolation described above is process-level. Adding an
@@ -209,14 +209,14 @@ document will say so until it is.
 
 ### 3.4 The device key file, and what protects it
 
-byollm_009 gives each machine an Ed25519 identity key. It is the most
+byollm_009 gives each device an Ed25519 identity key. It is the most
 sensitive file the daemon writes, and unlike a runner token it cannot be
 reissued: losing it means re-pairing every app, and leaking it means someone
-else can be this machine.
+else can be this device.
 
 **On macOS and Linux it is written `0600`**, and the mode is re-checked on
 every load — a restore from backup or a stray `chmod -R` can widen it after
-the fact, and silently re-tightening would hide that something on the machine
+the fact, and silently re-tightening would hide that something on the computer
 is treating it as ordinary data.
 
 **On Windows that protection does not exist, and the code no longer pretends
@@ -274,7 +274,7 @@ done. It would mean spawning a process from the daemon's startup path, which
 is a surface this project treats carefully, so it wants its own change rather
 than a line here.
 
-If you run a daemon on a shared Windows machine where other accounts can read
+If you run a daemon on a shared Windows computer where other accounts can read
 your profile, the device key is readable by them, and no amount of the above
 changes that.
 
@@ -329,7 +329,7 @@ what is on the other side of it. Stating the limit plainly: **the inference
 classifies the address, not the destination.**
 
 We are not treating that as a hole to close, and it is worth being exact about
-why. Standing up a relay is a deliberate act by the machine's owner, against
+why. Standing up a relay is a deliberate act by the device's owner, against
 their own account, on their own hardware. The threat model here is a *hostile
 job* reaching a backend it should not — not an owner circumventing a rule that
 exists to protect them. An owner who wants to donate their credit balance can
@@ -362,14 +362,14 @@ daemon's owner:
   across restarts so restarting the daemon does not reset a stranger's quota.
 - **A tighter resource budget** — wall clock, output bytes, payload size —
   applied on top of the global ceilings.
-- **The ingress log records the job's owner**, so the machine's owner can see
+- **The ingress log records the job's owner**, so the device's owner can see
   who they have been working for.
 - **Retention**: a `named`/`public` prompt is kept in full for 7 days by
   default, then reduced to its hash. A volunteer must not indefinitely retain
   strangers' content. The hash and the metadata stay, so the owner can still
   prove what ran.
 
-Widening who may use a machine requires an explicit interactive confirmation
+Widening who may use a device requires an explicit interactive confirmation
 that names what it means in plain language, and is refused outright when stdin
 is not a TTY — consent is never inferred from a script.
 
@@ -379,11 +379,11 @@ Test id: `COMMUNITY_BUDGETS`.
 
 ## 6. The return trip is untrusted too
 
-§1–5 protect the volunteer's machine from the app's payload. This section is
+§1–5 protect the volunteer's computer from the app's payload. This section is
 the mirror: it protects the app from the volunteer's result.
 
 A `named`/`public` result is **attacker-controlled text**. The volunteer's
-machine, or a compromised one, can return anything, and an app would otherwise
+device, or a compromised one, can return anything, and an app would otherwise
 render it as its own AI's output.
 
 Every result carries provenance to the delivery seam:

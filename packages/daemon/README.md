@@ -93,7 +93,7 @@
 
 <!-- release-note 0.1.0-alpha.40 -->
 **`byollm install` — stop keeping a terminal open.** The daemon can now run
-under your machine's own supervisor and restart itself if it stops: a launchd
+under your computer's own supervisor and restart itself if it stops: a launchd
 agent on macOS, a `systemd --user` unit on Linux, a logon task on Windows. All
 user-level — no root, no system directories, and `byollm uninstall` takes it
 away. `byollm status` gained a line saying whether it is actually supervised
@@ -117,7 +117,7 @@ const { outcome, fallback } = await job.result({
 
 Whatever you return, `result()` labels it `fallback: true` — the stamp is
 applied by the wait, not taken from you, so an answer that did not run on
-somebody's machine cannot be reported as though it did (`FALLBACK_LABELED`).
+somebody's device cannot be reported as though it did (`FALLBACK_LABELED`).
 Both delivery channels do it, polling and Supabase Realtime. Records still
 work; they just get labelled too.
 
@@ -191,8 +191,8 @@ get work you cannot run.
 ## Keep it running
 
 By default `byollm connect` and `byollm run` hold a terminal — close the
-window and the machine stops serving. Nothing breaks (your pairings live in
-`~/.byollm/pairings.json` and survive), but the machine goes quiet without
+window and the device stops serving. Nothing breaks (your pairings live in
+`~/.byollm/pairings.json` and survive), but the device goes quiet without
 telling anyone, and if it is on a team's roster, the first person to notice is
 a teammate whose job did not run.
 
@@ -227,7 +227,7 @@ The meter is the product, and it gets the same care as the loop.
 
 ```bash
 byollm status         # what's connected, what's running, what you've done for others
-byollm sites          # which sites this machine serves, and which are waiting on you
+byollm sites          # which sites this device serves, and which are waiting on you
 byollm approve <site> # say yes to a site that asked
 byollm log            # every prompt that has ever run here
 byollm log --full     # the whole text, not the first line
@@ -258,16 +258,16 @@ replaced, for the life of the pairing — including when the site leaves the
 list and comes back. Rotation is an explicit path, not a silent swap.
 
 Every prompt is appended to `~/.byollm/ingress.log` **before** it executes, so
-a job that wedges the machine still leaves a record of what it was. The file is
+a job that wedges the computer still leaves a record of what it was. The file is
 JSONL, `0600`, and yours to read, grep and delete.
 
-## Lending your machine to other people
+## Lending your computer to other people
 
 Off by default. A fresh daemon runs your work and nobody else's.
 
 ```bash
 byollm allow https://your-app.com alice   # asks you to confirm, in plain words
-byollm allow --list                       # everyone who can use this machine
+byollm allow --list                       # everyone who can use this device
 byollm offer openai public --cap 250      # share a paid backend, with a ceiling
 byollm disallow https://your-app.com alice
 ```

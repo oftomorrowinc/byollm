@@ -90,7 +90,7 @@ That suite's fact-checker verification calls the model with WebSearch —
 which byollm_004 §2 forbids ("no tools, functions, retrieval, or
 MCP"), ~96% of that app's calls. The ban is **correct and essential
 for `named`/`public`** (tools + untrusted payload + someone else's
-machine = breakout/exfiltration). But for **`self` jobs on the
+computer = breakout/exfiltration). But for **`self` jobs on the
 owner's own box, the ban is overbroad** — it's identical to the user
 running the tool-enabled CLI themselves, which they already do; no
 new risk surface exists.

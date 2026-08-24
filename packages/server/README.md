@@ -113,7 +113,7 @@
 
 <!-- release-note 0.1.0-alpha.40 -->
 **`byollm install` — stop keeping a terminal open.** The daemon can now run
-under your machine's own supervisor and restart itself if it stops: a launchd
+under your computer's own supervisor and restart itself if it stops: a launchd
 agent on macOS, a `systemd --user` unit on Linux, a logon task on Windows. All
 user-level — no root, no system directories, and `byollm uninstall` takes it
 away. `byollm status` gained a line saying whether it is actually supervised
@@ -137,7 +137,7 @@ const { outcome, fallback } = await job.result({
 
 Whatever you return, `result()` labels it `fallback: true` — the stamp is
 applied by the wait, not taken from you, so an answer that did not run on
-somebody's machine cannot be reported as though it did (`FALLBACK_LABELED`).
+somebody's device cannot be reported as though it did (`FALLBACK_LABELED`).
 Both delivery channels do it, polling and Supabase Realtime. Records still
 work; they just get labelled too.
 
@@ -211,7 +211,7 @@ npx @byollm/server@alpha keygen   # prints BYOLLM_SITE_KEYS=...
 ```
 
 Once, not per deploy and never at startup — a daemon pins this identity when
-its owner approves the pairing, and regenerating it means every paired machine
+its owner approves the pairing, and regenerating it means every paired device
 must pair again. Generating at startup fails only under horizontal scale: each
 instance would have a different identity, and a daemon would be refused by
 whichever one it did not pair with.
@@ -221,7 +221,7 @@ whichever one it did not pair with.
 ```ts
 const job = await getApp().enqueue({
   kind: "llm.generate",
-  audience: "self", // this user's own machine only — the default
+  audience: "self", // this user's own device only — the default
   owner: userId,
   payload: { prompt: `Summarize this transcript:\n\n${transcript}` },
 });
@@ -232,7 +232,7 @@ const { outcome, fallback } = await job.result({
   onNoRunner: () => runOnHostedModel(transcript),
 });
 
-// `fallback` is true when nobody's machine ran it and this came from your
+// `fallback` is true when nobody's device ran it and this came from your
 // own substitute. Say so wherever you show the answer: work that did not run
 // on the user's compute must not be presented as though it did.
 ```
@@ -254,7 +254,7 @@ const runner = await getApp().approvePairing({
 });
 ```
 
-`app.pendingPairing(code)` tells you what they are about to approve — machine
+`app.pendingPairing(code)` tells you what they are about to approve — device
 label, platform, and which models it is offering — so the page can show it.
 
 ## Stores
@@ -292,7 +292,7 @@ everything the browser does.
 ## Two things the API makes you confront
 
 **Community results are untrusted.** A `named`/`public` result came from
-someone else's machine and can be anything. Every result carries provenance,
+someone else's device and can be anything. Every result carries provenance,
 and `untrusted` is derived from the audience — you cannot mark volunteer
 output as first-party:
 
@@ -307,7 +307,7 @@ if (provenance?.untrusted) {
 **Jobs can depend on each other.** `dependsOn: [jobId]` keeps a job
 unclaimable until its dependencies are `ok`. One field and one claim
 predicate, not a DAG engine — so the two halves of a piece of work can land on
-two different people's machines, in order, without your app orchestrating the
+two different people's devices, in order, without your app orchestrating the
 wait.
 
 ## Certifying an adapter

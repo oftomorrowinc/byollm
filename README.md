@@ -69,7 +69,7 @@
 
 # BYOLLM
 
-**Bring Your Own LLM.** Let your app's users run its AI on *their* models and *their* subscriptions — their Ollama box, their MLX computer, their `claude` CLI — through a tiny daemon they run and control.
+**Bring Your Own LLM.** Let your app's users run its AI on *their* models and *their* subscriptions — their Ollama box, their Mac running MLX, their `claude` CLI — through a tiny daemon they run and control.
 
 `npx byollm@alpha connect https://your-app.com`
 
@@ -83,7 +83,7 @@
 
 Every AI app eventually gets the same request: *"can I use my own model / my own key / my own GPU?"* Answering it usually means CORS headaches, tunnels into localhost, or shipping the user a fragile script.
 
-BYOLLM makes it a three-line integration. Your app enqueues LLM jobs; the user runs a small **outbound** daemon that claims *only their own jobs* and executes them locally. No inbound ports, no tunnels, no keys leaving the computer. The browser app stays hosted; the compute comes from the user.
+BYOLLM makes it a three-line integration. Your app enqueues LLM jobs; the user runs a small **outbound** daemon that claims *only their own jobs* and executes them locally. No inbound ports, no tunnels, no keys leaving the device. The browser app stays hosted; the compute comes from the user.
 
 Two audiences, one design:
 

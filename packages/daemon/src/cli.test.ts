@@ -312,14 +312,79 @@ describe("byollm log", () => {
   });
 });
 
-describe("byollm backends", () => {
+describe("byollm services", () => {
   it("reports an unreachable backend as not advertised, and exits 1", async () => {
     await writeConfig();
     // The daemon never advertises what it cannot actually run.
-    expect(await run("backends")).toBe(1);
+    expect(await run("services")).toBe(1);
     expect(out).toContain("llm.generate");
-    expect(out).toContain("0 of 1 routes are");
+    expect(out).toContain("0 of 1 services are");
     expect(out).toContain("not advertise what it cannot actually run");
+  });
+
+  it("shows a withheld kind by name, never merely omits it", async () => {
+    // **The loudness obligation.** A kind two services answer is not
+    // advertised until the owner picks a default — correct, and invisible in
+    // any surface that lists only what *is* advertised. The failure that
+    // makes it matter: an owner adds a second `llm.generate`, their team's
+    // jobs quietly stop matching, and nothing anywhere says why.
+    await writeFile(
+      paths.config,
+      JSON.stringify({
+        services: {
+          qwen: {
+            model: "qwen3",
+            kinds: ["llm.generate"],
+            type: "openai-http",
+            baseUrl: "http://127.0.0.1:1/v1",
+          },
+          llama: {
+            model: "llama3.2",
+            kinds: ["llm.generate"],
+            type: "openai-http",
+            baseUrl: "http://127.0.0.1:2/v1",
+          },
+        },
+      }),
+    );
+
+    await run("services");
+
+    // Named, with both claimants and the fix — not absent, and not a count.
+    expect(out).toContain("withheld");
+    expect(out).toContain("llm.generate");
+    expect(out).toContain("qwen, llama");
+    expect(out).toContain("defaults.llm.generate");
+    expect(out).toContain("not offered to anyone until you choose");
+  });
+
+  it("stops saying withheld once a default resolves it", async () => {
+    // The control: a surface that always said "withheld" would pass the case
+    // above while telling the owner nothing.
+    await writeFile(
+      paths.config,
+      JSON.stringify({
+        services: {
+          qwen: {
+            model: "qwen3",
+            kinds: ["llm.generate"],
+            type: "openai-http",
+            baseUrl: "http://127.0.0.1:1/v1",
+          },
+          llama: {
+            model: "llama3.2",
+            kinds: ["llm.generate"],
+            type: "openai-http",
+            baseUrl: "http://127.0.0.1:2/v1",
+          },
+        },
+        defaults: { "llm.generate": "qwen" },
+      }),
+    );
+
+    await run("services");
+    expect(out).not.toContain("withheld");
+    expect(out).toContain("qwen");
   });
 });
 

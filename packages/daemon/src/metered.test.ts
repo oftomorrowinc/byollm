@@ -305,7 +305,7 @@ describe("what the user is told about their money", () => {
     expect(out).toContain("250c");
 
     out = "";
-    await run("backends");
+    await run("services");
     expect(out).toContain("metered — shared, cap 250c/day");
   });
 
@@ -316,7 +316,7 @@ describe("what the user is told about their money", () => {
     expect(out).toContain("not shared — your work only");
 
     out = "";
-    await run("backends");
+    await run("services");
     expect(out).toContain("metered — your money, not shared");
   });
 
@@ -331,7 +331,7 @@ describe("what the user is told about their money", () => {
       }),
     );
 
-    await run("backends");
+    await run("services");
     expect(out).toContain("free (your electricity)");
     expect(out).toContain("your subscription — locked to your work");
     // A machine with no metered backend is not told about money it never spends.

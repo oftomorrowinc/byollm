@@ -207,9 +207,26 @@ export interface ConfigProblem {
   readonly message: string;
 }
 
+/**
+ * A kind this device could serve and deliberately does not.
+ *
+ * Withholding has to be *loud on the owner's side*, in every surface that
+ * could otherwise show absence. An owner who adds a second `llm.generate`
+ * service and finds their team's jobs quietly stop matching, with nothing
+ * anywhere saying why, has been failed by the correct behaviour — which is
+ * the quiet kind of correct this project keeps deleting.
+ */
+interface WithheldKind {
+  readonly kind: z.infer<typeof JobKind>;
+  /** The services that answer it, any of which the owner could name. */
+  readonly services: readonly string[];
+}
+
 export interface LoadedConfig {
   readonly config: DaemonConfig;
   readonly routes: readonly ResolvedRoute[];
+  /** Kinds not advertised because the owner has not said which service wins. */
+  readonly withheld: readonly WithheldKind[];
   /** Non-fatal problems: a route that cannot be served is dropped, not fatal. */
   readonly problems: readonly ConfigProblem[];
 }
@@ -274,6 +291,7 @@ export async function loadConfig(path: string): Promise<LoadedConfig> {
 export function resolveConfig(config: DaemonConfig): LoadedConfig {
   const routes: ResolvedRoute[] = [];
   const problems: ConfigProblem[] = [];
+  const withheld: WithheldKind[] = [];
 
   /**
    * Who claims each kind, decided before anything is resolved.
@@ -313,6 +331,7 @@ export function resolveConfig(config: DaemonConfig): LoadedConfig {
           `— set defaults.${kind} to the one that should serve it. Until then ` +
           `${kind} is not advertised.`,
       });
+      withheld.push({ kind, services: names });
       continue;
     }
     if (!names.includes(chosen)) {
@@ -320,6 +339,9 @@ export function resolveConfig(config: DaemonConfig): LoadedConfig {
         where: `defaults.${kind}`,
         message: `"${chosen}" does not answer ${kind}. It is served by: ${names.join(", ")}.`,
       });
+      // Withheld for the same reason and reported the same way: the owner
+      // said something, and it did not resolve.
+      withheld.push({ kind, services: names });
       continue;
     }
     serves.set(kind, chosen);
@@ -413,7 +435,7 @@ export function resolveConfig(config: DaemonConfig): LoadedConfig {
     }
   }
 
-  return { config, routes, problems };
+  return { config, routes, withheld, problems };
 }
 
 function isNotFound(error: unknown): boolean {

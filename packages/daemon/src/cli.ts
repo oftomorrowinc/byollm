@@ -46,7 +46,7 @@ const USAGE = `byollm — run an app's LLM jobs on your own models.
   byollm sites                which sites this device serves, and which are waiting
   byollm approve <site>       serve a site that asked (or --all)
   byollm forget <url>         drop a pairing
-  byollm backends             what is installed, healthy, and advertised
+  byollm services             what is installed, healthy, advertised, withheld
   byollm install              keep running in the background, across restarts
   byollm uninstall            stop running in the background
 
@@ -147,8 +147,8 @@ export async function runCli(
       return commandApprove(paths, rest, io);
     case "forget":
       return commandForget(paths, rest, io);
-    case "backends":
-      return commandBackends(paths, io);
+    case "services":
+      return commandServices(paths, io);
     case "install":
       return commandInstall(paths, io, service);
     case "uninstall":
@@ -435,7 +435,7 @@ async function commandConnect(
     io.err(
       "\n0 backends are healthy, so nothing will route to this device yet.\n" +
         "Pairing anyway — set a model server up " +
-        "(docs.byollm.cloud/guides/models),\nthen check `byollm backends`. " +
+        "(docs.byollm.cloud/guides/models),\nthen check `byollm services`. " +
         "Work starts arriving on its own once one is healthy.\n",
     );
   }
@@ -908,6 +908,21 @@ async function commandStatus(
     io.out(
       `  ${route.kind.padEnd(14)} ${route.backendId}:${route.model}  ` +
         `offered to: ${route.offerScope}\n`,
+    );
+  }
+  // **Withheld is shown, never merely absent.**
+  //
+  // A kind two services answer is not advertised until the owner says which
+  // wins — correct, and silent in every surface that only lists what *is*
+  // advertised. An owner adds a second `llm.generate`, their team's jobs stop
+  // matching, and nothing anywhere says why. So it is listed here, by name,
+  // with the fix.
+  for (const held of loaded.withheld) {
+    io.out(
+      `  … ${held.kind.padEnd(14)} withheld — ${String(held.services.length)} services ` +
+        `answer it (${held.services.join(", ")})\n` +
+        `      not offered to anyone until you choose: ` +
+        `set defaults.${held.kind} in ~/.byollm/config.json\n`,
     );
   }
   for (const problem of loaded.problems) {
@@ -1456,7 +1471,7 @@ async function commandApprove(
 
 // -- backends ------------------------------------------------------------------
 
-async function commandBackends(
+async function commandServices(
   paths: DaemonPaths,
   io: CliIo,
 ): Promise<ExitCode> {
@@ -1476,7 +1491,7 @@ async function commandBackends(
   const advertised = await runner.detectCapabilities();
   const advertisedKinds = new Set(advertised.map((c) => c.kind));
 
-  io.out("configured routes\n");
+  io.out("services\n");
   for (const route of loaded.routes) {
     const ok = advertisedKinds.has(route.kind);
     const pays =
@@ -1489,7 +1504,7 @@ async function commandBackends(
             : "metered — your money, not shared";
     io.out(
       `  ${ok ? "✓" : "✗"} ${route.kind.padEnd(14)} ` +
-        `${route.backendId}:${route.model}` +
+        `${route.service} — ${route.backendId}:${route.model}` +
         `${route.baseUrl === undefined ? "" : ` @ ${route.baseUrl}`}\n` +
         `      ${pays}\n`,
     );
@@ -1501,12 +1516,26 @@ async function commandBackends(
       if (hint !== undefined) io.out(`      ${hint}\n`);
     }
   }
+  // **Withheld is shown, never merely absent** — the same obligation `status`
+  // carries, in the command an owner runs when they are asking exactly this
+  // question.
+  for (const held of loaded.withheld) {
+    io.out(
+      `  … ${held.kind.padEnd(14)} withheld — ${String(held.services.length)} services ` +
+        `answer it (${held.services.join(", ")})\n` +
+        `      not offered to anyone until you choose: ` +
+        `set defaults.${held.kind} in ~/.byollm/config.json\n`,
+    );
+  }
   for (const problem of loaded.problems) {
     io.out(`  ! ${problem.where}: ${problem.message}\n`);
   }
   io.out(
-    `\n${String(advertised.length)} of ${String(loaded.routes.length)} routes are ` +
+    `\n${String(advertised.length)} of ${String(loaded.routes.length)} services are ` +
       `healthy and will be advertised.\n` +
+      (loaded.withheld.length > 0
+        ? `${String(loaded.withheld.length)} kind(s) are withheld until you pick a default.\n`
+        : "") +
       `A route that is not healthy is never offered to an app — the daemon does\n` +
       `not advertise what it cannot actually run.\n`,
   );

@@ -124,3 +124,7 @@ Todd has walked it through the real path. Phase 2: byollm_008's
 questions answered per CLI in this spec series, corpus rows landed,
 conformance green. Phase 3: the kind enum change passes protocol
 review with the size/sealing questions answered in writing.
+
+---
+
+2026-08-24: Phase 1 is blocked on byollm_016 (the services config re-shape) — the wizard writes config and must write the settled shape from birth, not a shape about to break.

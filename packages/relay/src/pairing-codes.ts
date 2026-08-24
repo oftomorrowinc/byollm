@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import type { PublicIdentity } from "@byollm/protocol";
+import type { CapabilityMatrix, PublicIdentity } from "@byollm/protocol";
 
 /**
  * Pending pairing codes — cloud_009, the cloud-pairing flow.
@@ -41,6 +41,15 @@ export interface PendingPairing {
   readonly userCode: string;
   /** The keys the daemon presented. What a human is about to approve. */
   readonly device: PublicIdentity;
+  /**
+   * What the machine said it can run, as advertised when it asked to pair.
+   *
+   * Held so the approval screen can show a person what they are approving,
+   * and so presence has an answer the moment the device appears rather than
+   * one heartbeat later. It is a claim, like everything else in this record —
+   * the heartbeat is the authority and replaces it within seconds.
+   */
+  readonly capabilities: CapabilityMatrix;
   /** Label the daemon offered, for the approval screen. */
   readonly label: string;
   readonly platform: string;
@@ -66,6 +75,23 @@ export interface PendingPairing {
  * edge, where the IP actually is.
  */
 export type PutResult = "stored" | "at-capacity";
+
+/**
+ * What a caller is told when pairings are being refused for load.
+ *
+ * Exported because it is said in two places by two different limits. This
+ * package says it when the store is at capacity; a deployment that adds a
+ * per-IP budget in front (the hub does — cloud_014) says it when one source
+ * has spent its share. **One sentence for one situation, whichever limit
+ * produced it**: the person reading it in a terminal is told to try again
+ * shortly, and which of the two bit is not a distinction they can act on.
+ *
+ * It lived inline here and the hub kept a copy, which is the one-value-two-
+ * names defect this codebase keeps finding — and the copy that drifts would
+ * drift silently, because both sentences would be plausible.
+ */
+export const PAIRING_BUSY_MESSAGE =
+  "too many pairings are in progress right now — try again in a few minutes";
 
 export interface PairingCodes {
   put(pending: PendingPairing): Promise<PutResult>;

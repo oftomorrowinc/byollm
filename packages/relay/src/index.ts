@@ -394,6 +394,7 @@ export type { Grant } from "./store.js";
 export {
   MAX_OUTSTANDING_PAIRINGS,
   MemoryPairingCodes,
+  PAIRING_BUSY_MESSAGE,
   PAIRING_CODE_TTL_MS,
   newDeviceCode,
   newUserCode,

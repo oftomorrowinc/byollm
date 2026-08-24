@@ -1,6 +1,6 @@
 {
   "name": "@byollm/server",
-  "version": "0.1.0-alpha.41",
+  "version": "0.1.0-alpha.42",
   "description": "Framework-agnostic BYOLLM protocol handlers, a reference in-memory store, a Next.js mount, and a Supabase adapter.",
   "license": "MIT",
   "type": "module",

@@ -56,6 +56,15 @@ const stub = (id: string, owner = "alice"): JobStub => ({
   deadlineAt: 4_102_444_800_000,
 });
 
+/** One advertised route, as a daemon describes it on every heartbeat. */
+const capability = (model: string) => ({
+  kind: "llm.generate" as const,
+  backendId: "ollama" as const,
+  backendClass: "process" as const,
+  model,
+  offerScope: "self" as const,
+});
+
 const ENVELOPE = {
   ciphertext: "AAAA",
   recipientKeyId: "r",
@@ -649,6 +658,109 @@ export function describeStoreContract(
 
       expect(other).toEqual(absent);
       expect(other).toEqual({ refused: "not-found" });
+      await done();
+    });
+
+    // ── presence ────────────────────────────────────────────────────────
+    //
+    // The seam had no contract coverage at all: presence was exercised
+    // against `RelayState` and nothing held a shared store to the same
+    // behaviour. That is the shape the pairing ceiling was found in — one
+    // seam, two implementations, and the check driving the one nobody
+    // deploys — so these land with `Presence.capabilities` rather than after
+    // somebody notices.
+
+    it("remembers a device, and what it says it can run", async () => {
+      const { store, done } = await make();
+      const device = publicIdentityOf(generateKeys(3_000_000_000_000));
+      await store.seen({
+        runnerId: "runner_1",
+        owner: "alice",
+        device,
+        capabilities: [capability("llama3")],
+      });
+
+      const known = await store.presence("runner_1");
+      expect(known?.owner).toBe("alice");
+      expect(known?.device.identity).toBe(device.identity);
+      expect(known?.capabilities.map((row) => row.model)).toEqual(["llama3"]);
+      await done();
+    });
+
+    it("replaces the matrix rather than merging it", async () => {
+      // The heartbeat re-sends the whole matrix every time so a server never
+      // matches against a stale one. A store that kept the union would go on
+      // advertising a backend the machine has lost — and work would route to
+      // it, which is worse than forgetting one it still has.
+      const { store, done } = await make();
+      const device = publicIdentityOf(generateKeys(3_000_000_000_001));
+      const seen = { runnerId: "runner_2", owner: "alice", device };
+      await store.seen({ ...seen, capabilities: [capability("llama3")] });
+      await store.seen({ ...seen, capabilities: [capability("mistral")] });
+
+      const known = await store.presence("runner_2");
+      expect(known?.capabilities.map((row) => row.model)).toEqual(["mistral"]);
+      await done();
+    });
+
+    it("keeps an empty matrix, because empty is an answer", async () => {
+      // A paired machine with no healthy backend — the connect-first ruling's
+      // whole point. A store that treated empty as "nothing to record" would
+      // leave the last non-empty matrix standing and the machines page would
+      // show models that are gone.
+      const { store, done } = await make();
+      const device = publicIdentityOf(generateKeys(3_000_000_000_002));
+      const seen = { runnerId: "runner_3", owner: "alice", device };
+      await store.seen({ ...seen, capabilities: [capability("llama3")] });
+      await store.seen({ ...seen, capabilities: [] });
+
+      expect((await store.presence("runner_3"))?.capabilities).toEqual([]);
+      await done();
+    });
+
+    it("stamps presence from its own clock, and moves it on the next beat", async () => {
+      // `lastSeenAt` is liveness, and liveness is only true if something
+      // advances it. It was written once at pairing and never again, so it
+      // reported the pairing time under the name "last seen" — a field that
+      // is quietly a different fact.
+      const { store, done } = await make();
+      const device = publicIdentityOf(generateKeys(3_000_000_000_003));
+      const seen = { runnerId: "runner_4", owner: "alice", device };
+
+      const before = await store.now();
+      const first = await store.seen({ ...seen, capabilities: [] });
+      expect(first.lastSeenAt).toBeGreaterThanOrEqual(before);
+
+      const later = await store.seen({ ...seen, capabilities: [] });
+      expect(later.lastSeenAt).toBeGreaterThanOrEqual(first.lastSeenAt);
+      await done();
+    });
+
+    it("lists everyone it has seen", async () => {
+      const { store, done } = await make();
+      await store.seen({
+        runnerId: "runner_5",
+        owner: "alice",
+        device: publicIdentityOf(generateKeys(3_000_000_000_004)),
+        capabilities: [],
+      });
+      await store.seen({
+        runnerId: "runner_6",
+        owner: "bob",
+        device: publicIdentityOf(generateKeys(3_000_000_000_005)),
+        capabilities: [],
+      });
+
+      const everyone = await store.everyone();
+      const ids = everyone.map((row) => row.runnerId);
+      expect(ids).toContain("runner_5");
+      expect(ids).toContain("runner_6");
+      await done();
+    });
+
+    it("does not know a runner it has never seen", async () => {
+      const { store, done } = await make();
+      expect(await store.presence("runner_never")).toBeUndefined();
       await done();
     });
 

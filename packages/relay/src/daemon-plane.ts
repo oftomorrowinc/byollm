@@ -17,6 +17,7 @@ import {
 import { z } from "zod";
 import type { Projection } from "./fixture.js";
 import {
+  PAIRING_BUSY_MESSAGE,
   PAIRING_CODE_TTL_MS,
   newDeviceCode,
   newUserCode,
@@ -226,6 +227,10 @@ export class DaemonPlane {
       runnerId,
       owner: parsed.data.owner,
       device: parsed.data.device,
+      // The fixture exchange carries no matrix — it models a consent that
+      // arrived from a file, not a daemon describing itself. Empty until the
+      // first heartbeat, which is seconds away and is the authority anyway.
+      capabilities: [],
     });
 
     return ok({
@@ -275,6 +280,7 @@ export class DaemonPlane {
       device: request.device,
       label: request.daemon.label,
       platform: request.daemon.platform,
+      capabilities: request.capabilities,
       expiresAt: this.#deps.now() + PAIRING_CODE_TTL_MS,
     };
     if ((await codes.put(pending)) === "at-capacity") {
@@ -286,7 +292,7 @@ export class DaemonPlane {
       return fail(
         ERROR_STATUS["rate-limited"],
         "rate-limited",
-        "too many pairings are in progress right now — try again in a few minutes",
+        PAIRING_BUSY_MESSAGE,
       );
     }
 
@@ -341,6 +347,10 @@ export class DaemonPlane {
       runnerId: approved.runnerId,
       owner: approved.owner,
       device: pending.device,
+      // What this machine said it could run when it asked to pair, so the
+      // approval screen and the machines page have an answer in the same
+      // moment the device appears. The next heartbeat replaces it.
+      capabilities: pending.capabilities,
     });
     // Single use. The keypair is approved from here on and the code has no
     // further job; leaving it would be a second way to ask the same question.
@@ -546,6 +556,29 @@ export class DaemonPlane {
       async (request, device) => {
         const now = this.#deps.now();
         await this.#deps.state.sweep();
+
+        // **Presence is recorded here, and it was not before.**
+        //
+        // `seen()` was called from the two pairing paths and nowhere else, so
+        // `lastSeenAt` was written once when a machine paired and never moved
+        // again. Everything downstream read it as liveness — the debug page's
+        // who-is-online, and the `/devices` endpoint about to serve a
+        // machines page — and it was reporting the pairing time under the
+        // name "last seen". A field that is quietly a different fact is worse
+        // than a missing one.
+        //
+        // The matrix rides along because it is the same fact on the same
+        // schedule: this is the request that re-sends it, and a machine that
+        // stopped heartbeating has not stopped being capable, it has stopped
+        // being reachable. Recorded before the no-sites branch below, because
+        // a machine with nothing consented is still online and still has
+        // something to show.
+        await this.#deps.state.seen({
+          runnerId: device.runnerId,
+          owner: device.owner,
+          device: device.device,
+          capabilities: request.capabilities,
+        });
 
         // Revocation is a fixture edit, and this is where the daemon learns
         // of it — within one heartbeat, which is what the freeze gate times.

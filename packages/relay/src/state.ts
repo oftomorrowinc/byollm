@@ -1,4 +1,5 @@
 import type {
+  CapabilityMatrix,
   ClaimedStub,
   JobStub,
   PublicIdentity,
@@ -126,6 +127,23 @@ export interface Presence {
   readonly owner: string;
   readonly device: PublicIdentity;
   lastSeenAt: number;
+  /**
+   * What this machine last said it can run — cloud_009, 2026-08-24.
+   *
+   * **Capabilities are presence data.** They arrive on the same heartbeat as
+   * everything else here, they go stale at the same moment and for the same
+   * reason, and a machine that stops heartbeating has not stopped being able
+   * to run Llama — it has stopped being somewhere we can ask. Keeping them
+   * anywhere else would put capability truth outside the interface that owns
+   * presence, and every next consumer (a member's usable set, a dashboard's
+   * pulse, a degraded-state banner) would re-derive it from a different
+   * place. That is the two-owners shape this codebase keeps paying for.
+   *
+   * Empty is a real answer, not a missing one: it is a paired machine with no
+   * healthy backend, which is a legal state the whole connect-first ruling
+   * exists to make visible rather than refuse.
+   */
+  capabilities: CapabilityMatrix;
   // `revoked` is deliberately absent — cloud_008 §2.3.
   //
   // It was a boolean on the *runner*, written at heartbeat and read by
@@ -741,6 +759,12 @@ export class RelayState implements RoutingStore {
     const existing = this.#presence.get(presence.runnerId);
     if (existing) {
       existing.lastSeenAt = lastSeenAt;
+      // Refreshed, not merged. The heartbeat re-sends the whole matrix every
+      // time precisely so a server never matches against a stale one, and a
+      // record that kept the union would keep advertising a backend the
+      // machine has since lost — which is worse than forgetting one it still
+      // has, because work would route to it.
+      existing.capabilities = presence.capabilities;
       return existing;
     }
     const fresh: Presence = { ...presence, lastSeenAt };

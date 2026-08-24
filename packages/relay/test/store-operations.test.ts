@@ -417,6 +417,7 @@ describe("the store's clock", () => {
       runnerId: "runner_1",
       owner: "alice",
       device: KEYS(),
+      capabilities: [],
     });
     expect(seen.lastSeenAt).toBe(CLOCK);
   });

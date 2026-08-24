@@ -31,6 +31,7 @@ const pendingFor = (seed: number): PendingPairing => ({
   device: publicIdentityOf(generateKeys(2_100_000_000_000 + seed)),
   label: `machine-${String(seed)}`,
   platform: "linux",
+  capabilities: [],
   expiresAt: now() + PAIRING_CODE_TTL_MS,
 });
 

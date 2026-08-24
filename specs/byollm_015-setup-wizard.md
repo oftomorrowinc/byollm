@@ -128,3 +128,26 @@ review with the size/sealing questions answered in writing.
 ---
 
 2026-08-24: Phase 1 is blocked on byollm_016 (the services config re-shape) — the wizard writes config and must write the settled shape from birth, not a shape about to break.
+
+---
+
+## Sequencing amendment + wizard defaults question (Todd, 2026-08-24, night)
+
+**Phase order reversed: peer CLI backends (old Phase 2) build before
+the wizard (old Phase 1).** Reason: three integrators are ready now
+and need llm.chat + llm.generate working out of the box with the
+subscription they already have — Claude first, Gemini and OpenAI
+close behind. The wizard comes last so it detects the full set of
+CLIs and is built once against the finished landscape. The full
+pipeline, ruled tonight: byollm_016 Phase A → Phase B → gemini +
+openai CLI backends (byollm_008's five questions each, per binary) →
+this wizard. Phase 3 (image.generate) unchanged, later.
+
+**The wizard gains a fourth question, conditional:** when more than
+one service on the device serves a kind, the wizard asks which should
+be the default for that kind and writes the `defaults` stanza. This
+makes the wizard the primary author of defaults — byollm_016's
+load-time ambiguity error becomes the fallback for hand-written
+configs, not the mainstream experience. The unblock condition
+stands: the wizard writes the byollm_016 shape, so it builds only
+after Phase A settles it (now satisfied by the pipeline order).

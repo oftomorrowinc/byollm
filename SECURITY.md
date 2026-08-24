@@ -1,6 +1,6 @@
 # Reporting a security problem
 
-**Email `tsampson@cloudspace.com`, or open a private security advisory at
+**Email `support@byollm.cloud`, or open a private security advisory at
 [github.com/oftomorrowinc/byollm/security/advisories](https://github.com/oftomorrowinc/byollm/security/advisories/new).
 Please don't open a public issue for a vulnerability.**
 

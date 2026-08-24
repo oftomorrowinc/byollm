@@ -364,3 +364,31 @@ reorganization; do the break minimal, grow the shape additively.
 (Consequence: the MLX-adapter path still waits — `request` is the
 field it needs — which is consistent, since the LoRA itself is an
 open question with Lis.)
+
+## Phase B rescheduled + the defaults/audience corner (Todd, 2026-08-24, late night)
+
+**Phase B moves up: immediately after Phase A ships**, not parked
+until a second voice exists. The first real customer is Todd's own
+Studio — qwen offered `named` to the team and claude for the owner's
+work, both on `llm.generate`. Kevin's 016 feedback folds in in
+flight. Clarified for the record: the two new integrators' out-of-box
+case (claude-cli serving both kinds, one service per device) needs
+only Phase A — selection has no ambiguity to resolve there.
+
+**New Phase B requirement — defaults meet audiences.** A default may
+resolve a member's unselected job to a service that member can never
+use (e.g. default = claude, self-locked). That must never become a
+wait. Either default resolution is audience-aware — resolved among
+the services offered to *this* requester — or the job gets a terminal
+refusal naming the reason. Silence never reads as pending; every new
+refusal Phase B introduces (select-unadvertised,
+select-unoffered-to-you, ambiguity, default-unusable) is terminal
+and contract-cased, both sides of the wire, mutation-verified.
+
+Why Phase B costs what it costs, recorded once: three parties (site
+SDK, hub, daemon) must reason identically about the pair inside
+sealed envelopes; matching gains a dimension; the daemon re-checks
+per the both-sides rule; and NO_PAYLOAD_ROUTING — the load-bearing
+security law — is rewritten precisely enough that "select from the
+owner's menu" can never drift into "sites demand models." The full
+contract price, paid once.

@@ -208,3 +208,18 @@ acknowledgment + ceiling to widen. Needs its own detection story and
 corpus rows when byollm_016 Phase A touches per-service detection.
 Filed from the field: press is testing glm-5.1 via ollama cloud
 tonight; the moment it wins a bake-off, someone will want to share it.
+
+**Ruled (Todd, 2026-08-24): bake it in.** Ollama-served models split
+by name: a `:cloud`-suffixed model is always metered (remote compute,
+owner's account); any other local ollama model is free-class. The
+registry/detection applies this per-model at capability time — cost
+classification descends from the endpoint to the model where the
+server proxies. Deliberate evasion (aliasing a cloud model to a
+non-`:cloud` name, if ollama even permits it) spends only the owner's
+own quota — self-punishing, notice-and-say class, not a hole worth
+machinery. The accident is what the suffix check kills: nobody
+shares paid compute because a loopback URL looked free. Corpus row
++ conformance case land with byollm_016 Phase A's per-service
+detection. (Privacy note for the record: Ollama Cloud states prompts
+are not trained on or stored post-processing — acceptable for press's
+comparative test; byollm's own local-first positioning is unaffected.)

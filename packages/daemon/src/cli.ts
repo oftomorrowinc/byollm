@@ -33,17 +33,17 @@ import { DAEMON_VERSION, formatVersion } from "./index.js";
 const USAGE = `byollm — run an app's LLM jobs on your own models.
 
   byollm connect [<url>]      pair with an app and start running its jobs
-  byollm name [<name>]        what this machine calls itself when it pairs
+  byollm name [<name>]        what this device calls itself when it pairs
   byollm run [url]            run jobs for a paired app (or all of them)
   byollm status               what is connected, what is running, what it cost
-  byollm log [--full] [-n N]  every prompt that has run on this machine
+  byollm log [--full] [-n N]  every prompt that has run on this device
   byollm pause                stop claiming new work
   byollm resume               start claiming again
   byollm allow <url> <user>   let someone else's jobs run here (named audience)
-  byollm allow --list         who can currently use this machine
+  byollm allow --list         who can currently use this device
   byollm offer <backend> <scope>  who a backend is offered to (self|named|public)
   byollm disallow <url> <user>
-  byollm sites                which sites this machine serves, and which are waiting
+  byollm sites                which sites this device serves, and which are waiting
   byollm approve <site>       serve a site that asked (or --all)
   byollm forget <url>         drop a pairing
   byollm backends             what is installed, healthy, and advertised
@@ -265,7 +265,7 @@ async function supervisionLine(
     case "installed":
       return (
         `service: installed but NOT running (${state.detail}) — ` +
-        `this machine is on rosters and serving nothing. See ${plan.logPath}\n`
+        `this device is on rosters and serving nothing. See ${plan.logPath}\n`
       );
     case "absent":
       return `service: not installed — jobs only run while \`byollm run\` is open (\`byollm install\` fixes that)\n`;
@@ -300,7 +300,7 @@ async function commandName(
   await mkdir(dirname(paths.label), { recursive: true });
   await writeFile(paths.label, `${next.slice(0, 120)}\n`, { mode: 0o600 });
   io.out(
-    `This machine will pair as ${next.slice(0, 120)}.\n` +
+    `This device will pair as ${next.slice(0, 120)}.\n` +
       "Anything already paired keeps the name it introduced itself with.\n",
   );
   return 0;
@@ -433,7 +433,7 @@ async function commandConnect(
    */
   if (capabilities.length === 0) {
     io.err(
-      "\n0 backends are healthy, so nothing will route to this machine yet.\n" +
+      "\n0 backends are healthy, so nothing will route to this device yet.\n" +
         "Pairing anyway — set a model server up " +
         "(docs.byollm.cloud/guides/models),\nthen check `byollm backends`. " +
         "Work starts arriving on its own once one is healthy.\n",
@@ -500,7 +500,7 @@ async function commandConnect(
             `    1) Open:       ${info.verificationUrl}\n` +
             `    2) Enter code: ${info.userCode}   ` +
             `(expires in ${String(minutes)} minutes)\n` +
-            `    3) Check the screen shows this machine's fingerprint, ` +
+            `    3) Check the screen shows this device's fingerprint, ` +
             `then approve:\n\n` +
             `       ${fingerprint(deviceIdentity.identity)}\n\n` +
             `  waiting for approval…`,
@@ -516,7 +516,7 @@ async function commandConnect(
     io.err(
       `\n  Could not pair with ${origin}.\n  ${detail}\n\n` +
         `  Check the URL and your connection, then try again. Nothing was ` +
-        `changed on this machine.\n`,
+        `changed on this device.\n`,
     );
     return 1;
   }
@@ -813,7 +813,7 @@ function report(origin: string, event: RunnerEvent, io: CliIo): void {
           `Nothing was re-approved by hand.\n` +
           (event.path.length > 2
             ? `    Through ${String(event.path.length - 1)} rotations since ` +
-              `the key this machine approved.\n`
+              `the key this device approved.\n`
             : ""),
       );
       break;
@@ -823,7 +823,7 @@ function report(origin: string, event: RunnerEvent, io: CliIo): void {
       // is silent — which is exactly why it has to be said out loud, with the
       // fingerprint the site displays next to it.
       io.out(
-        `${at} ${host} site ${event.site} is asking this machine to serve ` +
+        `${at} ${host} site ${event.site} is asking this device to serve ` +
           `it.\n    fingerprint: ${event.fingerprint}\n` +
           `    Compare that against what the site shows you, then run ` +
           `\`byollm approve ${event.site}\`.\n` +
@@ -842,7 +842,7 @@ function report(origin: string, event: RunnerEvent, io: CliIo): void {
       // was true only when it happened to be, and destructive when it was
       // not.
       io.out(
-        `${at} ${host} nothing is consented for this machine right now. ` +
+        `${at} ${host} nothing is consented for this device right now. ` +
           `The pairing stands; work resumes when a site is connected again.\n`,
       );
       break;
@@ -915,7 +915,7 @@ async function commandStatus(
   }
 
   const allowed = allowlist.list();
-  io.out("\nwho can use this machine\n");
+  io.out("\nwho can use this device\n");
   io.out(`  you, always\n`);
   if (allowed.length === 0) {
     io.out("  nobody else\n");
@@ -952,7 +952,7 @@ async function commandStatus(
   const entries = await ingress.read();
   const prompts = entries.filter((entry) => entry.type === "prompt");
   const outcomes = entries.filter((entry) => entry.type === "outcome");
-  io.out("\nthis machine has run\n");
+  io.out("\nthis device has run\n");
   io.out(
     `  ${String(prompts.length)} prompts, ` +
       `${String(outcomes.filter((o) => o.outcome === "ok").length)} ok, ` +
@@ -983,7 +983,7 @@ async function commandLog(
   const shown = entries.slice(-limit);
 
   if (shown.length === 0) {
-    io.out("nothing has run on this machine yet\n");
+    io.out("nothing has run on this device yet\n");
     return 0;
   }
 
@@ -1078,7 +1078,7 @@ async function commandAllow(
     const entries = allowlist.list();
     if (entries.length === 0) {
       io.out(
-        "Nobody but you can run work on this machine.\n" +
+        "Nobody but you can run work on this device.\n" +
           "`byollm allow <app-url> <user-id>` to change that.\n",
       );
       return 0;
@@ -1102,10 +1102,10 @@ async function commandAllow(
   // byollm_002: widening scope requires an explicit confirmation that names
   // what it means. Not a y/N on an ambiguous question — the actual sentence.
   const confirmed = await io.confirm(
-    `\nThis lets jobs belonging to "${owner}" on ${origin} run on this machine,\n` +
+    `\nThis lets jobs belonging to "${owner}" on ${origin} run on this device,\n` +
       `using your hardware and electricity, whenever your daemon is online.\n` +
       `Your subscription-backed models are never included — those stay yours alone.\n\n` +
-      `Allow ${owner} to use this machine?`,
+      `Allow ${owner} to use this device?`,
   );
   if (!confirmed) {
     io.out("nothing changed\n");
@@ -1291,7 +1291,7 @@ async function commandDisallow(
   const removed = await allowlist.remove(normalizeOrigin(rawOrigin), owner);
   io.out(
     removed
-      ? `${owner} can no longer use this machine\n`
+      ? `${owner} can no longer use this device\n`
       : `${owner} was not on the list — nothing changed\n`,
   );
   return 0;

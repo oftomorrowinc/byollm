@@ -65,7 +65,7 @@ export class DeviceIdentity {
       parsed = JSON.parse(raw);
     } catch (error) {
       throw new Error(
-        `${this.#path} is not valid JSON. This file is this machine's ` +
+        `${this.#path} is not valid JSON. This file is this device's ` +
           `identity; delete it only if you accept re-pairing every app.`,
         { cause: error },
       );
@@ -74,7 +74,7 @@ export class DeviceIdentity {
     const result = StoredKeys.safeParse(parsed);
     if (!result.success) {
       throw new Error(
-        `${this.#path} is not a valid key file. This file is this machine's ` +
+        `${this.#path} is not a valid key file. This file is this device's ` +
           `identity; delete it only if you accept re-pairing every app.`,
       );
     }
@@ -196,7 +196,7 @@ export class DeviceIdentity {
       const mode = (await stat(this.#path)).mode & 0o777;
       if ((mode & 0o077) !== 0) {
         process.stderr.write(
-          `warning: ${this.#path} is mode ${mode.toString(8)} — this machine's\n` +
+          `warning: ${this.#path} is mode ${mode.toString(8)} — this device's\n` +
             `private key is readable by other users. Fixing to 0600.\n`,
         );
         await chmod(this.#path, 0o600);

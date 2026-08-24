@@ -219,13 +219,13 @@ export function matchAudience(job: MatchJob, daemon: MatchDaemon): MatchResult {
 export const REFUSAL_MESSAGES: Readonly<Record<MatchRefusal, string>> =
   Object.freeze({
     "no-capability":
-      "no backend on this machine is configured and healthy for that job kind",
+      "no backend on this device is configured and healthy for that job kind",
     "audience-self-other-owner":
-      "the job is private to its owner and this machine is paired to someone else",
+      "the job is private to its owner and this device is paired to someone else",
     "not-locally-allowed":
-      "the job's owner is not on this machine's allowlist (byollm allow <server> <user>)",
+      "the job's owner is not on this device's allowlist (byollm allow <server> <user>)",
     "not-in-server-allowlist":
-      "the app restricted this job to named runners and this machine is not one of them",
+      "the app restricted this job to named runners and this device is not one of them",
     "offer-scope-too-narrow":
       "this backend is offered to its owner only (byollm offer <backend> named|public to widen)",
     "subscription-self-lock":

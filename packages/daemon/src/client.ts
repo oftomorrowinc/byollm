@@ -369,7 +369,7 @@ export class ProtocolClient {
       const serverTime = (body as { serverTime?: unknown }).serverTime;
       const drift =
         typeof serverTime === "number"
-          ? ` This machine is ${describeDrift(Date.now() - serverTime)}.`
+          ? ` This device is ${describeDrift(Date.now() - serverTime)}.`
           : "";
       return new ClientError(
         "clock-skew",

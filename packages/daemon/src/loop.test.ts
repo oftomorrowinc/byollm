@@ -399,7 +399,7 @@ describe("the loop", () => {
     // this class of failure take an afternoon.
     //
     // It arrives as `refused` rather than `error` since V1-1: admission now
-    // asks whether this machine serves the site, so the job is released
+    // asks whether this device serves the site, so the job is released
     // before its payload is fetched. It used to travel all the way to the
     // seal and throw — a refusal that had already paid for the answer.
     const reason =

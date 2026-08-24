@@ -421,7 +421,7 @@ describe("a clock-skew refusal tells you how to fix it", () => {
   /**
    * byollm_013's rule about which side composes the fix, as a test.
    *
-   * The relay knows how far off this machine is and cannot know what to run;
+   * The relay knows how far off this device is and cannot know what to run;
    * `sudo sntp -sS`, `w32tm /resync` and `timedatectl set-ntp` are three
    * different sentences and only the daemon knows which applies. So the
    * upstream hands over `serverTime` and the daemon turns it into an
@@ -438,7 +438,7 @@ describe("a clock-skew refusal tells you how to fix it", () => {
               error: "clock-skew",
               message:
                 "this request's timestamp is too far from the server's clock",
-              // Ten minutes behind this machine.
+              // Ten minutes behind this device.
               serverTime: Date.now() - 600_000,
               maxSkewMs: 120_000,
             }),

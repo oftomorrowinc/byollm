@@ -308,7 +308,7 @@ describe("one bad site entry is one site's problem — V1-9", () => {
 
   it("says the file is unreadable rather than pretending nothing is paired", async () => {
     // Two opposite sentences shared one branch. "No file" means run
-    // `byollm connect`; "cannot read the file" means this machine has
+    // `byollm connect`; "cannot read the file" means this device has
     // pairings it can no longer see, and the CLI offered the first advice for
     // both.
     await writeFile(path, "{ not json at all");

@@ -183,10 +183,10 @@ describe("small edges elsewhere", () => {
   });
 });
 
-describe("what this machine calls itself", () => {
+describe("what this device calls itself", () => {
   it("defaults to the hostname, and remembers a name it is given", async () => {
     // The name is shown on the approval screen — the one moment somebody is
-    // deciding whether to trust this machine, and the one moment "which of my
+    // deciding whether to trust this device, and the one moment "which of my
     // three laptops is this" has consequences. A hostname answers it badly.
     expect(await runCli(["name"], { paths, io: io() })).toBe(0);
     expect(out.trim().length).toBeGreaterThan(0);

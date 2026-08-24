@@ -421,9 +421,9 @@ export class Runner {
       return {
         ok: false,
         reason: this.#pending.has(job.site)
-          ? `this machine has not approved site ${job.site} yet — ` +
+          ? `this device has not approved site ${job.site} yet — ` +
             "run `byollm sites` to see it and `byollm approve` to allow it"
-          : `this machine does not serve site ${job.site} ` +
+          : `this device does not serve site ${job.site} ` +
             `(serving ${[...this.#sites.keys()].sort().join(", ") || "nothing"})`,
       };
     }
@@ -491,7 +491,7 @@ export class Runner {
       return {
         outcome: "error",
         code: "no-capability",
-        message: "this machine has no route for that job kind",
+        message: "this device has no route for that job kind",
         retryable: false,
       };
     }
@@ -1039,7 +1039,7 @@ export class Runner {
     if (!opened.ok) {
       throw new Error(
         `refusing job ${job.id}: its payload did not verify as coming from ` +
-          `the app this machine paired with (${opened.reason})`,
+          `the app this device paired with (${opened.reason})`,
       );
     }
     return JSON.parse(opened.plaintext) as JobPayload;
@@ -1359,7 +1359,7 @@ export class Runner {
     // was missing.
     const paired = [...this.#sites.keys()].sort();
     throw new Error(
-      `refusing job ${job.id}: it names site ${job.site}, which this machine ` +
+      `refusing job ${job.id}: it names site ${job.site}, which this device ` +
         `is not paired with (paired with ${paired.join(", ")})`,
     );
   }

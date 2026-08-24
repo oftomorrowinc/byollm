@@ -208,7 +208,7 @@ describe("admit — the daemon enforcing against the server", () => {
     const result = runner.admit(job({ kind: "llm.chat" }));
     expect(result.ok).toBe(false);
     if (!result.ok)
-      expect(result.reason).toContain("no backend on this machine");
+      expect(result.reason).toContain("no backend on this device");
   });
 
   it("refuses another owner's self job", async () => {

@@ -24,7 +24,7 @@ import { SpendLedger } from "./spend.js";
 import { removeTemp } from "./test-support.js";
 
 /**
- * Who gets to add a site to this machine — V1-1.
+ * Who gets to add a site to this device — V1-1.
  *
  * The daemon pins a site's keys so that the party routing the work cannot
  * choose which key signs it. The pre-v1 review found the door left open one

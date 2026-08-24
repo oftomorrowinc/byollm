@@ -358,7 +358,7 @@ describe("a daemon paired with two sites", () => {
   it("refuses a site it is not paired with rather than trying a key it has [SITE_KEY_BY_STUB]", async () => {
     // Not "unknown site" as a fallback to the only pin — the relay chooses
     // `stub.site`, so falling back hands it the choice of which key verifies
-    // this machine's work.
+    // this device's work.
     const stranger = keyId(
       publicIdentityOf(generateKeys(1_800_000_000_000)).identity,
     );
@@ -446,7 +446,7 @@ describe("a daemon paired with two sites", () => {
     // The upstream adds C — and that is a *request*, not an instruction
     // (V1-1). The site is offered, its fingerprint is shown, and nothing runs
     // for it: an upstream that could add a site by saying so could mint one,
-    // sign its own stubs, and have this machine run work nobody consented to.
+    // sign its own stubs, and have this device run work nobody consented to.
     announced = { ...announced, [C]: publicIdentityOf(SITE_C) };
     claimed = false;
     await runner.tick();

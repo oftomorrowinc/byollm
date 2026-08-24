@@ -20,11 +20,11 @@
 > If an upgrade leaves a daemon saying it is paired with nothing, `byollm
 > connect` is the answer and nothing else is lost.
 >
-> **`alpha.7` tightens who a machine is allowed to say it is.** A relay now
+> **`alpha.7` tightens who a device is allowed to say it is.** A relay now
 > refuses to pair a device its owner has not approved in a control plane —
 > previously a daemon presented keys and the relay believed them, which made
 > the relay the authority on identity rather than the person who owns the
-> machine. Breaking only if you operate a relay; direct-mode sites and daemons
+> device. Breaking only if you operate a relay; direct-mode sites and daemons
 > are unaffected and nothing re-pairs.
 >
 > **`alpha.5` added the reference relay and the cloud lane.** `app.enqueue(...)`
@@ -38,10 +38,10 @@
 > there was no upgrade path — by design, and for the last time before there are
 > real consumers.**
 >
-> Machines and sites now have cryptographic identities. Each daemon holds an
+> Devices and sites now have cryptographic identities. Each daemon holds an
 > Ed25519 signing key and an X25519 encryption key; pairing exchanges and
 > **pins** them, every request is signed rather than bearing a token, and the
-> work itself is sealed: a payload is encrypted to the machine that claimed it,
+> work itself is sealed: a payload is encrypted to the device that claimed it,
 > a result is encrypted back to the site, and each is signed by its sender and
 > refused if it does not verify. An intermediary that relays byollm traffic
 > carries ciphertext it cannot read and cannot substitute.
@@ -53,7 +53,7 @@
 >   startup: every instance would get a different identity and daemons would
 >   pin one and be refused by another.
 > - **Runner tokens are gone.** A daemon proves who it is by signing, so old
->   tokens authenticate nothing and every paired machine re-pairs.
+>   tokens authenticate nothing and every paired device re-pairs.
 > - **`claim` answers with a stub, not the work.** A daemon that declines a job
 >   on its own allowlist never receives the prompt at all; it fetches the
 >   payload only after deciding to run it.
@@ -69,7 +69,7 @@
 
 # BYOLLM
 
-**Bring Your Own LLM.** Let your app's users run its AI on *their* models and *their* subscriptions — their Ollama box, their MLX machine, their `claude` CLI — through a tiny daemon they run and control.
+**Bring Your Own LLM.** Let your app's users run its AI on *their* models and *their* subscriptions — their Ollama box, their MLX computer, their `claude` CLI — through a tiny daemon they run and control.
 
 `npx byollm@alpha connect https://your-app.com`
 
@@ -83,12 +83,12 @@
 
 Every AI app eventually gets the same request: *"can I use my own model / my own key / my own GPU?"* Answering it usually means CORS headaches, tunnels into localhost, or shipping the user a fragile script.
 
-BYOLLM makes it a three-line integration. Your app enqueues LLM jobs; the user runs a small **outbound** daemon that claims *only their own jobs* and executes them locally. No inbound ports, no tunnels, no keys leaving the machine. The browser app stays hosted; the compute comes from the user.
+BYOLLM makes it a three-line integration. Your app enqueues LLM jobs; the user runs a small **outbound** daemon that claims *only their own jobs* and executes them locally. No inbound ports, no tunnels, no keys leaving the computer. The browser app stays hosted; the compute comes from the user.
 
 Two audiences, one design:
 
 - **App developers** get a drop-in server adapter and a job queue. Enqueue `llm.generate`, get a result back — you never touch the user's model or credentials.
-- **Users** get a daemon that is their **trust anchor**: every prompt that runs on their machine is logged, rate-limited, and pausable, and subscription-backed models are hard-locked to *their own work only*.
+- **Users** get a daemon that is their **trust anchor**: every prompt that runs on their device is logged, rate-limited, and pausable, and subscription-backed models are hard-locked to *their own work only*.
 
 ## How it works
 
@@ -97,7 +97,7 @@ Two audiences, one design:
                                           │
                                           │  jobs table (yours: Supabase, Postgres, memory…)
                                           ▼
-   user's machine  ──outbound poll──▶  claim ─▶ run on local model ─▶ result
+   user's device   ──outbound poll──▶  claim ─▶ run on local model ─▶ result
      (byollm)                                          │
                                                    Ollama · MLX · claude CLI
 ```
@@ -149,7 +149,7 @@ export const getConfig = () => ({
 // anywhere in your app
 const job = await getApp().enqueue({
   kind: "llm.generate",
-  audience: "self",            // this user's machine only
+  audience: "self",            // this user's device only
   owner: userId,
   payload: { prompt: "Summarize this transcript:\n\n" + transcript },
 });
@@ -190,17 +190,17 @@ Point it at your models:
 
 ```bash
 byollm backends       # what's installed, healthy, and actually advertised
-byollm sites          # which sites this machine serves — and which are waiting on you
+byollm sites          # which sites this device serves — and which are waiting on you
 byollm approve <site> # say yes to one that asked (nothing runs for it until you do)
 byollm log            # every prompt that ran here, ever
 byollm pause          # stop claiming work
-byollm allow --list   # everyone who can use this machine (empty by default)
+byollm allow --list   # everyone who can use this device (empty by default)
 byollm offer <backend> public --cap 250   # share a paid backend, deliberately
 ```
 
 ## The audience model — sharing, safely
 
-Every job carries an **audience** and every backend an **offer scope**. A job runs on a machine only when both agree.
+Every job carries an **audience** and every backend an **offer scope**. A job runs on a device only when both agree.
 
 | Backend | Cost | Can offer | Why |
 |---|---|---|---|
@@ -212,9 +212,9 @@ Cost class comes from the protocol registry and is **not yours to declare**. Poi
 
 Note the pair: `anthropic` and `claude-cli` reach one vendor in two different cost classes. A platform key bills per token; a Claude plan covers one person's work. The axis asks who pays and under what terms, not which company answers.
 
-The derivation reads the address, not the destination — a localhost proxy forwarding to a paid API classes as `free`, and nothing downstream can see through it. That is a deliberate act by the machine's owner against their own account, and it is [outside the threat model](docs/security.md#4a-cost-class--whose-money-and-whose-terms); what the rule prevents is the *accident*.
+The derivation reads the address, not the destination — a localhost proxy forwarding to a paid API classes as `free`, and nothing downstream can see through it. That is a deliberate act by the device's owner against their own account, and it is [outside the threat model](docs/security.md#4a-cost-class--whose-money-and-whose-terms); what the rule prevents is the *accident*.
 
-Want to lend your GPU to the open-source community, or let your friends' jobs run overnight on your machine? `byollm offer <backend> public` flips an open backend over. Your subscription is never part of that.
+Want to lend your GPU to the open-source community, or let your friends' jobs run overnight on your computer? `byollm offer <backend> public` flips an open backend over. Your subscription is never part of that.
 
 Widening a **paid** backend is the one path that asks first, and the question names the money rather than asking whether you are sure:
 
@@ -235,7 +235,7 @@ Sharing a metered backend without a ceiling is refused outright — an unlimited
 
 ## Security
 
-The daemon runs prompts on the owner's machine, so **every payload is treated as hostile input**. Breakout is made *structurally impossible*, not merely detected:
+The daemon runs prompts on the owner's computer, so **every payload is treated as hostile input**. Breakout is made *structurally impossible*, not merely detected:
 
 - Payload text can **never become a command line**. HTTP-class backends (Ollama, MLX server, vLLM) receive it as a request body; process-class backends (`claude` CLI) receive it on **stdin with a fixed argv**. Shell metacharacters, `--flags`, `$(…)` are just characters the model reads.
 - Model, backend, and flags come from the **owner's local config only** — a job can never name a model, path, URL, or flag.

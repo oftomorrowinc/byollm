@@ -157,7 +157,7 @@ async function runnerWith(
   });
 }
 
-/** This machine has approved K1 and is serving it. */
+/** This device has approved K1 and is serving it. */
 const approvedK1 = () => ({
   sites: new Map([[id(K1), publicIdentityOf(K1)]]),
   known: new Map([[id(K1), publicIdentityOf(K1)]]),
@@ -321,7 +321,7 @@ describe("a rotation that is somebody else's", () => {
     await runner.tick();
 
     // Refused before any chain is considered: the id it is filed under is not
-    // its key id, which is the check that runs first. The pin this machine
+    // its key id, which is the check that runs first. The pin this device
     // already holds is untouched, which is the property that matters — a
     // refusal that unpinned what it was defending would be the same outage
     // the attack was trying to cause.
@@ -331,7 +331,7 @@ describe("a rotation that is somebody else's", () => {
   });
 
   it("treats a chain that reaches nobody as a stranger, not an attack", async () => {
-    // A site with a history this machine has no part in is exactly as
+    // A site with a history this device has no part in is exactly as
     // trustworthy as a site with no history: it goes to the human, and telling
     // this apart from a broken chain is what keeps the loud refusal meaningful.
     const runner = await runnerWith(
@@ -406,7 +406,7 @@ describe("the window the old key keeps", () => {
   });
 
   it("drops it once its own clock says the window is over", async () => {
-    // This machine's clock, not the projection's word. The deadline offered
+    // This device's clock, not the projection's word. The deadline offered
     // here is already in the past, so the pin goes on the same beat.
     const runner = await runnerWith(
       upstream(() => ({

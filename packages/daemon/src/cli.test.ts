@@ -147,7 +147,7 @@ describe("byollm allow — widening access", () => {
 
     out = "";
     expect(await run("disallow", "https://app.test", "alice")).toBe(0);
-    expect(out).toContain("can no longer use this machine");
+    expect(out).toContain("can no longer use this device");
 
     out = "";
     await run("allow", "--list");
@@ -205,7 +205,7 @@ describe("byollm status", () => {
 describe("byollm log", () => {
   it("says nothing has run rather than printing an empty list", async () => {
     expect(await run("log")).toBe(0);
-    expect(out).toContain("nothing has run on this machine yet");
+    expect(out).toContain("nothing has run on this device yet");
   });
 
   it("shows a prompt, its audience and where it came from", async () => {

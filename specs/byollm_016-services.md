@@ -213,3 +213,55 @@ generation params in payloads.
 half of why `enabled` exists. JSONC (comments stripped at load) vs
 staying strict-JSON with the wizard absorbing the hand-editing.
 For Kevin's reaction alongside questions 1–4.
+
+## Amendment: the `sampling` block (Todd's challenge, 2026-08-24)
+
+Todd challenged the line between first-class `system` and
+template-buried generation parameters as arbitrary. Partly upheld,
+partly conceded — and the concession improves the shape.
+
+The principled half stands: **a field is first-class when the daemon
+must adjudicate it; overrideability follows the wire, not
+importance.** `system` is in payloads, so override/lock semantics are
+forced. Sampling parameters are in no payload, so no collision exists.
+
+The conceded half: opacity has costs even for owner-only fields. An
+opaque `"temperature": 9` typo spreads into the request and the server
+does whatever servers do with input they don't understand — today of
+all days, the answer is "return 200 and generate happily." And the
+concept is the same cluster as `system`: how this service performs as
+trained.
+
+So the service gains a first-class, typed, optional **`sampling`**
+block — `temperature`, `topP`, `topK`, `maxTokens` — validated at
+config load, mapped per transport by the daemon. `request` shrinks to
+genuinely transport-specific extras the daemon has no business
+understanding (`adapters` is the founding example). Rules:
+
+- Sampling stays owner-only on the wire. Payload override for
+  sampling arrives only with evidence, as a deliberate protocol
+  change — never by drift.
+- `maxTokens` composes with `limits.maxOutputBytes`: the limit is a
+  safety ceiling, the sampling value a tuning default; the stricter
+  wins.
+- A transport that cannot honor a set sampling field (claude-cli has
+  no temperature) drops the service's kind with a loud config
+  problem — never silently ignores a value the owner set to make the
+  model perform correctly. Same law as the locked system prompt:
+  nothing the owner wrote is quietly discarded.
+
+Revised sketch of a service entry:
+
+```json
+"gwen-voice": {
+  "type": "openai-http",
+  "baseUrl": "http://127.0.0.1:6999/v1",
+  "kinds": ["llm.generate"],
+  "offer": "named",
+  "label": "Gwen DeMarco prose voice",
+  "system": { "text": "<training prompt, verbatim>", "locked": false },
+  "sampling": { "temperature": 0.9, "topP": 0.95, "maxTokens": 400 },
+  "request": { "model": "default_model",
+               "adapters": "/Users/todd/VoiceLoom/adapters/Gwen-DeMarco/best-A-1400" }
+}
+```

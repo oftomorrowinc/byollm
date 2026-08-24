@@ -157,3 +157,59 @@ carries (kind, service?) end to end with contract cases for
 select-unadvertised, select-unoffered-to-you, and default-ambiguity;
 the lint and docs complete the un-retirement; byollm_015 Phase 1
 unblocks.
+
+---
+
+## Additions from review (Todd + Cowork, 2026-08-24 evening)
+
+Context: the walk gates on press's bake-off re-run anyway (a plumbing
+walk serving a base model proves nothing worth proving), so the shape
+gets the time to be right. Additions:
+
+- **`system` is first-class on the service.** Press proved the
+  training system prompt is part of the model — output visibly
+  degrades without it — and today it travels to integrators as a
+  verbatim incantation in chat. The service carries it as the
+  default; a payload `system?` overrides it (content, not
+  configuration); an owner may mark it **locked**, and then a job
+  carrying its own system prompt is refused loudly — never silently
+  ignored. Lock exists for persona integrity.
+- **Generation parameters stay owner-side.** The kinds' payloads are
+  closed (`{prompt, system?}` / `{messages, system?}`) and carry no
+  temp/top_p/max_tokens on purpose; the `request` template is their
+  home. Sites get generation knobs only if evidence arrives, as a
+  deliberate protocol change.
+- **Per-service `concurrency`**, with the global value as overall
+  ceiling. Motivating case: two 14B MLX jobs swap a Mac Studio to
+  death while claude-cli could take three.
+- **`enabled: false`** — JSON has no comments; benching a voice must
+  not mean deleting its stanza.
+- **`label` / `description`** — what the team-facing menu and
+  /devices chips display. Members choosing from a menu need the menu
+  to say things.
+- **Optional per-service community-limit overrides** (a 14B service
+  reasonably serves fewer jobs/hour than an echo backend); global
+  `community` remains the default.
+- **Service ids are contract-ish.** Sites select by id, so a rename
+  breaks integrations. Ids: stable, sane charset; renames free until
+  the first outside consumer, then the compat boundary applies.
+  `label` is where pretty names live, so renaming stops being
+  tempting.
+
+**Named future, not built: managed services.** A lifecycle stanza
+(`command`, idle shutdown) letting the daemon start a model server on
+demand and stop it idle — the answer to "five weekly models should
+not run 24/7". Real process-management work with cold-start
+semantics; out of scope now, but the shape is checked against it so
+it lands as a stanza, not a redesign.
+
+**Kept out, deliberately:** per-site ACLs on services (person-level =
+allowlist, site-level = site approval; a third axis would re-implement
+both); payload-influenced request fields, ever; verification stanzas
+in config (the differential check is walk/detection discipline);
+generation params in payloads.
+
+**Open question 5 (added):** config format. JSON's commentlessness is
+half of why `enabled` exists. JSONC (comments stripped at load) vs
+staying strict-JSON with the wizard absorbing the hand-editing.
+For Kevin's reaction alongside questions 1–4.

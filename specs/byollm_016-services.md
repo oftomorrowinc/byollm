@@ -265,3 +265,45 @@ Revised sketch of a service entry:
                "adapters": "/Users/todd/VoiceLoom/adapters/Gwen-DeMarco/best-A-1400" }
 }
 ```
+
+## Simplification pass (Todd, 2026-08-24, late)
+
+Three corrections after Todd pushed on weight:
+
+**1. The honor rule is config-time, never job-time.** The previous
+amendment's "drops the kind with a loud config problem" reads scarier
+than it is, so said plainly: setting `temperature` on a claude-cli
+service is a *config-load error*, caught the moment the owner writes
+it, fixed by deleting one line. No job ever fails over it; no site
+ever sees it. It is a typo check, the same class as an unknown field
+under `.strict()`.
+
+**2. No mismatch checking, because nothing can mismatch.** The
+integration worry — an app whose OpenAI-path requests carry
+`temperature: 1`, with byollm as the alternate lane — dissolves on
+the wire: byollm payloads carry no sampling fields at all, so the
+site's byollm client simply doesn't send them and there is no value
+for the daemon to compare, honor, or reject. The two lanes are
+allowed to sound different: on the API lane the app's knobs rule; on
+the byollm lane the owner's tuning rules — that asymmetry is the
+product ("the owner decides what serves it"), not a defect. If real
+integrators need payload sampling parity, that is the evidence the
+earlier amendment gates on, and it arrives as a deliberate change.
+
+**3. Locks are cut from v1 of the shape.** Every field in `system`
+and `sampling` is simply optional; unset falls to the transport's
+default. The `locked` flag on `system` (and the loud-refusal
+machinery it required) is removed — persona integrity was a
+speculative use case, and lock semantics are exactly the kind of
+weight this shape doesn't need until someone brings the case.
+Evidence-gated, like payload sampling. `system` is a plain string
+again in the sketch: `"system": "<training prompt, verbatim>"`.
+
+**Named future #2: tool scoping.** byollm_012 holds the position on
+tools (never on the shared plane; even `self` is not obviously safe;
+the narrow maybe is daemon-mediated, read-only, self-only). If that
+narrow maybe ever lands, the *service entry* is where its scoping
+lives — which mediated tools a service may reach, bound by 012's
+laws. Recorded so the shape leaves room; byollm_012 remains the
+authority on whether and what. Like managed services: a stanza later,
+never a redesign.

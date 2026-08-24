@@ -69,3 +69,7 @@ The registry is ready for them: `subscription` exists, the self-lock is
 enforced on both sides and certified, and `byollm offer` already
 refuses to widen a subscription backend. What is missing is the
 per-binary isolation work, and that is the whole spec.
+
+---
+
+2026-08-24: Phase 2 of byollm_015 promotes this stub. The five questions above are the acceptance list; the economy argument stands as written.

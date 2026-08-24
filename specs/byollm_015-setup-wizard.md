@@ -1,0 +1,126 @@
+# byollm_015 — Setup wizard, peer CLI backends, and the first modality kind
+
+**Status: specced 2026-08-24, not yet scheduled. Graduated from
+discussion (Todd, 2026-08-24) after the pairing walk showed the
+out-of-box experience is "edit JSON."**
+**Depends on: byollm_002 (routing), byollm_004 §2 (process isolation),
+byollm_007 (cost class), byollm_008 (promoted by Phase 2), byollm_013
+(detection must run the thing).**
+
+Three phases, deliberately ordered by leverage over cost: the wizard is
+small and huge, the adapters are medium and mechanical, the new kind is
+protocol work that earns its own threat review. Each phase ships alone.
+
+## Phase 1 — the first-run wizard
+
+`byollm setup`: an interactive first-run flow, invoked automatically by
+`byollm connect` when no config exists, and runnable any time on its
+own. It converts setup from "edit JSON" to three questions:
+
+1. **"What should this device be called?"** — the `--name` prompt,
+   folded in so identity has a human label from minute one.
+2. **"Use your Claude subscription for your own jobs? [Y/n]"** — asked
+   only when detection finds a working `claude` CLI. Yes writes the
+   `claude-cli` backend and default routes into config on the spot.
+3. **"Add a custom or local model now? [y/N]"** — default no, with a
+   pointer to the models guide. The mainstream path stays three
+   answers long; the LoRA path is a link, not a fourth interrogation.
+
+**Service adds reuse the same flow.** `byollm add` re-enters the wizard
+scoped to one backend: detect, ask, write config, re-advertise. There
+is one setup conversation in the product, not a first-run one and a
+different later one.
+
+Laws the wizard lives under, restated as its own obligations:
+
+- **Detection means running the thing (byollm_013).** The wizard's
+  checkmark next to a detected CLI must mean the probe exercised the
+  argv we will actually send — never `which` alone. A wizard that
+  advertises what detection didn't run recreates Kevin's Windows bug
+  with a friendlier face.
+- **The wizard never touches credentials.** Subscription CLIs
+  authenticate out-of-band; the daemon inherits a session it cannot
+  see (byollm_008 question 3). The wizard neither reads, copies,
+  tests-by-spending, nor logs any credential. Its health probe must
+  not cost a token.
+- **The self-lock is spoken, not buried.** Enabling a
+  subscription-class backend states in the wizard's own words that
+  this backend serves only its owner's work, forever
+  (`SUBSCRIPTION_IS_SELF_ONLY`). Consent wording is product law: the
+  moment of enablement is the moment of disclosure.
+- **Config is the only output.** The wizard writes the same
+  `~/.byollm/config.json` a hand would — `type` (per the field
+  rename), named backends, routes per kind. No wizard-only state, no
+  second config surface. A user who never runs the wizard loses
+  nothing but convenience.
+- **Advertise at pair time.** Because the wizard runs before first
+  connect, the mainstream daemon advertises something the moment it
+  pairs — dissolving the connect-with-no-backends amber state for the
+  common case while keeping connect-first (alpha.34–39) for the rest.
+
+## Phase 2 — Gemini CLI and codex as peer backends
+
+Promotes byollm_008 from stub. The economy is stated there and stands:
+these are not registry lines; each CLI is its own binary with its own
+argv, stdin contract, env allowlist, output parser, and adversarial
+corpus rows — the byollm_004 §2 treatment, once per binary, no shared
+`subscription-cli` transport (sharing argv construction is precisely
+what byollm_004 forbids being generic).
+
+Phase 2 must answer byollm_008's five questions per CLI, and one more
+from byollm_007: **whether `subscription` is even the right class for
+each** — decided by reading that vendor's terms, not by the fact that
+it is a CLI. A CLI that bills per token is `metered` and rides that
+law instead (ceiling required to widen, `REMOTE_IS_NEVER_FREE`
+unaffected — these run locally but spend an account).
+
+The wizard then detects all present binaries and asks per provider.
+The self-lock applies identically to every subscription-class CLI:
+their terms forbid third-party use the same way, so the lock is the
+same law, not Claude-specific courtesy.
+
+Why before strangers: "works with the subscription you already have"
+is the pitch, and most strangers' subscription is not necessarily
+Claude.
+
+## Phase 3 — `image.generate`, the first modality kind
+
+**Ruling (already made in discussion, recorded here): kinds are
+modalities, never vendors.** A kind is on the wire — the *site*
+chooses it at enqueue. `gemini.generate` as a kind would let sites
+demand a vendor, breaking the abstraction this protocol sells (the
+site asks for work; the owner decides what serves it) and handing
+vendors leverage over an open protocol's vocabulary. The real use
+case — "Gemini handles my images" — is a route: `image.generate`
+mapped to the gemini backend because the owner chose it.
+Owner-side preference, wire-side neutrality.
+
+Adding `image.generate` is a protocol change to the closed kind enum
+and gets the full review that implies: payload shape and size limits
+(image outputs ride the large-payload path cloud_012 flags), sealing
+both ways for binary payloads, `provenance.untrusted` unchanged, and
+`NO_PAYLOAD_ROUTING` untouched — a job still never names a model, and
+a modality kind must not become a covert routing channel through
+parameter creep.
+
+The wizard's phase-3 face is the routing conversation: "You have
+Claude and Gemini. Which handles conversations? Which handles one-shot
+text? Which handles images?" — routes made conversational, nothing
+more.
+
+## Sequencing
+
+This spec is capture, not a queue jump. The current lane runs first:
+alpha.44 (terminal-"gone" + rename strings), hub `/devices`, web_004's
+device section, the LoRA walk. Phase 1 slots after that and before
+strangers; Phase 2 before strangers if review attention allows; Phase
+3 when its review can be paid for properly.
+
+## Done when
+
+Phase 1: a fresh install on a clean account reaches a paired,
+advertising daemon through the wizard alone — no JSON edited — and
+Todd has walked it through the real path. Phase 2: byollm_008's
+questions answered per CLI in this spec series, corpus rows landed,
+conformance green. Phase 3: the kind enum change passes protocol
+review with the size/sealing questions answered in writing.

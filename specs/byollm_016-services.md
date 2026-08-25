@@ -1217,3 +1217,35 @@ teaching the wrong owner in the package's own voice) is the release
 trigger; the promotion gate decides the hub question mechanically.
 Housekeeping: the Pulumi digest bump is committed by its deployer;
 Cowork's spec records ride the next push.
+
+## Ruled (Todd, 2026-08-25 night): the device follows the consent — the site door de-duplicates
+
+Todd caught the two-door friction on the first real cross-user test:
+cloud consent (user authorizes the site) and device-side site
+approval (owner authorizes the app) demand the same yes twice from
+the person who is both. Same disease as the per-person allowlist the
+private-or-team ruling removed; same protections make the fix safe
+(sites registered + DNS-verified, jobs sealed and inert, budgets,
+structural self-lock). Ruling:
+
+- **Cloud route: the device follows the consent.** The owner's own
+  consent to a site approves it on the owner's devices — one click,
+  both doors. For team services, the offer already said the
+  sentence: offering to the team means roster members' consented
+  sites may deliver those members' jobs — every edge authorized by
+  its own party; a third redundant edge asks nobody anything new.
+- **Loud device-side notice** on a site's first delivery ("<site>
+  sent its first job here, for <member>") — the C/G pattern: no
+  ceremony, two authorities, loud notice. `byollm forget` survives
+  as the local per-site veto, the sibling of disallow.
+- **Direct mode unchanged** — no cloud consent exists there; the
+  daemon's door is the only door and stays load-bearing.
+- **Mechanism: Amendment G's machinery, not new machinery.** The
+  owner's consents are the same class of fact as the roster — signed
+  at authorship by the control plane, delivered but never authored
+  by the relay, max-age bounded — on the same synced channel.
+  Drafted as the next amendment after G's build lands, against G's
+  own properties, with its own accepted-trade sentence.
+
+Interim: today's walk uses the shipped two-door state (byollm
+approve) — a counted annoyance with a death date, not a design.

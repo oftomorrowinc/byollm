@@ -91,7 +91,7 @@ afterEach(async () => {
 async function makeRunner(
   options: {
     owner?: string;
-    offer?: "self" | "named" | "public";
+    offer?: "private" | "team" | "public";
     subscription?: boolean;
     allow?: readonly string[];
   } = {},
@@ -106,7 +106,7 @@ async function makeRunner(
           ...(options.subscription === true
             ? {}
             : { baseUrl: "http://127.0.0.1:11434/v1" }),
-          offer: options.offer ?? "self",
+          offer: options.offer ?? "private",
         },
       },
     }),
@@ -152,7 +152,7 @@ const job = (
   id: "job_1",
   kind: "llm.generate",
   payload: { prompt: "hello" },
-  audience: "self",
+  audience: "private",
   owner: "me",
   site: "BYOLLM-TEST-SITE-KEY-ID",
   sizeClass: "small",
@@ -214,14 +214,14 @@ describe("admit — the daemon enforcing against the server", () => {
 
   it("refuses another owner's self job", async () => {
     const { runner } = await makeRunner({ owner: "me" });
-    const result = runner.admit(job({ owner: "alice", audience: "self" }));
+    const result = runner.admit(job({ owner: "alice", audience: "private" }));
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.reason).toContain("private to its owner");
   });
 
   it("refuses a named job the local allowlist omits [NAMED_LOCAL_ALLOWLIST]", async () => {
-    const { runner } = await makeRunner({ owner: "me", offer: "named" });
-    const result = runner.admit(job({ owner: "alice", audience: "named" }));
+    const { runner } = await makeRunner({ owner: "me", offer: "team" });
+    const result = runner.admit(job({ owner: "alice", audience: "team" }));
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.reason).toContain("allowlist");
   });
@@ -229,10 +229,10 @@ describe("admit — the daemon enforcing against the server", () => {
   it("admits a named job once the local allowlist names its owner", async () => {
     const { runner } = await makeRunner({
       owner: "me",
-      offer: "named",
+      offer: "team",
       allow: ["alice"],
     });
-    expect(runner.admit(job({ owner: "alice", audience: "named" })).ok).toBe(
+    expect(runner.admit(job({ owner: "alice", audience: "team" })).ok).toBe(
       true,
     );
   });

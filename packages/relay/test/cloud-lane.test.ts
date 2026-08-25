@@ -143,7 +143,7 @@ describe.each(CASES)("the cloud lane over $name", (storeCase) => {
     const handle = await app.enqueue({
       kind: "llm.generate",
       owner,
-      audience: "self",
+      audience: "private",
       payload: { prompt: "through the relay" },
     });
 
@@ -206,7 +206,7 @@ describe.each(CASES)("the cloud lane over $name", (storeCase) => {
     const handle = await app.enqueue({
       kind: "llm.generate",
       owner,
-      audience: "self",
+      audience: "private",
       payload: { prompt: "who holds this" },
     });
 
@@ -266,7 +266,7 @@ describe.each(CASES)("the cloud lane over $name", (storeCase) => {
     const handle = await app.enqueue({
       kind: "llm.generate",
       owner,
-      audience: "self",
+      audience: "private",
       payload: { prompt: "whose result is this" },
     });
 
@@ -338,7 +338,7 @@ describe.each(CASES)("the cloud lane over $name", (storeCase) => {
     const handle = await app.enqueue({
       kind: "llm.generate",
       owner,
-      audience: "self",
+      audience: "private",
       payload: { prompt: "across a deploy" },
     });
 
@@ -406,7 +406,7 @@ describe("provenance names a person, not a key", () => {
     const job = await app.enqueue({
       kind: "llm.generate",
       owner,
-      audience: "self",
+      audience: "private",
       payload: { prompt: "whose machine ran this" },
     });
 
@@ -465,7 +465,7 @@ describe("the site's own row decides whether to seal", () => {
     const job = await app.enqueue({
       kind: "llm.generate",
       owner,
-      audience: "self",
+      audience: "private",
       payload: { prompt: "cancelled before anyone ran it" },
     });
 
@@ -545,7 +545,7 @@ describe("what the relay is told, and what it is not", () => {
     const job = await app.enqueue({
       kind: "llm.generate",
       owner,
-      audience: "named",
+      audience: "team",
       // The site restricts the job to two named people…
       audienceAllow: ["carol", "erin"],
       payload: { prompt: "who may run this" },
@@ -564,7 +564,7 @@ describe("what the relay is told, and what it is not", () => {
     // pass this test and break routing.
     expect(routed?.stub.owner).toBe(owner);
     expect(routed?.stub.kind).toBe("llm.generate");
-    expect(routed?.stub.audience).toBe("named");
+    expect(routed?.stub.audience).toBe("team");
   });
 
   it("still records it on the site's own row, where enforcement reads it", async () => {
@@ -580,7 +580,7 @@ describe("what the relay is told, and what it is not", () => {
     const job = await app.enqueue({
       kind: "llm.generate",
       owner,
-      audience: "named",
+      audience: "team",
       audienceAllow: ["carol"],
       payload: { prompt: "still known here" },
     });

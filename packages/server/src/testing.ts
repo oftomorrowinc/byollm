@@ -42,7 +42,7 @@ class FakeClock {
 
 /** A capability matrix serving both v1 kinds from a local HTTP model. */
 export function httpCapabilities(
-  offerScope: Capability["offerScope"] = "self",
+  offerScope: Capability["offerScope"] = "private",
   model = "gemma4:26b",
 ): Capability[] {
   return [
@@ -65,7 +65,7 @@ export function httpCapabilities(
 
 /** A capability matrix backed by the subscription-class claude CLI. */
 export function subscriptionCapabilities(
-  offerScope: Capability["offerScope"] = "self",
+  offerScope: Capability["offerScope"] = "private",
 ): Capability[] {
   return [
     {

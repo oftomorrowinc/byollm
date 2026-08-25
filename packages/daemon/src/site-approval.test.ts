@@ -104,7 +104,7 @@ async function runnerWith(
           kinds: ["llm.generate"],
           type: "openai-http",
           baseUrl: "http://127.0.0.1:11434/v1",
-          offer: "self",
+          offer: "private",
         },
       },
     }),
@@ -157,7 +157,7 @@ function stub(site: string): ClaimedStub {
   return {
     id: "job_1",
     kind: "llm.generate",
-    audience: "self",
+    audience: "private",
     owner: "me",
     site,
     sizeClass: "small",

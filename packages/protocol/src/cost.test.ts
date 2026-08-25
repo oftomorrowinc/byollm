@@ -163,10 +163,10 @@ describe("the hole byollm_007 closes", () => {
   it("never charges the owner for their own work", () => {
     // Own work on your own key is your business, ceiling or not.
     const result = matchAudience(
-      { owner: "bob", audience: "self" },
+      { owner: "bob", audience: "private" },
       {
         owner: "bob",
-        offerScope: "self",
+        offerScope: "private",
         cost: "metered",
         spend: { acknowledged: false, ceilingReached: true },
         locallyAllows: () => false,
@@ -209,19 +209,19 @@ describe("the audience matrix across all three cost classes", () => {
   });
 
   const SHARED: Record<Audience, Record<OfferScope, MatchRefusal | "allow">> = {
-    self: {
-      self: "audience-self-other-owner",
-      named: "audience-self-other-owner",
+    private: {
+      private: "audience-self-other-owner",
+      team: "audience-self-other-owner",
       public: "audience-self-other-owner",
     },
-    named: {
-      self: "offer-scope-too-narrow",
-      named: "not-locally-allowed",
+    team: {
+      private: "offer-scope-too-narrow",
+      team: "not-locally-allowed",
       public: "allow",
     },
     public: {
-      self: "offer-scope-too-narrow",
-      named: "not-locally-allowed",
+      private: "offer-scope-too-narrow",
+      team: "not-locally-allowed",
       public: "allow",
     },
   };
@@ -233,15 +233,15 @@ describe("the audience matrix across all three cost classes", () => {
     Audience,
     Record<OfferScope, MatchRefusal | "allow">
   > = {
-    self: SHARED.self,
-    named: {
-      self: "subscription-self-lock",
-      named: "subscription-self-lock",
+    private: SHARED.private,
+    team: {
+      private: "subscription-self-lock",
+      team: "subscription-self-lock",
       public: "subscription-self-lock",
     },
     public: {
-      self: "subscription-self-lock",
-      named: "subscription-self-lock",
+      private: "subscription-self-lock",
+      team: "subscription-self-lock",
       public: "subscription-self-lock",
     },
   };
@@ -295,7 +295,7 @@ describe("the audience matrix across all three cost classes", () => {
     for (const cost of ["free", "metered"] as const) {
       const result = matchAudience(
         { owner: OWNER, audience: "public" },
-        daemon("named", cost, { allows: [OWNER] }),
+        daemon("team", cost, { allows: [OWNER] }),
       );
       expect(result.ok, cost).toBe(true);
     }

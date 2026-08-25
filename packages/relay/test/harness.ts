@@ -119,7 +119,7 @@ export class SiteConnector {
   async enqueue(input: {
     prompt: string;
     owner: string;
-    audience?: "self" | "named" | "public";
+    audience?: "private" | "team" | "public";
   }): Promise<{ jobId: string; payload: string }> {
     this.#next += 1;
     const jobId = `job_relay_${String(this.#next)}`;
@@ -131,7 +131,7 @@ export class SiteConnector {
       // The real key id, because the relay now checks it against the site the
       // signature named — a fixed string here would test nothing and fail.
       site: keyId(this.identity.identity),
-      audience: input.audience ?? "self",
+      audience: input.audience ?? "private",
       sizeClass: sizeClassOf(payload.length),
       streaming: false,
       deadlineAt: Date.now() + 300_000,

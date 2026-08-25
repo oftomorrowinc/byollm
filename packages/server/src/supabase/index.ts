@@ -49,7 +49,7 @@ interface JobRow {
   kind: string;
   envelope: unknown;
   size_class: "small" | "medium" | "large" | "unbounded";
-  audience: "self" | "named" | "public";
+  audience: "private" | "team" | "public";
   owner: string;
   audience_allow: string[] | null;
   depends_on: string[];
@@ -260,7 +260,7 @@ export function supabaseStore(options: SupabaseStoreOptions): ByollmStore {
         kind: input.kind,
         envelope: input.envelope,
         size_class: input.sizeClass,
-        audience: input.audience ?? "self",
+        audience: input.audience ?? "private",
         owner: input.owner,
         audience_allow: input.audienceAllow ? [...input.audienceAllow] : null,
         depends_on: dependsOn,

@@ -79,7 +79,7 @@ export const CHECKS: readonly Check[] = [
             kind: "llm.generate",
             payload: prompt("alice's private prompt"),
             owner: "alice",
-            audience: "self",
+            audience: "private",
           });
           await bob.runner.tick();
           await sleep(50);
@@ -184,7 +184,7 @@ export const CHECKS: readonly Check[] = [
             backendId: "openai-http",
             backendClass: "http",
             model: "echo-model",
-            offerScope: "self",
+            offerScope: "private",
           },
         ]);
         assert(
@@ -305,15 +305,16 @@ export const CHECKS: readonly Check[] = [
     async run(target: ConformanceTarget): Promise<void> {
       // Expected outcome for a job owned by `alice` offered to `bob`'s daemon
       // whose local allowlist is empty.
+      // Keyed `audience:offer`, in the one vocabulary both axes now speak.
       const expected: Record<string, boolean> = {
-        "self:self": false,
-        "self:named": false,
-        "self:public": false,
-        "named:self": false,
-        "named:named": false, // refused locally — allowlist is empty
-        "named:public": true,
-        "public:self": false,
-        "public:named": false, // refused locally — allowlist is empty
+        "private:private": false,
+        "private:team": false,
+        "private:public": false,
+        "team:private": false,
+        "team:team": false, // refused locally — allowlist is empty
+        "team:public": true,
+        "public:private": false,
+        "public:team": false, // refused locally — allowlist is empty
         "public:public": true,
       };
 
@@ -354,13 +355,13 @@ export const CHECKS: readonly Check[] = [
     title: "a named job runs only once the daemon's own allowlist admits it",
     musts: ["NAMED_LOCAL_ALLOWLIST", "REFUSAL_NOT_REOFFERED"],
     async run(target: ConformanceTarget): Promise<void> {
-      const bob = await pairDaemon(target, { owner: "bob", offer: "named" });
+      const bob = await pairDaemon(target, { owner: "bob", offer: "team" });
       try {
         const refused = await target.enqueue({
           kind: "llm.generate",
           payload: prompt("before"),
           owner: "alice",
-          audience: "named",
+          audience: "team",
         });
 
         await bob.runner.tick();
@@ -400,7 +401,7 @@ export const CHECKS: readonly Check[] = [
           kind: "llm.generate",
           payload: prompt("after"),
           owner: "alice",
-          audience: "named",
+          audience: "team",
         });
         await bob.runner.tick();
         await waitFor(
@@ -456,7 +457,7 @@ export const CHECKS: readonly Check[] = [
           kind: "llm.generate",
           payload: prompt("my own work"),
           owner: "bob",
-          audience: "self",
+          audience: "private",
         });
         await bob.runner.tick();
         await waitFor(async () => (await target.job(own.id))?.state === "ok", {
@@ -665,13 +666,13 @@ export const CHECKS: readonly Check[] = [
           kind: "llm.generate",
           payload: prompt("step one"),
           owner: "bob",
-          audience: "self",
+          audience: "private",
         });
         const second = await target.enqueue({
           kind: "llm.generate",
           payload: prompt("step two"),
           owner: "alice",
-          audience: "self",
+          audience: "private",
           dependsOn: [first.id],
         });
 
@@ -816,7 +817,7 @@ export const CHECKS: readonly Check[] = [
           kind: "llm.generate",
           payload: prompt("my own"),
           owner: "bob",
-          audience: "self",
+          audience: "private",
         });
         await bob.runner.tick();
         await waitFor(async () => (await target.job(own.id))?.state === "ok", {
@@ -944,7 +945,7 @@ export const CHECKS: readonly Check[] = [
       });
       try {
         assert(
-          bob.loaded.routes.every((route) => route.offerScope === "self"),
+          bob.loaded.routes.every((route) => route.offerScope === "private"),
           "a metered backend was advertised beyond its owner without consent",
         );
         assert(
@@ -993,7 +994,7 @@ export const CHECKS: readonly Check[] = [
           kind: "llm.generate",
           payload: prompt("my own work"),
           owner: "bob",
-          audience: "self",
+          audience: "private",
         });
         await bob.runner.tick();
         await waitFor(async () => (await target.job(own.id))?.state === "ok", {
@@ -1078,7 +1079,7 @@ export const CHECKS: readonly Check[] = [
           kind: "llm.generate",
           payload: prompt("my own work, my own key"),
           owner: "bob",
-          audience: "self",
+          audience: "private",
         });
         await bob.runner.tick();
         await waitFor(async () => (await target.job(own.id))?.state === "ok", {
@@ -1107,7 +1108,7 @@ export const CHECKS: readonly Check[] = [
           kind: "llm.generate",
           payload: prompt("only once, please"),
           owner: "alice",
-          audience: "self",
+          audience: "private",
         });
 
         // Concurrently, not in sequence — sequential ticks would pass against
@@ -1282,7 +1283,7 @@ export const CHECKS: readonly Check[] = [
               baseUrl: "http://evil.test/v1",
             } as never,
             owner: "alice",
-            audience: "self",
+            audience: "private",
           });
         } catch {
           refused = true;
@@ -1319,7 +1320,7 @@ export const CHECKS: readonly Check[] = [
           kind: "llm.generate",
           payload: prompt("ordinary text"),
           owner: "alice",
-          audience: "self",
+          audience: "private",
         });
         await daemon.runner.tick();
         await waitFor(async () => (await target.job(ok.id))?.state === "ok", {
@@ -1612,7 +1613,7 @@ export const CHECKS: readonly Check[] = [
           kind: "llm.generate",
           payload: prompt("run me once"),
           owner: "alice",
-          audience: "self",
+          audience: "private",
         });
 
         const first = await claimOne(target, daemon);
@@ -1662,7 +1663,7 @@ export const CHECKS: readonly Check[] = [
           kind: "llm.generate",
           payload: prompt("this must not appear in a claim response"),
           owner: "alice",
-          audience: "self",
+          audience: "private",
         });
 
         const stub = await claimOne(target, daemon);
@@ -1744,7 +1745,7 @@ export const CHECKS: readonly Check[] = [
           kind: "llm.generate",
           payload: prompt(secret),
           owner: "alice",
-          audience: "self",
+          audience: "private",
         });
 
         // 1. Whatever the store hands back about this job, the work is not
@@ -1961,7 +1962,7 @@ export const CHECKS: readonly Check[] = [
           kind: "llm.generate",
           payload: prompt("alice's own machines only"),
           owner: "alice",
-          audience: "self",
+          audience: "private",
         });
 
         const offered = await claimRaw(target, bob);
@@ -2009,7 +2010,7 @@ export const CHECKS: readonly Check[] = [
           kind: "llm.generate",
           payload: prompt("who else is on this roster"),
           owner: "alice",
-          audience: "named",
+          audience: "team",
           // The site restricts the job to people who are not this daemon's
           // owner. A stub that carried the list would be handing a routing
           // party the membership of alice's group.
@@ -2057,7 +2058,7 @@ export const CHECKS: readonly Check[] = [
         // is a target's business: the harness asked for `named`, and a
         // claimed job must still say so.
         assert(
-          claimed.audience === "named",
+          claimed.audience === "team",
           "the stub lost the audience routing decides on",
         );
         assert(

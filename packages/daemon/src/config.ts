@@ -54,7 +54,7 @@ export const ServiceConfig = z
      * what owners actually mean. Subscription-class services ignore this and
      * are locked to `self` ({@link MUSTS.SUBSCRIPTION_SELF_LOCK}).
      */
-    offer: OfferScope.default("self"),
+    offer: OfferScope.default("private"),
     /**
      * Name of an environment variable holding this backend's API key, for a
      * remote OpenAI-compatible server that needs one. The *name*, never the
@@ -227,6 +227,16 @@ export interface LoadedConfig {
   readonly routes: readonly ResolvedRoute[];
   /** Kinds not advertised because the owner has not said which service wins. */
   readonly withheld: readonly WithheldKind[];
+  /**
+   * What this build cannot yet do, in the owner's words.
+   *
+   * Separate from `problems` on purpose: a problem means the config says
+   * something wrong and something was dropped. A notice means the config is
+   * fine and *the build* is behind it. Folding the two would make every
+   * limitation read as an owner's mistake — and would make a genuine mistake
+   * easier to miss among them.
+   */
+  readonly notices: readonly string[];
   /** Non-fatal problems: a route that cannot be served is dropped, not fatal. */
   readonly problems: readonly ConfigProblem[];
 }
@@ -292,6 +302,7 @@ export function resolveConfig(config: DaemonConfig): LoadedConfig {
   const routes: ResolvedRoute[] = [];
   const problems: ConfigProblem[] = [];
   const withheld: WithheldKind[] = [];
+  const notices: string[] = [];
 
   /**
    * Who claims each kind, decided before anything is resolved.
@@ -379,7 +390,7 @@ export function resolveConfig(config: DaemonConfig): LoadedConfig {
 
     // A widened metered service without a ceiling is refused rather than
     // silently given an unlimited one ({@link MUSTS.METERED_REQUIRES_CEILING}).
-    const widened = service.offer !== "self";
+    const widened = service.offer !== "private";
     if (
       cost === "metered" &&
       widened &&
@@ -435,7 +446,27 @@ export function resolveConfig(config: DaemonConfig): LoadedConfig {
     }
   }
 
-  return { config, routes, withheld, problems };
+  /**
+   * The build says what `team` currently means — byollm_016, 2026-08-24.
+   *
+   * `team` is named for central membership: the device follows the owner's
+   * roster, synced down the projection path, with a local `disallow` surviving
+   * as a veto. That sync is not built. Until it is, `team` enforces through the
+   * same local allowlist `named` did.
+   *
+   * Announced here rather than in release notes, because release notes are not
+   * where an owner is looking when they write `"offer": "team"` and reasonably
+   * conclude their roster is now in force. A name that runs ahead of its
+   * behaviour has to say so in the place the name is used.
+   */
+  if (Object.values(config.services).some((s) => s.offer === "team")) {
+    notices.push(
+      "team enforcement is local-allowlist in this build; roster sync lands " +
+        "next. `byollm allow` still decides who may run work here.",
+    );
+  }
+
+  return { config, routes, withheld, notices, problems };
 }
 
 function isNotFound(error: unknown): boolean {

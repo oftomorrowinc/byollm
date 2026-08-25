@@ -170,7 +170,7 @@ export function provenanceFor(input: {
     runnerOwner: input.runnerOwner,
     backendClass: input.backendClass,
     model: input.model,
-    untrusted: input.audience !== "self",
+    untrusted: input.audience !== "private",
   };
 }
 

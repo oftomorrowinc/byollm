@@ -319,7 +319,7 @@ describe("no-runner signal [NO_RUNNER_SIGNAL]", () => {
       await h.app.runnerAvailability({
         kind: "llm.generate",
         owner: "alice",
-        audience: "self",
+        audience: "private",
       }),
     ).toMatchObject({ available: false, reason: "audience-admits-nobody" });
   });

@@ -4,20 +4,43 @@ import { type BackendCost } from "./backends.js";
 /**
  * Who may run a job, declared by the app that enqueued it.
  *
- * - `self` — only the job owner's own daemon.
- * - `named` — a daemon whose owner has explicitly allowed this (server, user)
- *   pair in their *local* allowlist (byollm_001 Rev 1 §B).
- * - `public` — any daemon offering `public` compute.
+ * - `private` — only the job owner's own devices.
+ * - `team` — a device whose owner has this person on their roster.
+ * - `public` — any device offering `public` compute.
+ *
+ * **One vocabulary, ruled 2026-08-24.** These were `self | named | public`
+ * while {@link OfferScope} became `private | team | public`, which would have
+ * left every seam where the two meet speaking two languages for one idea, and
+ * every doc explaining "self versus private" for ever. They are still
+ * independent axes — a job says who may run it, a service says who it will run
+ * for — and a job runs only where both agree
+ * ({@link MUSTS.AUDIENCE_BOTH_SIDES}). Sharing the words costs nothing and
+ * saves a mapping layer nobody would have enjoyed maintaining.
  */
-export const Audience = z.enum(["self", "named", "public"]);
+export const Audience = z.enum(["private", "team", "public"]);
 export type Audience = z.infer<typeof Audience>;
 
 /**
- * What a daemon backend is willing to run, declared by the machine's owner.
- * Same three values as {@link Audience}, but the two are independent axes —
- * a job runs only where both agree ({@link MUSTS.AUDIENCE_BOTH_SIDES}).
+ * What a device's owner is willing to run for other people, per service.
+ *
+ * - `private` — the owner's own work only.
+ * - `team` — the owner's roster. Membership is **central**, not per-person:
+ *   the device follows the roster rather than holding its own copy of who is
+ *   in it (byollm_016, 2026-08-24).
+ * - `public` — any job, from anyone. This is the community posture the daemon
+ *   has always had (`byollm offer <service> public`), bounded by community
+ *   budgets. byollm_016 parks it as a **hosted-product** surface — the cloud
+ *   dashboard does not offer it — which is not the same as removing it from
+ *   the daemon, and the CLI still accepts it.
+ *
+ * Deliberately *not* the same words as {@link Audience}, which they used to
+ * share. They are independent axes — a job says who may run it, a service says
+ * who it will run for — and identical spellings made that read as one concept
+ * with two homes. A job runs only where both agree
+ * ({@link MUSTS.AUDIENCE_BOTH_SIDES}); {@link matches} is the one place the
+ * correspondence lives.
  */
-export const OfferScope = z.enum(["self", "named", "public"]);
+export const OfferScope = z.enum(["private", "team", "public"]);
 export type OfferScope = z.infer<typeof OfferScope>;
 
 /** All audience values, in widening order. */
@@ -77,7 +100,7 @@ export interface SpendConsent {
  *
  * - `subscription` is locked to `self` regardless of config
  *   ({@link MUSTS.SUBSCRIPTION_SELF_LOCK}) — someone else's terms.
- * - `metered` narrows to `self` unless the owner has explicitly acknowledged
+ * - `metered` narrows to `private` unless the owner has explicitly acknowledged
  *   the spend ({@link MUSTS.METERED_DEFAULTS_SELF}) — their money.
  * - `free` passes through — their electricity.
  *
@@ -89,8 +112,8 @@ export function effectiveOfferScope(
   cost: BackendCost,
   spend?: SpendConsent,
 ): OfferScope {
-  if (cost === "subscription") return "self";
-  if (cost === "metered" && spend?.acknowledged !== true) return "self";
+  if (cost === "subscription") return "private";
+  if (cost === "metered" && spend?.acknowledged !== true) return "private";
   return configured;
 }
 
@@ -143,10 +166,10 @@ export interface MatchDaemon {
  * @example
  * ```ts
  * const result = matchAudience(
- *   { owner: "alice", audience: "named" },
+ *   { owner: "alice", audience: "team" },
  *   {
  *     owner: "bob",
- *     offerScope: "named",
+ *     offerScope: "team",
  *     cost: "free",
  *     locallyAllows: (o) => o === "alice",
  *   },
@@ -158,11 +181,11 @@ export function matchAudience(job: MatchJob, daemon: MatchDaemon): MatchResult {
   const sameOwner = job.owner === daemon.owner;
 
   // --- Side 1: does the job's audience admit this daemon's owner? --------
-  if (job.audience === "self" && !sameOwner) {
+  if (job.audience === "private" && !sameOwner) {
     return refuse("audience-self-other-owner");
   }
   if (
-    job.audience === "named" &&
+    job.audience === "team" &&
     !sameOwner &&
     job.audienceAllow !== undefined &&
     !job.audienceAllow.includes(daemon.owner)
@@ -199,10 +222,21 @@ export function matchAudience(job: MatchJob, daemon: MatchDaemon): MatchResult {
   }
 
   switch (scope) {
-    case "self":
+    case "private":
       return refuse("offer-scope-too-narrow");
-    case "named":
-      // byollm_001 Rev 1 §B: the daemon's own list decides, not the server's.
+    case "team":
+      // **Interim: this is still the local allowlist.**
+      //
+      // byollm_016 rules that team membership is central — the device follows
+      // the owner's roster, synced down the projection path, with a local
+      // `disallow` surviving only as a per-person veto. That sync does not
+      // exist yet, so `team` currently enforces through the same local list
+      // `named` did.
+      //
+      // Written here rather than left to be discovered: the value is named for
+      // what it will mean, and until roster sync lands the name is ahead of
+      // the behaviour. Nothing may be promoted as "team sharing" on this
+      // alone.
       return daemon.locallyAllows(job.owner)
         ? ALLOWED
         : refuse("not-locally-allowed");

@@ -78,7 +78,7 @@ describe("publishing a stub", () => {
     await app.enqueue({
       kind: "llm.generate",
       owner: "alice",
-      audience: "self",
+      audience: "private",
       payload: { prompt: "a secret" },
     });
 
@@ -135,7 +135,7 @@ describe("what the site refuses to believe", () => {
     const handle = await app.enqueue({
       kind: "llm.generate",
       owner: "alice",
-      audience: "self",
+      audience: "private",
       payload: { prompt: "hi" },
     });
 
@@ -182,7 +182,7 @@ describe("what the site refuses to believe", () => {
     const handle = await app.enqueue({
       kind: "llm.generate",
       owner: "alice",
-      audience: "self",
+      audience: "private",
       payload: { prompt: "hi" },
     });
 
@@ -231,7 +231,7 @@ describe("what the site refuses to believe", () => {
     const handle = await app.enqueue({
       kind: "llm.generate",
       owner: "alice",
-      audience: "self",
+      audience: "private",
       payload: { prompt: "hi" },
     });
 

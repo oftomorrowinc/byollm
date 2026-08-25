@@ -40,7 +40,7 @@ const stub = (id: string, owner = "alice") => ({
   kind: "llm.generate" as const,
   owner,
   site: SITE_KEY_ID,
-  audience: "self" as const,
+  audience: "private" as const,
   sizeClass: "small" as const,
   streaming: false,
   deadlineAt: 4_102_444_800_000,
@@ -166,7 +166,7 @@ describe("audience, which the relay was ignoring", () => {
     await state.enqueue({
       id: "private",
       siteId: SITE,
-      stub: { ...stub("private", "alice"), audience: "self" },
+      stub: { ...stub("private", "alice"), audience: "private" },
     });
 
     expect(await state.claim(rosterClaim())).toEqual([]);
@@ -182,7 +182,7 @@ describe("audience, which the relay was ignoring", () => {
     await state.enqueue({
       id: "private",
       siteId: SITE,
-      stub: { ...stub("private", "alice"), audience: "self" },
+      stub: { ...stub("private", "alice"), audience: "private" },
     });
 
     const granted = await state.claim(

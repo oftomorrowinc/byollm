@@ -112,7 +112,7 @@ function stub(jobId: string, site: string) {
     owner: "me",
     kind: "llm.generate",
     sizeClass: "small",
-    audience: "self",
+    audience: "private",
     deadlineAt: Date.now() + 600_000,
     streaming: false,
     lease: {
@@ -237,7 +237,7 @@ async function runnerOver(fetchImpl: typeof fetch): Promise<Runner> {
           kinds: ["llm.generate"],
           type: "openai-http",
           baseUrl: "http://127.0.0.1:11434/v1",
-          offer: "self",
+          offer: "private",
         },
       },
       concurrency: 2,

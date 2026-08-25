@@ -6,7 +6,7 @@ const stub = {
   kind: "llm.generate" as const,
   owner: "alice",
   site: "BYOLLM-TEST-SITE-KEY-ID",
-  audience: "self" as const,
+  audience: "private" as const,
   sizeClass: "small" as const,
   streaming: false,
   deadlineAt: 1_800_000_000_000,

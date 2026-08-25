@@ -70,7 +70,7 @@ describe("a paused consent", () => {
           backendId: "openai-http",
           backendClass: "http",
           model: "m",
-          offerScope: "self",
+          offerScope: "private",
         },
       ],
       activeLeases: [],
@@ -151,7 +151,7 @@ describe("a paused consent", () => {
     await connector.enqueue({
       prompt: "alice's work",
       owner: "alice",
-      audience: "named",
+      audience: "team",
     });
     await route(relay, connector, daemon);
     expect(daemon.backend.seen).toEqual([]);
@@ -189,7 +189,7 @@ describe("a paused consent", () => {
     await connector.enqueue({
       prompt: "alice's work",
       owner: "alice",
-      audience: "named",
+      audience: "team",
     });
     await route(relay, connector, daemon);
     expect(daemon.backend.seen).toEqual([]);

@@ -127,7 +127,7 @@ async function makeRunner(fetchImpl: typeof fetch, owner = "me") {
           kinds: ["llm.generate"],
           type: "openai-http",
           baseUrl: "http://127.0.0.1:11434/v1",
-          offer: "self",
+          offer: "private",
         },
       },
       concurrency: 2,
@@ -326,7 +326,7 @@ describe("the loop", () => {
             {
               id: "job_1",
               kind: "llm.generate",
-              audience: "self",
+              audience: "private",
               owner: "me",
               site: TEST_SITE_ID,
               sizeClass: "small",
@@ -368,7 +368,7 @@ describe("the loop", () => {
             {
               id: "job_1",
               kind: "llm.generate",
-              audience: "self",
+              audience: "private",
               owner: "me",
               site: "BYOLLM-A-SITE-THIS-MACHINE-NEVER-PAIRED-WITH",
               sizeClass: "small",
@@ -420,7 +420,7 @@ describe("the loop", () => {
             {
               id: "job_1",
               kind: "llm.generate",
-              audience: "self",
+              audience: "private",
               owner: "me",
               site: TEST_SITE_ID,
               sizeClass: "small",

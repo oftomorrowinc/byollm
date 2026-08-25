@@ -163,7 +163,7 @@ describe("small edges elsewhere", () => {
           { role: "user", content: "hi" },
         ],
       },
-      audience: "self",
+      audience: "private",
       owner: "me",
       lease: { id: "lease_test", runnerId: "r", expiresAt: Date.now() + 1_000 },
     });

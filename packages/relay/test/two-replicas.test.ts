@@ -164,7 +164,7 @@ describe("two replicas sharing one store", () => {
       id: "job_contended",
       kind: "llm.generate" as const,
       owner: "alice",
-      audience: "self" as const,
+      audience: "private" as const,
       sizeClass: "small" as const,
       streaming: false,
       deadlineAt: Date.now() + 300_000,

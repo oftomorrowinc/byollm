@@ -96,7 +96,7 @@ const STUB = {
   id: "posture-probe",
   kind: "llm.generate",
   owner: "nobody",
-  audience: "self",
+  audience: "private",
   sizeClass: "small",
   streaming: false,
   // Far enough out that a deployment cannot pass by calling it expired.

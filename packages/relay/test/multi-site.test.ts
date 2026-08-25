@@ -61,7 +61,7 @@ const stub = (site: string): JobStub => ({
   kind: "llm.generate",
   owner: "alice",
   site,
-  audience: "self",
+  audience: "private",
   sizeClass: "small",
   streaming: false,
   deadlineAt: Date.now() + 300_000,

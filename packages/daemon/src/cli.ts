@@ -1165,7 +1165,7 @@ async function commandOffer(
     );
     return 2;
   }
-  if (scope !== "self" && scope !== "named" && scope !== "public") {
+  if (scope !== "private" && scope !== "team" && scope !== "public") {
     io.err(`"${scope}" is not an offer scope — use self, named, or public\n`);
     return 2;
   }
@@ -1219,7 +1219,7 @@ async function commandOffer(
   const descriptor = backendDescriptor(service.type);
   const baseUrl = service.baseUrl ?? descriptor.defaultBaseUrl;
   const cost = resolveCost(service.type, baseUrl);
-  const widening = scope !== "self";
+  const widening = scope !== "private";
 
   // A subscription backend cannot be offered at all, so say that instead of
   // writing a setting that would be silently ignored on the next load.
@@ -1529,6 +1529,10 @@ async function commandServices(
   }
   for (const problem of loaded.problems) {
     io.out(`  ! ${problem.where}: ${problem.message}\n`);
+  }
+  // What the build cannot do yet, said where the owner is looking.
+  for (const notice of loaded.notices) {
+    io.out(`  i ${notice}\n`);
   }
   io.out(
     `\n${String(advertised.length)} of ${String(loaded.routes.length)} services are ` +

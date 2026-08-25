@@ -110,7 +110,7 @@ async function runnerWith(
           kinds: ["llm.generate"],
           type: "openai-http",
           baseUrl: "http://127.0.0.1:11434/v1",
-          offer: "self",
+          offer: "private",
         },
       },
     }),

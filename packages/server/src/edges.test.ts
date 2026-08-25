@@ -50,7 +50,7 @@ describe("MemoryStore — edges", () => {
       holder: { by: "runner", runnerId: "r" },
       outcome: { outcome: "ok", text: "x" },
       provenance: {
-        audience: "self",
+        audience: "private",
         runnerId: "r",
         runnerOwner: "me",
         backendClass: "http",
@@ -73,7 +73,7 @@ describe("MemoryStore — edges", () => {
       holder: { by: "runner", runnerId: "r" },
       outcome: { outcome: "ok", text: "too late" },
       provenance: {
-        audience: "self",
+        audience: "private",
         runnerId: "r",
         runnerOwner: "me",
         backendClass: "http",
@@ -337,7 +337,7 @@ describe("the push seam [byollm_009 §8.3]", () => {
       outcome: { outcome: "ok", text: "done" },
       provenance: {
         untrusted: false,
-        audience: "self",
+        audience: "private",
         runnerId: "r",
         runnerOwner: "alice",
         backendClass: "http",

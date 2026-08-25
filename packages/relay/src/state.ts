@@ -485,7 +485,7 @@ export class RelayState implements RoutingStore {
       // offered it straight back. The ping-pong was the visible symptom; the
       // invisible one is that `self` — the audience a user picks *because*
       // they want their own machine — was the audience the relay ignored.
-      if (job.stub.audience === "self" && job.stub.owner !== input.owner) {
+      if (job.stub.audience === "private" && job.stub.owner !== input.owner) {
         continue;
       }
 

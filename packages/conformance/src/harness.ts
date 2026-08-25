@@ -139,7 +139,7 @@ export interface HarnessDaemon {
 
 /** Build the daemon-side config for a given offer scope and backend class. */
 function daemonConfig(options: {
-  offer: "self" | "named" | "public";
+  offer: "private" | "team" | "public";
   subscription: boolean;
   metered?: MeteredOptions;
 }): LoadedConfig {
@@ -215,7 +215,7 @@ export async function pairDaemon(
   options: {
     owner: string;
     label?: string;
-    offer?: "self" | "named" | "public";
+    offer?: "private" | "team" | "public";
     /** Use the subscription-class backend, to exercise the self-lock. */
     subscription?: boolean;
     /** Use a paid backend, to exercise the cost rules. */
@@ -224,7 +224,7 @@ export async function pairDaemon(
 ): Promise<HarnessDaemon> {
   const home = await mkdtemp(join(tmpdir(), "byollm-conformance-"));
   const loaded = daemonConfig({
-    offer: options.offer ?? "self",
+    offer: options.offer ?? "private",
     subscription: options.subscription ?? false,
     ...(options.metered === undefined ? {} : { metered: options.metered }),
   });
@@ -757,7 +757,7 @@ export async function fetchGenuine(
     // The target's own name for the user, not the id it mapped that to —
     // passing a mapped id back in addresses a user the target never made.
     owner,
-    audience: "self",
+    audience: "private",
   });
   // Retried: an in-memory store makes a job claimable the instant enqueue
   // returns, and a real database does not. Claiming once passes everywhere

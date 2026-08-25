@@ -24,8 +24,8 @@ describe("config defaults", () => {
     expect(config.concurrency).toBe(2);
   });
 
-  it("defaults a service's offer scope to self", () => {
-    expect(parse().services["local"]?.offer).toBe("self");
+  it("defaults a service's offer scope to private", () => {
+    expect(parse().services["local"]?.offer).toBe("private");
   });
 
   it("refuses an unknown key rather than ignoring it", () => {
@@ -65,7 +65,7 @@ describe("resolveConfig — the subscription self-lock [SUBSCRIPTION_SELF_LOCK]"
         },
       }),
     );
-    expect(routes[0]?.offerScope).toBe("self");
+    expect(routes[0]?.offerScope).toBe("private");
     expect(problems[0]?.message).toContain("locked to your work only");
   });
 
@@ -261,7 +261,7 @@ describe("byollm_007 — cost class and providers", () => {
         ...only("gpt", { type: "openai", apiKeyEnv: "K", offer: "public" }),
       }),
     );
-    expect(routes[0]?.offerScope).toBe("self");
+    expect(routes[0]?.offerScope).toBe("private");
     expect(problems[0]?.message).toContain("bills you per token");
     expect(problems[0]?.message).toContain("byollm offer");
   });
@@ -288,13 +288,13 @@ describe("byollm_007 — cost class and providers", () => {
         ...only("gpt", {
           type: "openai",
           apiKeyEnv: "K",
-          offer: "named",
+          offer: "team",
           spend: { acknowledged: true, dailyCapCents: 500 },
         }),
       }),
     );
     expect(problems).toEqual([]);
-    expect(routes[0]?.offerScope).toBe("named");
+    expect(routes[0]?.offerScope).toBe("team");
     expect(routes[0]?.spendDailyCapCents).toBe(500);
   });
 
@@ -312,7 +312,7 @@ describe("byollm_007 — cost class and providers", () => {
       }),
     );
     expect(routes[0]?.cost).toBe("metered");
-    expect(routes[0]?.offerScope).toBe("self");
+    expect(routes[0]?.offerScope).toBe("private");
     expect(problems[0]?.message).toContain("per token");
   });
 
@@ -351,6 +351,6 @@ describe("byollm_007 — cost class and providers", () => {
         }),
       }),
     );
-    expect(routes[0]?.offerScope).toBe("self");
+    expect(routes[0]?.offerScope).toBe("private");
   });
 });

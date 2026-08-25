@@ -72,7 +72,7 @@ class EchoBackend implements Backend {
 }
 
 async function makeRunner(options: {
-  offer: "self" | "public";
+  offer: "private" | "public";
   acknowledged: boolean;
   capCents?: number;
 }) {
@@ -182,7 +182,7 @@ describe("the ledger is written by the work, not by hand", () => {
       capCents: 500,
     });
 
-    await runner.runJob(job({ owner: "me", audience: "self" }));
+    await runner.runJob(job({ owner: "me", audience: "private" }));
 
     // Their machine, their key, their call — nothing to meter.
     expect(spend.spentTodayCents("paid", Date.now())).toBe(0);
@@ -212,7 +212,9 @@ describe("the ledger is written by the work, not by hand", () => {
     });
     await spend.record("paid", 99, Date.now());
 
-    expect(runner.admit(job({ owner: "me", audience: "self" })).ok).toBe(true);
+    expect(runner.admit(job({ owner: "me", audience: "private" })).ok).toBe(
+      true,
+    );
   });
 
   it("never consults the ledger for a free backend", async () => {
@@ -442,7 +444,7 @@ describe("byollm offer — the command the config error names", () => {
   it("refuses to offer a subscription backend at all [SUBSCRIPTION_SELF_LOCK]", async () => {
     await write({ type: "claude-cli" });
 
-    expect(await run("offer", "paid", "named")).toBe(1);
+    expect(await run("offer", "paid", "team")).toBe(1);
     expect(out).toContain("cannot be offered");
     expect((await read()).offer).toBeUndefined();
   });
@@ -455,16 +457,16 @@ describe("byollm offer — the command the config error names", () => {
     expect((await read()).offer).toBe("public");
   });
 
-  it("withdraws consent when narrowing back to self", async () => {
+  it("withdraws consent when narrowing back to private", async () => {
     await write({
       type: "openai",
       offer: "public",
       spend: { acknowledged: true, dailyCapCents: 250 },
     });
 
-    expect(await run("offer", "paid", "self")).toBe(0);
+    expect(await run("offer", "paid", "private")).toBe(0);
     const paid = await read();
-    expect(paid.offer).toBe("self");
+    expect(paid.offer).toBe("private");
     // Widening again has to be agreed to again, not inherited from a
     // decision the owner already reversed.
     expect(paid.spend?.acknowledged).toBe(false);

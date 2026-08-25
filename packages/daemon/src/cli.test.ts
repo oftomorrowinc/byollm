@@ -249,7 +249,7 @@ describe("byollm log", () => {
       origin: "https://app.test",
       jobId: "job_1",
       kind: "llm.generate",
-      audience: "self",
+      audience: "private",
       owner: "me",
       backendId: "openai-http",
       backendClass: "http",
@@ -356,6 +356,40 @@ describe("byollm services", () => {
     expect(out).toContain("qwen, llama");
     expect(out).toContain("defaults.llm.generate");
     expect(out).toContain("not offered to anyone until you choose");
+  });
+
+  it("says team enforcement is still the local allowlist in this build", async () => {
+    // The build describes its own limitation where the owner is looking. A
+    // value named for central membership, enforced by a local list, has to say
+    // so in the place the name is written — release notes are not where
+    // somebody is standing when they type `"offer": "team"` and conclude their
+    // roster is now in force.
+    await writeFile(
+      paths.config,
+      JSON.stringify({
+        services: {
+          qwen: {
+            model: "qwen3",
+            kinds: ["llm.generate"],
+            type: "openai-http",
+            baseUrl: "http://127.0.0.1:1/v1",
+            offer: "team",
+          },
+        },
+      }),
+    );
+
+    await run("services");
+    expect(out).toContain("team enforcement is local-allowlist in this build");
+    expect(out).toContain("roster sync lands next");
+  });
+
+  it("says nothing about team when no service offers it", async () => {
+    // The control: a notice printed unconditionally would pass the case above
+    // and tell a private-only owner about a limitation that cannot reach them.
+    await writeConfig();
+    await run("services");
+    expect(out).not.toContain("team enforcement");
   });
 
   it("stops saying withheld once a default resolves it", async () => {

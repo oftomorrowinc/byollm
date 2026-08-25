@@ -44,13 +44,15 @@ describe("job lifecycle", () => {
 
 describe("result provenance", () => {
   it("marks a self job trusted", () => {
-    expect(provenanceFor({ ...base, audience: "self" }).untrusted).toBe(false);
+    expect(provenanceFor({ ...base, audience: "private" }).untrusted).toBe(
+      false,
+    );
   });
 
   it("marks named and public results untrusted — they are attacker-controlled", () => {
     // byollm_003 Rev 1: a volunteer's machine can return anything, and the app
     // would otherwise render it as its own AI's output.
-    expect(provenanceFor({ ...base, audience: "named" }).untrusted).toBe(true);
+    expect(provenanceFor({ ...base, audience: "team" }).untrusted).toBe(true);
     expect(provenanceFor({ ...base, audience: "public" }).untrusted).toBe(true);
   });
 
@@ -66,7 +68,7 @@ describe("ClaimedJob wire shape", () => {
     id: "job-1",
     kind: "llm.generate" as const,
     payload: { prompt: "hi" },
-    audience: "self" as const,
+    audience: "private" as const,
     owner: "alice",
     lease: {
       id: "lease_test",

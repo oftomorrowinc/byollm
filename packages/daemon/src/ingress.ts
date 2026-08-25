@@ -112,7 +112,7 @@ export class IngressLog {
     // Community prompts are always kept initially — retention reduces them
     // later. Only the owner's own prompts can be opted out of up front.
     const keepText =
-      input.audience === "self" ? this.#options.keepSelfPrompts : true;
+      input.audience === "private" ? this.#options.keepSelfPrompts : true;
 
     await this.#append({
       type: "prompt",
@@ -206,7 +206,7 @@ export class IngressLog {
     const kept = entries.map((entry) => {
       if (entry.type !== "prompt") return entry;
       const isCommunity =
-        entry.audience === "named" || entry.audience === "public";
+        entry.audience === "team" || entry.audience === "public";
       if (!isCommunity || entry.prompt === undefined || entry.at >= cutoff) {
         return entry;
       }

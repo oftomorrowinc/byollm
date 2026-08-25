@@ -280,7 +280,7 @@ describe("the freeze gate — cloud_004 §14", () => {
     const { jobId } = await connector.enqueue({
       prompt: "alice's work on bob's machine",
       owner: "alice",
-      audience: "named",
+      audience: "team",
     });
     await route(relay, connector, daemon);
 

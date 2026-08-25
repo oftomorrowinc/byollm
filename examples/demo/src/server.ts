@@ -149,7 +149,7 @@ async function route(request: Request): Promise<Response> {
 
     const job = await app.enqueue({
       kind: "llm.generate",
-      audience: "self",
+      audience: "private",
       owner: user,
       payload: { prompt },
     });

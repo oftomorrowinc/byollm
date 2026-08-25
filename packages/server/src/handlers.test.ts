@@ -374,7 +374,7 @@ describe("audience enforcement on the server [AUDIENCE_BOTH_SIDES]", () => {
       kind: "llm.generate",
       payload: { prompt: "alice's private prompt" },
       owner: "alice",
-      audience: "self",
+      audience: "private",
     });
 
     const res = await h.call("claim", claim(bob.runnerId), bob);
@@ -445,7 +445,7 @@ describe("audience enforcement on the server [AUDIENCE_BOTH_SIDES]", () => {
       kind: "llm.generate",
       payload: { prompt: "hi" },
       owner: "alice",
-      audience: "named",
+      audience: "team",
       audienceAllow: ["carol"],
     });
 
@@ -665,7 +665,7 @@ describe("result [RESULT_IDEMPOTENT, PROVENANCE_NAMES_DEVICE]", () => {
       kind: "llm.generate",
       payload: { prompt: "hi" },
       owner: "alice",
-      audience: "self",
+      audience: "private",
     });
     await claimOne(h, alice);
     await h.call(
@@ -917,7 +917,7 @@ describe("release [REFUSAL_NOT_REOFFERED]", () => {
       kind: "llm.generate",
       payload: { prompt: "hi" },
       owner: "alice",
-      audience: "named",
+      audience: "team",
     });
 
     const capabilities = httpCapabilities("public");

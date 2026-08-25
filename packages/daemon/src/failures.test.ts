@@ -208,7 +208,7 @@ const oneJob = [
   {
     id: "job_1",
     kind: "llm.generate",
-    audience: "self",
+    audience: "private",
     owner: "me",
     site: TEST_SITE_ID,
     sizeClass: "small",

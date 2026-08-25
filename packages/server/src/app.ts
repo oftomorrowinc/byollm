@@ -55,7 +55,7 @@ export interface RunnerAvailability {
 export interface AvailabilityQuery {
   readonly kind: JobKind;
   readonly owner: string;
-  readonly audience?: "self" | "named" | "public";
+  readonly audience?: "private" | "team" | "public";
   readonly audienceAllow?: readonly string[];
 }
 
@@ -361,7 +361,7 @@ export class ByollmApp {
       const match = matchAudience(
         {
           owner: query.owner,
-          audience: query.audience ?? "self",
+          audience: query.audience ?? "private",
           audienceAllow: query.audienceAllow,
         },
         {

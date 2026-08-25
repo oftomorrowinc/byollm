@@ -39,7 +39,7 @@ const stubFor = (jobId: string, site = "BYOLLM-TEST-SITE-KEY-ID"): JobStub => ({
   kind: "llm.generate",
   owner: "alice",
   site,
-  audience: "self",
+  audience: "private",
   sizeClass: "small",
   streaming: false,
   deadlineAt: Date.now() + 300_000,

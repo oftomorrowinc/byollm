@@ -47,7 +47,7 @@ describe("effectiveOfferScope", () => {
 
   it("locks a subscription backend to self whatever config says", () => {
     for (const scope of OFFER_SCOPES) {
-      expect(effectiveOfferScope(scope, "subscription")).toBe("self");
+      expect(effectiveOfferScope(scope, "subscription")).toBe("private");
     }
   });
 
@@ -55,10 +55,10 @@ describe("effectiveOfferScope", () => {
     // byollm_007: the bug this closes is a paid API key offered `public` by
     // accident. Silence is not consent.
     for (const scope of OFFER_SCOPES) {
-      expect(effectiveOfferScope(scope, "metered")).toBe("self");
+      expect(effectiveOfferScope(scope, "metered")).toBe("private");
       expect(
         effectiveOfferScope(scope, "metered", { acknowledged: false }),
-      ).toBe("self");
+      ).toBe("private");
     }
   });
 
@@ -75,7 +75,7 @@ describe("effectiveOfferScope", () => {
     for (const scope of OFFER_SCOPES) {
       expect(
         effectiveOfferScope(scope, "subscription", { acknowledged: true }),
-      ).toBe("self");
+      ).toBe("private");
     }
   });
 });
@@ -88,19 +88,19 @@ describe("matchAudience — the nine-way matrix", () => {
     Audience,
     Record<OfferScope, MatchRefusal | "allow">
   > = {
-    self: {
-      self: "audience-self-other-owner",
-      named: "audience-self-other-owner",
+    private: {
+      private: "audience-self-other-owner",
+      team: "audience-self-other-owner",
       public: "audience-self-other-owner",
     },
-    named: {
-      self: "offer-scope-too-narrow",
-      named: "not-locally-allowed",
+    team: {
+      private: "offer-scope-too-narrow",
+      team: "not-locally-allowed",
       public: "allow",
     },
     public: {
-      self: "offer-scope-too-narrow",
-      named: "not-locally-allowed",
+      private: "offer-scope-too-narrow",
+      team: "not-locally-allowed",
       public: "allow",
     },
   };
@@ -135,8 +135,8 @@ describe("matchAudience — the nine-way matrix", () => {
 describe("matchAudience — named requires the daemon's own allowlist", () => {
   it("admits a named job once the local allowlist names its owner", () => {
     const result = matchAudience(
-      { owner: OWNER, audience: "named" },
-      daemon("named", { allows: [OWNER] }),
+      { owner: OWNER, audience: "team" },
+      daemon("team", { allows: [OWNER] }),
     );
     expect(result.ok).toBe(true);
   });
@@ -145,16 +145,16 @@ describe("matchAudience — named requires the daemon's own allowlist", () => {
     // The server asserts this runner is allowed; the daemon's own list does
     // not. byollm_001 Rev 1 §B: the daemon decides.
     const result = matchAudience(
-      { owner: OWNER, audience: "named", audienceAllow: [OTHER] },
-      daemon("named", { allows: [] }),
+      { owner: OWNER, audience: "team", audienceAllow: [OTHER] },
+      daemon("team", { allows: [] }),
     );
     expect(result).toEqual({ ok: false, refusal: "not-locally-allowed" });
   });
 
   it("refuses when the server's allowlist excludes this runner", () => {
     const result = matchAudience(
-      { owner: OWNER, audience: "named", audienceAllow: ["carol"] },
-      daemon("named", { allows: [OWNER] }),
+      { owner: OWNER, audience: "team", audienceAllow: ["carol"] },
+      daemon("team", { allows: [OWNER] }),
     );
     expect(result).toEqual({
       ok: false,
@@ -164,8 +164,8 @@ describe("matchAudience — named requires the daemon's own allowlist", () => {
 
   it("ignores the server allowlist for the daemon's own owner", () => {
     const result = matchAudience(
-      { owner: OWNER, audience: "named", audienceAllow: ["carol"] },
-      daemon("named", { owner: OWNER }),
+      { owner: OWNER, audience: "team", audienceAllow: ["carol"] },
+      daemon("team", { owner: OWNER }),
     );
     expect(result.ok).toBe(true);
   });
@@ -187,8 +187,8 @@ describe("matchAudience — the subscription self-lock", () => {
 
   it("still runs the owner's own work on a subscription backend", () => {
     const result = matchAudience(
-      { owner: OWNER, audience: "self" },
-      daemon("self", { cost: "subscription", owner: OWNER }),
+      { owner: OWNER, audience: "private" },
+      daemon("private", { cost: "subscription", owner: OWNER }),
     );
     expect(result.ok).toBe(true);
   });

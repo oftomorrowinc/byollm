@@ -50,7 +50,7 @@ const stub = (id: string, owner = "alice"): JobStub => ({
   kind: "llm.generate",
   owner,
   site: SITE_KEY_ID,
-  audience: "self",
+  audience: "private",
   sizeClass: "small",
   streaming: false,
   deadlineAt: 4_102_444_800_000,
@@ -62,7 +62,7 @@ const capability = (model: string) => ({
   backendId: "ollama" as const,
   backendClass: "process" as const,
   model,
-  offerScope: "self" as const,
+  offerScope: "private" as const,
 });
 
 const ENVELOPE = {
@@ -368,7 +368,7 @@ export function describeStoreContract(
       await store.enqueue({
         id: "private",
         siteId: SITE,
-        stub: { ...stub("private", "alice"), audience: "self" },
+        stub: { ...stub("private", "alice"), audience: "private" },
       });
 
       // A roster owner's machine: may run alice's work in general.
@@ -386,7 +386,7 @@ export function describeStoreContract(
       await store.enqueue({
         id: "private",
         siteId: SITE,
-        stub: { ...stub("private", "alice"), audience: "self" },
+        stub: { ...stub("private", "alice"), audience: "private" },
       });
       const granted = await store.claim(
         claimArgs({ owner: "alice", owners: ["alice"] }),

@@ -205,10 +205,25 @@ because a MUST the code contradicts is worse than either.
 
    So the roster is signed where it is authored, verified against a
    control-plane key the daemon has pinned, and refused otherwise.
+
+   **The key is pinned at pairing.** Pairing is already the ceremony
+   where an owner proves on the device, out of band, that the device
+   is theirs; a key learned there rides an act of trust that has
+   already happened rather than inventing a second one. The rejected
+   alternative is trust-on-first-roster, and it is rejected because it
+   hands the decision back to the relay: a daemon that learns whose
+   signature to trust from the first roster to arrive is a daemon
+   whose membership authority is chosen by whoever controls delivery.
+   That is property 2 defeated by its own implementation. A device
+   that has never paired holds no roster and serves no `team` job,
+   which is the correct amount of function for a device nobody has
+   claimed.
+
    Amendment C's rotation machinery covers that key's succession; no
-   second mechanism. The relay keeps exactly the power it always had,
-   which is denial: it can withhold a roster, as it can withhold a
-   job, and it can forge neither.
+   second mechanism, and in particular no path where a roster teaches
+   a daemon a new key. The relay keeps exactly the power it always
+   had, which is denial: it can withhold a roster, as it can withhold
+   a job, and it can forge neither.
 
 3. **The local veto subtracts; nothing local adds.** `byollm disallow`
    removes a person from what this device will serve, and no local
@@ -227,6 +242,29 @@ because a MUST the code contradicts is worse than either.
    what a partition should mean. The bound is a protocol constant so
    every implementation ages a roster the same way rather than each
    choosing a comfortable number.
+
+   **`ROSTER_MAX_AGE_MS` is one hour.** It is the shortest constant in
+   the protocol, deliberately: every other one bounds how long a
+   *thing* stays valid, and this one alone bounds how long a *person*
+   keeps access after the owner has said no. An hour is the honest
+   answer to "I removed them — when are they gone?", and the answer
+   does not depend on whether their device is reachable.
+
+   The number is a failure bound, not a sync interval, and the two
+   must not be read as one. A daemon refreshes its roster far more
+   often than hourly — it is already talking to the control plane on
+   every heartbeat, and a removal propagates in seconds on a healthy
+   device. An hour is what a device gets when that conversation stops
+   working: enough that a laptop closed through a meeting, a flaky
+   café network, or a control plane briefly down does not narrow a
+   working device, and not so much that a removed teammate's access
+   outlives the owner's patience.
+
+   The failure it produces is legible, which is why it can be short. A
+   device past the bound refuses `team` jobs and says why — it does not
+   silently serve nobody, and it does not silently serve everybody. An
+   owner who sees it is looking at a device that cannot reach its
+   control plane, which is a thing they wanted to know anyway.
 
 ## G.2 What this costs, in plain words
 
@@ -258,16 +296,25 @@ owner re-enrolling every teammate on every device forever.
 
 > A `team` job MUST be admitted only by a roster the daemon holds,
 > signed by its owner's control plane and verified against a key the
-> daemon has pinned, minus any local veto — never by an assertion
-> from the party routing the job, per-job or in bulk, and never by a
-> roster older than `ROSTER_MAX_AGE_MS`, past which only the owner is
-> admitted.
+> daemon pinned at pairing, minus any local veto — never by an
+> assertion from the party routing the job, per-job or in bulk, and
+> never by a roster older than `ROSTER_MAX_AGE_MS`, past which only
+> the owner is admitted.
+
+`ROSTER_MAX_AGE_MS = 60 * 60_000`.
 
 `NAMED_LOCAL_ALLOWLIST` keeps its id, per the id-stability law. The
 check that verifies it is renamed from
 "a named job runs only once the daemon's own allowlist admits it" —
-true only under a generous reading of "own" — to one that says what is
-now checked.
+true only under a generous reading of "own" — to:
+
+> a team job runs only once a roster this daemon holds, signed by a
+> key it pinned at pairing, admits the asker
+
+which is what is now checked, and names all three of the things a
+reader would otherwise have to take on faith: that the list is local,
+that its authority was established out of band, and that admission is
+a property of the asker rather than of the request.
 
 ## G.4 Sequencing note
 

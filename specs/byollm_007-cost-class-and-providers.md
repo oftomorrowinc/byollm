@@ -317,3 +317,19 @@ spec separates decide it, and one requires homework:
 
 Nothing changes tonight; the current rule is the conservative floor
 in both directions.
+
+**Ruled (Todd, 2026-08-25): ollama `:cloud` is subscription-class.**
+The open question above closes: the account's nature is a personal
+plan with quota and optional overage — Max's exact shape — so
+`:cloud` models classify subscription, not metered. Consequence,
+stated plainly: self-locked permanently (SUBSCRIPTION_IS_SELF_ONLY);
+no acknowledgment path widens them; a team's route to a cloud model
+is its own account, app-side (the billing-lane principle). The tag
+rule's *pattern* is unchanged (`:.*cloud$` on the config value); only
+the class it yields changes. Note for the record: this was ruled from
+the account's known shape rather than a clause-by-clause terms read —
+acceptable because subscription is the *most* restrictive class, so
+any error is inconvenience, never leaked money; revisable only if
+ollama's terms are someday shown to expressly permit third-party
+serving. The quota-bounded shape stays named-and-deferred for a
+future vendor that actually exhibits it unencumbered.

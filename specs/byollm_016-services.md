@@ -979,3 +979,26 @@ either queries the running daemon's actual view or labels itself
 ("your shell's view — the daemon's is in byollm status"); shell-vs-
 daemon divergence has more sources than PATH, and "healthy and will
 be advertised" is a promise only the daemon can make.
+
+## Status cleanup ruling + the advertisement question (Todd, 2026-08-25)
+
+Codex resolved: healthy, idle — displaced by defaults for both kinds,
+stated in words by the new status display. But Todd's cleanup
+observation exposed the sharper question: **"serves nothing right
+now" and "not on the menu" are different facts, and no surface states
+which is true.** Post-Phase B an idle service must be advertised with
+isDefault: false — that is the menu; it is what makes selecting a
+non-default service possible at all. Whichever way the wire answers,
+a surface is wrong: codex advertised → the owner card (showing 2 of
+3) violates owner-sees-everything; codex unadvertised → Phase B
+selection is quietly broken for every non-default service and the
+card honestly renders a bug. CCC answers from the wire, not the card.
+
+Ruled: **the `routes` section of byollm status is removed** — it is
+the old shape's ghost, every row derivable from services + defaults
+restated. Three sections describing two facts is how displays drift,
+and a display lying while its siblings don't was this morning's whole
+story. Status = identity/state, paired apps, services (inventory:
+every service, health, kinds, offer, idle-and-why), defaults
+(resolution), audience, budgets, history. Wording: "offered to
+private" → "private (only you)"; "team" likewise unprefixed.

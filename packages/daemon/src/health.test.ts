@@ -43,8 +43,18 @@ describe("recording how the upstream conversation is going", () => {
     // A daemon that cannot write its health file still has work to do. This
     // is the rule the whole module is built around: the diagnostic never
     // stops the thing it diagnoses.
+    //
+    // The unwritable path is a file with a child path under it, which fails
+    // on every platform for the same reason. The first version used
+    // `/proc/...`, which is unwritable on macOS and something else entirely
+    // on Linux — it hung there, and CI caught a test that only worked on the
+    // machine it was written on. The same trap the wizard's detection fell
+    // into, one layer out.
+    const root = await dir();
+    const blocker = join(root, "not-a-directory");
+    await writeFile(blocker, "", "utf8");
     await expect(
-      writeHealth("/proc/definitely-not-writable/health.json", {
+      writeHealth(join(blocker, "health.json"), {
         at: 1,
         consecutiveFailures: 1,
       }),

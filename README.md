@@ -1,5 +1,5 @@
 > [!WARNING]
-> **Alpha (`0.1.0-alpha.47`) — under active development. Don't use this yet.**
+> **Alpha (`0.1.0-alpha.48`) — under active development. Don't use this yet.**
 >
 > Install it as `byollm@alpha`, deliberately. npm forces a `latest` tag onto a
 > package's first publish and will not let it be removed, so a bare install
@@ -19,6 +19,25 @@
 > on-disk format — are written down and turn on with the first outside user.
 > If an upgrade leaves a daemon saying it is paired with nothing, `byollm
 > connect` is the answer and nothing else is lost.
+>
+> **`alpha.48` finishes service selection through the SDK.** Not breaking.
+>
+> `app.enqueue({ kind, service? })` — a site may name one of the device
+> owner's advertised services, and the name travels to the device that runs it.
+> Leave it out and the owner's default answers, which is every job written
+> before this. You will not usually know the name: it is for the case where a
+> person has told your app which of *their* services to use.
+>
+> `runnerAvailability` learned three new answers, so an app can tell apart
+> problems with different fixes: `no-such-service` (the kind is served, that
+> name is not), `awaiting-default` (two services answer it and the owner has
+> not chosen), and `default-unusable` (the owner's default can never serve this
+> requester). Previously all three read as "no matching capability", which sent
+> everybody looking for a missing install.
+>
+> Supabase adapter: one nullable column, `byollm_jobs.service`. Nothing to
+> backfill — the null already means "the owner's default", which is what every
+> existing job meant.
 >
 > **`alpha.47` adds `byollm setup` and the Codex CLI.** Neither is breaking.
 >

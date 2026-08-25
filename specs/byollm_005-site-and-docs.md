@@ -62,3 +62,17 @@ Blog/changelog site (later), i18n, interactive playground (a
 protocol + type reference are generated, not hand-written; Lighthouse
 ≥95; nothing on either surface claims a capability the shipped code
 lacks.
+
+---
+
+2026-08-25 (Todd's ruling): the models guide gains a **model-name
+reference** per provider: claude-cli (aliases — sonnet, opus, haiku —
+float to current; full ids — e.g. claude-opus-5 — pin; both accepted),
+codex-cli (OpenAI's current names, e.g. gpt-5.6-terra), and
+openai-http servers (the name is whatever the server's /v1/models
+lists — teach the curl), with a link to ollama's cloud model catalog
+for `:cloud` names. House style applies: teach the verification with
+the names — a model name goes through detection, so the guide says
+"edit, restart, run `byollm services`; a wrong name fails loudly
+there," never just a table of strings to trust. Aliases-vs-pinning
+stated plainly (float tracks the vendor's default; pin survives it).

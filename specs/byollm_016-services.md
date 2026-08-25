@@ -662,3 +662,27 @@ aliasing to evade spends the owner's own quota (already ruled
 self-punishing). The old backends shape had this trap; the
 reorganization removes it. Endpoint-level cost is dead; long live
 service-level cost.
+
+## alpha.44 cut; the fail-open catch; two rules minted (2026-08-25)
+
+Detection landed (70454a7 — a service is one thing, asked once; the
+half-advertised-machine bug dies with the route-walk). alpha.44
+tagged on 2745d9a, CI green; Todd pushes the tag and promotes per the
+ritual — with CCC's hold recommendation on the record: until the hub
+deploy, an alpha.44 daemon's private/team jobs queue and never run
+(fails closed, silently), so the latest move belongs after the hub
+report.
+
+**The serious catch:** both hub sharing filters were written against
+the excluded value (`audience == 'self'` in claim Lua, `offerScope
+!== "self"` in devices-api) — the one-vocabulary rename would have
+made them fail OPEN, and the Lua one decides where work physically
+runs: a job whose owner chose "my own machine" claimable by every
+roster device. Both are now allowlists of the widening values.
+CCC's mechanism sentence, kept: "every fixture in both files says
+self and named, which is exactly how a rename walks past a green
+suite." Two rules minted: **sharing filters enumerate the widening
+values — an unknown value keeps work at home**; and **every
+audience/offer filter carries an unknown-literal case asserting
+closed** — the fixture for a value that can't exist yet is the one
+that catches the rename.

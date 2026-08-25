@@ -1,3 +1,4 @@
+import { stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
@@ -320,6 +321,27 @@ WantedBy=default.target
  * command exists to prevent, reintroduced by the install itself. Refusing is
  * the only honest answer, and the fix is one line.
  */
+/**
+ * Is a supervised service defined on this machine?
+ *
+ * Used by `byollm services` to decide whether to warn that its answer is the
+ * shell's view rather than the daemon's. Deliberately a file check and not a
+ * `launchctl print`: this runs on a command somebody is reading output from,
+ * and shelling out to ask a question whose answer only changes the *wording*
+ * of a warning is a cost with no matching benefit.
+ */
+export async function serviceIsInstalled(
+  target: ServiceTarget,
+): Promise<boolean> {
+  const plan = servicePlan(target);
+  try {
+    await stat(plan.unitPath);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export function refuseToSupervise(scriptPath: string): string | null {
   const ephemeral =
     /[/\\]_npx[/\\]|[/\\]\.npm[/\\]_cacache[/\\]|[/\\]npm-cache[/\\]_npx[/\\]/;

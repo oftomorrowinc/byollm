@@ -1,5 +1,5 @@
 > [!WARNING]
-> **Alpha (`0.1.0-alpha.49`) — under active development. Don't use this yet.**
+> **Alpha (`0.1.0-alpha.50`) — under active development. Don't use this yet.**
 >
 > Install it as `byollm@alpha`, deliberately. npm forces a `latest` tag onto a
 > package's first publish and will not let it be removed, so a bare install
@@ -19,6 +19,32 @@
 > on-disk format — are written down and turn on with the first outside user.
 > If an upgrade leaves a daemon saying it is paired with nothing, `byollm
 > connect` is the answer and nothing else is lost.
+>
+> **`alpha.50` — the background daemon can find your CLIs. Reinstall the
+> service after upgrading:** `byollm uninstall && byollm install`.
+>
+> A supervised daemon runs with the service manager's environment, not yours.
+> launchd hands an agent `/usr/bin:/bin:/usr/sbin:/sbin`, and `claude` installs
+> to `~/.local/bin` — so the daemon could not find it, the health probe failed,
+> and the service was never advertised. Your device offered only whatever else
+> it could reach, and nothing said why: "not installed" is a legal answer to a
+> health probe, and the daemon cannot tell it from "installed somewhere I
+> cannot see". systemd user units had the same gap.
+>
+> `byollm install` now captures your shell's PATH. It is a snapshot — install a
+> CLI somewhere new and run it again.
+>
+> **`byollm services` no longer speaks for the daemon.** It said "healthy and
+> will be advertised", which is a promise only the daemon can make, and on the
+> machine that found this it was false: the command probed with the user's PATH
+> and reported a CLI the daemon could not execute. It says "healthy from this
+> shell" now, and when a service is installed it says so and points at the
+> device's page. PATH was one divergence; a different user, a different HOME
+> and a credential a login shell can see are others.
+>
+> `byollm status` also lists every service and your `defaults`, not only the
+> routes that resolved — a service displaced by another kind's default used to
+> appear nowhere at all.
 >
 > **`alpha.49` fixes what the wizard writes, and makes `enqueue` refuse
 > options it does not understand.** Breaking only in the second sense, and

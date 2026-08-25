@@ -25,6 +25,7 @@ import {
   type CommandRunner,
 } from "./install.js";
 import {
+  serviceIsInstalled,
   servicePlan,
   type ServicePlatform,
   type ServiceTarget,
@@ -152,7 +153,7 @@ export async function runCli(
     case "forget":
       return commandForget(paths, rest, io);
     case "services":
-      return commandServices(paths, io);
+      return commandServices(paths, io, service);
     case "install":
       return commandInstall(paths, io, service);
     case "uninstall":
@@ -1549,6 +1550,7 @@ async function commandApprove(
 async function commandServices(
   paths: DaemonPaths,
   io: CliIo,
+  service: ServiceIo,
 ): Promise<ExitCode> {
   const { loaded, ingress, allowlist, budgets, spend } = await context(paths);
   const runner = new Runner({
@@ -1609,14 +1611,48 @@ async function commandServices(
   for (const notice of loaded.notices) {
     io.out(`  i ${notice}\n`);
   }
+  // **This command speaks for the shell it runs in, not for the daemon.**
+  //
+  // It used to say "healthy and will be advertised", which is a promise only
+  // the daemon can make — and on the machine that produced this change, it was
+  // false. The daemon runs under launchd with launchd's own PATH; `claude`
+  // lives in `~/.local/bin`; so a probe here found the CLI, reported it
+  // healthy, and the daemon could not execute it. The device advertised
+  // nothing, and the surface a person turns to for "why" was the one lying.
+  //
+  // PATH was that machine's divergence and the installer now captures it, but
+  // it is one source among many: a different user, a different HOME, a
+  // credential visible in a login shell and not to a background agent. So the
+  // wording no longer claims to know what the daemon sees. Saying less is the
+  // fix; claiming to speak for a process you are not is the bug.
+  // From the daemon's own paths, never `homedir()`. The first version read
+  // the real home while the rest of this command read `paths` — so under a
+  // test, or anywhere `BYOLLM_HOME` differs, it answered about a different
+  // machine's state than the one it was describing. Caught by the control
+  // asserting the warning is *absent* when nothing is installed, which is the
+  // half of the pair that is easy not to write.
+  // Built from the same target `install` uses, so the two agree about where
+  // the unit lives. The first version called `serviceIsInstalled(homedir())`,
+  // which read the real home while the rest of this command read `paths` — it
+  // answered about a different machine's state than the one it was
+  // describing, and would have done so anywhere `BYOLLM_HOME` differs. Caught
+  // by the control asserting the warning is *absent* when nothing is
+  // installed, which is the half of that pair that is easy not to write.
+  const installed = await serviceIsInstalled(serviceTarget(paths, service));
   io.out(
     `\n${String(advertised.length)} of ${String(loaded.routes.length)} services are ` +
-      `healthy and will be advertised.\n` +
+      `healthy from this shell.\n` +
       (loaded.withheld.length > 0
         ? `${String(loaded.withheld.length)} kind(s) are withheld until you pick a default.\n`
         : "") +
       `A route that is not healthy is never offered to an app — the daemon does\n` +
-      `not advertise what it cannot actually run.\n`,
+      `not advertise what it cannot actually run.\n` +
+      (installed
+        ? `\nThis is your shell's view. The daemon runs under a service manager\n` +
+          `with its own environment, so what it can reach may differ. Compare\n` +
+          `with the device's page, and after installing a new CLI run\n` +
+          `\`byollm uninstall && byollm install\` so the service picks up your PATH.\n`
+        : ""),
   );
   return advertised.length === 0 ? 1 : 0;
 }

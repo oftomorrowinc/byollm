@@ -1,6 +1,6 @@
 import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { generateKeys, publicIdentityOf, keyId } from "@byollm/protocol";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { runCli, type CliIo } from "./cli.js";
@@ -8,6 +8,7 @@ import { IngressLog } from "./ingress.js";
 import { daemonPaths, type DaemonPaths } from "./paths.js";
 import { Pairings } from "./pairings.js";
 import { noSupervisor, removeTemp } from "./test-support.js";
+import { servicePlan } from "./service.js";
 
 const SITE = publicIdentityOf(generateKeys(1_800_000_000_000));
 
@@ -538,5 +539,55 @@ describe("status shows services and defaults, not only routes", () => {
     await run("status");
     expect(out).toContain("routes");
     expect(out).toContain("openai-http:qwen");
+  });
+});
+
+describe("byollm services speaks for the shell, not the daemon", () => {
+  /**
+   * The wording change that cost a morning to earn.
+   *
+   * It said "healthy and will be advertised" — a promise only the daemon can
+   * make. On the machine that produced this, it was false: the daemon runs
+   * under launchd with launchd's PATH, `claude` lives in `~/.local/bin`, so a
+   * probe from the shell found the CLI and the daemon could not execute it.
+   * The device advertised nothing, and the surface somebody turns to for "why"
+   * was the one lying.
+   *
+   * PATH is fixed at install now, but it is one divergence among many — a
+   * different user, a different HOME, a credential a login shell can see and a
+   * background agent cannot. So the command stops claiming to know.
+   */
+  it("does not promise what the daemon will advertise", async () => {
+    await run("services");
+    expect(out).toContain("from this shell");
+    expect(out).not.toContain("will be advertised");
+  });
+
+  it("warns about the divergence when a service is installed", async () => {
+    // The unit path comes from the same plan `install` writes, rather than
+    // being spelled again here — a test that guesses the location tests its
+    // own guess. `servicePlan` is exported for exactly this.
+    const service = { ...noSupervisor(), platform: "darwin" as const, home };
+    const plan = servicePlan({
+      platform: "darwin",
+      execPath: service.execPath,
+      scriptPath: service.scriptPath,
+      home,
+      root: paths.root,
+    });
+    await mkdir(dirname(plan.unitPath), { recursive: true });
+    await writeFile(plan.unitPath, "", "utf8");
+
+    await runCli(["services"], { paths, io: io(), service });
+    expect(out).toContain("your shell's view");
+    expect(out).toContain("byollm uninstall && byollm install");
+  });
+
+  it("says nothing about it when no service is installed", async () => {
+    // The control. A warning on every invocation is a warning nobody reads,
+    // and somebody running the daemon in a terminal has no divergence to warn
+    // about — their shell *is* the daemon's environment.
+    await run("services");
+    expect(out).not.toContain("your shell's view");
   });
 });

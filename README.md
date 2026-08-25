@@ -65,6 +65,15 @@
 > on who *may* be served, not a statement that they *will* be. Do not read this
 > release as "team sharing works."
 >
+> **If you use the cloud lane, the hub has to move with you.** The hub speaks
+> the old vocabulary until it is redeployed against this release, and its
+> schemas do not contain the words `private` or `team`. Two consequences while
+> it is behind: a daemon on alpha.44 does not appear on the devices page at
+> all, because its heartbeat fails validation; and a `private` or `team` job
+> queues and is never claimed. Both fail closed — nothing is offered to anyone
+> it should not be — but both fail *quietly*, so a job that never runs is the
+> symptom you would see. Direct mode is unaffected: no hub, no lockstep.
+>
 > **Still queued: a terminal answer for a job whose record is gone.** A site
 > polling for a job the relay no longer holds waits out its deadline instead of
 > being told. Saying "gone" rather than "unknown" needs the store to remember

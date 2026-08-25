@@ -680,6 +680,7 @@ export function describeStoreContract(
         owner: "alice",
         device,
         capabilities: [capability("llama3")],
+        withheld: [],
       });
 
       const known = await store.presence("runner_1");
@@ -697,8 +698,16 @@ export function describeStoreContract(
       const { store, done } = await make();
       const device = publicIdentityOf(generateKeys(3_000_000_000_001));
       const seen = { runnerId: "runner_2", owner: "alice", device };
-      await store.seen({ ...seen, capabilities: [capability("llama3")] });
-      await store.seen({ ...seen, capabilities: [capability("mistral")] });
+      await store.seen({
+        ...seen,
+        capabilities: [capability("llama3")],
+        withheld: [],
+      });
+      await store.seen({
+        ...seen,
+        capabilities: [capability("mistral")],
+        withheld: [],
+      });
 
       const known = await store.presence("runner_2");
       expect(known?.capabilities.map((row) => row.model)).toEqual(["mistral"]);
@@ -713,10 +722,63 @@ export function describeStoreContract(
       const { store, done } = await make();
       const device = publicIdentityOf(generateKeys(3_000_000_000_002));
       const seen = { runnerId: "runner_3", owner: "alice", device };
-      await store.seen({ ...seen, capabilities: [capability("llama3")] });
-      await store.seen({ ...seen, capabilities: [] });
+      await store.seen({
+        ...seen,
+        capabilities: [capability("llama3")],
+        withheld: [],
+      });
+      await store.seen({ ...seen, capabilities: [], withheld: [] });
 
       expect((await store.presence("runner_3"))?.capabilities).toEqual([]);
+      await done();
+    });
+
+    it("remembers which kinds are withheld, and drops them when resolved", async () => {
+      // byollm_016. Two services answering one kind with no `defaults` entry
+      // is a state only the daemon can see: from the matrix alone a withheld
+      // kind and an absent one are the same shape, so a store that dropped
+      // this field would leave the owner's page saying "nothing serves
+      // llm.generate" — true, and useless, when the real sentence is "two
+      // services answer it and you have not chosen".
+      //
+      // It lives in the contract rather than one store's tests because the
+      // pairing ceiling was found exactly that way: one seam, two
+      // implementations, and the check driving the one nobody deploys.
+      const { store, done } = await make();
+      const device = publicIdentityOf(generateKeys(3_000_000_000_004));
+      const seen = { runnerId: "runner_withheld", owner: "alice", device };
+
+      await store.seen({
+        ...seen,
+        capabilities: [],
+        withheld: [
+          {
+            kind: "llm.generate",
+            claimants: [
+              { service: "ollama", offer: "team" },
+              { service: "mlx", offer: "private" },
+            ],
+          },
+        ],
+      });
+
+      const held = await store.presence("runner_withheld");
+      expect(held?.withheld.map((row) => row.kind)).toEqual(["llm.generate"]);
+      // The claimants survive the round trip, because naming them is the
+      // whole difference between a prompt and a complaint.
+      expect(held?.withheld[0]?.claimants.map((c) => c.service)).toEqual([
+        "ollama",
+        "mlx",
+      ]);
+
+      // The owner chooses a default: the kind resolves and stops being
+      // reported, or the page goes on asking for a decision already made.
+      await store.seen({
+        ...seen,
+        capabilities: [capability("llama3")],
+        withheld: [],
+      });
+      expect((await store.presence("runner_withheld"))?.withheld).toEqual([]);
       await done();
     });
 
@@ -730,10 +792,18 @@ export function describeStoreContract(
       const seen = { runnerId: "runner_4", owner: "alice", device };
 
       const before = await store.now();
-      const first = await store.seen({ ...seen, capabilities: [] });
+      const first = await store.seen({
+        ...seen,
+        capabilities: [],
+        withheld: [],
+      });
       expect(first.lastSeenAt).toBeGreaterThanOrEqual(before);
 
-      const later = await store.seen({ ...seen, capabilities: [] });
+      const later = await store.seen({
+        ...seen,
+        capabilities: [],
+        withheld: [],
+      });
       expect(later.lastSeenAt).toBeGreaterThanOrEqual(first.lastSeenAt);
       await done();
     });
@@ -745,12 +815,14 @@ export function describeStoreContract(
         owner: "alice",
         device: publicIdentityOf(generateKeys(3_000_000_000_004)),
         capabilities: [],
+        withheld: [],
       });
       await store.seen({
         runnerId: "runner_6",
         owner: "bob",
         device: publicIdentityOf(generateKeys(3_000_000_000_005)),
         capabilities: [],
+        withheld: [],
       });
 
       const everyone = await store.everyone();

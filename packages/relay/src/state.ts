@@ -4,6 +4,7 @@ import type {
   JobStub,
   PublicIdentity,
   SealedEnvelope,
+  WithheldKind,
 } from "@byollm/protocol";
 import { randomUUID } from "node:crypto";
 import type { Grant, RoutingStore } from "./store.js";
@@ -144,6 +145,21 @@ export interface Presence {
    * exists to make visible rather than refuse.
    */
   capabilities: CapabilityMatrix;
+  /**
+   * Kinds this machine is deliberately *not* advertising — byollm_016.
+   *
+   * Presence data for the same reason capabilities are, and stored beside
+   * them rather than derived: two services answering one kind with no
+   * `defaults` entry is a state only the daemon can see, and the hub cannot
+   * reconstruct it from the matrix — an absent kind and a withheld kind look
+   * identical there. Without this field the owner's page can say "nothing
+   * serves llm.generate", which is true and useless, instead of "two services
+   * answer it and you have not chosen", which is the sentence that ends with
+   * the owner doing something.
+   *
+   * Empty is the normal answer, and means every kind resolved.
+   */
+  withheld: readonly WithheldKind[];
   // `revoked` is deliberately absent — cloud_008 §2.3.
   //
   // It was a boolean on the *runner*, written at heartbeat and read by
@@ -765,6 +781,11 @@ export class RelayState implements RoutingStore {
       // machine has since lost — which is worse than forgetting one it still
       // has, because work would route to it.
       existing.capabilities = presence.capabilities;
+      // Refreshed for the same reason and in the same breath: a kind that
+      // stopped being contended — because the owner chose a default, or one
+      // service went away — must stop being reported as withheld, or the page
+      // keeps asking for a decision that has already been made.
+      existing.withheld = presence.withheld;
       return existing;
     }
     const fresh: Presence = { ...presence, lastSeenAt };

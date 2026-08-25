@@ -418,6 +418,7 @@ describe("the store's clock", () => {
       owner: "alice",
       device: KEYS(),
       capabilities: [],
+      withheld: [],
     });
     expect(seen.lastSeenAt).toBe(CLOCK);
   });

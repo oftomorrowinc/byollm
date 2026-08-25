@@ -1,5 +1,5 @@
 > [!WARNING]
-> **Alpha (`0.1.0-alpha.44`) — under active development. Don't use this yet.**
+> **Alpha (`0.1.0-alpha.45`) — under active development. Don't use this yet.**
 >
 > Install it as `byollm@alpha`, deliberately. npm forces a `latest` tag onto a
 > package's first publish and will not let it be removed, so a bare install
@@ -19,6 +19,19 @@
 > on-disk format — are written down and turn on with the first outside user.
 > If an upgrade leaves a daemon saying it is paired with nothing, `byollm
 > connect` is the answer and nothing else is lost.
+>
+> **`alpha.45` carries withheld kinds on the heartbeat.** Breaking only if you
+> implement `RoutingStore` yourself: `Presence` gains a required `withheld`
+> field, so `seen()` takes one more property and your store must round-trip it.
+> The store contract asserts it, so `byollm-certify` tells you rather than a
+> user does.
+>
+> Why it exists: when two services answer one kind and no `defaults` entry
+> picks a winner, alpha.44 withholds the kind — correctly — but from the
+> server's side a withheld kind and an absent one are the same shape. Without
+> this the owner's page can only say "nothing serves llm.generate", which is
+> true and useless, instead of "two services answer it and you have not
+> chosen". Nothing changes for sites or for daemons that do not run a relay.
 >
 > **`alpha.44` replaces the config shape. Every existing `~/.byollm/config.json`
 > must be rewritten — there is no compatibility path, and the daemon refuses the

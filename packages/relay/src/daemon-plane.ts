@@ -231,6 +231,7 @@ export class DaemonPlane {
       // arrived from a file, not a daemon describing itself. Empty until the
       // first heartbeat, which is seconds away and is the authority anyway.
       capabilities: [],
+      withheld: [],
     });
 
     return ok({
@@ -351,6 +352,10 @@ export class DaemonPlane {
       // approval screen and the machines page have an answer in the same
       // moment the device appears. The next heartbeat replaces it.
       capabilities: pending.capabilities,
+      // A pairing request describes what a machine *can* run, not what it is
+      // holding back — the daemon resolves defaults locally, and the first
+      // heartbeat is where that answer arrives.
+      withheld: [],
     });
     // Single use. The keypair is approved from here on and the code has no
     // further job; leaving it would be a second way to ask the same question.
@@ -412,6 +417,7 @@ export class DaemonPlane {
         // run, and it is seconds away; claiming a matrix here would be this
         // file guessing about a backend it cannot see.
         capabilities: [],
+        withheld: [],
       };
       rebuilt = true;
     }
@@ -437,6 +443,9 @@ export class DaemonPlane {
         owner: known.owner,
         device: known.device,
         capabilities: [],
+        // Nothing has described itself yet, so nothing is withheld — the
+        // first heartbeat is the authority on both.
+        withheld: [],
       });
     }
 
@@ -622,6 +631,10 @@ export class DaemonPlane {
           owner: device.owner,
           device: device.device,
           capabilities: request.capabilities,
+          // Arrives on the same beat as the matrix and goes stale with it.
+          // A daemon that resolves a contended kind stops sending it here,
+          // which is what retires the owner's prompt to choose.
+          withheld: request.withheld,
         });
 
         // Revocation is a fixture edit, and this is where the daemon learns

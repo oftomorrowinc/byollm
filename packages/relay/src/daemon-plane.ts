@@ -24,7 +24,7 @@ import {
   type PairingCodes,
   type PendingPairing,
 } from "./pairing-codes.js";
-import type { HolderRefusal } from "./state.js";
+import { serviceKey, type HolderRefusal } from "./state.js";
 import { clockSkewRefusal } from "./refusals.js";
 import type { RoutingStore } from "./store.js";
 
@@ -529,7 +529,20 @@ export class DaemonPlane {
         runnerId: device.runnerId,
         owner: device.owner,
         device: device.device,
-        kinds: new Set(request.capabilities.map((c) => c.kind)),
+        // Only the defaults. byollm_016 Phase B advertises every selectable
+        // service per kind — the menu — so a device may send several rows for
+        // one kind, and exactly one of them is the one an *unselected* job
+        // should reach. Taking every row here would put an unselected job on
+        // whichever service happened to sort first, which is the guess the
+        // whole withheld mechanism exists to refuse.
+        kinds: new Set(
+          request.capabilities.filter((c) => c.isDefault).map((c) => c.kind),
+        ),
+        // The whole menu, as pairs. A job that named a service reaches only a
+        // device advertising that exact (kind, service) — never a fallback.
+        serves: new Set(
+          request.capabilities.map((c) => serviceKey(c.kind, c.service)),
+        ),
         // The projection, collapsed to data the store can match on — a
         // predicate does not travel, and a set of (site, owner) pairs is
         // what a route is (cloud_009 §3).

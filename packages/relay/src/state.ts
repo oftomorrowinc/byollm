@@ -224,7 +224,31 @@ export interface ClaimInput {
    * cannot travel to a store over a network, and a set can.
    */
   readonly routes: ReadonlySet<string>;
+  /**
+   * Kinds this device has a **default** for, which is what serves an
+   * unselected job.
+   *
+   * Not "kinds it can run": since byollm_016 a device may advertise several
+   * services answering one kind, and a job that named none of them must go to
+   * the one its owner chose. A kind with two claimants and no default is
+   * withheld and does not appear here at all.
+   */
   readonly kinds: ReadonlySet<string>;
+  /**
+   * The (kind, service) pairs this device advertises — byollm_016 Phase B.
+   *
+   * **One set of pairs, for the reason `routes` above is one set of pairs.**
+   * A set of kinds and a set of service names would multiply: a device
+   * offering `studio` for `llm.generate` and `claude` for `llm.chat` has both
+   * kinds and both names, and the product contains
+   * (`llm.chat`, `studio`) — a combination it never advertised and cannot
+   * run. Two sets multiply; an advertisement does not.
+   *
+   * Written with {@link serviceKey}, so a store in another repository agrees
+   * on the encoding by calling the same function rather than by both
+   * spelling it out.
+   */
+  readonly serves: ReadonlySet<string>;
   readonly max: number;
   readonly leaseMs: number;
 }
@@ -237,6 +261,16 @@ export interface ClaimInput {
  */
 export const routeKey = (siteId: string, owner: string): string =>
   `${siteId}\u0000${owner}`;
+
+/**
+ * How a (kind, service) advertisement is written — byollm_016 Phase B.
+ *
+ * The same `\u0000` as {@link routeKey} and for the same reason: it cannot
+ * appear in a job kind or a service name, so this is a key rather than a
+ * parser. One function, called by every party that has to agree.
+ */
+export const serviceKey = (kind: string, service: string): string =>
+  `${kind}\u0000${service}`;
 
 /**
  * Where the store's sense of time comes from — cloud_006 §3.4.
@@ -482,7 +516,20 @@ export class RelayState implements RoutingStore {
       // consented to site B, is in both a set of sites and a set of owners
       // and has no consented route between them.
       if (!input.routes.has(routeKey(job.siteId, job.stub.owner))) continue;
-      if (!input.kinds.has(job.stub.kind)) continue;
+      // Selection, byollm_016 Phase B. A job naming a service is offered only
+      // to a device advertising that exact (kind, service) pair; a job naming
+      // none goes to whichever service its owner made the default, which is
+      // what `kinds` carries. Never a fallback between the two: a selected
+      // job that finds no match waits for a device that has it rather than
+      // landing on something else, because silently serving a different
+      // service is the substitution NO_PAYLOAD_ROUTING forbids.
+      if (
+        job.stub.service === undefined
+          ? !input.kinds.has(job.stub.kind)
+          : !input.serves.has(serviceKey(job.stub.kind, job.stub.service))
+      ) {
+        continue;
+      }
       // Already declined by this device — `REFUSAL_NOT_REOFFERED`, §2.1.
       if (job.refusedBy.includes(input.runnerId)) continue;
       // Withdrawn by the site — §2.2. Cheap, and before every other check.

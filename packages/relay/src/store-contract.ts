@@ -1,6 +1,6 @@
 import { generateKeys, publicIdentityOf, type JobStub } from "@byollm/protocol";
 import { describe, expect, it } from "vitest";
-import { routeKey } from "./state.js";
+import { routeKey, serviceKey } from "./state.js";
 import type { RoutingStore } from "./store.js";
 
 /**
@@ -92,6 +92,9 @@ const claimArgs = (
     owner: "alice",
     device: publicIdentityOf(generateKeys(Date.now())),
     kinds: new Set(["llm.generate"]),
+    // Empty by default — `serves` matters only to a job that named a service.
+    // A contract case that exercises selection passes its own.
+    serves: new Set<string>(),
     routes: new Set(
       sites.flatMap((site) => owners.map((owner) => routeKey(site, owner))),
     ),
@@ -660,6 +663,130 @@ export function describeStoreContract(
 
       expect(other).toEqual(absent);
       expect(other).toEqual({ refused: "not-found" });
+      await done();
+    });
+
+    // ── selection ───────────────────────────────────────────────────────
+    //
+    // byollm_016 Phase B. Every store must reason about (kind, service?)
+    // identically, and it lives here rather than in one store's own tests
+    // because that is the shape the pairing ceiling was found in: one seam,
+    // two implementations, and the check driving the one nobody deploys.
+
+    it("offers a selected job only to a device advertising that service", async () => {
+      const { store, done } = await make();
+      await store.enqueue({
+        id: "picked",
+        siteId: SITE,
+        stub: { ...stub("picked"), service: "studio" },
+      });
+
+      // A device that serves the kind, by a different name. It has a default
+      // for `llm.generate` — so it would take an *unselected* job — and it
+      // must not take this one.
+      const wrong = await store.claim(
+        claimArgs({
+          runnerId: "runner_wrong",
+          serves: new Set([serviceKey("llm.generate", "laptop")]),
+        }),
+      );
+      expect(wrong.map((job) => job.id)).toEqual([]);
+
+      const right = await store.claim(
+        claimArgs({
+          runnerId: "runner_right",
+          serves: new Set([serviceKey("llm.generate", "studio")]),
+        }),
+      );
+      expect(right.map((job) => job.id)).toEqual(["picked"]);
+      await done();
+    });
+
+    it("never falls back from a selection to the default", async () => {
+      // The substitution NO_PAYLOAD_ROUTING forbids, as a store behaviour. A
+      // job that named `studio` and meets a device serving only its own
+      // default must stay queued and wait for a device that has `studio` —
+      // quietly running it somewhere else is precisely how "pick from my
+      // list" decays into "ask for anything and get something".
+      const { store, done } = await make();
+      await store.enqueue({
+        id: "no-fallback",
+        siteId: SITE,
+        stub: { ...stub("no-fallback"), service: "studio" },
+      });
+
+      const granted = await store.claim(
+        claimArgs({
+          // Serves the kind by default, advertises no service by that name.
+          kinds: new Set(["llm.generate"]),
+          serves: new Set<string>(),
+        }),
+      );
+      expect(granted.map((job) => job.id)).toEqual([]);
+      expect((await store.job(SITE, "no-fallback"))?.state).toBe("queued");
+      await done();
+    });
+
+    it("sends an unselected job to the default, not to the menu", async () => {
+      // The other half, and the one a store gets wrong by being generous. A
+      // device advertising two services for one kind has both in `serves` and
+      // only the chosen one in `kinds`. An unselected job must follow `kinds`:
+      // matching on the menu would put it on whichever row sorted first,
+      // which is the guess the withheld mechanism exists to refuse.
+      const { store, done } = await make();
+      await store.enqueue({
+        id: "unselected",
+        siteId: SITE,
+        stub: stub("unselected"),
+      });
+
+      const nothingDefault = await store.claim(
+        claimArgs({
+          runnerId: "runner_menu",
+          // A menu, and no default for this kind — the withheld state.
+          kinds: new Set<string>(),
+          serves: new Set([
+            serviceKey("llm.generate", "studio"),
+            serviceKey("llm.generate", "laptop"),
+          ]),
+        }),
+      );
+      expect(nothingDefault.map((job) => job.id)).toEqual([]);
+
+      const hasDefault = await store.claim(
+        claimArgs({
+          runnerId: "runner_default",
+          kinds: new Set(["llm.generate"]),
+          serves: new Set([serviceKey("llm.generate", "studio")]),
+        }),
+      );
+      expect(hasDefault.map((job) => job.id)).toEqual(["unselected"]);
+      await done();
+    });
+
+    it("keeps the pair together, so two sets cannot multiply", async () => {
+      // The `routes` argument, one axis over. A device serving `studio` for
+      // `llm.generate` and `claude` for `llm.chat` has both kinds and both
+      // names; a store holding them as two sets would answer yes to
+      // (`llm.chat`, `studio`) — a combination nobody advertised and nothing
+      // can run.
+      const { store, done } = await make();
+      await store.enqueue({
+        id: "crossed",
+        siteId: SITE,
+        stub: { ...stub("crossed"), kind: "llm.chat", service: "studio" },
+      });
+
+      const granted = await store.claim(
+        claimArgs({
+          kinds: new Set(["llm.generate", "llm.chat"]),
+          serves: new Set([
+            serviceKey("llm.generate", "studio"),
+            serviceKey("llm.chat", "claude"),
+          ]),
+        }),
+      );
+      expect(granted.map((job) => job.id)).toEqual([]);
       await done();
     });
 

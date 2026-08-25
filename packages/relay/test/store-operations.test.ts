@@ -51,6 +51,9 @@ const claimArgs = (over: Partial<Parameters<RelayState["claim"]>[0]> = {}) => ({
   owner: "alice",
   device: KEYS(),
   kinds: new Set(["llm.generate"]),
+  // Empty unless a test says otherwise: `serves` is consulted only for a job
+  // that named a service, and these do not.
+  serves: new Set<string>(),
   routes: new Set([routeKey(SITE, "alice")]),
   max: 10,
   leaseMs: 60_000,

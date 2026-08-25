@@ -565,8 +565,16 @@ async function commandConnect(
   // and a pin nobody can see is a pin nobody checks. Sites that arrive
   // *later* get the same treatment through `byollm sites`, where they wait
   // for an answer rather than being pinned (V1-1).
-  for (const [id, site] of Object.entries(result.pairing.sites)) {
-    io.out(`   ${id}\n     ${fingerprint(site.identity)}\n`);
+  // One line, not two. A site's id in this file *is* its fingerprint —
+  // `keyId` and `fingerprint` are the same function, and `runner.ts` refuses
+  // any entry where they disagree — so printing both stuttered the same
+  // string twice and read as two facts to check against each other.
+  //
+  // Derived from the pinned key rather than taken from the map key: the value
+  // on screen should be computed from the material it describes, so what
+  // somebody compares by eye is the key itself and not a label beside it.
+  for (const site of Object.values(result.pairing.sites)) {
+    io.out(`   ${fingerprint(site.identity)}\n`);
   }
   io.out(`\nNow running jobs for ${origin}. Ctrl-C to stop.\n\n`);
 
@@ -1581,13 +1589,14 @@ async function commandSites(paths: DaemonPaths, io: CliIo): Promise<ExitCode> {
     io.out(`${pairing.origin}\n`);
     const served = Object.entries(pairing.sites);
     if (served.length === 0) io.out("  (serving nothing right now)\n");
-    for (const [id, site] of served) {
-      io.out(`  serving  ${id}\n           ${fingerprint(site.identity)}\n`);
+    // The same stutter, twice more: id and fingerprint are one string.
+    for (const [, site] of served) {
+      io.out(`  serving  ${fingerprint(site.identity)}\n`);
     }
     for (const [id, site] of Object.entries(pairing.pending ?? {})) {
       waiting += 1;
       io.out(
-        `  WAITING  ${id}\n           ${fingerprint(site.identity)}\n` +
+        `  WAITING  ${fingerprint(site.identity)}\n` +
           `           compare that with the site, then ` +
           `\`byollm approve ${id}\`\n`,
       );

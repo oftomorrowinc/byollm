@@ -86,14 +86,47 @@ describe("byollm sites", () => {
     });
 
     expect(await runCli(["sites"], { paths, io: io() })).toBe(0);
-    expect(out).toContain(`serving  ${SITE_ID}`);
+    expect(out).toContain(`serving  ${fingerprint(SITE.identity)}`);
     expect(out).toContain(fingerprint(SITE.identity));
-    expect(out).toContain(`WAITING  ${WAITING_ID}`);
+    expect(out).toContain(`WAITING  ${fingerprint(WAITING.identity)}`);
     // The fingerprint of the *waiting* site is the one thing this screen
     // exists for: approving an id without it is agreeing to a name.
     expect(out).toContain(fingerprint(WAITING.identity));
     expect(out).toContain(`byollm approve ${WAITING_ID}`);
     expect(out).toContain("1 site waiting");
+  });
+
+  it("says the fingerprint once, not twice", async () => {
+    /**
+     * A site's id in this file *is* its fingerprint — `keyId` and
+     * `fingerprint` are the same function, and `runner.ts` refuses any entry
+     * where they disagree. So printing both put the same string on two lines
+     * under two labels, which reads as two facts to check against each other
+     * and is one.
+     *
+     * Asserted as "no value repeats" rather than as an exact layout: the
+     * defect is a duplicated value, and a test pinned to the current spacing
+     * would fail on a redesign that is fine and pass on a repeat that is not.
+     */
+    await pairWith({
+      sites: { [SITE_ID]: SITE },
+      pending: { [WAITING_ID]: WAITING },
+    });
+    await runCli(["sites"], { paths, io: io() });
+
+    // The approve line legitimately names the waiting id a second time — it
+    // is a command to run, not a value to compare — so it is excluded by
+    // being a line that contains a backtick.
+    const values = out
+      .split("\n")
+      .filter((line) => !line.includes("`"))
+      .flatMap((line) => line.match(/BYOLLM-[A-Z0-9-]+/g) ?? []);
+
+    expect(values.length, out).toBe(new Set(values).size);
+    // And the positive control: both fingerprints are still on screen, which
+    // is what this command is for.
+    expect(values).toContain(fingerprint(SITE.identity));
+    expect(values).toContain(fingerprint(WAITING.identity));
   });
 
   it("shows a site it still holds a key for but nobody is offering", async () => {

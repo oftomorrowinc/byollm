@@ -427,3 +427,24 @@ alpha Todd promotes.
 Both surfaces confirmed (c66e5f8): the load problem already named kind, claimants, and fix; `byollm services` and `byollm status` now carry a withheld row naming the claimants and the stanza to write. State is carried, not inferred — resolveConfig returns `withheld` beside routes; every surface reads one source. Two mutations caught, the second worth keeping: resolving ambiguity by silently picking the first claimant — correct-looking, quietly decides the owner's routing — plus a control case against a surface that always warns. `byollm backends` → `byollm services`, rows led by service name.
 
 /devices shaping agreed (withheld rides heartbeat → presence → /devices, shaped once), with one guard added by Cowork before the wire hardens: **"advertised capability = resolved default" is a Phase-A-only truth.** Phase B advertises every selectable service per kind — the menu — so advertised ≠ default by construction. No consumer may infer the default from row-uniqueness; capability rows carry an explicit default marker now (trivially true for the single Phase A row), so Phase B adds rows without any consumer changing its mind about what default means. One field today spares a second wire shape next week.
+
+## Queued CLI addition: `byollm allow <app-url> --team` (Todd's question, 2026-08-25)
+
+Todd asked whether the allowlist can say "full team by default." Layer
+one already does: `offer: "named"` structurally means the whole
+roster — a route cannot name a subset. Layer two — the device's local
+allowlist, the enforcing side — stays per-person by design: the
+roster decides who is *shown*, the device decides who it will *run*,
+and that split is what keeps the hub (or a compromised account)
+unable to add people your device runs jobs for.
+
+Ruled: a **snapshot** command, `byollm allow <app-url> --team`,
+resolving the current roster to individual allow entries at command
+time — explicit, re-runnable, no delegation. The queued
+roster/allowlist drift surface (web_004) is its companion: it names
+exactly when a re-run is due. A **standing** roster-following rule
+(device honors hub-asserted membership continuously) is deliberately
+deferred — it trades the device's local say over who runs on it for
+convenience, and gets ruled on only if roster churn makes snapshots
+genuinely annoying in practice. Timing: after Phase B; not in the
+critical path.

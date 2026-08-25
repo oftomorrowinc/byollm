@@ -1289,13 +1289,49 @@ result, because that requires a device's signature.
 > **A refusal may deny. It may never assert.** Anything claiming work
 > happened still arrives sealed.
 
-## D.4 Explicitly not in this amendment
+## D.4 Not in this amendment — and where it goes instead
 
-Whether a job whose *record* has expired can be reported as terminally
-gone. That needs the store to remember a job existed after its row is
-gone — a tombstone with its own horizon, and a ruling on how that
-horizon relates to `deadlineAt`. It shares this amendment's principle
-(silence must not read as pending) and its delivery path (D.3's
-unsealed terminal outcome), and it does not share the hard part: every
-refusal here is decided while a live record exists to write it onto.
-It rides a later change to the store's lifecycle.
+A job whose *record* is gone must still end as an answer rather than a
+wait. That requirement is **product law and is not deferred**; only its
+mechanism is, and this section is its forwarding address so the
+exclusion cannot quietly park it.
+
+It is not a refusal, and the reason is D.3's law read carefully. A
+refusal is a router **denying** something it decided. Reporting a job
+gone would be a router **asserting** about history it no longer holds,
+and no envelope backs that assertion — precisely what D.3 forbids.
+
+But the question has a form that is not an assertion at all. Ask the
+store what it holds, and "I do not hold this job" is a report of its
+own present contents by the only party that can know them. The
+store-keeper reporting its own emptiness asserts nothing about the
+past; it states what is in front of it.
+
+The history is then supplied by the party that already has it. A site
+knows it enqueued job X and knows the enqueue was acknowledged. Site
+asks; store says it holds nothing; the site concludes *gone* from its
+own record plus the store's present emptiness. Neither party claims
+more than it can know.
+
+**This dissolves the tombstone.** An earlier draft of this section
+called for the store to remember that a job existed after its row was
+swept, with a horizon of its own and a ruling on how that horizon
+related to `deadlineAt`. That was the wrong shape: it put history in
+the party that had discarded it, to be read by the party that still
+held it. What remains is a much smaller question — how long a site may
+keep asking — and it is bounded by the site's own retention, which the
+site already owns.
+
+It also answers the case that motivated the requirement. This store
+keeps no persistence; a flushed or restarted Valkey loses jobs in
+flight. Under the shape above that is handled correctly and without
+special-casing: the store genuinely holds nothing, says so, and every
+affected site learns its work is gone instead of waiting out a deadline
+for a job no device will ever be offered.
+
+**What it needs:** a per-job query on the site plane. Today `pending`
+and `results` are batch polls over what the store *has*; there is no
+way to ask about one id and be told "not here". So it rides the next
+change to the site plane's query surface, and it is small when it does
+— a lookup, an absent answer, and the SDK turning absent-plus-enqueued
+into a terminal outcome.

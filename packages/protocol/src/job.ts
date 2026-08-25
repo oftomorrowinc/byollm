@@ -250,22 +250,33 @@ export type JobOutcome = z.infer<typeof JobOutcome>;
  * list rather than three private vocabularies.
  */
 export const RefusalReason = z.enum([
-  /** The named service is not one this owner advertises at all. */
-  "select-unadvertised",
   /**
-   * The service exists and is not offered to this requester.
+   * A selection this requester cannot be served — byollm_016 Phase B.
    *
-   * Deliberately distinct from `select-unadvertised` on the wire and
-   * deliberately **identical** in what it discloses to a stranger: both say a
-   * selection cannot be served, neither confirms what somebody else runs. The
-   * split exists so the *owner's own* tooling can tell a typo from a scope
-   * mistake, which are different fixes.
+   * **One value for two causes, and the collapse is the security property.**
+   * A named service may be unknown to this owner, or known and not offered to
+   * this requester. Those are different facts and the requester may learn
+   * neither, because telling them apart turns refusal wording into an
+   * inventory oracle: probe names, sort the answers, and enumerate a device
+   * you were never offered. The finer cause lives owner-side, where the person
+   * reading it already owns the machine — see {@link SelectionFailure}.
+   *
+   * The first draft of this enum had both causes on the wire with a comment
+   * claiming they disclosed identically. They did not; the comment described a
+   * property the code lacked, which is the more dangerous half of that mistake.
    */
-  "select-unoffered-to-you",
+  "select-unavailable",
   /**
    * Two or more services answer this kind and the owner has named no default,
    * so the kind is withheld. Nobody may pick on the owner's behalf — the wrong
    * guess is the metered one.
+   *
+   * Not collapsed into the value above, and the reason is that a kind is not
+   * probeable. There are two kinds; a requester asking about one is not
+   * enumerating a namespace, and learns nothing they could not learn by
+   * looking at what the device advertises. It is also already what a roster
+   * member sees on the devices page — `awaitingDefault` carries exactly this,
+   * by kind, for exactly this reason.
    */
   "default-ambiguity",
   /**
@@ -273,14 +284,28 @@ export const RefusalReason = z.enum([
    * defaults-meet-audiences corner.
    *
    * The specimen: an owner's default for `llm.chat` is their Claude
-   * subscription, which is self-locked by `SUBSCRIPTION_SELF_LOCK`. A team
-   * member's unselected job resolves to it and can never be served by it. That
-   * must be a refusal on the spot, not a wait that expires an hour later
-   * looking like nobody was online.
+   * subscription, self-locked by `SUBSCRIPTION_SELF_LOCK`. A team member's
+   * unselected job resolves to it and can never be served by it. That must be
+   * a refusal on the spot, not a wait that expires an hour later looking like
+   * nobody was online.
+   *
+   * Bounded like the value above and probeable for the same reason it is not:
+   * the requester named nothing, so there is no name space to walk.
    */
   "default-unusable",
 ]);
 export type RefusalReason = z.infer<typeof RefusalReason>;
+
+/**
+ * Why a selection failed, for the owner and nobody else.
+ *
+ * Never on the wire, never in a `JobRefused`, never in anything a requester
+ * receives. It exists so a device's own log and its owner's tooling can tell a
+ * typo from a scope mistake, which are different fixes — the distinction is
+ * genuinely useful to exactly one person, and that person already knows what
+ * their machine runs.
+ */
+export type SelectionFailure = "unadvertised" | "unoffered-to-you";
 
 /**
  * A terminal outcome nobody sealed — byollm_016 Phase B.
@@ -313,6 +338,46 @@ export const JobRefused = z
   })
   .strict();
 export type JobRefused = z.infer<typeof JobRefused>;
+
+/**
+ * The outward text for each reason, so a message cannot vary by call site.
+ *
+ * The mirror image of `REFUSAL_MESSAGES` in `audience.ts`, and the contrast is
+ * worth holding in one thought. That table is read by the **owner** of the
+ * device, where byollm_002's rule applies — four different truths must never
+ * share a message, because a person debugging their own machine needs to know
+ * which one they hit. This table is read by a **requester**, where the rule
+ * inverts: two different truths must share a message exactly, because the
+ * difference between them is somebody else's inventory.
+ *
+ * Same project, opposite requirements, and confusing them is how the oracle
+ * comes back. Hence a table rather than prose at the throw site: three
+ * refusals written in three places drift into three slightly different
+ * sentences, and "slightly different" is all an oracle needs.
+ */
+export const REFUSAL_TEXT: Readonly<Record<RefusalReason, string>> =
+  Object.freeze({
+    "select-unavailable": "that service is not available to you on this device",
+    "default-ambiguity":
+      "this device serves that kind from more than one service and its owner has not chosen which",
+    "default-unusable":
+      "this device's default for that kind cannot run work for you",
+  });
+
+/**
+ * The single outward answer for any selection that cannot be served.
+ *
+ * A frozen constant rather than a function taking the cause, because a
+ * function taking the cause is a place to put a branch, and a branch is where
+ * the oracle grows back. There is nothing here to vary, so no call site can
+ * vary it — the two causes reach the wire as the same bytes because they reach
+ * it as the same object.
+ */
+export const REFUSED_SELECTION: JobRefused = Object.freeze({
+  outcome: "refused",
+  reason: "select-unavailable",
+  message: REFUSAL_TEXT["select-unavailable"],
+});
 
 /**
  * The plaintext inside a result envelope.

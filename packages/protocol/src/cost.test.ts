@@ -93,10 +93,14 @@ describe("the provider registry", () => {
 describe("resolveCost [REMOTE_IS_NEVER_FREE, COST_NOT_CONFIGURABLE]", () => {
   it("takes a named provider's cost from the registry, ignoring the base URL", () => {
     // Pointing the `openai` provider at localhost does not make it free.
-    expect(resolveCost("openai", "http://127.0.0.1:11434/v1")).toBe("metered");
+    expect(resolveCost("openai", "http://127.0.0.1:11434/v1", undefined)).toBe(
+      "metered",
+    );
     // Nor does pointing `ollama` at a remote host make it metered — the
     // registry is authoritative for named providers either way.
-    expect(resolveCost("ollama", "https://api.openai.com/v1")).toBe("free");
+    expect(resolveCost("ollama", "https://api.openai.com/v1", undefined)).toBe(
+      "free",
+    );
   });
 
   it.each([
@@ -110,14 +114,14 @@ describe("resolveCost [REMOTE_IS_NEVER_FREE, COST_NOT_CONFIGURABLE]", () => {
     ["https://models.example.com/v1", "metered"],
     ["http://203.0.113.10/v1", "metered"],
   ])("infers %s as %s for the generic backend", (url, expected) => {
-    expect(resolveCost("openai-http", url)).toBe(expected);
+    expect(resolveCost("openai-http", url, undefined)).toBe(expected);
   });
 
   it("treats an unusable base URL as metered — the expensive side", () => {
     // Guessing "free" wrong costs the owner money; guessing "metered" wrong
     // costs them a config line.
-    expect(resolveCost("openai-http", undefined)).toBe("metered");
-    expect(resolveCost("openai-http", "not a url")).toBe("metered");
+    expect(resolveCost("openai-http", undefined, undefined)).toBe("metered");
+    expect(resolveCost("openai-http", "not a url", undefined)).toBe("metered");
   });
 });
 
@@ -128,7 +132,7 @@ describe("the hole byollm_007 closes", () => {
     const result = matchAudience(strangersJob, {
       owner: "bob",
       offerScope: "public",
-      cost: resolveCost("openai-http", "https://api.openai.com/v1"),
+      cost: resolveCost("openai-http", "https://api.openai.com/v1", undefined),
       spend: { acknowledged: false },
       locallyAllows: () => true,
     });
@@ -179,7 +183,7 @@ describe("the hole byollm_007 closes", () => {
     const result = matchAudience(strangersJob, {
       owner: "bob",
       offerScope: "public",
-      cost: resolveCost("openai-http", "http://127.0.0.1:11434/v1"),
+      cost: resolveCost("openai-http", "http://127.0.0.1:11434/v1", undefined),
       locallyAllows: () => true,
     });
     expect(result.ok).toBe(true);
@@ -324,7 +328,9 @@ describe("locality is decided on addresses, never on names", () => {
     expect(isLocalHost(host)).toBe(false);
     // The property, not the helper: a paid endpoint at this address is
     // metered, so it carries a ceiling and cannot be offered as free compute.
-    expect(resolveCost("openai-http", `https://${host}/v1`)).toBe("metered");
+    expect(resolveCost("openai-http", `https://${host}/v1`, undefined)).toBe(
+      "metered",
+    );
   });
 
   it.each([
@@ -347,7 +353,9 @@ describe("locality is decided on addresses, never on names", () => {
 
   it("keeps the bracketed IPv6 form working", () => {
     expect(isLocalHost("[::1]")).toBe(true);
-    expect(resolveCost("openai-http", "http://[::1]:11434/v1")).toBe("free");
+    expect(resolveCost("openai-http", "http://[::1]:11434/v1", undefined)).toBe(
+      "free",
+    );
   });
 
   it("treats an IPv4-mapped IPv6 loopback as metered, not free", () => {

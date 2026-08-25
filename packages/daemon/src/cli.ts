@@ -1295,7 +1295,10 @@ async function commandOffer(
     return 2;
   }
   if (scope !== "private" && scope !== "team" && scope !== "public") {
-    io.err(`"${scope}" is not an offer scope — use self, named, or public\n`);
+    // `self, named` are the pre-alpha.44 words, surviving inside a string
+    // where the rename could not see them — the second such survivor found in
+    // an hour, and the reason error text now joins the one-vocabulary lint.
+    io.err(`"${scope}" is not an offer scope — use private, team, or public\n`);
     return 2;
   }
 
@@ -1360,6 +1363,27 @@ async function commandOffer(
   // owner to run the command they had just run.
   const cost = resolveCost(service.type, baseUrl, service.model);
   const widening = scope !== "private";
+
+  // **A flag this path will not use is an error, not a shrug.**
+  //
+  // `--cap` was parsed, validated, and then reached only the metered branch.
+  // Ask to share a service this command believes is free and the ceiling
+  // vanished silently — which is exactly what happened when the cost
+  // calculation disagreed with the daemon's: the owner passed a ceiling, was
+  // told the share succeeded, and got neither.
+  //
+  // Refusing costs one message and removes a class where a command accepts an
+  // instruction it has no intention of following.
+  if (capCents !== undefined && !(cost === "metered" && widening)) {
+    io.err(
+      `--cap sets a daily spend ceiling, and ${serviceKey} ` +
+        (cost === "metered"
+          ? "is not being shared, so nothing would spend against it.\n"
+          : `is ${cost}-class, so sharing it costs you nothing.\n`) +
+        "Drop --cap, or offer a metered service to a wider scope.\n",
+    );
+    return 2;
+  }
 
   // A subscription backend cannot be offered at all, so say that instead of
   // writing a setting that would be silently ignored on the next load.

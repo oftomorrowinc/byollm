@@ -393,7 +393,23 @@ export function isCloudTaggedModel(model: string): boolean {
 export function resolveCost(
   id: BackendId,
   baseUrl: string | undefined,
-  model?: string,
+  /**
+   * **Required, and that is the fix.**
+   *
+   * This was optional, and the no-re-derivation law was breached through the
+   * gap rather than by anybody copying the logic. `byollm offer` passed two of
+   * three arguments and `resolveConfig` passed three, so the same service was
+   * free to one and metered to the other: `glm-5.2:cloud` on a loopback
+   * address looks local until you read the tag. The command wrote a share the
+   * daemon then refused, and told its owner to run the command they had just
+   * run.
+   *
+   * A shared rule's signature admits no partial askers. `undefined` is still a
+   * legal *value* — a service genuinely without a model — but it has to be
+   * passed, so choosing to omit the model is a decision at the call site
+   * rather than a default nobody notices.
+   */
+  model: string | undefined,
 ): BackendCost {
   const declared = BACKENDS[id].cost;
   if (declared !== null) return declared;

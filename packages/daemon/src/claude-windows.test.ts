@@ -98,6 +98,36 @@ describe("childEnv on Windows", () => {
     expect(env["SystemRoot"]).toBe("C:\\Windows");
   });
 
+  it("passes USER through, which macOS authentication needs", () => {
+    /**
+     * Found on 2026-08-25, by the first cross-user job failing.
+     *
+     * On macOS the CLI keeps its credentials in the login Keychain rather than
+     * under `HOME`, and reaching them needs `USER`. Without it every run
+     * answers "Not logged in · Please run /login" and exits 1 — while the
+     * health check, which runs `--version` and needs no credentials, goes on
+     * reporting the backend healthy. Healthy backend, every job failing, is
+     * the exact shape the Windows note in this file predicts, and it arrived
+     * on the other platform first.
+     *
+     * Not Windows-only: this rides the base allowlist, so it is asserted on
+     * the platforms that use it.
+     */
+    for (const platform of ["darwin", "linux"] as const) {
+      const env = childEnv({ ...source, USER: "toddsampson" }, platform);
+      expect(env["USER"], platform).toBe("toddsampson");
+    }
+  });
+
+  it("does not take LOGNAME instead, which does not work", () => {
+    // The same name under a different variable, and the CLI does not read it —
+    // tested against the real binary rather than assumed. An allowlist entry
+    // that fixes nothing is a widening with no story.
+    expect(
+      childEnv({ ...source, LOGNAME: "toddsampson" }, "darwin")["LOGNAME"],
+    ).toBeUndefined();
+  });
+
   it("still drops everything not on the allowlist", () => {
     expect(childEnv(source, "win32")["SECRET_TOKEN"]).toBeUndefined();
     expect(childEnv(source, "linux")["SECRET_TOKEN"]).toBeUndefined();

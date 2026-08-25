@@ -54,10 +54,24 @@ const FIXED_ARGV = Object.freeze([
  *
  * `ANTHROPIC_API_KEY` is deliberately **absent**: byollm_002 requires that
  * billing cannot silently move from the subscription to a metered key.
+ *
+ * `USER` is here for the same reason as `HOME`, found the hard way on
+ * 2026-08-25 during the first cross-user job. On macOS the CLI keeps its
+ * credentials in the login Keychain rather than under `HOME`, and reaching
+ * them needs `USER`; without it every run answers "Not logged in · Please run
+ * /login" and exits non-zero.
+ *
+ * This is exactly the failure the Windows note below predicts and it arrived
+ * on the other platform first: **the backend reports healthy and every job
+ * fails.** The health check runs `--version`, which needs no credentials, so
+ * nothing between install and the first real prompt says anything is wrong.
+ * `LOGNAME` carries the same name and does not fix it — tested, not assumed —
+ * so it stays out.
  */
 const ENV_ALLOWLIST = Object.freeze([
   "PATH",
   "HOME",
+  "USER",
   "LANG",
   "LC_ALL",
   "TZ",

@@ -101,3 +101,16 @@ troubleshooting).
 **Deliberately not yet:** the Connect button (cut-until-true — the
 connect-flow PR documents itself atomically); trust-page MUST
 additions (wait for Amendment G's RATIFIED, cite law not drafts).
+
+Addendum (2026-08-25, from Kevin's first-test checklist): the
+integrate guide's testing section gains the **owner-side first-job
+checklist**, because the first real integrator's otherwise-correct
+checklist missed the device-side door: (1) daemon running (byollm
+status: running, not NOT REPORTING); (2) the serving backend healthy
+(for openai-http, the model server up — curl its /v1/models); (3)
+site connected on Connections (consent — permission to the cloud);
+(4) **site approved on the daemon** (byollm sites → byollm approve —
+permission to the app; the two doors are different on purpose and
+the missing one produces a meaningful-looking timeout); (5) owner id
+pasted site-side. Teach it as the owner's half of the test, beside
+the integrator's half the guide already carries.

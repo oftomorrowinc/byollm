@@ -356,6 +356,13 @@ export class Runner {
 
       capabilities.push({
         kind: route.kind,
+        service: route.service,
+        // Phase A advertises exactly one service per kind — the one that
+        // resolved — so every advertised row is its kind's default. Stated
+        // rather than left for a consumer to infer from being alone, because
+        // Phase B advertises the whole menu and that inference would silently
+        // stop being true.
+        isDefault: true,
         backendId: route.backendId,
         backendClass: route.backendClass,
         model: route.model,
@@ -688,6 +695,17 @@ export class Runner {
       runnerId: this.#options.runnerId,
       daemonVersion: this.#options.daemonVersion,
       capabilities,
+      // What this device could serve and is not, so the surfaces that must
+      // explain a missing kind are not all on this machine. The hub decides
+      // who is told what; the device only reports.
+      withheld: this.#options.loaded.withheld.map((held) => ({
+        kind: held.kind,
+        claimants: held.services.map((service) => ({
+          service,
+          offer:
+            this.#options.loaded.config.services[service]?.offer ?? "private",
+        })),
+      })),
       activeLeases: [...this.#active.entries()].map(([leaseId, held]) => ({
         jobId: held.jobId,
         leaseId,

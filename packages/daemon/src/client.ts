@@ -12,6 +12,7 @@ import {
   ResultResponse,
   WireError,
   type Capability,
+  type WithheldKind,
   type Endpoint,
 } from "@byollm/protocol";
 import { type z } from "zod";
@@ -222,6 +223,8 @@ export class ProtocolClient {
     runnerId: string;
     daemonVersion: string;
     capabilities: readonly Capability[];
+    /** Kinds this device could serve and is withholding — byollm_016. */
+    withheld?: readonly WithheldKind[];
     activeLeases: readonly { jobId: string; leaseId: string }[];
     paused: boolean;
   }): Promise<HeartbeatResponse> {
@@ -230,6 +233,7 @@ export class ProtocolClient {
       runnerId: input.runnerId,
       daemonVersion: input.daemonVersion,
       capabilities: input.capabilities,
+      withheld: input.withheld ?? [],
       activeLeases: input.activeLeases,
       paused: input.paused,
     });

@@ -181,6 +181,8 @@ export const CHECKS: readonly Check[] = [
         const generateOnly = await claimRaw(target, daemon, [
           {
             kind: "llm.generate",
+            service: "local",
+            isDefault: true,
             backendId: "openai-http",
             backendClass: "http",
             model: "echo-model",

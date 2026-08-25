@@ -67,6 +67,8 @@ describe("a paused consent", () => {
       capabilities: [
         {
           kind: "llm.generate",
+          service: "local",
+          isDefault: true,
           backendId: "openai-http",
           backendClass: "http",
           model: "m",

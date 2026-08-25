@@ -147,6 +147,7 @@ export {
 export {
   Capability,
   CapabilityMatrix,
+  WithheldKind,
   ClaimRequest,
   ClaimResponse,
   ENDPOINTS,

@@ -59,6 +59,8 @@ const stub = (id: string, owner = "alice"): JobStub => ({
 /** One advertised route, as a daemon describes it on every heartbeat. */
 const capability = (model: string) => ({
   kind: "llm.generate" as const,
+  service: model,
+  isDefault: true,
   backendId: "ollama" as const,
   backendClass: "process" as const,
   model,

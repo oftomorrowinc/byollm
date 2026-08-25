@@ -180,6 +180,24 @@ export type Endpoint = (typeof ENDPOINTS)[number];
 export const Capability = z
   .object({
     kind: JobKind,
+    /**
+     * The owner's name for the service answering this kind — byollm_016.
+     *
+     * A device advertises *which* of its services serves a kind, not merely
+     * that something does. Phase B lets a job select by this name; until then
+     * it is what a device page shows and what a default is chosen between.
+     */
+    service: z.string().min(1),
+    /**
+     * Whether this row is the default for its kind.
+     *
+     * Stated rather than inferred from being the only row, which is true in
+     * Phase A and stops being true the moment Phase B advertises every
+     * selectable service per kind. A consumer that learned "default means
+     * alone" would have to unlearn it, and the ones that did not would be
+     * quietly wrong. One field now, no second shape later.
+     */
+    isDefault: z.boolean(),
     backendId: BackendIdSchema,
     backendClass: BackendClass,
     model: z.string().min(1),
@@ -191,6 +209,32 @@ export type Capability = z.infer<typeof Capability>;
 /** The capability matrix a daemon advertises. */
 export const CapabilityMatrix = z.array(Capability);
 export type CapabilityMatrix = z.infer<typeof CapabilityMatrix>;
+
+/**
+ * A kind this device could serve and deliberately does not — byollm_016.
+ *
+ * Two services answer one kind and the owner has not said which wins, so the
+ * kind is not advertised. That is correct and, unsaid, invisible: the owner
+ * adds a second service, jobs stop matching, and no surface explains it.
+ *
+ * It travels because the surfaces that must say so are not all on the device.
+ * The owner's card names the claimants; a teammate's card says only that the
+ * owner has a choice to make. Claimant **offer scopes** ride along so the hub
+ * can compute that difference without the device deciding who is asking —
+ * carry for computation, filter for display, the same shape the effective
+ * offer already uses.
+ */
+export const WithheldKind = z
+  .object({
+    kind: JobKind,
+    claimants: z
+      .array(
+        z.object({ service: z.string().min(1), offer: OfferScope }).strict(),
+      )
+      .min(2),
+  })
+  .strict();
+export type WithheldKind = z.infer<typeof WithheldKind>;
 
 // ---------------------------------------------------------------------------
 // 1. POST /byollm/pair — device-code flow
@@ -348,6 +392,14 @@ export const HeartbeatRequest = z
     runnerId: z.string().min(1),
     daemonVersion: z.string().min(1),
     capabilities: CapabilityMatrix,
+    /**
+     * Kinds this device is withholding, and why it can be said.
+     *
+     * Optional so a daemon that has nothing withheld sends nothing, and so an
+     * older daemon against a newer hub is simply a device with no withheld
+     * kinds rather than a parse failure.
+     */
+    withheld: z.array(WithheldKind).default([]),
     /**
      * Leases this daemon believes it holds; the server renews exactly these.
      *

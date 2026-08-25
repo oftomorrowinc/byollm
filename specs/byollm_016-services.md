@@ -1106,3 +1106,33 @@ thing that failed.
 alpha.52 ruled: cut it (daemon + card fixes; the NOT REPORTING state
 only helps the installed). #3 (hub-side paired-identity reject
 anomaly) stays queued in the operator-alerting lane.
+
+## The glm offer bug: partial application is the second implementation (2026-08-25 evening)
+
+Real bug, found by Todd's real offer: `byollm offer` called resolveCost
+with two of its three inputs (no model), saw loopback, classified
+free — no consent asked, `--cap 2500` silently dropped, `offer:
+"team"` written with no spend block. The daemon, asking with all
+three inputs, saw the :cloud tag, classified metered, found no
+consent, narrowed. Both right about what they were asked. **Rule
+minted: a shared rule's signature admits no partial askers** — the
+no-re-derivation law was defended against copy-paste and breached
+through a signature; optional inputs on a classification function are
+two implementations wearing one name. Fix at the signature (model
+required) or by consuming the fully-resolved service.
+
+Riders, each its own class: an accepted flag with no effect on the
+taken path errors, never vanishes (strict-options extended to CLI
+flags); error/notice strings join the one-vocabulary lint scope (the
+narrowing message still said "self"); error messages are docs and get
+walked like docs (the message named a command without --cap —
+following it exactly looped).
+
+Status formatting landed (three lines per service, 68 cols; backend
+id beside scope as the same kind of fact — how the service behaves —
+model as the recognisable long part). On the :cloud reclass: CCC
+confirming where the interim lives before coding — expected answer
+per the spec history is that code was metered throughout and the
+interim was paper-only, resolved before it became code. Then .52 with
+ready-for-latest.mjs run on it, per the standing instruction CCC is
+already applying to the release they'd have called display-only.

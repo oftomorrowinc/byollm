@@ -631,3 +631,11 @@ the config is fine and the build is behind it. Merged, every
 limitation reads as the owner's mistake — and a real mistake gets
 harder to spot. A control case keeps the team-gap notice from
 becoming wallpaper for private-only owners.
+
+**Closed (Todd, 2026-08-25): ruled as CCC built it.** Todd was
+agreeing, not overruling — public leaves the *cloud's supported
+list* for now (no dashboard surface, no hub community matching, and
+the cloud docs teach private | team, mentioning public only as an
+open-source direct-mode capability awaiting the community program)
+and stays fully supported in the daemon and direct mode. Phase A's
+docs rewrite (stage 5) carries the docs half. Item closed.

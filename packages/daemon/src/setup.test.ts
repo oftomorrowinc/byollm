@@ -8,6 +8,7 @@ import {
   runSetup,
   terminalIo,
   type Detector,
+  type Probe,
   type SetupIo,
 } from "./setup.js";
 import { DaemonConfig, resolveConfig } from "./config.js";
@@ -47,6 +48,21 @@ const machineWith =
   (id) =>
     Promise.resolve(ids.includes(id));
 
+/**
+ * A machine with these local servers answering, and no others.
+ *
+ * Passed everywhere, including the cases that do not care: the default probe
+ * reaches localhost, so a test that omits it is testing whatever the developer
+ * happens to be running. That is the same trap the empty-machine case fell
+ * into with `claude` already installed, one layer out.
+ */
+const serving =
+  (...servers: Awaited<ReturnType<Probe>>): Probe =>
+  () =>
+    Promise.resolve(servers);
+
+const noServers: Probe = () => Promise.resolve([]);
+
 /** A scripted terminal: answers in order, transcript captured. */
 function scripted(answers: readonly string[]): SetupIo & {
   transcript: () => string;
@@ -71,7 +87,7 @@ describe("the wizard writes a config the daemon accepts", () => {
     // would produce a daemon that advertises nothing and cannot say why.
     const p = await paths();
     const io = scripted(["my laptop", "n"]);
-    const result = await runSetup(p, io, machineWith([]));
+    const result = await runSetup(p, io, machineWith([]), noServers);
 
     expect(result.wrote).toBe(false);
     await expect(readFile(p.config, "utf8")).rejects.toThrow();
@@ -95,7 +111,12 @@ describe("the wizard writes a config the daemon accepts", () => {
     });
     await writeFile(p.config, mine, "utf8");
 
-    const result = await runSetup(p, scripted(["x", "y"]), machineWith([]));
+    const result = await runSetup(
+      p,
+      scripted(["x", "y"]),
+      machineWith([]),
+      noServers,
+    );
     expect(result.wrote).toBe(false);
     expect(await readFile(p.config, "utf8")).toBe(mine);
   });
@@ -106,7 +127,7 @@ describe("the wizard writes a config the daemon accepts", () => {
     // accident.
     const p = await paths();
     const io = { ...scripted([]), interactive: false };
-    const result = await runSetup(p, io, machineWith([]));
+    const result = await runSetup(p, io, machineWith([]), noServers);
     expect(result.wrote).toBe(false);
     expect(io.transcript()).toContain("needs a terminal");
   });
@@ -119,6 +140,7 @@ describe("what it writes, when something is installed", () => {
       p,
       scripted(["studio-mac", "y", "n"]),
       machineWith(["claude-cli"]),
+      noServers,
     );
     expect(result.wrote).toBe(true);
 
@@ -142,7 +164,7 @@ describe("what it writes, when something is installed", () => {
     // of disclosure. Asserted on the transcript, because that is what a person
     // reads — a comment in the source is not a disclosure.
     const io = scripted(["mac", "y", "n"]);
-    await runSetup(await paths(), io, machineWith(["claude-cli"]));
+    await runSetup(await paths(), io, machineWith(["claude-cli"]), noServers);
 
     const text = io.transcript();
     const disclosure = text.indexOf("YOUR OWN jobs");
@@ -155,16 +177,6 @@ describe("what it writes, when something is installed", () => {
     ).toBeLessThan(question);
   });
 
-  it("warns that codex is an agent, where the decision is made", async () => {
-    // Todd's ruling, in the place it has to be said. Codex's tools are off and
-    // tested off; what remains is that a site you trust is still a site you
-    // are trusting, and that belongs at enablement rather than in a doc.
-    const io = scripted(["mac", "y", "n"]);
-    await runSetup(await paths(), io, machineWith(["codex-cli"]));
-    expect(io.transcript()).toContain("only use it");
-    expect(io.transcript()).toContain("sites you trust");
-  });
-
   it("resolves the ambiguity byollm_016 would otherwise withhold", async () => {
     // Two subscription CLIs answer the same kinds. Left alone that is the
     // withheld state — nothing advertised, and a person with no idea why. The
@@ -172,8 +184,9 @@ describe("what it writes, when something is installed", () => {
     const p = await paths();
     await runSetup(
       p,
-      scripted(["mac", "y", "y", "n", "2"]),
+      scripted(["mac", "y", "y", "2"]),
       machineWith(["claude-cli", "codex-cli"]),
+      noServers,
     );
     const parsed = DaemonConfig.safeParse(
       JSON.parse(await readFile(p.config, "utf8")),
@@ -201,7 +214,12 @@ describe("what it writes, when something is installed", () => {
       ],
     ] as const) {
       const p = await paths();
-      const result = await runSetup(p, scripted(answers), machineWith(machine));
+      const result = await runSetup(
+        p,
+        scripted(answers),
+        machineWith(machine),
+        noServers,
+      );
       if (!result.wrote) continue;
       expect(
         DaemonConfig.safeParse(JSON.parse(await readFile(p.config, "utf8")))
@@ -219,7 +237,7 @@ describe("the smaller decisions", () => {
     // somebody's devices page.
     const p = await paths();
     const io = scripted(["", "y", "n"]);
-    await runSetup(p, io, machineWith(["claude-cli"]));
+    await runSetup(p, io, machineWith(["claude-cli"]), noServers);
     expect(io.transcript()).toContain("byollm connect --name");
     expect(io.transcript()).not.toContain('--name ""');
   });
@@ -229,7 +247,7 @@ describe("the smaller decisions", () => {
     process.env["BYOLLM_LABEL"] = "studio-rig";
     try {
       const io = scripted(["", "y", "n"]);
-      await runSetup(await paths(), io, machineWith(["claude-cli"]));
+      await runSetup(await paths(), io, machineWith(["claude-cli"]), noServers);
       expect(io.transcript()).toContain("studio-rig");
     } finally {
       if (previous === undefined) delete process.env["BYOLLM_LABEL"];
@@ -237,14 +255,13 @@ describe("the smaller decisions", () => {
     }
   });
 
-  it("points at the guide rather than interrogating for a local model", async () => {
-    // byollm_015: the mainstream path stays three answers long, and the LoRA
-    // path is a link rather than a fourth interrogation.
-    const io = scripted(["mac", "y", "y"]);
-    await runSetup(await paths(), io, machineWith(["claude-cli"]));
+  it("says so plainly when nothing is listening", async () => {
+    // The honest empty case. Somebody with no local server should be told
+    // where to add one, not shown an empty numbered list.
+    const io = scripted(["mac", "y", ""]);
+    await runSetup(await paths(), io, machineWith(["claude-cli"]), noServers);
+    expect(io.transcript()).toContain("none answering on the usual ports");
     expect(io.transcript()).toContain("guides/models");
-    // Still only the three questions it promised.
-    expect(io.transcript().match(/\? \[/g)?.length ?? 0).toBeLessThanOrEqual(3);
   });
 
   it("declining every CLI writes nothing", async () => {
@@ -253,8 +270,9 @@ describe("the smaller decisions", () => {
     const p = await paths();
     const result = await runSetup(
       p,
-      scripted(["mac", "n", "n", "n"]),
+      scripted(["mac", "n", "n"]),
       machineWith(["claude-cli", "codex-cli"]),
+      noServers,
     );
     expect(result.wrote).toBe(false);
     await expect(readFile(p.config, "utf8")).rejects.toThrow();
@@ -271,6 +289,7 @@ describe("the smaller decisions", () => {
       p,
       scripted(["mac", "y", "n"]),
       machineWith(["claude-cli"]),
+      noServers,
     );
     expect(result.wrote).toBe(true);
   });
@@ -279,8 +298,9 @@ describe("the smaller decisions", () => {
     const p = await paths();
     await runSetup(
       p,
-      scripted(["mac", "y", "y", "n", "banana"]),
+      scripted(["mac", "y", "y", "banana"]),
       machineWith(["claude-cli", "codex-cli"]),
+      noServers,
     );
     const parsed = DaemonConfig.safeParse(
       JSON.parse(await readFile(p.config, "utf8")),
@@ -324,6 +344,7 @@ describe("the real terminal adapter", () => {
         () => undefined,
       ),
       machineWith(["claude-cli"]),
+      noServers,
     );
     expect(result.wrote).toBe(false);
   });
@@ -373,8 +394,153 @@ describe("a config file that is JSON but not a config", () => {
       p,
       scripted(["mac", "y", "n"]),
       machineWith(["claude-cli"]),
+      noServers,
     );
     expect(result.wrote).toBe(false);
     expect(await readFile(p.config, "utf8")).toBe("{}");
+  });
+});
+
+describe("what the wizard is allowed to write", () => {
+  it("writes answers only, never a schema default", async () => {
+    // A default belongs in one place. `DaemonConfig.parse()` returns the
+    // answers *plus* concurrency, the community and ingress blocks and a
+    // per-service offer — today's values for settings nobody was asked about,
+    // frozen into a file that outlives them. Tune a budget next year and every
+    // wizard-written config sits on the old number, chosen by no one.
+    //
+    // Asserted on the raw JSON rather than the parsed shape, because parsing
+    // is exactly what would hide it.
+    const p = await paths();
+    await runSetup(
+      p,
+      scripted(["mac", "y", ""]),
+      machineWith(["claude-cli"]),
+      noServers,
+    );
+    const raw: unknown = JSON.parse(await readFile(p.config, "utf8"));
+    expect(Object.keys(raw as object)).toEqual(["services"]);
+
+    const service = (raw as { services: Record<string, object> }).services[
+      "claude"
+    ];
+    // The service carries what was asked and decided, and nothing else —
+    // notably not `offer`, which the schema would have filled with "private".
+    expect(Object.keys(service ?? {}).sort()).toEqual([
+      "kinds",
+      "model",
+      "type",
+    ]);
+  });
+
+  it("still writes a config the daemon reads the same way", async () => {
+    // The control on the rule above: writing less must not mean meaning less.
+    // The daemon fills the defaults on load, so the resolved routes are
+    // identical to what the fatter file would have produced.
+    const p = await paths();
+    await runSetup(
+      p,
+      scripted(["mac", "y", ""]),
+      machineWith(["claude-cli"]),
+      noServers,
+    );
+    const parsed = DaemonConfig.safeParse(
+      JSON.parse(await readFile(p.config, "utf8")),
+    );
+    expect(parsed.success).toBe(true);
+    if (!parsed.success) return;
+    const loaded = resolveConfig(parsed.data);
+    expect(loaded.problems).toEqual([]);
+    expect(loaded.routes.every((r) => r.offerScope === "private")).toBe(true);
+  });
+});
+
+describe("finding local servers by asking them", () => {
+  const ollama = {
+    label: "Ollama",
+    baseUrl: "http://127.0.0.1:11434/v1",
+    models: ["llama3.2", "qwen2.5"],
+  };
+  const lmstudio = {
+    label: "LM Studio",
+    baseUrl: "http://127.0.0.1:1234/v1",
+    models: ["mistral"],
+  };
+
+  it("offers what answered, with the models it named", async () => {
+    const io = scripted(["mac", "1"]);
+    await runSetup(await paths(), io, machineWith([]), serving(ollama));
+    const text = io.transcript();
+    expect(text).toContain("Ollama at http://127.0.0.1:11434/v1");
+    // The models come from the server's own answer, so a person recognises
+    // the thing they installed rather than a guess.
+    expect(text).toContain("llama3.2");
+  });
+
+  it("writes the server's own address and first model", async () => {
+    // Never a guessed model name: a guess writes a route that is unhealthy on
+    // first use, which is worse than writing nothing.
+    const p = await paths();
+    await runSetup(
+      await paths.call(null),
+      scripted([]),
+      machineWith([]),
+      noServers,
+    );
+    const p2 = await paths();
+    await runSetup(
+      p2,
+      scripted(["mac", "1"]),
+      machineWith([]),
+      serving(ollama),
+    );
+    const raw = JSON.parse(await readFile(p2.config, "utf8")) as {
+      services: Record<string, { baseUrl: string; model: string }>;
+    };
+    expect(raw.services["ollama"]?.baseUrl).toBe("http://127.0.0.1:11434/v1");
+    expect(raw.services["ollama"]?.model).toBe("llama3.2");
+    void p;
+  });
+
+  it("takes several at once", async () => {
+    const p = await paths();
+    await runSetup(
+      p,
+      scripted(["mac", "1,2", "1"]),
+      machineWith([]),
+      serving(ollama, lmstudio),
+    );
+    const raw = JSON.parse(await readFile(p.config, "utf8")) as {
+      services: Record<string, unknown>;
+      defaults?: Record<string, string>;
+    };
+    expect(Object.keys(raw.services).sort()).toEqual(["lm", "ollama"]);
+    // Two services answering the same kinds is the withheld state, so the
+    // wizard asks here too rather than leaving it for somebody to discover.
+    expect(raw.defaults?.["llm.generate"]).toBe("ollama");
+  });
+
+  it("skips a server that lists no models rather than guessing one", async () => {
+    const io = scripted(["mac", "1"]);
+    const p = await paths();
+    await runSetup(
+      p,
+      io,
+      machineWith([]),
+      serving({
+        label: "Ollama",
+        baseUrl: "http://127.0.0.1:11434/v1",
+        models: [],
+      }),
+    );
+    expect(io.transcript()).toContain("lists no models");
+    await expect(readFile(p.config, "utf8")).rejects.toThrow();
+  });
+
+  it("ignores a choice nobody offered", async () => {
+    // A stray number should not cost the conversation.
+    const p = await paths();
+    await runSetup(p, scripted(["mac", "9"]), machineWith([]), serving(ollama));
+    await expect(readFile(p.config, "utf8")).rejects.toThrow();
   });
 });

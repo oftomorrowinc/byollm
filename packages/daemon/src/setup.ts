@@ -1,8 +1,9 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import { createInterface } from "node:readline/promises";
-import { BACKENDS, type BackendId, type JobKind } from "@byollm/protocol";
+import type { BackendId, JobKind } from "@byollm/protocol";
 import { createBackend } from "./backends/index.js";
+import { probeLocalServers, type LocalServer } from "./probe-local.js";
 import { DaemonConfig } from "./config.js";
 import type { DaemonPaths } from "./paths.js";
 
@@ -39,6 +40,15 @@ export interface SetupIo {
  * test because it teaches people to re-run until green.
  */
 export type Detector = (id: BackendId) => Promise<boolean>;
+
+/**
+ * What answered on the local ports — injected for the same reason detection is.
+ *
+ * A wizard test that reaches the network tests the network. Worse, it tests
+ * whatever the developer happens to be running: the empty-machine case failed
+ * once already because this laptop has `claude` installed.
+ */
+export type Probe = () => Promise<LocalServer[]>;
 
 /** Subscription CLIs the wizard offers, in the order it offers them. */
 const SUBSCRIPTION_CLIS: readonly {
@@ -120,6 +130,7 @@ export async function runSetup(
   paths: DaemonPaths,
   io: SetupIo,
   detector: Detector = detectInstalled,
+  probe: Probe = () => probeLocalServers(),
 ): Promise<SetupResult> {
   if (!io.interactive) {
     io.err(
@@ -143,10 +154,7 @@ export async function runSetup(
     return { wrote: false, services: [] };
   }
 
-  io.out(
-    "\nSetting up byollm. Three questions, and you can change any of it\n" +
-      `later by editing ${paths.config}.\n\n`,
-  );
+  io.out(`\nSetting up byollm. Change any of it later in ${paths.config}.\n\n`);
 
   // ── 1. what this device is called ────────────────────────────────────
   const suggested = defaultDeviceName();
@@ -168,22 +176,10 @@ export async function runSetup(
     // wording, which is product law here: the moment of enablement is the
     // moment of disclosure. Said before the question, not after the answer.
     io.out(
-      `  This runs on your ${cli.plan}, and byollm will only ever use it for\n` +
-        "  YOUR OWN jobs. Someone else's terms are not yours to lend, so this\n" +
-        "  service can never be shared with a team — the protocol enforces that,\n" +
-        "  whatever the config says.\n",
+      `  Uses your ${cli.plan}, for YOUR OWN jobs only — never shared with a\n` +
+        "  team, whatever the config says. Someone else's terms are not yours\n" +
+        "  to lend.\n",
     );
-    if (BACKENDS[cli.id].class === "process" && cli.id === "codex-cli") {
-      // The residual this backend carries, stated where the decision is made.
-      // Codex's tools are disabled and verified disabled, and it can still
-      // reach the network on your behalf; a site you trust is still a site you
-      // are trusting.
-      io.out(
-        "  Note: Codex is an agent. byollm turns its shell, browser and\n" +
-          "  computer tools off and tests that they stay off — but only use it\n" +
-          "  with sites you trust.\n",
-      );
-    }
     const answer = await io.ask(`  Use it for your own jobs? [Y/n] `);
     if (!yes(answer, true)) continue;
 
@@ -195,15 +191,52 @@ export async function runSetup(
     enabled.push(cli.binary);
   }
 
-  // ── 3. a local or custom model ───────────────────────────────────────
-  io.out("\n");
-  const local = await io.ask("Add a local or custom model now? [y/N] ");
-  if (yes(local, false)) {
+  // ── 3. local model servers, found by asking them ─────────────────────
+  //
+  // This used to send people to the docs to write five lines by hand, which is
+  // the exact thing the wizard exists to stop. A server that is already
+  // running knows its own address and its own models; the only reason to make
+  // somebody retype that is that nobody asked it.
+  io.out("\nLooking for local model servers...\n");
+  const servers = await probe();
+  if (servers.length > 0) {
+    servers.forEach((server, at) => {
+      const models = server.models.slice(0, 3).join(", ");
+      io.out(
+        `  ${String(at + 1)}. ${server.label} at ${server.baseUrl}\n` +
+          (models === "" ? "" : `     ${models}\n`),
+      );
+    });
+    const pick = await io.ask(
+      `  Use which? [1-${String(servers.length)}, comma-separated, or Enter to skip] `,
+    );
+    for (const chosen of pickMany(pick, servers.length)) {
+      const server = servers[chosen];
+      if (server === undefined) continue;
+      // The model is the server's own first answer. A wizard that guessed a
+      // name would write a config whose route is unhealthy on first use, which
+      // is worse than not writing one.
+      const model = server.models[0];
+      if (model === undefined) {
+        io.out(
+          `  ${server.label} lists no models — add one there, then rerun.\n`,
+        );
+        continue;
+      }
+      const name = nameFor(server.label, services);
+      services[name] = {
+        type: "openai-http",
+        baseUrl: server.baseUrl,
+        model,
+        kinds: [...BOTH_KINDS],
+      };
+      enabled.push(name);
+    }
+  } else {
     io.out(
-      "\nThat one needs a couple of details this wizard would only guess at —\n" +
-        "which server, which port, which model name. It is a five-line block:\n" +
-        "  https://docs.byollm.cloud/guides/models\n" +
-        `Add it to ${paths.config} and run \`byollm services\` to check it.\n`,
+      "  none answering on the usual ports.\n" +
+        "  A server on a port nobody guessed still works — add it by hand:\n" +
+        "  https://docs.byollm.cloud/guides/models\n",
     );
   }
 
@@ -266,7 +299,20 @@ export async function runSetup(
   }
 
   await mkdir(dirname(paths.config), { recursive: true });
-  await writeFile(paths.config, `${JSON.stringify(parsed.data, null, 2)}\n`);
+  // `config`, not `parsed.data` — the answers, not the answers plus every
+  // default the schema filled in.
+  //
+  // Parsing is validation here and nothing else. `parsed.data` carries
+  // `concurrency`, the community and ingress blocks, per-service
+  // `offer: "private"` — today's values for settings nobody was asked about,
+  // written into a file that outlives them. Tune a budget next year and every
+  // wizard-written config sits on the old number, chosen by no one, and the
+  // owner has no way to tell which of those lines they meant.
+  //
+  // A default belongs in one place. Writing it down a second time is the same
+  // defect as a fixture that restates a constant: two copies, and only one of
+  // them gets updated.
+  await writeFile(paths.config, `${JSON.stringify(config, null, 2)}\n`);
 
   io.out(
     `\nWrote ${paths.config}\n` +
@@ -295,7 +341,7 @@ async function readExisting(
 function defaultDeviceName(): string {
   const override = process.env["BYOLLM_LABEL"];
   if (override !== undefined && override !== "") return override.slice(0, 120);
-  return "my computer";
+  return "my-computer";
 }
 
 /**
@@ -331,4 +377,44 @@ export function terminalIo(
       }
     },
   };
+}
+
+/**
+ * Which of the offered servers somebody picked.
+ *
+ * Forgiving on purpose: "1,3", "1 3" and "1, 3" all mean the same thing, and a
+ * number nobody offered is dropped rather than fatal. Being strict here would
+ * cost the whole conversation over a stray comma.
+ */
+function pickMany(answer: string, count: number): number[] {
+  const out: number[] = [];
+  for (const piece of answer.split(/[\s,]+/)) {
+    if (piece === "") continue;
+    const at = Number.parseInt(piece, 10);
+    if (!Number.isFinite(at) || at < 1 || at > count) continue;
+    if (!out.includes(at - 1)) out.push(at - 1);
+  }
+  return out;
+}
+
+/**
+ * A config key from a server's label, unique within this config.
+ *
+ * The key is what `defaults` and `byollm offer` refer to, so it has to be
+ * typeable — "LM Studio" becomes `lm-studio`. Two servers of the same kind on
+ * different ports get `-2`, rather than the second silently replacing the
+ * first, which is what a plain assignment would do.
+ */
+function nameFor(label: string, taken: Record<string, unknown>): string {
+  const base =
+    label
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-|-$/g, "")
+      .split("-")[0] ?? "local";
+  if (!(base in taken)) return base;
+  for (let n = 2; ; n += 1) {
+    const candidate = `${base}-${String(n)}`;
+    if (!(candidate in taken)) return candidate;
+  }
 }

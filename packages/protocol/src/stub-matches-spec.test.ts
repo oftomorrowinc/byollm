@@ -58,6 +58,19 @@ function fieldsFromSpec(): string[] {
 }
 
 /**
+ * `service?` in the spec is `service` in the schema, optionally present.
+ *
+ * The trailing `?` is real information — §6 is a normative list, and "may be
+ * absent" is part of what it commits to — so it is parsed rather than removed.
+ * Writing the spec without it to satisfy a string comparison would be editing
+ * a commitment to make a test pass, which is the failure this whole file
+ * exists to prevent, one level up.
+ */
+const isOptional = (field: string): boolean => field.endsWith("?");
+const bare = (field: string): string =>
+  isOptional(field) ? field.slice(0, -1) : field;
+
+/**
  * Spec spelling → schema spelling. Prose names, schema names, same fields.
  *
  * Deliberately tiny and deliberately explicit. Every entry is a place the two
@@ -72,7 +85,10 @@ const ALIASES: Readonly<Record<string, string>> = Object.freeze({
 describe("byollm_009 §6, as the source rather than as a memory", () => {
   const spec = fieldsFromSpec();
   const schema = Object.keys(JobStub.shape);
-  const translated = spec.map((field) => ALIASES[field] ?? field);
+  const translated = spec.map((field) => {
+    const name = bare(field);
+    return ALIASES[name] ?? name;
+  });
 
   it("finds a list to read at all", () => {
     // If the spec is reformatted this fails loudly rather than passing on an
@@ -85,12 +101,27 @@ describe("byollm_009 §6, as the source rather than as a memory", () => {
     expect([...translated].sort()).toEqual([...schema].sort());
   });
 
+  it("agrees with the schema about which fields may be absent", () => {
+    // The `?` is not decoration. A field the spec marks optional and the
+    // schema requires — or the reverse — is exactly the two-documents-disagree
+    // drift this file was written for, in the one dimension a name comparison
+    // cannot see.
+    for (const field of spec) {
+      const name = ALIASES[bare(field)] ?? bare(field);
+      const shape = JobStub.shape[name as keyof typeof JobStub.shape];
+      expect(
+        shape.safeParse(undefined).success,
+        `${field}: spec says ${isOptional(field) ? "optional" : "required"}`,
+      ).toBe(isOptional(field));
+    }
+  });
+
   it("keeps the alias table honest in both directions", () => {
     // An alias for a field the spec no longer names, or one that maps onto a
     // field the schema no longer has, is drift hiding inside the thing that
     // exists to detect drift.
     for (const [specName, schemaName] of Object.entries(ALIASES)) {
-      expect(spec, `alias ${specName} is stale`).toContain(specName);
+      expect(spec.map(bare), `alias ${specName} is stale`).toContain(specName);
       expect(schema, `alias → ${schemaName} is stale`).toContain(schemaName);
     }
   });

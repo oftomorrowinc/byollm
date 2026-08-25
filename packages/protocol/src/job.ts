@@ -236,6 +236,85 @@ export const JobOutcome = z.discriminatedUnion("outcome", [
 export type JobOutcome = z.infer<typeof JobOutcome>;
 
 /**
+ * Why a job can never run — byollm_016 Phase B.
+ *
+ * Every one of these is **terminal**, and that is the whole point of naming
+ * them. A job that cannot be matched used to sit queued until its deadline,
+ * which reads exactly like a job that is merely waiting for a device to come
+ * online — so an app could not tell "any moment now" from "never", and neither
+ * could the person watching a spinner. Silence must never read as pending.
+ *
+ * They are decided by whoever knows first: the site's own SDK where it can see
+ * the answer without asking, the router where matching happens, and the daemon
+ * again on arrival under the both-sides rule. All three reason from the same
+ * list rather than three private vocabularies.
+ */
+export const RefusalReason = z.enum([
+  /** The named service is not one this owner advertises at all. */
+  "select-unadvertised",
+  /**
+   * The service exists and is not offered to this requester.
+   *
+   * Deliberately distinct from `select-unadvertised` on the wire and
+   * deliberately **identical** in what it discloses to a stranger: both say a
+   * selection cannot be served, neither confirms what somebody else runs. The
+   * split exists so the *owner's own* tooling can tell a typo from a scope
+   * mistake, which are different fixes.
+   */
+  "select-unoffered-to-you",
+  /**
+   * Two or more services answer this kind and the owner has named no default,
+   * so the kind is withheld. Nobody may pick on the owner's behalf — the wrong
+   * guess is the metered one.
+   */
+  "default-ambiguity",
+  /**
+   * A default exists and this requester can never use it — byollm_016's
+   * defaults-meet-audiences corner.
+   *
+   * The specimen: an owner's default for `llm.chat` is their Claude
+   * subscription, which is self-locked by `SUBSCRIPTION_SELF_LOCK`. A team
+   * member's unselected job resolves to it and can never be served by it. That
+   * must be a refusal on the spot, not a wait that expires an hour later
+   * looking like nobody was online.
+   */
+  "default-unusable",
+]);
+export type RefusalReason = z.infer<typeof RefusalReason>;
+
+/**
+ * A terminal outcome nobody sealed — byollm_016 Phase B.
+ *
+ * Every other finished job carries an envelope encrypted by the device that
+ * ran it, which is what makes a result unforgeable. These have no device: the
+ * job was refused *before* anything could run it, so there is nobody to seal
+ * from and no content to seal.
+ *
+ * **What that costs, stated plainly.** This is the one terminal outcome a
+ * router can author. It is worth being exact about the power that grants,
+ * because "the relay can write this" sounds alarming until you compare it with
+ * what a relay could already do: drop the job, never offer it, and let it
+ * expire. A router-authored refusal is *denial of service by a shorter route*,
+ * which is a power the router has always had and which the trust model has
+ * always said it has. What it emphatically is **not** is forgery: this shape
+ * carries no envelope and no output, so it can never be mistaken for an answer
+ * a device produced. A relay still cannot fabricate a result, because that
+ * needs a signature it does not hold.
+ *
+ * So the rule this shape enforces by construction: a refusal may deny, and may
+ * never assert. Anything that claims work was *done* still comes sealed.
+ */
+export const JobRefused = z
+  .object({
+    outcome: z.literal("refused"),
+    reason: RefusalReason,
+    /** Plain words for a human reading a log, never parsed. */
+    message: z.string().min(1),
+  })
+  .strict();
+export type JobRefused = z.infer<typeof JobRefused>;
+
+/**
  * The plaintext inside a result envelope.
  *
  * The outcome and how it was produced, together, because they are one
@@ -385,6 +464,30 @@ export const JobStub = z
     // The site keeps its own copy on `JobRecord` and still filters candidates
     // with it before offering. That is server-internal, where the party
     // holding the list authored it.
+    /**
+     * Which of the owner's services should answer — byollm_016 Phase B.
+     *
+     * **A selection from a menu, never a demand.** The owner advertises named
+     * services; a site may name one of them, and that is the entire power the
+     * field grants. It carries no model, no base URL, no flags — the daemon
+     * resolves the name against its own config and nothing else, so what
+     * actually runs is still decided exclusively by the person who owns the
+     * hardware. A name that is not on that owner's menu is refused
+     * (`select-unadvertised`), never silently substituted, because a
+     * substitution is how "select" would quietly become "whatever we had".
+     *
+     * Absent means "the owner's default for this kind", which is the only
+     * behaviour Phase A had.
+     *
+     * It travels because the router matches on it, under the rule the absent
+     * `audienceAllow` above establishes: *a class the router acts on may
+     * travel; membership never does.* This is a class.
+     *
+     * It is a **stub** field and never a payload field, which is the line
+     * `NO_PAYLOAD_ROUTING` draws: the prompt cannot reach it, so no amount of
+     * user text can influence what runs.
+     */
+    service: z.string().min(1).optional(),
     sizeClass: SizeClass,
     /** Reserved for byollm_006. False until streaming exists. */
     streaming: z.boolean(),

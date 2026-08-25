@@ -45,16 +45,51 @@ describe("the stub is exhaustive", () => {
   it("carries no field naming what the job says or how it runs", () => {
     // Read positively rather than by exclusion, so a field added later has to
     // pass this assertion on purpose.
+    //
+    // `service` was added on purpose, byollm_016 Phase B, and it is the one
+    // field on this list that had to argue for itself. It names a service
+    // **key** the owner published — not a model, not a URL, not a flag. The
+    // rejection table above is what keeps that distinction real: a site may
+    // say "the one you called studio" and may still never say
+    // "claude-opus-5". A key means nothing off the owner's machine; a value
+    // would mean the same thing everywhere, which is the difference between
+    // choosing from a menu and ordering off it.
     expect(Object.keys(JobStub.shape).sort()).toEqual([
       "audience",
       "deadlineAt",
       "id",
       "kind",
       "owner",
+      "service",
       "site",
       "sizeClass",
       "streaming",
     ]);
+  });
+
+  it("takes a service key and still refuses a service's contents", () => {
+    // The amended NO_PAYLOAD_ROUTING, as one assertion. Selection is allowed;
+    // supplying what the selection resolves to is not, and adding the first
+    // must not have quietly enabled the second.
+    expect(JobStub.safeParse({ ...stub, service: "studio" }).success).toBe(
+      true,
+    );
+    for (const value of [
+      { service: "studio", model: "claude-opus-5" },
+      { service: "studio", baseUrl: "http://evil.test/v1" },
+      { service: "studio", type: "openai-http" },
+      { service: "studio", apiKeyEnv: "ANTHROPIC_API_KEY" },
+    ]) {
+      expect(JobStub.safeParse({ ...stub, ...value }).success).toBe(false);
+    }
+  });
+
+  it("refuses an empty service, because absent and blank are different", () => {
+    // Absent means "the owner's default". A blank string is a selection that
+    // names nothing, and letting it through would make it mean the same as
+    // absent — a second spelling for a decision, which is how two code paths
+    // start disagreeing about one.
+    expect(JobStub.safeParse({ ...stub, service: "" }).success).toBe(false);
   });
 });
 

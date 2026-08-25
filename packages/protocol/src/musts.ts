@@ -495,14 +495,38 @@ export const MUSTS = Object.freeze({
     verifiedBy: "adversarial",
     source: "byollm_004 §2",
   }),
+  /**
+   * Amended for byollm_016 Phase B, and the amendment is deliberately narrow.
+   *
+   * A site may now name a **service** on the stub. The temptation is to read
+   * that as a crack in this law, so the statement below says exactly where the
+   * line is: a name selects from a menu the owner published, and resolves to a
+   * model, backend, base URL and flags **only** through that owner's own
+   * config. The site supplies a key; the owner supplies every value it maps
+   * to. A name the owner does not advertise is refused rather than
+   * substituted, because substitution is how "you may pick from my list" turns
+   * into "you may ask for anything and get something".
+   *
+   * Two properties keep it from drifting into "sites demand models":
+   *
+   *   1. **Nothing the site sends is ever a value.** No model string, no URL,
+   *      no flag crosses the wire — only a key that means nothing off this
+   *      owner's machine.
+   *   2. **It is a stub field, never a payload field.** The prompt cannot
+   *      reach it. That is unchanged and is the sentence the second clause
+   *      below still enforces verbatim.
+   */
   NO_PAYLOAD_ROUTING: must({
     id: "NO_PAYLOAD_ROUTING",
     statement:
       "Model, backend, base URL, and flags MUST come from owner config only; " +
-      "a payload MUST NOT influence any of them.",
+      "a payload MUST NOT influence any of them. A stub MAY name a service " +
+      "the owner advertises, which selects among that owner's own config " +
+      "entries and MUST NOT introduce any value the owner did not write; an " +
+      "unadvertised name MUST be refused, never substituted.",
     enforcedBy: "daemon",
     verifiedBy: "adversarial",
-    source: "byollm_004 §2",
+    source: "byollm_004 §2, amended byollm_016 §Phase B",
   }),
   STRIPPED_CHILD_ENV: must({
     id: "STRIPPED_CHILD_ENV",

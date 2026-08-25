@@ -219,7 +219,8 @@ The core change. A job becomes two things instead of one.
 **Phase 1 — the stub.** The site enqueues routing metadata only:
 
 ```
-{ jobId, user, site, kind, audience, sizeClass, deadlineAt, streaming }
+{ jobId, user, site, kind, audience, service?, sizeClass, deadlineAt,
+  streaming }
 ```
 
 This list is **exhaustive and normative**. It is what an upstream can
@@ -234,6 +235,12 @@ moves into the ciphertext.
 The rule Amendment A leaves behind, for every field proposed after it:
 
 > **A class the router acts on may travel. Membership never does.**
+
+`service` was added by **Amendment D**, under that same rule: it names
+which of the owner's advertised services should answer, the router
+matches on it, and it is optional because absent means "the owner's
+default". It is a **key**, never a value — see D.1 for why that
+distinction is the whole of its safety.
 
 **Phase 2 — claim, then fetch.** A device claims the stub (audience,
 capability and budget checks daemon-side exactly as today). The
@@ -1221,3 +1228,74 @@ Until that exists a site cannot actually rotate in production, and
 everything above is the protocol being ready for it rather than the
 feature being live. That is the right order: the shape had to be
 decided before 1.0, and it now is.
+
+
+# Amendment D — `service` joins the list (RATIFIED 2026-08-25)
+
+byollm_016 Phase B. A site may name one of the owner's advertised
+services; the router matches on it; the daemon resolves it against its
+own config and refuses a name it does not hold.
+
+## D.1 Why a key travels and a value never could
+
+`NO_PAYLOAD_ROUTING` says model, backend, base URL and flags come from
+owner config only. The obvious reading is that *nothing* about routing
+may come from a site, and this amendment looks like a hole in it. It is
+not, and the reason is worth stating once, precisely, because it is the
+line every future proposal will be measured against.
+
+A **key** means nothing off the owner's machine. `"studio"` is a label
+that person chose; it resolves through their config or it resolves
+nowhere. A **value** — `claude-opus-5`, `http://host/v1`, a sampling
+flag — means the same thing everywhere and would let a site describe
+what it wants rather than pick from what is offered.
+
+So the amended law permits selection and forbids description. A name
+that is not on the owner's menu is **refused**, never substituted,
+because substituting is exactly how "pick from my list" decays into
+"ask for anything and get something".
+
+The field is on the stub and never in the payload, which is unchanged
+and is the part of the law that does the heavy lifting: user text
+cannot reach it, so no prompt can steer a job onto a different service.
+
+## D.2 Refusals are terminal, and silence is not an answer
+
+Selection makes new ways for a job to be unroutable: a name nobody
+advertises, a name not offered to this requester, a kind two services
+answer with no default, and a default this requester can never use.
+
+Each one is **terminal and named** — `select-unadvertised`,
+`select-unoffered-to-you`, `default-ambiguity`, `default-unusable`.
+None may leave a job sitting queued, because a queued job is
+indistinguishable from one waiting for a device to come online: an app
+cannot tell "any moment" from "never", and neither can the person
+watching a spinner. That equivalence is the defect, not the wait.
+
+## D.3 What a refusal may say, and what it may never claim
+
+A refusal is the only terminal outcome no device seals, because the job
+was refused before anything could run it — there is nobody to seal from
+and nothing to seal.
+
+That makes it the one outcome a **router** can author, so the power it
+grants is worth naming. A router could always drop a job, decline to
+offer it, and let it expire; authoring a refusal is that same denial by
+a shorter route, and the trust model has always granted it. What it is
+not is forgery: a refusal carries no envelope and no output, so it can
+never be read as work that was done. A router still cannot fabricate a
+result, because that requires a device's signature.
+
+> **A refusal may deny. It may never assert.** Anything claiming work
+> happened still arrives sealed.
+
+## D.4 Explicitly not in this amendment
+
+Whether a job whose *record* has expired can be reported as terminally
+gone. That needs the store to remember a job existed after its row is
+gone — a tombstone with its own horizon, and a ruling on how that
+horizon relates to `deadlineAt`. It shares this amendment's principle
+(silence must not read as pending) and its delivery path (D.3's
+unsealed terminal outcome), and it does not share the hard part: every
+refusal here is decided while a live record exists to write it onto.
+It rides a later change to the store's lifecycle.

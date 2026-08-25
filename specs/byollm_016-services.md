@@ -601,3 +601,33 @@ what riding the same rev would cost. One vocabulary is worth a
 bounded price; CCC has the numbers.
 
 **Ruled (Todd, 2026-08-25): one vocabulary — `private | team | public` — everywhere.** The Audience open question is resolved by ruling, not cost accounting: Audience's shared literals rename with OfferScope in the same single rev. "self" and "named" were insider vocabulary — meaningful after reading the spec; private and team mean the right thing to someone who never has. Bilingualism dies in the one release already reshaping the wire. MUST ids remain stable per law (SUBSCRIPTION_SELF_LOCK keeps its id; its text learns to say private), and the type-aware rename CCC scoped covers both types now.
+
+## public: ruling 1 withdrawn on evidence (2026-08-25)
+
+CCC declined to implement the config-load refusal of `public` and
+brought the evidence: `byollm offer <service> public` is a shipped,
+tested (six invocations), README-sold capability of the open-source
+daemon, working today in direct mode, bounded by CommunityBudget —
+which exists precisely to make it safe. Refusing it at config load
+would delete a working OSS feature, not park a future surface. The
+refusal ruling was made without the direct-mode evidence and is
+withdrawn; CCC's disposition stands: `public` accepted and
+documented. "No product surface" means what is true — the cloud
+dashboard does not offer public sharing and the hub does no community
+matching until the program (cloud_012/013) exists — so public is
+inert in cloud mode and functional in direct mode, as the README
+promises. Todd raised removing `public` entirely for now; Cowork
+recommended against on open-source-first grounds (the daemon's
+promise predates the cloud; removal breaks it for any direct-mode
+user while buying simplicity the dashboard vocabulary already
+provides). Pending Todd's final word; default is keep-as-is.
+
+Also recorded from the same report (fbef3ba): the one-vocabulary
+rename landed type-aware (compiler named 98 sites; tests caught what
+it couldn't see — the division of labour both exist for), and CCC's
+notices-vs-problems channel split is adopted as a rule: a *problem*
+means the config is wrong and something was dropped; a *notice* means
+the config is fine and the build is behind it. Merged, every
+limitation reads as the owner's mistake — and a real mistake gets
+harder to spot. A control case keeps the team-gap notice from
+becoming wallpaper for private-only owners.

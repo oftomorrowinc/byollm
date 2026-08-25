@@ -26,7 +26,7 @@
  *   node scripts/mutate.mjs <file> <find> <replace> -- <vitest args...>
  */
 import { readFileSync, writeFileSync } from "node:fs";
-import { spawnSync } from "node:child_process";
+import { spawn } from "node:child_process";
 
 const argv = process.argv.slice(2);
 const split = argv.indexOf("--");
@@ -57,21 +57,27 @@ if (mutated === original) {
   process.exit(2);
 }
 
-let result;
 try {
   writeFileSync(file, mutated);
   console.log(`mutated ${file}: ${find.trim().slice(0, 60)}...`);
-  result = spawnSync(
-    "npx",
-    [
-      "vitest",
-      "run",
-      "--reporter=json",
-      "--outputFile=/tmp/mutation.json",
-      ...testArgs,
-    ],
-    { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] },
-  );
+  // `spawn` with a fixed argv array — byollm_004 §2 bans the shell-invoking
+  // variants, and a script that measures our own discipline is a poor place
+  // to make an exception to it.
+  await new Promise((resolve) => {
+    const child = spawn(
+      "npx",
+      [
+        "vitest",
+        "run",
+        "--reporter=json",
+        "--outputFile=/tmp/mutation.json",
+        ...testArgs,
+      ],
+      { stdio: ["ignore", "ignore", "ignore"] },
+    );
+    child.on("close", resolve);
+    child.on("error", resolve);
+  });
 } finally {
   writeFileSync(file, original);
   console.log(`restored ${file}`);

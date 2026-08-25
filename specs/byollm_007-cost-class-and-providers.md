@@ -284,3 +284,12 @@ happens to resolve to a cloud tag classifies by what it is, IF that
 corner exists in ollama's world at all. That is two lines inside
 detection, not a classification system; the "two-stage monotone"
 framing above is withdrawn as ceremony around a small thing.
+
+**Closed (Todd, ground truth): the corner doesn't exist.** In ollama,
+an untagged reference always runs locally; cloud requires explicitly
+writing the tag (`glm-5.2` local, `glm-5.2:cloud` cloud — one would
+have to type `nimbuscloud:cloud` to pay). So the canonical-name
+addition is dropped as guarding a nonexistent case. Final rule, one
+line, applied to the config value only: **tag matches `:.*cloud$` →
+metered.** CCC's implementation (86ded5b) with the nimbuscloud corpus
+row is the complete and final form. Item closed.

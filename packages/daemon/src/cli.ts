@@ -2,6 +2,7 @@ import { mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { hostname, userInfo } from "node:os";
 import { dirname } from "node:path";
 import { createInterface } from "node:readline/promises";
+import { FAILURES_BEFORE_ALARM, readHealth } from "./health.js";
 import { runSetup, terminalIo } from "./setup.js";
 import { backendDescriptor, resolveCost } from "@byollm/protocol";
 import { Allowlist, normalizeOrigin } from "./allowlist.js";
@@ -652,6 +653,11 @@ async function runLoop(
       }),
       runnerId: pairing.runnerId,
       owner: pairing.owner,
+      // Only the long-running daemon records health. The short-lived commands
+      // that also build a Runner — `connect`, `services` — would otherwise
+      // write a count from one attempt, which says nothing about how the
+      // daemon that actually runs is getting on.
+      healthPath: paths.health,
       identity: {
         keys: () => identity.load(Date.now()),
         // What was on disk. The runner replaces it from each heartbeat and
@@ -905,7 +911,34 @@ async function commandStatus(
   io.out(
     `identity: ${await new DeviceIdentity(paths.keys).fingerprint(now)}\n`,
   );
-  io.out(`state: ${paused ? "PAUSED" : "running"}\n`);
+  // **A persistent rejection is a state, and it leads.**
+  //
+  // This line said `running` for hours while every heartbeat the daemon sent
+  // was refused. True, and useless: the daemon was running, reporting
+  // nothing, invisible to the hub, and the device's page showed frozen data.
+  // The only surface that knew was a log line nobody tails.
+  //
+  // So the headline answers "is this device working" rather than "is the
+  // process alive", and those turned out to be different questions.
+  const health = await readHealth(paths.health);
+  const failing =
+    health !== undefined && health.consecutiveFailures >= FAILURES_BEFORE_ALARM;
+  io.out(
+    `state: ${paused ? "PAUSED" : failing ? "NOT REPORTING" : "running"}\n`,
+  );
+  if (failing) {
+    io.out(
+      `  the hub has rejected this device's last ` +
+        `${String(health.consecutiveFailures)} messages — it is running and ` +
+        `invisible.\n` +
+        (health.origin === undefined ? "" : `  upstream: ${health.origin}\n`) +
+        (health.lastError === undefined
+          ? ""
+          : `  it said: ${health.lastError}\n`) +
+        `  anything below is what this device believes, not what the hub has ` +
+        `been told.\n`,
+    );
+  }
   io.out(await supervisionLine(paths, service));
   io.out("\n");
 

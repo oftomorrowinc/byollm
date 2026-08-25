@@ -621,3 +621,72 @@ describe("byollm services speaks for the shell, not the daemon", () => {
     expect(out).not.toContain("your shell's view");
   });
 });
+
+describe("a device that is running and invisible", () => {
+  /**
+   * `state: running` was true for hours while every heartbeat this device
+   * sent was refused. The daemon was running; it was also reporting nothing,
+   * invisible to the hub, and its page showed data frozen before the upgrade.
+   * The only surface that knew was a log line nobody tails, and the visible
+   * symptom was one missing chip on a card.
+   *
+   * A persistent rejection is a state, not a louder log. One refusal is a
+   * rolling deploy; forty in a row is a device that has stopped participating
+   * and does not know it — and only a count tells those apart.
+   */
+  const health = async (record: unknown) => {
+    await mkdir(join(home, ".byollm"), { recursive: true });
+    await writeFile(join(home, "health.json"), JSON.stringify(record), "utf8");
+  };
+
+  it("leads with it, rather than saying running", async () => {
+    await health({
+      at: Date.now(),
+      consecutiveFailures: 47,
+      lastError: "request failed schema validation",
+      origin: "https://hub.test",
+    });
+    await run("status");
+    expect(out).toContain("NOT REPORTING");
+    expect(out).not.toMatch(/^state: running$/m);
+    expect(out).toContain("47");
+    expect(out).toContain("request failed schema validation");
+  });
+
+  it("warns that everything below is unreported belief", async () => {
+    // The line that matters most. Without it a reader sees NOT REPORTING and
+    // then a healthy-looking service list, and takes the second as evidence
+    // against the first — when the list is exactly what the hub has *not*
+    // been told.
+    await health({ at: Date.now(), consecutiveFailures: 20 });
+    await run("status");
+    expect(out).toContain("not what the hub has been told");
+  });
+
+  it("says nothing about a handful of failures", async () => {
+    // One refusal is noise, and a warning on every blip is a warning nobody
+    // reads. The threshold is the whole difference between a state and a log.
+    await health({ at: Date.now(), consecutiveFailures: 2 });
+    await run("status");
+    expect(out).toMatch(/^state: running$/m);
+    expect(out).not.toContain("NOT REPORTING");
+  });
+
+  it("says running when the daemon has never recorded anything", async () => {
+    // No file is not "healthy" — it is "this daemon has not said", which is
+    // also the state of one that predates the file. Both read as running,
+    // which is the honest collapse: nothing here claims otherwise.
+    await run("status");
+    expect(out).toMatch(/^state: running$/m);
+  });
+
+  it("keeps PAUSED ahead of it, because a pause is a decision", async () => {
+    // Somebody who paused their device does not need to be told it is not
+    // reporting. They know; they did it.
+    await health({ at: Date.now(), consecutiveFailures: 99 });
+    await run("pause");
+    await run("status");
+    expect(out).toContain("PAUSED");
+    expect(out).not.toContain("NOT REPORTING");
+  });
+});

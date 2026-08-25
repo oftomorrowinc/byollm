@@ -29,6 +29,7 @@ import type { Budgets } from "./budgets.js";
 import { ClientError, type ProtocolClient } from "./client.js";
 import { composePrompt } from "./compose.js";
 import type { LoadedConfig, ResolvedRoute } from "./config.js";
+import { writeHealth } from "./health.js";
 import type { IngressLog } from "./ingress.js";
 import { estimateCents, type SpendLedger } from "./spend.js";
 
@@ -96,6 +97,14 @@ export interface RunnerOptions {
   };
   /** Heartbeat cadence before jitter. */
   readonly heartbeatMs?: number;
+  /**
+   * Where to record how the upstream conversation is going.
+   *
+   * Optional because a test or an embedder driving the loop by hand has no
+   * `~/.byollm` to write into, and a diagnostic that requires one would make
+   * the daemon harder to run than it needs to be.
+   */
+  readonly healthPath?: string;
   readonly now?: () => number;
   /** Notified on every state change, so the CLI can render progress. */
   readonly onEvent?: (event: RunnerEvent) => void;
@@ -227,6 +236,8 @@ export class Runner {
   #awaitingConsent = "";
   #servingNothing = false;
   #stopped = false;
+  #consecutiveFailures = 0;
+  #lastUpstreamError: string | undefined;
   #lastError: string | undefined;
   #completed = 0;
   #refused = 0;
@@ -715,14 +726,42 @@ export class Runner {
   async tick(): Promise<void> {
     try {
       await this.#tick();
+      // A cycle that completed is the only thing that clears the count. It is
+      // written on the transition rather than every beat, so a healthy daemon
+      // is not rewriting a file every ten seconds to say nothing changed.
+      if (this.#consecutiveFailures > 0) {
+        this.#consecutiveFailures = 0;
+        await this.#recordHealth();
+      }
     } catch (error) {
       // Revocation is an answer, not a failure. Swallowed once recorded, so
       // that a caller stepping this loop by hand — a test, an embedder, the
       // conformance kit — sees a daemon that has stopped rather than an
       // exception it has to know to interpret. Everything else still throws.
       if (this.#revokedBy(error)) return;
+      // Counted before it is rethrown. One refusal is noise — a rolling
+      // deploy, a dropped connection — and forty in a row is a device that
+      // has stopped participating and does not know it. Only a count tells
+      // those apart, so something has to keep one.
+      this.#consecutiveFailures += 1;
+      this.#lastUpstreamError =
+        error instanceof Error ? error.message : "unknown error";
+      await this.#recordHealth();
       throw error;
     }
+  }
+
+  async #recordHealth(): Promise<void> {
+    const path = this.#options.healthPath;
+    if (path === undefined) return;
+    await writeHealth(path, {
+      at: this.#now(),
+      consecutiveFailures: this.#consecutiveFailures,
+      ...(this.#lastUpstreamError === undefined
+        ? {}
+        : { lastError: this.#lastUpstreamError }),
+      origin: this.#options.client.origin,
+    });
   }
 
   async #tick(): Promise<void> {

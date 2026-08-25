@@ -31,6 +31,20 @@ export interface DaemonPaths {
   /** Set while the owner has the daemon paused. */
   readonly pauseFlag: string;
   /**
+   * How the daemon's last conversation with an upstream went.
+   *
+   * Written by the running daemon, read by `byollm status`, which otherwise
+   * cannot ask it anything: the two are separate processes and `state:
+   * running` was derived from the pause flag alone. That sentence was true
+   * for hours while every heartbeat this device sent was refused — the
+   * daemon was running and reporting nothing, and the only surface that knew
+   * was a log line nobody tails.
+   *
+   * A file rather than a socket because the question is small and the answer
+   * survives a restart of either side.
+   */
+  readonly health: string;
+  /**
    * What this machine calls itself when it pairs.
    *
    * Its own file rather than a field in `config.json`, because that file is
@@ -59,6 +73,7 @@ export function daemonPaths(root = defaultRoot()): DaemonPaths {
     spend: join(root, "spend.json"),
     keys: join(root, "keys.json"),
     pauseFlag: join(root, "paused"),
+    health: join(root, "health.json"),
     label: join(root, "label"),
     scratch: join(root, "scratch"),
   };

@@ -1,5 +1,5 @@
 > [!WARNING]
-> **Alpha (`0.1.0-alpha.45`) — under active development. Don't use this yet.**
+> **Alpha (`0.1.0-alpha.46`) — under active development. Don't use this yet.**
 >
 > Install it as `byollm@alpha`, deliberately. npm forces a `latest` tag onto a
 > package's first publish and will not let it be removed, so a bare install
@@ -19,6 +19,24 @@
 > on-disk format — are written down and turn on with the first outside user.
 > If an upgrade leaves a daemon saying it is paired with nothing, `byollm
 > connect` is the answer and nothing else is lost.
+>
+> **`alpha.46` lets a site name a service.** `enqueue` takes an optional
+> `service`, and a job that names one runs only on a device advertising that
+> exact service for that kind — never a fallback to something else. Absent
+> means the owner's default, which is every job written before this release,
+> so nothing changes unless you opt in.
+>
+> Breaking only if you implement `RoutingStore`: `ClaimInput` gains `serves`,
+> the (kind, service) pairs a device advertises, and `kinds` narrows to the
+> kinds it has a *default* for. The store contract asserts both, so
+> `byollm-certify` tells you rather than a user does.
+>
+> **What a site may and may not say.** The field is a *key* the owner chose,
+> never a value: no model, no base URL, no flags cross the wire, and a name
+> the owner does not advertise is refused rather than quietly served by
+> something else. That is `NO_PAYLOAD_ROUTING` amended rather than weakened —
+> selection is permitted, description is not, and the field is on the stub
+> where a prompt cannot reach it.
 >
 > **`alpha.45` carries withheld kinds on the heartbeat.** Breaking only if you
 > implement `RoutingStore` yourself: `Presence` gains a required `withheld`

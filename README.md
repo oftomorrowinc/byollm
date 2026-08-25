@@ -1,5 +1,5 @@
 > [!WARNING]
-> **Alpha (`0.1.0-alpha.50`) — under active development. Don't use this yet.**
+> **Alpha (`0.1.0-alpha.51`) — under active development. Don't use this yet.**
 >
 > Install it as `byollm@alpha`, deliberately. npm forces a `latest` tag onto a
 > package's first publish and will not let it be removed, so a bare install
@@ -19,6 +19,26 @@
 > on-disk format — are written down and turn on with the first outside user.
 > If an upgrade leaves a daemon saying it is paired with nothing, `byollm
 > connect` is the answer and nothing else is lost.
+>
+> **`alpha.51` makes service selection actually work.** If you are using
+> `enqueue({ service })`, this is the release that makes it do what alpha.48
+> said it did.
+>
+> A device advertised only the service that *won* each kind, so the router had
+> nothing else to match a selection against — naming any other service was
+> refused as unadvertised. Selection worked for exactly the service you would
+> never need to name. A device now advertises every service it declares, with
+> a marker saying which one an unselected job takes.
+>
+> **`defaults` changed meaning slightly, and in your favour.** A kind two
+> services answer with no default chosen used to advertise neither. Both are
+> selectable by name now; what has no answer is a job that named neither. A
+> job naming a service was never ambiguous, and refusing it punished a site for
+> a decision the device's owner had not made about something else.
+>
+> `byollm status` says "default for" and "selectable for" apart, because those
+> were one sentence and are two facts. Its `routes` section is gone — it
+> restated what the service lines already say.
 >
 > **`alpha.50` — the background daemon can find your CLIs. Reinstall the
 > service after upgrading:** `byollm uninstall && byollm install`.

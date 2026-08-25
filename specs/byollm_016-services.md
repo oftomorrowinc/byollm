@@ -918,3 +918,30 @@ removed citing the passed probe; and server discovery by **probe,
 not ps** — hit well-known local ports with /v1/models and
 multi-select from what answered (byollm_013 applied to onboarding;
 cross-platform for free).
+
+## CCC's side-door catch and the strict-enqueue guard (2026-08-25)
+
+Applying the indistinguishability ruling, CCC found the deeper leak
+themselves: no-such-service kept distinct from audience-admits-nobody
+had been defended as safe "because a site asks about its own users'
+devices" — an argument that dies on a team job, where the site holds
+capabilities for other people's devices and is free to relay the
+reason onward. The RefusalReason collapse defeated by a helpful SDK.
+Now one `selection-unavailable`, with a test asserting the two
+answers are *equal objects*, not merely similar. The oracle rule's
+reach is thereby extended on the record: indistinguishable means
+indistinguishable through every relay, because sites repeat what
+they're told.
+
+Strict enqueue shipped with a compile-time exhaustiveness guard
+(Record<keyof EnqueueInput, true>), and CCC's failure-mode note is
+kept: "an allowlist falling behind its type starts rejecting the
+field somebody just added, which is worse than the bug it prevents."
+
+Fourth measurement failure of the session recorded (grep -c returning
+exit 1 on zero matches, && short-circuiting before the tests ran —
+the mutation was fine, the measurement wasn't). Rule minted:
+**a harness asserts its own execution** — every mutation/proof run
+reports that its tests actually ran (a count, not just verdicts);
+a measurement that can silently not-happen is the silent-success bug
+pointed at ourselves.

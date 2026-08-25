@@ -207,3 +207,17 @@ silently on the old numbers, chosen by nobody. Rule: **the wizard
 writes only answers** — services, and defaults where ambiguity forced
 a question; everything unchosen flows from the schema. Same law as
 fixtures-compute-from-constants, applied to generated config.
+
+**Polish landed (CCC, 2026-08-25):** my-computer, "to verify", codex
+note gone, prose halved — self-lock wording shortened but intact
+("it's consent wording, and wordy isn't the same as optional").
+Probe-not-ps implemented with the codebase's own reasoning: a process
+list says a program runs, not that it answers, which port it took, or
+what it serves. The probe writes the server's own address and first
+model, never a guess — a guessed model writes a route unhealthy on
+first use. The defaults-freezing bug confirmed and fixed:
+DaemonConfig.parse() returns answers plus every schema default, so
+parsing is validation only now; the file gets services and defaults.
+The test reads raw JSON — parsing is exactly what would hide the
+bug — with a control proving the leaner file resolves identical
+routes.

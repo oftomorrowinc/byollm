@@ -237,6 +237,24 @@ export const BACKENDS = Object.freeze({
     cost: "subscription",
     adversarialCorpus: "process",
   }),
+  /**
+   * OpenAI's Codex CLI, on a ChatGPT plan — byollm_016 stage 3.
+   *
+   * `subscription`, so `SUBSCRIPTION_SELF_LOCK` pins it to its owner's own
+   * work whatever the config says. That is load-bearing here in a way it is
+   * not for `claude-cli`: Codex is an *agent*, and its default feature set
+   * includes a shell tool, browser control and computer use. The daemon
+   * disables every one of them, verified against the shipped binary rather
+   * than assumed — see `codex-cli.ts` — but the self-lock is the floor under
+   * that verification rather than a duplicate of it.
+   */
+  "codex-cli": backend({
+    id: "codex-cli",
+    label: "Codex CLI (your ChatGPT plan)",
+    class: "process",
+    cost: "subscription",
+    adversarialCorpus: "process",
+  }),
 } as const satisfies Record<string, BackendDescriptor>);
 
 /** The id of a registered backend. */

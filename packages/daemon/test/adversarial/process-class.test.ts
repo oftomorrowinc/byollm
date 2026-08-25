@@ -2,6 +2,8 @@ import { chmod } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { ClaudeCliBackend, claudeArgv } from "../../src/backends/claude-cli.js";
+import { CodexCliBackend, codexArgv } from "../../src/backends/index.js";
+import type { Backend } from "../../src/backends/types.js";
 import { PROCESS_CORPUS } from "./corpus.js";
 
 /**
@@ -118,13 +120,25 @@ async function run(
     maxOutputBytes?: number;
     timeoutMs?: number;
     signal?: AbortSignal;
+    /**
+     * Which process backend to drive. Defaults to `claude-cli`, so every
+     * assertion written before `codex-cli` existed still means what it meant.
+     *
+     * The corpus is parameterised rather than copied because the *payloads*
+     * are a property of the threat, not of the binary — a hostile prompt is
+     * hostile to every process backend — while the argv each one is supposed
+     * to produce is emphatically its own.
+     */
+    make?: (probe: string) => Backend;
   } = {},
 ): Promise<
   | { ok: true; report: ProbeReport }
   | { ok: false; code: string; message: string }
 > {
   await chmod(PROBE, 0o755);
-  const backend = new ClaudeCliBackend(PROBE);
+  const backend = (options.make ?? ((probe) => new ClaudeCliBackend(probe)))(
+    PROBE,
+  );
   const result = await backend.execute({
     prompt,
     model: MODEL,
@@ -188,6 +202,63 @@ describe("process-class corpus [NO_SHELL_INTERPOLATION, NO_PAYLOAD_ROUTING]", ()
 
       // 6. The working directory is a scratch dir, not the daemon's and not
       //    anything the payload named.
+      expect(report.cwd).not.toBe(process.cwd());
+      expect(report.cwd).toMatch(/byollm-job-/);
+    });
+  }
+
+  // The same payloads against `codex-cli`, because "declared covered" and
+  // "exercised" are different things and the coverage check only sees the
+  // first. The spawn machinery is now literally shared — `runProcessJob` —
+  // so cwd, env and stdio results transfer; the argv does not, and the argv
+  // is the whole of what a process backend is.
+  for (const hostile of PROCESS_CORPUS) {
+    if (hostile.id.startsWith("SIZE_")) continue;
+
+    it(`codex ${hostile.id}: ${hostile.threat} — reaches the model verbatim, changes nothing`, async () => {
+      const result = await run(hostile.prompt, {
+        make: (probe) => new CodexCliBackend(probe),
+      });
+      expect(result.ok, result.ok ? "" : result.message).toBe(true);
+      if (!result.ok) return;
+      const { report } = result;
+
+      expect(report.stdin).toBe(hostile.prompt);
+      expect(report.argv).toEqual([...codexArgv(MODEL)]);
+      expect(report.argv[report.argv.indexOf("--model") + 1]).toBe(MODEL);
+
+      // The tool disables survive every payload. Codex ships these features
+      // stable and *on*, so their absence is not a default this test is
+      // confirming — it is a list of switches whose presence is the only
+      // thing standing between a hostile prompt and a shell.
+      for (const feature of [
+        "shell_tool",
+        "unified_exec",
+        "browser_use",
+        "browser_use_full_cdp_access",
+        "computer_use",
+        "hooks",
+        "plugins",
+      ]) {
+        expect(report.argv, feature).toContain(feature);
+      }
+      expect(report.argv).toContain("--ignore-user-config");
+      expect(report.argv[report.argv.indexOf("-s") + 1]).toBe("read-only");
+      // Nothing a payload could ask for that would undo the above.
+      expect(report.argv).not.toContain(
+        "--dangerously-bypass-approvals-and-sandbox",
+      );
+      expect(report.argv).not.toContain("--add-dir");
+      expect(report.argv).not.toContain("--enable");
+
+      expect(report.env["OPENAI_API_KEY"]).toBeUndefined();
+      const allowed = allowedHere();
+      const injected = injectedHere();
+      expect(
+        Object.keys(report.env).filter(
+          (name) => !allowed.has(name) && !injected.has(name),
+        ),
+      ).toEqual([]);
       expect(report.cwd).not.toBe(process.cwd());
       expect(report.cwd).toMatch(/byollm-job-/);
     });

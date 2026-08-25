@@ -1,9 +1,8 @@
-import { execFile, spawn } from "node:child_process";
+import { execFile } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
-import { mkdtemp, rm } from "node:fs/promises";
 import { delimiter, join } from "node:path";
-import { tmpdir } from "node:os";
 import type { BackendClass, BackendId } from "@byollm/protocol";
+import { runProcessJob } from "./process-backend.js";
 import type {
   Backend,
   BackendHealth,
@@ -142,11 +141,16 @@ export interface ClaudeLaunch {
 function findWindowsEntry(
   binary: string,
   source: NodeJS.ProcessEnv,
+  npmPackage: string,
 ): ClaudeLaunch | null {
   const dirs = (source["PATH"] ?? "").split(delimiter).filter(Boolean);
 
   for (const dir of dirs) {
-    const pkg = join(dir, "node_modules", "@anthropic-ai", "claude-code");
+    // The npm package that owns this binary, so a second process backend gets
+    // the same hard-won shim handling rather than its own copy. Split here
+    // rather than stored pre-split: a scope and a name is how npm writes it
+    // and how a reader recognises it.
+    const pkg = join(dir, "node_modules", ...npmPackage.split("/"));
 
     // Claude Code 2.x ships a native executable rather than a script. Node
     // spawns a real `.exe` without a shell, so this case needs none of the
@@ -220,6 +224,29 @@ export function resolveClaudeLaunch(
   platform: NodeJS.Platform = process.platform,
   source: NodeJS.ProcessEnv = process.env,
 ): ClaudeLaunch {
+  return resolveCliLaunch(
+    binary,
+    "@anthropic-ai/claude-code",
+    platform,
+    source,
+  );
+}
+
+/**
+ * Resolve what to spawn for a CLI-backed backend on this platform.
+ *
+ * Generalised from `resolveClaudeLaunch` when `codex-cli` arrived. Everything
+ * here except the npm package name was already backend-agnostic — the Windows
+ * shim problem is npm's, not Anthropic's — and a second copy of a function
+ * that parses `.cmd` shims with a regex is not something this codebase should
+ * own twice.
+ */
+export function resolveCliLaunch(
+  binary: string,
+  npmPackage: string,
+  platform: NodeJS.Platform = process.platform,
+  source: NodeJS.ProcessEnv = process.env,
+): ClaudeLaunch {
   // Memoized because this runs on every `health()` and every `execute()`, and
   // on Windows walks each PATH entry with two `existsSync` calls. At the
   // default concurrency that is a synchronous filesystem crawl on the job
@@ -229,10 +256,10 @@ export function resolveClaudeLaunch(
   // and PATH, none of which change meaningfully inside one daemon process. A
   // CLI installed while the daemon runs is picked up on restart — the same
   // thing already true of config.
-  const key = `${platform}\u0000${binary}\u0000${source["PATH"] ?? ""}`;
+  const key = `${platform}\u0000${binary}\u0000${npmPackage}\u0000${source["PATH"] ?? ""}`;
   const cached = launchCache.get(key);
   if (cached) return cached;
-  const resolved = resolveUncached(binary, platform, source);
+  const resolved = resolveUncached(binary, platform, source, npmPackage);
   launchCache.set(key, resolved);
   return resolved;
 }
@@ -241,6 +268,7 @@ function resolveUncached(
   binary: string,
   platform: NodeJS.Platform,
   source: NodeJS.ProcessEnv,
+  npmPackage: string,
 ): ClaudeLaunch {
   if (platform !== "win32") return { command: binary, prefixArgs: [] };
 
@@ -259,7 +287,10 @@ function resolveUncached(
   }
 
   return (
-    findWindowsEntry(binary, source) ?? { command: binary, prefixArgs: [] }
+    findWindowsEntry(binary, source, npmPackage) ?? {
+      command: binary,
+      prefixArgs: [],
+    }
   );
 }
 
@@ -324,184 +355,19 @@ export class ClaudeCliBackend implements Backend {
 
   async execute(request: BackendRequest): Promise<BackendResult> {
     const started = Date.now();
-    // An empty directory of our own making. The child's `cwd` is never the
-    // daemon's, never the user's home, and never anything a payload named.
-    const scratch = await mkdtemp(join(tmpdir(), "byollm-job-"));
-
-    try {
-      return await this.#spawn(request, scratch, started);
-    } finally {
-      await rm(scratch, { recursive: true, force: true });
-    }
-  }
-
-  async #spawn(
-    request: BackendRequest,
-    scratch: string,
-    started: number,
-  ): Promise<BackendResult> {
-    return new Promise<BackendResult>((resolve) => {
-      // Check before spawning, not only via the listener below: a job
-      // cancelled between the claim and this line arrives with its signal
-      // already aborted, and `addEventListener("abort")` never fires for a
-      // signal that has already fired. Without this the child would spawn and
-      // run to completion after the owner had already said stop.
-      if (request.signal.aborted) {
-        resolve({
-          ok: false,
-          code: "canceled",
-          message: "the job was canceled before it started",
-          retryable: false,
-          durationMs: Date.now() - started,
-        });
-        return;
-      }
-
-      // The CLI's own argv is `claudeArgv(model)` on every platform. On Windows
-      // `prefixArgs` carries the path to the script Node is being asked to run,
-      // which is an argument to Node and not to the model's command line.
-      const launch = resolveClaudeLaunch(this.#binary);
-      const child = spawn(
-        launch.command,
-        [...launch.prefixArgs, ...claudeArgv(request.model)],
-        {
-          cwd: scratch,
-          env: childEnv(),
-          // Exactly the three std streams. Nothing else is inherited, so the
-          // child cannot reach a descriptor the daemon happens to hold open.
-          stdio: ["pipe", "pipe", "pipe"],
-          // No shell, ever. With `shell: false` the argv array is passed to
-          // execvp verbatim and metacharacters in it are just bytes.
-          shell: false,
-          detached: false,
-        },
-      );
-
-      let stdout = "";
-      let stderr = "";
-      let outputBytes = 0;
-      let settled = false;
-      let exited = false;
-      let reason: "timeout" | "canceled" | "output-too-large" | null = null;
-
-      const finish = (result: BackendResult): void => {
-        if (settled) return;
-        settled = true;
-        clearTimeout(timer);
-        request.signal.removeEventListener("abort", onAbort);
-        resolve(result);
-      };
-
-      const kill = (why: typeof reason): void => {
-        reason = why;
-        // SIGTERM first, SIGKILL shortly after: a wedged child must not be
-        // able to outlive its budget by ignoring the polite signal.
-        //
-        // The escalation is gated on `exited`, which we set from the `close`
-        // event, and NOT on `child.killed` — that flag means "a signal was
-        // sent", not "the process died", so gating on it would mean the
-        // SIGKILL never fires against exactly the child that ignores SIGTERM.
-        child.kill("SIGTERM");
-        setTimeout(() => {
-          if (!exited) child.kill("SIGKILL");
-        }, 2_000).unref();
-      };
-
-      const timer = setTimeout(() => {
-        kill("timeout");
-      }, request.timeoutMs);
-
-      const onAbort = (): void => {
-        kill("canceled");
-      };
-      request.signal.addEventListener("abort", onAbort, { once: true });
-
-      child.stdout.on("data", (chunk: Buffer) => {
-        outputBytes += chunk.byteLength;
-        if (outputBytes > request.maxOutputBytes) {
-          kill("output-too-large");
-          return;
-        }
-        stdout += chunk.toString("utf8");
-      });
-
-      child.stderr.on("data", (chunk: Buffer) => {
-        // Bounded independently: a chatty stderr must not exhaust memory
-        // either, and it is only ever used for a diagnostic message.
-        if (stderr.length < 8_192) stderr += chunk.toString("utf8");
-      });
-
-      child.on("error", (error: Error) => {
-        finish({
-          ok: false,
-          code: "backend-unreachable",
-          message: `could not start the claude CLI: ${error.message}`,
-          retryable: false,
-          durationMs: Date.now() - started,
-        });
-      });
-
-      child.on("close", (code) => {
-        exited = true;
-        const durationMs = Date.now() - started;
-
-        if (reason === "canceled") {
-          finish({
-            ok: false,
-            code: "canceled",
-            message: "the job was canceled",
-            retryable: false,
-            durationMs,
-          });
-          return;
-        }
-        if (reason === "timeout") {
-          finish({
-            ok: false,
-            code: "timeout",
-            message: `the model did not answer within ${String(request.timeoutMs)}ms`,
-            retryable: true,
-            durationMs,
-          });
-          return;
-        }
-        if (reason === "output-too-large") {
-          finish({
-            ok: false,
-            code: "output-too-large",
-            message: `the model produced more than ${String(request.maxOutputBytes)} bytes`,
-            retryable: false,
-            durationMs,
-          });
-          return;
-        }
-        if (code !== 0) {
-          finish({
-            ok: false,
-            code: "backend-error",
-            message:
-              stderr.trim() === ""
-                ? `the claude CLI exited with status ${String(code)}`
-                : `the claude CLI failed: ${firstLine(stderr)}`,
-            retryable: false,
-            durationMs,
-          });
-          return;
-        }
-        finish({ ok: true, text: stdout, durationMs });
-      });
-
-      // The prompt goes here and nowhere else: on stdin, as bytes, after the
-      // argv is already fixed. This is the line byollm_004 §2 is about.
-      child.stdin.on("error", () => {
-        // A child that died before reading stdin surfaces through `close`.
-      });
-      child.stdin.end(request.prompt, "utf8");
+    // The spawn itself lives in `process-backend.ts` — one implementation of
+    // byollm_004 §2's machinery for every process backend, because two copies
+    // of a scratch cwd, a kill escalation and an output ceiling are two places
+    // for them to drift apart. What stays here is the part that is genuinely
+    // this backend's: which binary, and the frozen argv that turns its tools
+    // off.
+    return runProcessJob({
+      launch: resolveClaudeLaunch(this.#binary),
+      argv: claudeArgv(request.model),
+      env: childEnv(),
+      displayName: "the claude CLI",
+      request,
+      started,
     });
   }
-}
-
-/** First line of stderr, for a one-line diagnostic. */
-function firstLine(text: string): string {
-  return text.trim().split("\n")[0] ?? "";
 }

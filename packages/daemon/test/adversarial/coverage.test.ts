@@ -40,6 +40,26 @@ describe("adversarial coverage [byollm_004 §5]", () => {
       });
       expect(backend, id).toBeDefined();
       expect(backend.class, id).toBe(BACKENDS[id].class);
+      // And, for process class, that it is the backend that was *asked for*.
+      //
+      // The class check alone cannot establish that — the same defect as
+      // finding 15, one level down. Two process-class backends are
+      // indistinguishable by class, so `codex-cli` came back as a
+      // `ClaudeCliBackend` and this test passed: right class, wrong argv, and
+      // an argv is the whole of what a process backend is.
+      //
+      // The rule is class-conditional because the two classes genuinely
+      // differ, and the first draft of this assertion got it wrong by
+      // demanding identity everywhere. HTTP *providers* share one transport
+      // on purpose — byollm_007 §3, they all speak the same
+      // `/v1/chat/completions`, so `ollama` coming back as `openai-http` is
+      // the architecture rather than a substitution. Process backends share
+      // nothing: each is a distinct binary with a distinct argv, and
+      // silently handing one another's argv over is a job that runs the
+      // wrong program.
+      if (BACKENDS[id].class === "process") {
+        expect(backend.id, `${id} constructed as ${backend.id}`).toBe(id);
+      }
     }
   });
 

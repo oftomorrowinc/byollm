@@ -1,5 +1,5 @@
 > [!WARNING]
-> **Alpha (`0.1.0-alpha.48`) — under active development. Don't use this yet.**
+> **Alpha (`0.1.0-alpha.49`) — under active development. Don't use this yet.**
 >
 > Install it as `byollm@alpha`, deliberately. npm forces a `latest` tag onto a
 > package's first publish and will not let it be removed, so a bare install
@@ -19,6 +19,34 @@
 > on-disk format — are written down and turn on with the first outside user.
 > If an upgrade leaves a daemon saying it is paired with nothing, `byollm
 > connect` is the answer and nothing else is lost.
+>
+> **`alpha.49` fixes what the wizard writes, and makes `enqueue` refuse
+> options it does not understand.** Breaking only in the second sense, and
+> deliberately.
+>
+> **If you ran `byollm setup` before this, your config has settings you were
+> never asked about.** It wrote the answers *plus* every default the schema
+> filled in — `concurrency`, the community and ingress blocks, a per-service
+> `offer`. Those are today's values frozen into your file, so a later change to
+> any of them will not reach you. Nothing is broken; delete the lines you did
+> not choose and the daemon supplies them again. The wizard now writes only
+> what it asked you.
+>
+> `byollm setup` also finds local model servers by asking them — one request
+> per well-known port, and it offers whatever answered, with the models that
+> server named. Multi-select, and it writes the server's own address rather
+> than a guess.
+>
+> **`enqueue` now throws on an option it does not know**, instead of ignoring
+> it. If you call it with a field your installed `@byollm/server` predates —
+> `service`, most likely — you now get an error naming the field instead of a
+> job that quietly runs differently than you asked. That silence is the reason
+> for the change.
+>
+> `runnerAvailability` reports one `selection-unavailable` where it briefly
+> reported two reasons. A name nobody advertises and a name not offered to you
+> must answer identically, or trying names and sorting the replies enumerates
+> somebody else's device.
 >
 > **`alpha.48` finishes service selection through the SDK.** Not breaking.
 >

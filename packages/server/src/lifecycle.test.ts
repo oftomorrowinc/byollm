@@ -1,3 +1,4 @@
+import type { Capability } from "@byollm/protocol";
 import { describe, expect, it } from "vitest";
 import {
   createHarness,
@@ -350,5 +351,133 @@ describe("no-runner signal [NO_RUNNER_SIGNAL]", () => {
     expect(
       await h.app.runnerAvailability({ kind: "llm.generate", owner: "alice" }),
     ).toMatchObject({ available: false, reason: "no-runner-online" });
+  });
+});
+
+describe("selection and defaults, at enqueue time [byollm_016 Phase B]", () => {
+  /**
+   * Each of these sends the reader somewhere different — fix a typo, choose a
+   * default, install something, or ask the device's owner to change theirs.
+   * Collapsing them would send everybody to the last, which is the failure
+   * `NO_RUNNER_SIGNAL` exists to prevent: an app that cannot tell "not yet"
+   * from "never" makes both look like a hang.
+   *
+   * Distinguishing them is safe *here* and nowhere else. This answers a site
+   * about its own users' devices, whose capabilities it already stores. The
+   * same split on the wire would let a stranger probe service names to
+   * enumerate somebody else's machine, which is exactly why `RefusalReason`
+   * collapses two of them into one opaque value.
+   */
+  const beat = async (
+    h: ReturnType<typeof createHarness>,
+    runner: PairedRunner,
+    capabilities: Capability[],
+  ) =>
+    h.call(
+      "heartbeat",
+      {
+        protocolVersion: "0",
+        runnerId: runner.runnerId,
+        daemonVersion: "0.1.0",
+        capabilities,
+        activeLeases: [],
+        paused: false,
+      },
+      runner,
+    );
+
+  const cap = (
+    service: string,
+    isDefault: boolean,
+    offerScope: Capability["offerScope"] = "private",
+  ): Capability => ({
+    kind: "llm.generate",
+    service,
+    isDefault,
+    backendId: "openai-http",
+    backendClass: "http",
+    model: "qwen",
+    offerScope,
+  });
+
+  it("says the named service is not one of them", async () => {
+    // The kind is served; that name is not. A typo, or something the person
+    // has not enabled — and telling them "no matching capability" would send
+    // them looking for a missing install instead.
+    const h = createHarness();
+    const runner = await h.pair({ owner: "alice" });
+    await beat(h, runner, [cap("studio", true)]);
+
+    expect(
+      await h.app.runnerAvailability({
+        kind: "llm.generate",
+        owner: "alice",
+        service: "typo",
+      }),
+    ).toMatchObject({ available: false, reason: "no-such-service" });
+  });
+
+  it("says a kind is waiting on a default rather than missing", async () => {
+    // Two services answer it and neither is the default, which is the state
+    // byollm_016 withholds. Nothing is missing; a decision is outstanding.
+    const h = createHarness();
+    const runner = await h.pair({ owner: "alice" });
+    await beat(h, runner, [cap("studio", false), cap("laptop", false)]);
+
+    expect(
+      await h.app.runnerAvailability({ kind: "llm.generate", owner: "alice" }),
+    ).toMatchObject({ available: false, reason: "awaiting-default" });
+  });
+
+  it("sends an unselected job to the default, not to whatever answers", async () => {
+    // The control on the two above. A device advertising a menu *and* a
+    // default is available — and reporting otherwise would make the common
+    // case look broken.
+    const h = createHarness();
+    const runner = await h.pair({ owner: "alice" });
+    await beat(h, runner, [cap("studio", true), cap("laptop", false)]);
+
+    expect(
+      await h.app.runnerAvailability({ kind: "llm.generate", owner: "alice" }),
+    ).toMatchObject({ available: true });
+  });
+
+  it("names the defaults-meet-audiences corner when it bites", async () => {
+    // The specimen byollm_016 called out: a default this requester can never
+    // use. Reported at enqueue rather than left to expire, because a wait that
+    // can never end looks exactly like one that has not ended yet.
+    //
+    // `bob` asking about `alice`'s device, whose default is offered to nobody
+    // but its owner.
+    const h = createHarness();
+    const runner = await h.pair({ owner: "alice" });
+    await beat(h, runner, [cap("studio", true, "private")]);
+
+    expect(
+      await h.app.runnerAvailability({
+        kind: "llm.generate",
+        owner: "bob",
+        audience: "team",
+      }),
+    ).toMatchObject({ available: false, reason: "default-unusable" });
+  });
+
+  it("still says audience-admits-nobody when the job named a service", async () => {
+    // The same refusal, different sentence, because the fix differs: here the
+    // requester chose a service that is not offered to them, which they can
+    // act on. `default-unusable` is fixed by the device's owner choosing
+    // differently, which they cannot.
+    const h = createHarness();
+    const runner = await h.pair({ owner: "alice" });
+    await beat(h, runner, [cap("studio", true, "private")]);
+
+    expect(
+      await h.app.runnerAvailability({
+        kind: "llm.generate",
+        owner: "bob",
+        audience: "team",
+        service: "studio",
+      }),
+    ).toMatchObject({ available: false, reason: "audience-admits-nobody" });
   });
 });

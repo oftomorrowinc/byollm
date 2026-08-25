@@ -11,6 +11,7 @@ import {
   matchAudience,
   type DeliveredResult,
   type JobKind,
+  type MatchRefusal,
 } from "@byollm/protocol";
 import {
   PollingDelivery,
@@ -34,7 +35,38 @@ export type NoRunnerReason =
   | "no-runner-paired"
   | "no-runner-online"
   | "no-matching-capability"
-  | "audience-admits-nobody";
+  | "audience-admits-nobody"
+  /**
+   * A service was named and nothing advertises it — byollm_016 Phase B.
+   *
+   * Distinct from `no-matching-capability`, which means nothing serves the
+   * *kind* at all. Here the kind is served and the name is not one of them, so
+   * the fix is different: a typo, or a service the person has not enabled.
+   *
+   * Safe to distinguish **here** and nowhere else. This answers the site about
+   * its own users' devices, whose capabilities it already stores; the same
+   * split on the wire would let a stranger probe names to enumerate somebody
+   * else's machine, which is why `RefusalReason` collapses it to one value.
+   */
+  | "no-such-service"
+  /**
+   * A kind two services answer with no default chosen, so the daemon
+   * withholds it — byollm_016. Nothing is wrong with the device; its owner has
+   * a decision to make, and saying "no matching capability" would send them
+   * looking for a missing install instead.
+   */
+  | "awaiting-default"
+  /**
+   * The owner's default for this kind can never serve *this* requester —
+   * byollm_016's defaults-meet-audiences corner.
+   *
+   * The specimen: a default of `claude-cli`, self-locked by
+   * `SUBSCRIPTION_SELF_LOCK`, and a team member's unselected job. It resolves
+   * to something that will never run it. Reported rather than left to time
+   * out, because a wait that can never end is indistinguishable from one that
+   * has not ended yet, and only one of them is worth waiting through.
+   */
+  | "default-unusable";
 
 /**
  * The no-runner signal (byollm_001 Rev 1 §D).
@@ -55,6 +87,8 @@ export interface RunnerAvailability {
 export interface AvailabilityQuery {
   readonly kind: JobKind;
   readonly owner: string;
+  /** The service the job named, if it named one — byollm_016 Phase B. */
+  readonly service?: string;
   readonly audience?: "private" | "team" | "public";
   readonly audienceAllow?: readonly string[];
 }
@@ -353,8 +387,32 @@ export class ByollmApp {
 
     let capable = 0;
     let admitted = 0;
+    // byollm_016 Phase B. A named service must be matched by name; an
+    // unnamed one goes to whichever service the owner made the default, and
+    // *not* to whatever else answers that kind — matching the menu here would
+    // report a job as runnable that the router will not route.
+    let servesKind = 0;
+    let withheldSomewhere = 0;
+    let lastRefusal: MatchRefusal | undefined;
     for (const runner of live) {
-      const capability = runner.capabilities.find((c) => c.kind === query.kind);
+      const forKind = runner.capabilities.filter((c) => c.kind === query.kind);
+      if (forKind.length > 0) servesKind += 1;
+
+      const capability =
+        query.service === undefined
+          ? forKind.find((c) => c.isDefault)
+          : forKind.find((c) => c.service === query.service);
+
+      // A device that answers this kind, advertises no default for it, and
+      // was not asked for a name: the withheld state, which is a decision
+      // waiting rather than a thing missing.
+      if (
+        capability === undefined &&
+        query.service === undefined &&
+        forKind.length > 0
+      ) {
+        withheldSomewhere += 1;
+      }
       if (!capability) continue;
       capable += 1;
 
@@ -385,19 +443,50 @@ export class ByollmApp {
         },
       );
       if (match.ok) admitted += 1;
+      else lastRefusal = match.refusal;
     }
 
     if (capable === 0) {
-      return {
-        available: false,
-        reason: "no-matching-capability",
-        candidates: 0,
-      };
+      // Ordered most specific first, because each one sends the reader
+      // somewhere different: fix a typo, choose a default, or install
+      // something. Collapsing them would send everybody to the last.
+      const reason: NoRunnerReason =
+        query.service !== undefined && servesKind > 0
+          ? "no-such-service"
+          : withheldSomewhere > 0
+            ? "awaiting-default"
+            : "no-matching-capability";
+      return { available: false, reason, candidates: 0 };
     }
     if (admitted === 0) {
+      // Something serves it and nothing may serve *this requester*. When the
+      // job named nothing, that is the defaults-meet-audiences corner — the
+      // owner's default resolved to a service this person can never use — and
+      // it is worth its own word, because "nobody is admitted" reads as a
+      // permissions problem the requester could ask to have fixed, while this
+      // one is fixed by the device's owner choosing differently.
+      // Whose decision blocked it, not merely that something did. The first
+      // draft asked "did the job name a service", which reclassified a job
+      // whose *own* audience was `private` and whose only device belonged to
+      // somebody else — telling that caller "the owner's default cannot serve
+      // you" when the exclusion was their own choice. An existing test caught
+      // it, which is the argument for keeping the older reason rather than
+      // widening the new one.
+      //
+      // So it splits on the refusal `matchAudience` already produced: a scope
+      // or billing refusal is the *device owner's* setting, which only they
+      // can change; an audience refusal is the *caller's*, which they can.
+      const ownersDoing =
+        lastRefusal === "offer-scope-too-narrow" ||
+        lastRefusal === "subscription-self-lock" ||
+        lastRefusal === "metered-no-spend-consent" ||
+        lastRefusal === "metered-ceiling-reached";
       return {
         available: false,
-        reason: "audience-admits-nobody",
+        reason:
+          query.service === undefined && ownersDoing
+            ? "default-unusable"
+            : "audience-admits-nobody",
         candidates: 0,
       };
     }

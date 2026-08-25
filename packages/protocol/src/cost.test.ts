@@ -365,3 +365,63 @@ describe("locality is decided on addresses, never on names", () => {
     expect(isLocalHost("notlocalhost")).toBe(false);
   });
 });
+
+describe("cloud-tagged models — byollm_007, 2026-08-24", () => {
+  /**
+   * Ollama serves hosted models through the same `127.0.0.1` endpoint as
+   * local ones. The address says free about a model somebody is billed for,
+   * so the name has to decide — and the deciding part is the tag.
+   *
+   * The corpus, including the two that must NOT match and the oddball that
+   * must fail toward metered.
+   */
+  const LOCAL = "http://127.0.0.1:11434/v1";
+
+  it("bills a bare :cloud tag", () => {
+    expect(resolveCost("openai-http", LOCAL, "glm-5.2:cloud")).toBe("metered");
+  });
+
+  it("bills a dated cloud tag", () => {
+    expect(
+      resolveCost("openai-http", LOCAL, "deepseek-v4-flash:0731-cloud"),
+    ).toBe("metered");
+  });
+
+  it("leaves `cloudless` alone — the tag ends in `less`", () => {
+    expect(resolveCost("openai-http", LOCAL, "x:cloudless")).toBe("free");
+  });
+
+  it("leaves a cloud-ish model NAME alone — the tag is what counts", () => {
+    expect(resolveCost("openai-http", LOCAL, "cloudmodel:7b")).toBe("free");
+  });
+
+  it("leaves an untagged local model alone", () => {
+    expect(resolveCost("openai-http", LOCAL, "llama3.2")).toBe("free");
+  });
+
+  it("leaves an untagged name that merely ends in cloud alone", () => {
+    // Cloud-ness lives in the *tag*. A local model somebody called
+    // `nimbuscloud` has no tag at all, so there is nothing hosted about it.
+    //
+    // This row exists because a mutation found its absence: anchoring on the
+    // whole name (`/cloud$/`) rather than the tag passed every other case
+    // here. Without it the rule was "ends in cloud", which is a different and
+    // wronger rule that happened to agree on the examples chosen.
+    expect(resolveCost("openai-http", LOCAL, "nimbuscloud")).toBe("free");
+  });
+
+  it("fails toward metered on an oddball tag [the permitted direction]", () => {
+    // `:xcloud` is not a thing Ollama serves, and if it ever is, calling it
+    // metered narrows what an owner may share and costs nobody money. The
+    // reverse would hand somebody else's bill to a stranger.
+    expect(resolveCost("openai-http", LOCAL, "weird:xcloud")).toBe("metered");
+  });
+
+  it("does not let a cloud tag make a named provider cheaper or dearer", () => {
+    // The registry still has the last word for a named provider
+    // [COST_NOT_CONFIGURABLE] — a tag cannot reclassify Claude.
+    expect(resolveCost("claude-cli", undefined, "anything:cloud")).toBe(
+      "subscription",
+    );
+  });
+});

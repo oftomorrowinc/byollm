@@ -37,6 +37,7 @@ export {
   backendDescriptor,
   isBackendId,
   isLocalHost,
+  isCloudTaggedModel,
   resolveCost,
   type BackendDescriptor,
   type BackendId,

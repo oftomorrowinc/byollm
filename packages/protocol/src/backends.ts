@@ -331,20 +331,55 @@ export function isLocalHost(hostname: string): boolean {
 }
 
 /**
- * The cost class of a configured backend instance.
+ * Is this model name a hosted one billed by its vendor?
+ *
+ * Ollama serves cloud models through the same local endpoint as local ones,
+ * so the address says "free" about a model somebody is being charged for. The
+ * only thing that distinguishes them is the name, and the distinguishing part
+ * is the **tag** — everything after the last colon.
+ *
+ * End-anchored on the tag, which is what makes it decidable rather than a
+ * guess about substrings:
+ *
+ * - `glm-5.2:cloud` → cloud
+ * - `deepseek-v4-flash:0731-cloud` → cloud
+ * - `x:cloudless` → not cloud, the tag ends in "less"
+ * - `cloudmodel:7b` → not cloud, the tag is "7b"
+ * - `llama3.2` → not cloud, there is no tag at all
+ *
+ * An oddball like `:xcloud` classifies as cloud, and that is the **only
+ * permitted failure direction**: calling a free model metered narrows what an
+ * owner may share and costs nobody money, while the reverse hands somebody
+ * else's bill to a stranger.
+ */
+export function isCloudTaggedModel(model: string): boolean {
+  return /:[^:]*cloud$/.test(model);
+}
+
+/**
+ * The cost class of a configured service.
  *
  * For every named provider this is whatever the registry says, full stop
  * ({@link MUSTS.COST_NOT_CONFIGURABLE}). For the generic `openai-http` entry
  * it is inferred from the base URL, and a base URL that cannot be parsed is
  * treated as `metered` — the expensive side, because guessing "free" wrong
  * costs the owner money.
+ *
+ * The model has the last word in one direction only. A local address with a
+ * cloud-tagged model is `metered`: Ollama proxies hosted models through
+ * `127.0.0.1`, so the endpoint is local and the bill is not. Read from the
+ * **configured value**, never from what the server lists — the owner's config
+ * is the thing they chose, and a server's catalogue is not theirs to be
+ * classified by.
  */
 export function resolveCost(
   id: BackendId,
   baseUrl: string | undefined,
+  model?: string,
 ): BackendCost {
   const declared = BACKENDS[id].cost;
   if (declared !== null) return declared;
+  if (model !== undefined && isCloudTaggedModel(model)) return "metered";
   if (baseUrl === undefined) return "metered";
   try {
     return isLocalHost(new URL(baseUrl).hostname) ? "free" : "metered";

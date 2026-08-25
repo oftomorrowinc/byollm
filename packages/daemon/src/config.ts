@@ -384,7 +384,7 @@ export function resolveConfig(config: DaemonConfig): LoadedConfig {
     // Cost comes from the registry, or from where the request goes — never
     // from config ({@link MUSTS.COST_NOT_CONFIGURABLE},
     // {@link MUSTS.REMOTE_IS_NEVER_FREE}).
-    const cost = resolveCost(service.type, baseUrl);
+    const cost = resolveCost(service.type, baseUrl, service.model);
     const acknowledged = service.spend?.acknowledged === true;
     const capCents = service.spend?.dailyCapCents;
 

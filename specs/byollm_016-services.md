@@ -1033,3 +1033,42 @@ structural self-lock and community budgets) rather than eliding it,
 per CCC's own instinct. C006 is renamed rather than read generously.
 The Phase A sequencing drift in this spec is corrected in the same
 pass, and the in-product team-gap notice retires with the build.
+
+## The invisible-device incident (2026-08-25 afternoon)
+
+The .51 daemon's heartbeats failed hub schema validation every ten
+seconds for hours; the hub logged 400s as ordinary traffic, the
+dashboard rendered stale presence as a normal card, `byollm status`
+said "state: running" — true and useless — and the only detector was
+Todd noticing a missing chip, twice. Third instance today of "the
+system knew and no surface said so." A device whose every heartbeat
+is rejected is strictly worse than offline: offline renders as an old
+last-seen; this renders as a normal-looking card with frozen data.
+
+Fixes ruled, both before Amendment G:
+1. **Persistent heartbeat rejection is a STATE, not a louder log.**
+   After N consecutive rejects the daemon enters a state that
+   `byollm status` renders as its headline ("running, but the hub has
+   rejected my last N heartbeats — this device is invisible").
+2. **A timestamp rendered without comparison to now is decoration**
+   (rule minted). Liveness surfaces derive freshness — online /
+   stale / gone — from age; raw lastSeenAt is never styled as status.
+   This is the never-seen fix one step further out, as CCC put it.
+
+Queued (operator-alerting lane, open-door list): the hub-side leg —
+persistent schema rejects from a *paired identity* are an anomaly
+signal, never ordinary traffic.
+
+Process finding: the release-ordering rule should have made this
+window impossible; .51 went latest while the hub couldn't parse .51
+heartbeats. Whether the hub deploy was wrongly believed complete or
+the rule was skipped, the durable fix is mechanical: **the hub
+advertises the schema version it accepts, and a pre-promotion check
+refuses the dist-tag move when the hub is behind.** The rule has been
+paid for twice; it graduates to a check.
+
+Also recorded: CCC's self-correction on codex ("I told you the
+reinstall would fix it... I was reasoning from the last bug I'd fixed
+rather than from evidence — exactly the thing this morning was
+supposed to have taught me") — beside Cowork's morning misdiagnosis,
+same day, same lesson, both self-caught.

@@ -222,7 +222,7 @@ whichever one it did not pair with.
 const job = await getApp().enqueue({
   kind: "llm.generate",
   audience: "private", // this user's own device only — the default
-  owner: userId,
+  owner: ownerId, // who this is depends on your mode — see below
   payload: { prompt: `Summarize this transcript:\n\n${transcript}` },
 });
 
@@ -240,6 +240,56 @@ const { outcome, fallback } = await job.result({
 `result()` is sugar over your delivery channel with a timeout and a
 `noRunnerAvailable` path — never a bare promise that hangs forever. If nobody
 is online to run the job, you find out and can fall back.
+
+## Who `owner` is — this differs by mode
+
+`owner` names the person whose devices should do the work, and the two
+connection modes do not use the same names for people. Getting this wrong is
+the one integration mistake that produces no error: the job enqueues, returns
+an id, and never routes.
+
+**Direct** — daemons reach your own handlers, and you are the only party who
+knows who anybody is. `owner` is your own user id, from your session, never
+from the client. That is what the example above shows.
+
+**Cloud** — daemons reach `hub.byollm.cloud`, which has its own identity
+space: rosters, consents and budgets all speak **BYOLLM ids**. Your user id
+means nothing there. `owner` must be the person's BYOLLM id.
+
+Ask them for it. Every signed-in person can read it on their byollm.cloud
+account page under **Your BYOLLM id**, with a copy button. Add a settings
+field, have them paste it, store it against your own user record.
+
+The id names them and authorises nothing — someone holding it can address work
+to a person and cannot deliver it, because the consent row is what opens the
+route. So a pasted id is not a credential you are being trusted with, and a
+wrong one is harmless. Two things still matter: it must come from the person's
+own account rather than being inferred by your app, and they must connect your
+site on byollm.cloud before anything routes.
+
+**A wrong id is silence, not an error.** The relay routes on a consented
+`(site, owner)` pair, so a mistyped id — or one belonging to somebody who has
+not connected your site — matches no route. The job waits, then expires. So
+check ids when you receive them rather than when you enqueue:
+
+```ts
+const { available } = await getApp().runnerAvailability({
+  kind: "llm.generate",
+  owner: pastedByollmId,
+});
+
+if (!available) {
+  // Existence-neutral, deliberately.
+  return "That id has no devices for you. Check it, or connect this site on byollm.cloud.";
+}
+```
+
+Keep that message vague on purpose. A typo'd id and an id belonging to somebody
+who has not connected you give the same answer, and that is the system working
+rather than a limitation to route around — telling them apart would make this
+call an account-existence oracle: probe a guess, sort the answers, enumerate.
+Never write "no such account". If you ever get an answer that *does*
+distinguish them, that is a bug worth reporting.
 
 ## The approval page
 

@@ -1191,3 +1191,29 @@ had. Pin-at-pairing = yes — pairing is the ceremony where human
 judgment enters (fingerprint read, approval given); the pin anchors
 there, Amendment C succession handles rotation; a later pin arrives
 over the channels it exists to protect.
+
+## Offer-refusal wording ruled; alpha.53 (2026-08-25 night)
+
+CCC found three defects in the offer refusals (the consent ceremony
+itself was already fixed in c6681da): circular advice — the cap
+message implied sharing was possible and the subscription refusal ran
+second, costing two round trips to the real answer; internal class
+vocabulary on a user's screen; and the registry-label-not-service
+defect again. Both proposed messages approved with one addition:
+the free-class message ends with the exact runnable command
+("Drop --cap: `byollm offer my-ollama team`") — error messages are
+docs and get walked. The subscription message needs no command;
+that is its point.
+
+Two rules minted: **the fundamental refusal runs first** — a fixable
+detail never precedes an unfixable fact; and **class vocabulary stays
+off user surfaces** — "subscription-class"/"free-class" are spec and
+code words; the screen says what the class means ("a subscription
+whose terms cover your work," "runs on this machine"). Nobody's
+mental model has classes in it.
+
+alpha.53 ruled: cut now — a waiting reader (Kevin's npm README still
+teaching the wrong owner in the package's own voice) is the release
+trigger; the promotion gate decides the hub question mechanically.
+Housekeeping: the Pulumi digest bump is committed by its deployer;
+Cowork's spec records ride the next push.

@@ -223,3 +223,15 @@ shares paid compute because a loopback URL looked free. Corpus row
 detection. (Privacy note for the record: Ollama Cloud states prompts
 are not trained on or stored post-processing — acceptable for press's
 comparative test; byollm's own local-first positioning is unaffected.)
+
+**Amendment (Todd, 2026-08-25): the marker is the `cloud`
+suffix-token, not the `:cloud` tag.** Ollama cloud models appear both
+as `glm-5.2:cloud` and as `deepseek-v4-flash:0731-cloud` — the tag
+form varies, the trailing token doesn't. The check: a configured
+model name matching `[:-]cloud$` is metered. The breadth is
+deliberate and the asymmetry justifies it: a false positive (a local
+model an owner happened to name `…-cloud`) costs that owner a spend
+acknowledgment to share a free model — inconvenient, safe; a false
+negative silently donates real money to the audience. This check may
+only fail toward metered. Corpus rows should include both suffix
+forms and a near-miss (e.g. `cloudless`, which must NOT match).

@@ -193,3 +193,17 @@ path) applied to the wizard's first breath.
 alpha.46 publishing; per the release-ordering rule, latest moves only
 after CCC's hub-on-.46 deploy report exists — not merely after time
 has passed.
+
+**First real output reviewed (Todd's run, 2026-08-25).** The
+conditional fourth question is confirmed working — claude and codex
+both claimed both kinds, the wizard asked, defaults were written. One
+finding: **the wizard restates schema defaults** (concurrency, the
+full community/ingress/limits blocks, even offer: "private") instead
+of writing only answers. That is the drift class: the config code
+keeps nested defaults in one place as the single source of truth, and
+a wizard copying today's values into every user's file freezes them —
+a future release tuning a budget leaves every wizard-written config
+silently on the old numbers, chosen by nobody. Rule: **the wizard
+writes only answers** — services, and defaults where ambiguity forced
+a question; everything unchosen flows from the schema. Same law as
+fixtures-compute-from-constants, applied to generated config.

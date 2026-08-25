@@ -796,3 +796,40 @@ services config on the Studio, pair, and hand-allow Kevin via the
 still-present local allowlist — which is not a workaround but the
 shipped, in-product-documented behavior of this build. Kevin tests
 against a real service on the final config shape.
+
+## Phase B step 1 recorded; two scrutiny returns (2026-08-25)
+
+The wire may name a service. The design reduced to the key-versus-
+value distinction, endorsed as the formalization NO_PAYLOAD_ROUTING
+needed: a *key* resolves through the owner's config or nowhere and
+cannot carry description power (even convergent naming across owners
+resolves per-owner — sovereignty holds); a *value* means the same
+thing everywhere and stays forbidden. Selection permitted,
+description forbidden, and an unadvertised name is **refused, never
+substituted** — substitution being the decay path from "pick from my
+list" to "ask for anything and get something." Amendment D lands in
+byollm_009; both spec-guards were satisfied by argument rather than
+edit, and the parser learned optionality instead of the spec dropping
+its `?` — "editing a commitment to make a test pass, one level up" —
+kept as a specimen. The refusal invariant is adopted as law: **a
+refusal may deny; it may never assert** — a refusal carries no
+envelope and no output, and authoring one is denial by a shorter
+route the trust model already grants.
+
+Two returns from review:
+
+1. **Refusal indistinguishability.** Unadvertised and
+   advertised-but-not-offered-to-you must present identically to the
+   requester — one opaque "not available to you" — or refusal wording
+   becomes an inventory oracle (probe names, sort refusals, enumerate
+   a device you were never offered). The distinction lives only in
+   owner-side surfaces. Same family as redirect-versus-refusal.
+2. **The non-goal needs a forwarding address.** Excluding
+   terminal-"gone" from refusal-authoring is correct — "gone" asserts
+   about history, and no router assertion is backed by an envelope.
+   But the ruling stands as product law (a lost job surfaces as an
+   answer, not a wait), so "gone" needs its named home: presumably a
+   store-derived answer — the store-keeper reporting its own
+   emptiness is the one party that can know — designed on its own,
+   riding a later seam change. The exclusion must not quietly park
+   the requirement.

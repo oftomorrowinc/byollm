@@ -116,3 +116,11 @@ until its adapter ships and its probe passes, never "supported" early
 (claims trail proofs). Shape: a supported-backends table — supported
 (openai-http servers, claude-cli), coming (codex), not supported
 with stated reason (gemini-cli).
+
+**Update (Todd, 2026-08-25): the codex adapter is done — no "coming"
+row.** The public table is two states: supported and
+not-supported-with-reason. Codex lists exactly like Claude Code —
+"(subscription, locked to your own work)". Condition carried from the
+sixth question: "supported" presumes the codex tool-escape probe row
+exists and passes in the adversarial corpus — CCC to confirm; if the
+row is missing, it lands before the table does.

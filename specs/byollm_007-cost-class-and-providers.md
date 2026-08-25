@@ -271,3 +271,16 @@ CCC to verify (detection runs the thing): what the listing actually
 exposes for an untagged reference — canonical tag via /v1/models, or
 the native API. If resolution is unavailable on some path, an
 unresolvable untagged model gets a loud notice, never a silent free.
+
+**De-conflated (Todd, minutes later) — one rule, stated plainly.**
+The previous entry over-built. There is ONE rule: *a model whose tag
+ends in cloud is metered* (`:.*cloud$`) — Todd and CCC's tag-anchored
+rule, settled, and better than bare ends-in-cloud (nimbuscloud and
+cloudmodel:7b prove the anchoring). The only remaining question is
+which *name* the rule reads, answered in one sentence: apply it to
+the canonical name from the listing match detection already performs,
+and to the config value, metered winning — so a bare name that
+happens to resolve to a cloud tag classifies by what it is, IF that
+corner exists in ollama's world at all. That is two lines inside
+detection, not a classification system; the "two-stage monotone"
+framing above is withdrawn as ceremony around a small thing.

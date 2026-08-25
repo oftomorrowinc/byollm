@@ -350,3 +350,18 @@ ollama cloud's terms for account-sharing/third-party language: forbid
 → subscription, final; permit → metered (pool + overage spent by
 others is precisely what ack + ceiling protect), quota-bounded
 refinement deferred as above.
+
+**Closed (Todd, 2026-08-25): ollama `:cloud` is METERED — the interim
+resolves.** Todd's terms check: ollama permits sharing cloud models /
+a hosted server with a team and has no single-user clause (unlike
+Anthropic/OpenAI); it simply ships no access controls — which is
+byollm's job anyway. Per the recorded decision procedure: terms
+permit → metered. The tag rule's pattern stands; the class it yields
+is metered, so widening a `:cloud` service to team runs the full
+ceremony — `byollm offer` stating the consequence, spend
+acknowledgment, daily ceiling — and the vendor's quota/overage
+config bounds it again above. Evidence note, honestly: a search
+summary, not a clause-by-clause read; acceptable because the error
+direction is now money-bounded (ack + ceiling) rather than
+terms-violating. Practical effect: glm-5.2 via Todd's ollama cloud is
+offerable to Lis and Kevin today, lawfully and with ceilings.

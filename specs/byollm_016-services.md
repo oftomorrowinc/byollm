@@ -563,3 +563,39 @@ Also mooted by tonight: open question 4 (per-requester defaults) is
 dead — the team view is uniform by construction. The wizard's offer
 question (byollm_015) speaks the new vocabulary: "Offer this to your
 team? [y/N]".
+
+## Three confirmations + the intermediate state (2026-08-25)
+
+1. **`public` — legal on the wire, refused by config in Phase A.**
+   Confirmed as CCC read it, with the manner specified: a loud
+   config-load refusal naming why ("the community program isn't open;
+   offer will gain public when it is") — never silently ignored. A
+   sharing decision must not be makeable by typo, and its refusal
+   must not be mistakable for a broken config.
+2. **Withheld wire shape `{kind, claimants: [{service, offer}]}` —
+   confirmed.** Names alone can't decide the team-view predicate;
+   offers ride the wire for computation and are filtered for
+   display — the established pattern. Daemon-internal shape stands.
+3. **The intermediate state: CCC's plan approved.** The single
+   protocol rev lands tonight (OfferScope renamed, Capability gains
+   service + isDefault, withheld on the wire); roster-follow is a
+   new subsystem — projection-path sync, daemon re-check, loud
+   notice, NAMED_LOCAL_ALLOWLIST amendment — and gets its own build
+   and report. Until it lands, `team` enforces via the local
+   allowlist. Two guards make the gap honest rather than flattering:
+   the alpha is **not promoted as "team sharing works"** (promotion
+   gate, Todd's), and the gap announces itself **in-product**: when a
+   config contains a team offer, config load and `byollm services`
+   print "team enforcement is local-allowlist in this build; roster
+   sync lands next" — the build describes its own limitation where
+   the owner is looking. Holding the rename was considered and
+   declined: it would split the wire rev in two, and the only flow
+   the gap blocks is the Studio team walk, which roster-follow
+   precedes anyway; the integrators onboard on `private`.
+
+Open item for CCC's judgment, with data: `Audience` shares the
+self|named|public literals and is not renamed — accepted bilingualism
+for now, but if leaving it means every OfferScope↔Audience seam
+carries a mapping and docs forever explain "self vs private," say
+what riding the same rev would cost. One vocabulary is worth a
+bounded price; CCC has the numbers.

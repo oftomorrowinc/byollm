@@ -400,10 +400,10 @@ describe("selection and defaults, at enqueue time [byollm_016 Phase B]", () => {
     offerScope,
   });
 
-  it("says the named service is not one of them", async () => {
-    // The kind is served; that name is not. A typo, or something the person
-    // has not enabled — and telling them "no matching capability" would send
-    // them looking for a missing install instead.
+  it("says a named service cannot serve them, without saying why", async () => {
+    // The kind is served; that name is not. The reader learns their selection
+    // will not run — enough to fix a typo or ask the device's owner — and
+    // learns nothing about what that owner actually has.
     const h = createHarness();
     const runner = await h.pair({ owner: "alice" });
     await beat(h, runner, [cap("studio", true)]);
@@ -414,7 +414,32 @@ describe("selection and defaults, at enqueue time [byollm_016 Phase B]", () => {
         owner: "alice",
         service: "typo",
       }),
-    ).toMatchObject({ available: false, reason: "no-such-service" });
+    ).toMatchObject({ available: false, reason: "selection-unavailable" });
+  });
+
+  it("answers identically whether the name is unknown or merely not offered", async () => {
+    // Constraint one of the terminal ruling, as arithmetic. These are
+    // different facts and must be one answer: if they differ, a requester
+    // tries names, sorts the replies, and enumerates a device they were never
+    // offered — the collapse in `RefusalReason` defeated by a helpful SDK
+    // relaying the finer reason it was given.
+    const h = createHarness();
+    const runner = await h.pair({ owner: "alice" });
+    await beat(h, runner, [cap("studio", true, "private")]);
+
+    const unknown = await h.app.runnerAvailability({
+      kind: "llm.generate",
+      owner: "bob",
+      audience: "team",
+      service: "no-such-name",
+    });
+    const notOffered = await h.app.runnerAvailability({
+      kind: "llm.generate",
+      owner: "bob",
+      audience: "team",
+      service: "studio",
+    });
+    expect(unknown).toEqual(notOffered);
   });
 
   it("says a kind is waiting on a default rather than missing", async () => {
@@ -462,22 +487,31 @@ describe("selection and defaults, at enqueue time [byollm_016 Phase B]", () => {
     ).toMatchObject({ available: false, reason: "default-unusable" });
   });
 
-  it("still says audience-admits-nobody when the job named a service", async () => {
-    // The same refusal, different sentence, because the fix differs: here the
-    // requester chose a service that is not offered to them, which they can
-    // act on. `default-unusable` is fixed by the device's owner choosing
-    // differently, which they cannot.
+  it("keeps the kind-level reasons distinct, because they cannot be probed", async () => {
+    // Not everything collapses, and the line is whether a requester can walk a
+    // namespace. A service name is unbounded and supplied by the asker; a job
+    // kind is neither, and `awaiting-default` is already what a roster member
+    // sees on the devices page. Collapsing these would cost an app a real
+    // difference — the owner can fix "has not chosen", nobody can fix "cannot
+    // serve you" — and buy nothing.
     const h = createHarness();
     const runner = await h.pair({ owner: "alice" });
-    await beat(h, runner, [cap("studio", true, "private")]);
+    await beat(h, runner, [cap("studio", false), cap("laptop", false)]);
+    const waiting = await h.app.runnerAvailability({
+      kind: "llm.generate",
+      owner: "alice",
+    });
 
-    expect(
-      await h.app.runnerAvailability({
-        kind: "llm.generate",
-        owner: "bob",
-        audience: "team",
-        service: "studio",
-      }),
-    ).toMatchObject({ available: false, reason: "audience-admits-nobody" });
+    const h2 = createHarness();
+    const runner2 = await h2.pair({ owner: "alice" });
+    await beat(h2, runner2, [cap("studio", true, "private")]);
+    const unusable = await h2.app.runnerAvailability({
+      kind: "llm.generate",
+      owner: "bob",
+      audience: "team",
+    });
+
+    expect(waiting.reason).toBe("awaiting-default");
+    expect(unusable.reason).toBe("default-unusable");
   });
 });

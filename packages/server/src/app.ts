@@ -37,18 +37,25 @@ export type NoRunnerReason =
   | "no-matching-capability"
   | "audience-admits-nobody"
   /**
-   * A service was named and nothing advertises it — byollm_016 Phase B.
+   * A named service cannot serve this requester — byollm_016 Phase B.
    *
-   * Distinct from `no-matching-capability`, which means nothing serves the
-   * *kind* at all. Here the kind is served and the name is not one of them, so
-   * the fix is different: a typo, or a service the person has not enabled.
+   * **One reason for two causes, and the collapse is the point.** The name may
+   * be one nobody advertises, or one advertised and not offered to this
+   * person. Those are different facts and a requester may learn neither,
+   * because telling them apart turns the advisory into an inventory oracle:
+   * try names, sort the answers, enumerate a device you were never offered.
    *
-   * Safe to distinguish **here** and nowhere else. This answers the site about
-   * its own users' devices, whose capabilities it already stores; the same
-   * split on the wire would let a stranger probe names to enumerate somebody
-   * else's machine, which is why `RefusalReason` collapses it to one value.
+   * My first version split them, on the argument that this answers a site
+   * about its own users' devices. That argument does not survive a team job.
+   * The site holds capabilities for devices belonging to *other people* on the
+   * roster, and it is free to relay a reason to the requester who asked — so
+   * the split leaks through a side door rather than the front one, which is
+   * how the collapse in `RefusalReason` gets defeated by a helpful SDK.
+   *
+   * The finer cause stays owner-side, where `byollm services` reports it to
+   * the person who already knows what their machine runs.
    */
-  | "no-such-service"
+  | "selection-unavailable"
   /**
    * A kind two services answer with no default chosen, so the daemon
    * withholds it — byollm_016. Nothing is wrong with the device; its owner has
@@ -435,12 +442,10 @@ export class ByollmApp {
     // unnamed one goes to whichever service the owner made the default, and
     // *not* to whatever else answers that kind — matching the menu here would
     // report a job as runnable that the router will not route.
-    let servesKind = 0;
     let withheldSomewhere = 0;
     let lastRefusal: MatchRefusal | undefined;
     for (const runner of live) {
       const forKind = runner.capabilities.filter((c) => c.kind === query.kind);
-      if (forKind.length > 0) servesKind += 1;
 
       const capability =
         query.service === undefined
@@ -491,12 +496,12 @@ export class ByollmApp {
     }
 
     if (capable === 0) {
-      // Ordered most specific first, because each one sends the reader
-      // somewhere different: fix a typo, choose a default, or install
-      // something. Collapsing them would send everybody to the last.
+      // Ordered most specific first, because each sends the reader somewhere
+      // different: a name that cannot serve them, a decision the device's
+      // owner has not made, or nothing installed at all.
       const reason: NoRunnerReason =
-        query.service !== undefined && servesKind > 0
-          ? "no-such-service"
+        query.service !== undefined
+          ? "selection-unavailable"
           : withheldSomewhere > 0
             ? "awaiting-default"
             : "no-matching-capability";
@@ -525,12 +530,19 @@ export class ByollmApp {
         lastRefusal === "subscription-self-lock" ||
         lastRefusal === "metered-no-spend-consent" ||
         lastRefusal === "metered-ceiling-reached";
+      // A named selection that nobody may serve reports the *same* word as a
+      // name nobody advertises — that is constraint one of the terminal
+      // ruling, and the reason the branch below cannot mention the service.
+      if (query.service !== undefined) {
+        return {
+          available: false,
+          reason: "selection-unavailable",
+          candidates: 0,
+        };
+      }
       return {
         available: false,
-        reason:
-          query.service === undefined && ownersDoing
-            ? "default-unusable"
-            : "audience-admits-nobody",
+        reason: ownersDoing ? "default-unusable" : "audience-admits-nobody",
         candidates: 0,
       };
     }

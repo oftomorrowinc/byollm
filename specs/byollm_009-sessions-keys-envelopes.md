@@ -1289,6 +1289,43 @@ result, because that requires a device's signature.
 > **A refusal may deny. It may never assert.** Anything claiming work
 > happened still arrives sealed.
 
+## D.3a Who decides a selection has failed for good (RATIFIED 2026-08-25)
+
+Neither the router nor the site's SDK. **The site's deadline is the sole
+terminal authority**, and the reason is that every cause of a selection
+failure is entangled with transient absence.
+
+A service exists only while it is advertised, and advertisement rides
+presence. "Nobody serves `studio`" and "the device serving `studio` is
+rebooting" are the same observation two seconds apart. So a terminal
+refusal decided at enqueue makes a reboot fatal to work that would have
+run, and one decided at claim time can only ever say *not this device*,
+which is the silence D.2 exists to kill.
+
+The shape, then: **enqueue accepts**, `runnerAvailability` answers at
+t=0 so an app never waits without being told, and the site decides
+by its own deadline and `onNoRunner`. Nothing about a job's fate is
+asserted by a party that cannot see the future of a device's presence.
+
+Two constraints ride with it, and both are the same rule as D.3's:
+
+1. The requester-facing advisory collapses exactly as
+   `REFUSED_SELECTION` does — **one answer** for a name nobody
+   advertises and a name not offered to this requester. Splitting them
+   in an advisory defeats the collapse through a side door: a site is
+   free to relay the finer reason to whoever asked, and then names can
+   be tried, answers sorted, and a device enumerated by somebody who
+   was never offered any of it.
+
+2. A selected job that reaches its deadline unmatched carries that same
+   opaque cause. A timeout that explains itself precisely is the same
+   oracle arriving later.
+
+Kind-level reasons stay distinct — `awaiting-default`,
+`default-unusable` — because the line is whether a requester can walk a
+namespace. A service name is unbounded and supplied by the asker; a job
+kind is neither.
+
 ## D.4 Not in this amendment — and where it goes instead
 
 A job whose *record* is gone must still end as an answer rather than a

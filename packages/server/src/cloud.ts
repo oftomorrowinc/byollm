@@ -165,6 +165,7 @@ export class CloudLane {
       // enforce — the daemon's own allowlist (`NAMED_LOCAL_ALLOWLIST`) and the
       // backend's offer scope. On this lane the relay narrows too, from the
       // control plane's rosters. The enforcement was never here.
+      ...(record.service === undefined ? {} : { service: record.service }),
       sizeClass: record.sizeClass,
       streaming: false,
       // The relay needs *a* deadline to bound routing. A job without one gets

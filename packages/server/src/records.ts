@@ -38,6 +38,14 @@ export interface JobRecord {
   /** Fixed at enqueue, where the plaintext is. */
   readonly sizeClass: SizeClass;
   readonly audience: Audience;
+  /**
+   * The service the site named, if it named one — byollm_016 Phase B.
+   *
+   * Stored rather than derived, because the stub carries it to the router and
+   * the router matches on it. `undefined` means the owner's default answers,
+   * which is every job written before this field existed.
+   */
+  readonly service: string | undefined;
   /** The app's id for the user who enqueued it. */
   readonly owner: string;
   /** Server-side restriction on which runner owners may take a `named` job. */
@@ -152,8 +160,26 @@ export interface EnqueueInput {
   /** The work, in plaintext. The server seals it before it is stored. */
   readonly payload: JobPayload;
   readonly owner: string;
-  /** Defaults to `self` — the safe direction. */
+  /** Defaults to `private` — the safe direction. */
   readonly audience?: Audience;
+  /**
+   * Which of the device owner's services should answer — byollm_016 Phase B.
+   *
+   * A **name from their menu**, never a description of what you want. There is
+   * still no model field, no base URL and no flags: this names one entry in
+   * that owner's own config, and what it resolves to is entirely theirs. A
+   * name they do not advertise is refused rather than served by something
+   * else, because substituting is how "pick from my list" becomes "ask for
+   * anything and get something".
+   *
+   * Leave it out and the owner's default answers, which is what every job
+   * written before this field did.
+   *
+   * You will not usually know the name. It is for the case where a person has
+   * told your app which of *their* devices' services to use — a fine-tune they
+   * named, say — not something an app invents.
+   */
+  readonly service?: string;
   readonly audienceAllow?: readonly string[];
   readonly dependsOn?: readonly string[];
   /** Defaults to the server config's `defaultTtlMs`. */

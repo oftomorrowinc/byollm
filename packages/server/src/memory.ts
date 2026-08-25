@@ -78,6 +78,7 @@ export class MemoryStore implements ByollmStore {
       envelope: input.envelope,
       sizeClass: input.sizeClass,
       audience: input.audience ?? "private",
+      service: input.service,
       owner: input.owner,
       audienceAllow: input.audienceAllow ? [...input.audienceAllow] : undefined,
       dependsOn,

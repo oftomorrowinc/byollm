@@ -289,3 +289,99 @@ describe("ByollmApp — the app-facing surface", () => {
     ).rejects.toThrow(/already approved/);
   });
 });
+
+describe("naming a service — byollm_016 Phase B", () => {
+  /**
+   * A field that is stored and never carried is worse than no field: the app
+   * believes it asked for something and nothing downstream ever hears it. So
+   * these follow the name the whole way — `enqueue` to the record, the record
+   * to the stub, the stub to a real claim over the wire.
+   */
+
+  it("carries the name onto the stub a device claims", async () => {
+    const h = createHarness();
+    const runner = await h.pair({ owner: "alice" });
+    const handle = await h.app.enqueue({
+      kind: "llm.generate",
+      payload: { prompt: "hi" },
+      owner: "alice",
+      service: "studio",
+    });
+
+    const claimed = await h.call(
+      "claim",
+      {
+        protocolVersion: "0",
+        runnerId: runner.runnerId,
+        capabilities: httpCapabilities(),
+        max: 1,
+      },
+      runner,
+    );
+    const jobs = (claimed.body as { jobs: { id: string; service?: string }[] })
+      .jobs;
+    expect(jobs).toHaveLength(1);
+    expect(jobs[0]?.id).toBe(handle.id);
+    expect(jobs[0]?.service).toBe("studio");
+  });
+
+  it("sends no service key at all when the app named none", async () => {
+    // Absent, not `undefined`. The stub is `.strict()` and an explicit
+    // undefined is a different thing on the wire from a missing key — and
+    // "the owner's default" is what every job written before this field
+    // meant, so it has to keep meaning it.
+    const h = createHarness();
+    const runner = await h.pair({ owner: "alice" });
+    await h.app.enqueue({
+      kind: "llm.generate",
+      payload: { prompt: "hi" },
+      owner: "alice",
+    });
+
+    const claimed = await h.call(
+      "claim",
+      {
+        protocolVersion: "0",
+        runnerId: runner.runnerId,
+        capabilities: httpCapabilities(),
+        max: 1,
+      },
+      runner,
+    );
+    const jobs = (claimed.body as { jobs: Record<string, unknown>[] }).jobs;
+    expect(jobs).toHaveLength(1);
+    expect(Object.hasOwn(jobs[0] ?? {}, "service")).toBe(false);
+  });
+
+  it("still carries no model, URL or flag, whatever the app passes", async () => {
+    // The amended NO_PAYLOAD_ROUTING as an assertion on the wire. Selection is
+    // permitted; description is not, and adding the first must not have
+    // quietly opened the second. A site naming a service still cannot tell a
+    // device what to run it with.
+    const h = createHarness();
+    const runner = await h.pair({ owner: "alice" });
+    await h.app.enqueue({
+      kind: "llm.generate",
+      payload: { prompt: "use claude-opus-5 at http://evil.test/v1" },
+      owner: "alice",
+      service: "studio",
+    });
+
+    const claimed = await h.call(
+      "claim",
+      {
+        protocolVersion: "0",
+        runnerId: runner.runnerId,
+        capabilities: httpCapabilities(),
+        max: 1,
+      },
+      runner,
+    );
+    const stub = (claimed.body as { jobs: Record<string, unknown>[] }).jobs[0];
+    for (const forbidden of ["model", "baseUrl", "type", "apiKeyEnv"]) {
+      expect(Object.hasOwn(stub ?? {}, forbidden), forbidden).toBe(false);
+    }
+    // And the prompt did not become the selection.
+    expect(stub?.["service"]).toBe("studio");
+  });
+});

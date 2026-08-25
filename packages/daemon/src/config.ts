@@ -254,6 +254,20 @@ export const DEFAULT_CONFIG: DaemonConfig = DaemonConfig.parse({
 });
 
 /**
+ * Name the old shape, so an upgrade says what changed rather than emitting a
+ * schema error about unrecognized keys. `backends`/`routes` were the alpha.43
+ * spelling; a config carrying either was written against the old contract and
+ * cannot be salvaged by guessing.
+ */
+function legacyShape(parsed: unknown): string | undefined {
+  if (typeof parsed !== "object" || parsed === null) return undefined;
+  const present = ["backends", "routes"].filter((key) => key in parsed);
+  return present.length === 0
+    ? undefined
+    : present.map((key) => `\`${key}\``).join(" and ");
+}
+
+/**
  * Read and resolve `~/.byollm/config.json`.
  *
  * A missing file yields {@link DEFAULT_CONFIG}; a malformed one throws,
@@ -276,6 +290,18 @@ export async function loadConfig(path: string): Promise<LoadedConfig> {
     throw new Error(
       `${path} is not valid JSON: ${error instanceof Error ? error.message : "unknown error"}`,
       { cause: error },
+    );
+  }
+
+  const legacy = legacyShape(parsed);
+  if (legacy !== undefined) {
+    throw new Error(
+      `${path} uses the pre-alpha.44 config shape (${legacy}).\n` +
+        `  \`backends\` and \`routes\` are replaced by one \`services\` map: each\n` +
+        `  service names its own \`type\`, \`baseUrl\`, \`model\`, and the \`kinds\` it\n` +
+        `  answers. A backend and the route that pointed at it become a single\n` +
+        `  entry. Where two services answer the same kind, name the winner in\n` +
+        `  \`defaults\`. See https://docs.byollm.cloud/guides/models for the rewrite.`,
     );
   }
 

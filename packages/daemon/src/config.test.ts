@@ -1,5 +1,8 @@
+import { mkdtemp, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { DaemonConfig, resolveConfig } from "./config.js";
+import { DaemonConfig, loadConfig, resolveConfig } from "./config.js";
 
 const base = {
   services: {
@@ -352,5 +355,56 @@ describe("byollm_007 — cost class and providers", () => {
       }),
     );
     expect(routes[0]?.offerScope).toBe("private");
+  });
+});
+
+describe("the pre-alpha.44 shape", () => {
+  async function write(config: unknown): Promise<string> {
+    const dir = await mkdtemp(join(tmpdir(), "byollm-config-"));
+    const path = join(dir, "config.json");
+    await writeFile(path, JSON.stringify(config), "utf8");
+    return path;
+  }
+
+  it("names what changed instead of emitting a schema error", async () => {
+    // An upgrade is the moment the owner is least equipped to read a zod
+    // issue list. The refusal has to say which shape it found and what
+    // replaced it, or the config that ran yesterday just stops with
+    // "unrecognized keys" and the owner has nowhere to go.
+    const path = await write({
+      backends: {
+        ollama: {
+          backend: "openai-http",
+          baseUrl: "http://127.0.0.1:11434/v1",
+        },
+      },
+      routes: { "llm.generate": { backend: "ollama", model: "llama3.2" } },
+    });
+    await expect(loadConfig(path)).rejects.toThrow(
+      /pre-alpha\.44 config shape \(`backends` and `routes`\)/,
+    );
+    await expect(loadConfig(path)).rejects.toThrow(/one `services` map/);
+  });
+
+  it("names only the half that is present", async () => {
+    const path = await write({
+      routes: { "llm.generate": { backend: "ollama" } },
+    });
+    await expect(loadConfig(path)).rejects.toThrow(/shape \(`routes`\)/);
+  });
+
+  it("leaves a current config alone", async () => {
+    const path = await write({
+      services: {
+        ollama: {
+          type: "openai-http",
+          baseUrl: "http://127.0.0.1:11434/v1",
+          model: "llama3.2",
+          kinds: ["llm.generate"],
+        },
+      },
+    });
+    const { routes } = await loadConfig(path);
+    expect(routes.map((route) => route.service)).toEqual(["ollama"]);
   });
 });

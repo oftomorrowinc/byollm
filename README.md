@@ -1,5 +1,5 @@
 > [!WARNING]
-> **Alpha (`0.1.0-alpha.43`) — under active development. Don't use this yet.**
+> **Alpha (`0.1.0-alpha.44`) — under active development. Don't use this yet.**
 >
 > Install it as `byollm@alpha`, deliberately. npm forces a `latest` tag onto a
 > package's first publish and will not let it be removed, so a bare install
@@ -19,6 +19,59 @@
 > on-disk format — are written down and turn on with the first outside user.
 > If an upgrade leaves a daemon saying it is paired with nothing, `byollm
 > connect` is the answer and nothing else is lost.
+>
+> **`alpha.44` replaces the config shape. Every existing `~/.byollm/config.json`
+> must be rewritten — there is no compatibility path, and the daemon refuses the
+> old one by name rather than failing with a schema error.**
+>
+> `backends` and `routes` are gone. A backend and the route that pointed at it
+> were always one decision written in two places; they are now one **service**:
+>
+> ```json
+> {
+>   "services": {
+>     "ollama": {
+>       "type": "openai-http",
+>       "baseUrl": "http://127.0.0.1:11434/v1",
+>       "model": "llama3.2",
+>       "kinds": ["llm.generate", "llm.chat"],
+>       "offer": "private"
+>     }
+>   }
+> }
+> ```
+>
+> What that costs you, concretely:
+>
+> - **Two services can answer the same kind now** — that is the point of the
+>   change. When they do, neither is advertised until you name the winner in
+>   `defaults`: `"defaults": { "llm.generate": "ollama" }`. An unresolved kind
+>   is *withheld*, not silently assigned, and `byollm services` prints which
+>   services are contending. Guessing on your behalf is how a job ends up on the
+>   metered backend you were saving.
+> - **`byollm backends` is now `byollm services`**, and rows lead with the
+>   service name rather than the backend id.
+> - **One sharing vocabulary: `private | team | public`.** `self` and `paid` are
+>   gone as scope words. `byollm offer <service> <scope>` takes the new set.
+> - **`public` is unchanged in direct mode.** A daemon talking to sites without
+>   the cloud still offers publicly exactly as before. It is cloud's *supported*
+>   list that is `private | team`.
+>
+> **One gap this build describes about itself, out loud.** `offer: "team"` is
+> enforced by the daemon's **local allowlist**, not by a central roster — the
+> daemon prints a notice saying so every time it loads a config that offers to a
+> team. Add a teammate to your team and their jobs still do not run until that
+> device also allows them. Roster sync lands next; until it does, `team` is an upper bound
+> on who *may* be served, not a statement that they *will* be. Do not read this
+> release as "team sharing works."
+>
+> **Still queued: a terminal answer for a job whose record is gone.** A site
+> polling for a job the relay no longer holds waits out its deadline instead of
+> being told. Saying "gone" rather than "unknown" needs the store to remember
+> that a job existed and expired — a tombstone with its own horizon, and a
+> decision about how that horizon relates to `deadlineAt`. It was cargo for this
+> release and did not fit; it rides the next change to that seam. It has not
+> fallen off the board.
 >
 > **`alpha.7` tightens who a device is allowed to say it is.** A relay now
 > refuses to pair a device its owner has not approved in a control plane —

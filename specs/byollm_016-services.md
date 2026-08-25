@@ -945,3 +945,37 @@ the mutation was fine, the measurement wasn't). Rule minted:
 reports that its tests actually ran (a count, not just verdicts);
 a measurement that can silently not-happen is the silent-success bug
 pointed at ourselves.
+
+## The devices "bug": Cowork's misdiagnosis, the real cause, and the instrument lesson (2026-08-25)
+
+The owner-view-swap diagnosis was Cowork's, and it was wrong. Real
+cause (CCC, confirmed against the running process, not inferred): the
+launchd plist set no environment, so the daemon ran with
+/usr/bin:/bin:/usr/sbin:/sbin and could not find claude in
+~/.local/bin — the health probe failed, claude-cli was never
+advertised, and the card correctly showed only the server the daemon
+could reach. The hub's owner-view predicate was right all along; the
+"missing" mutation control existed and passed. Cowork had the
+launchd-environment hypothesis first, then abandoned it on the
+strength of `byollm services` — having described that surface as "your
+shell's prediction, not the daemon's report" one message earlier, and
+then treating it as daemon truth anyway. The card was the honest
+surface; the CLI was the flattering one. Recorded with attribution
+because the record catches everyone's errors or it catches no one's.
+
+Fixed by CCC: the installer captures the shell's PATH into the plist
+(system directories appended); systemd user units get the same
+treatment, since fixing only macOS leaves the same bug in a different
+hat. Reinstall required once shipped (rides alpha.50). Also landed:
+`byollm status` lists every service — idle services name the default
+that displaced them, and defaults have their own section — and the
+card leads with the service name. The status-mutation harness earned
+itself within an hour (a header-rename survivor correctly reported as
+a finding, the real mutation caught).
+
+**Instrument rule queued (survives the PATH fix):** a prediction
+surface must not speak in the daemon's voice. `byollm services`
+either queries the running daemon's actual view or labels itself
+("your shell's view — the daemon's is in byollm status"); shell-vs-
+daemon divergence has more sources than PATH, and "healthy and will
+be advertised" is a promise only the daemon can make.

@@ -246,3 +246,28 @@ reads free. Oddballs like `:xcloud` still classify metered — the
 permitted failure direction. Corpus rows: `x:cloud`,
 `x:0731-cloud`, `x:cloudless` (no), `cloudmodel:7b` (no), untagged
 (no).
+
+**Ruling (2026-08-25, after CCC's nimbuscloud finding): classification
+is two-stage, monotone toward metered.** CCC's mutation catch stands —
+the corpus lacked an untagged name ending in "cloud", and
+`nimbuscloud` is the row that makes tag-anchoring load-bearing; added.
+But `nimbuscloud → free` as a *verdict* assumed an untagged name
+reveals what it resolves to. It doesn't: bare names resolve
+server-side to `:latest`, which the name heuristic never sees — and a
+bare `glm-5.2` resolving to a cloud tag would fool it with no "cloud"
+in the name at all. Therefore:
+
+1. **Stage one — name heuristic on the config value** (`:.*cloud$` on
+   the tag), unchanged. A config value that says cloud is metered
+   regardless of what the server claims (anti-evasion).
+2. **Stage two — resolution at detection time.** Detection already
+   requires the configured model in the server's listing; the match
+   yields the canonical full tag, and the rule applies again to it.
+3. **Final class = the more metered of the two.** Resolution adds
+   metered classifications, never removes one — both stages keep the
+   only-fail-toward-metered property.
+
+CCC to verify (detection runs the thing): what the listing actually
+exposes for an untagged reference — canonical tag via /v1/models, or
+the native API. If resolution is unavailable on some path, an
+unresolvable untagged model gets a loud notice, never a silent free.

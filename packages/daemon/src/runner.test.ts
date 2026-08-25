@@ -43,8 +43,11 @@ class SpyBackend implements Backend {
   healthy = true;
   models: string[] = ["m"];
   hang = false;
+  /** How many times detection asked. One service is asked once. */
+  healthChecks = 0;
 
   health(): Promise<{ healthy: boolean; models: string[] }> {
+    this.healthChecks += 1;
     return Promise.resolve({ healthy: this.healthy, models: this.models });
   }
 
@@ -94,11 +97,13 @@ async function makeRunner(
     offer?: "private" | "team" | "public";
     subscription?: boolean;
     allow?: readonly string[];
+    /** Override the whole services stanza, for the per-service cases. */
+    services?: Record<string, unknown>;
   } = {},
 ) {
   const loaded = resolveConfig(
     DaemonConfig.parse({
-      services: {
+      services: options.services ?? {
         primary: {
           model: "m",
           kinds: ["llm.generate"],
@@ -170,6 +175,46 @@ describe("capability detection [CAPABILITY_IS_DETECTED]", () => {
   it("advertises a healthy route", async () => {
     const { runner } = await makeRunner();
     expect(await runner.detectCapabilities()).toHaveLength(1);
+  });
+
+  it("asks a service once, however many kinds it answers", async () => {
+    // Detection ran per route, so a service answering two kinds was asked
+    // twice — doubling every heartbeat's network cost, and letting one
+    // service give two different answers about itself in a single tick.
+    const { runner } = await makeRunner({
+      services: {
+        local: {
+          type: "openai-http",
+          baseUrl: "http://127.0.0.1:11434/v1",
+          model: "m",
+          kinds: ["llm.generate", "llm.chat"],
+        },
+      },
+    });
+
+    const advertised = await runner.detectCapabilities();
+
+    expect(advertised.map((c) => c.kind).sort()).toEqual([
+      "llm.chat",
+      "llm.generate",
+    ]);
+    expect(backend.healthChecks).toBe(1);
+  });
+
+  it("drops every kind of a service that is down, not just one", async () => {
+    const { runner } = await makeRunner({
+      services: {
+        local: {
+          type: "openai-http",
+          baseUrl: "http://127.0.0.1:11434/v1",
+          model: "m",
+          kinds: ["llm.generate", "llm.chat"],
+        },
+      },
+    });
+    backend.healthy = false;
+
+    expect(await runner.detectCapabilities()).toEqual([]);
   });
 
   it("advertises nothing when the backend is down", async () => {

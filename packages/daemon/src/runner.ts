@@ -340,19 +340,35 @@ export class Runner {
   async detectCapabilities(): Promise<Capability[]> {
     const capabilities: Capability[] = [];
 
-    for (const route of this.#options.loaded.routes) {
-      const backend = this.#backendFor(route);
-      const health = await backend.health();
-      if (!health.healthy) continue;
+    /**
+     * One probe per service — byollm_016.
+     *
+     * Detection used to run per route, so a service answering two kinds was
+     * asked twice. That doubles the network cost of every heartbeat, and it
+     * lets one service return two different answers about itself in the same
+     * tick — a machine that is half-advertised for reasons nobody can
+     * reconstruct. A service is one thing; it is asked once.
+     *
+     * The model check moves with it: in this shape the model belongs to the
+     * service, so "does the server actually have it" is the same question for
+     * every kind that service answers.
+     */
+    const probed = new Map<string, boolean>();
 
-      // If the backend enumerates its models, honour that: advertising a
-      // model the server does not have would be advertising a lie.
-      if (
-        health.models.length > 0 &&
-        !modelPresent(health.models, route.model)
-      ) {
-        continue;
+    for (const route of this.#options.loaded.routes) {
+      let usable = probed.get(route.service);
+      if (usable === undefined) {
+        const backend = this.#backendFor(route);
+        const health = await backend.health();
+        // If the backend enumerates its models, honour that: advertising a
+        // model the server does not have would be advertising a lie.
+        usable =
+          health.healthy &&
+          (health.models.length === 0 ||
+            modelPresent(health.models, route.model));
+        probed.set(route.service, usable);
       }
+      if (!usable) continue;
 
       capabilities.push({
         kind: route.kind,

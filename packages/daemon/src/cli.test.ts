@@ -778,6 +778,62 @@ describe("offering a cloud-tagged service to a team", () => {
     expect(out).not.toContain("was narrowed to");
   });
 
+  it("asks about the service the owner named, not the registry's label", async () => {
+    /**
+     * The ceremony read: "This lets other people's jobs run on Any
+     * OpenAI-compatible endpoint — it bills your account per token." Todd was
+     * being asked to consent to a category. The service he was sharing has a
+     * name, a model and an address, and none of the three appeared.
+     *
+     * Consent is to a specific thing or it is not consent.
+     */
+    await write(cloudService);
+    confirmAnswer = false;
+    await run("offer", "glm-5.2", "team", "--cap", "2500");
+    const asked = confirmQuestions.join("\n");
+    expect(asked).toContain("glm-5.2");
+    expect(asked).toContain("glm-5.2:cloud");
+    expect(asked).toContain("http://127.0.0.1:11434/v1");
+    // The label of the transport that happens to carry it is not the subject.
+    expect(asked).not.toContain("Any OpenAI-compatible");
+  });
+
+  it("states the rule that actually fired, not the one the label implies", async () => {
+    // `openai-http` has no declared cost — it was classified metered by the
+    // `:cloud` tag on the model. A reader told "it bills per token" would go
+    // looking for a bill from the wrong account.
+    await write(cloudService);
+    confirmAnswer = false;
+    await run("offer", "glm-5.2", "team", "--cap", "2500");
+    const asked = confirmQuestions.join("\n");
+    expect(asked).toContain(":cloud");
+    expect(asked).toContain("cloud account");
+  });
+
+  it("keeps the ceiling sentence, and the amount in it", async () => {
+    // The one part of the ceremony that was already exactly right. It says
+    // what recurs and when it stops, which is the thing being consented to.
+    await write(cloudService);
+    confirmAnswer = false;
+    await run("offer", "glm-5.2", "team", "--cap", "2500");
+    const asked = confirmQuestions.join("\n");
+    expect(asked).toContain("$25.00 a day");
+    expect(asked).toContain("until you change it");
+  });
+
+  it("wraps the ceremony narrow enough for a terminal to leave alone", async () => {
+    // The reason is assembled from a rule, so it cannot be hard-wrapped where
+    // it is written — unwrapped it ran past 150 columns, where the terminal
+    // breaks it mid-word and the reader skims. A consent nobody reads is not
+    // one anybody gave.
+    await write(cloudService);
+    confirmAnswer = false;
+    await run("offer", "glm-5.2", "team", "--cap", "2500");
+    for (const line of confirmQuestions.join("\n").split("\n")) {
+      expect(line.length, line).toBeLessThanOrEqual(72);
+    }
+  });
+
   it("says private, not self, when it does narrow", async () => {
     // The message survived the alpha.44 rename: it told a reader about a
     // scope named `self` in a build whose scopes are private, team, public.

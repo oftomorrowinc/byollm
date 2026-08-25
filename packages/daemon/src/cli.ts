@@ -4,7 +4,7 @@ import { dirname } from "node:path";
 import { createInterface } from "node:readline/promises";
 import { FAILURES_BEFORE_ALARM, readHealth } from "./health.js";
 import { runSetup, terminalIo } from "./setup.js";
-import { backendDescriptor, resolveCost } from "@byollm/protocol";
+import { backendDescriptor, classifyCost } from "@byollm/protocol";
 import { Allowlist, normalizeOrigin } from "./allowlist.js";
 import { Budgets } from "./budgets.js";
 import { ClientError, ProtocolClient } from "./client.js";
@@ -1361,7 +1361,11 @@ async function commandOffer(
   // command then reported success truthfully — and the daemon, reading the
   // same service *with* the model, narrowed it straight back and told the
   // owner to run the command they had just run.
-  const cost = resolveCost(service.type, baseUrl, service.model);
+  // One decision, two views: `classifyCost` answers what it costs *and* why,
+  // so a consent sentence can never describe a classification the code did
+  // not make.
+  const reason = classifyCost(service.type, baseUrl, service.model);
+  const cost = reason.cost;
   const widening = scope !== "private";
 
   // **A flag this path will not use is an error, not a shrug.**
@@ -1407,11 +1411,26 @@ async function commandOffer(
     }
 
     const dollars = (cap / 100).toFixed(2);
+    // **Consent names the thing consented to, and the reason it is true.**
+    //
+    // This read "This lets other people's jobs run on Any OpenAI-compatible
+    // server, which bills your account per token" — wrong twice. The registry
+    // label is the *type*, not the service somebody is about to share; and
+    // the type does not bill per token, since an owner's local qwen is the
+    // same type and costs only electricity. So the sentence named the wrong
+    // object and gave a reason its reader could check and find false.
+    //
+    // A label may classify. It may not be the object of consent.
+    const where = service.baseUrl ?? descriptor.defaultBaseUrl;
     const confirmed = await io.confirm(
-      `\nThis lets other people's jobs run on ${descriptor.label}, which bills\n` +
-        `your account per token. You would be paying for their work, up to\n` +
-        `$${dollars} a day, every day, until you change it.\n` +
-        `Spending stops at that ceiling and resumes the next day.\n\n` +
+      `\nThis lets other people's jobs run on ${serviceKey}:\n` +
+        `  ${service.model}${where === undefined ? "" : ` at ${where}`}\n\n` +
+        // Wrapped, because the reason is assembled from a rule and cannot be
+        // hard-wrapped where it is written. An unwrapped consent sentence runs
+        // to 150 columns in a terminal, and a wrapped-by-the-terminal sentence
+        // is one somebody skims.
+        `${wrap(`It bills your account per token because ${reason.because}.`)}\n\n` +
+        `${wrap(`You would be paying for their work, up to $${dollars} a day, every day, until you change it. Spending stops at that ceiling and resumes the next day.`)}\n\n` +
         `Offer ${serviceKey} to ${scope === "public" ? "anyone" : "people you have allowed"}?`,
     );
     if (!confirmed) {
@@ -1798,6 +1817,29 @@ async function confirmInteractively(question: string): Promise<boolean> {
  * `BYOLLM_LABEL` overrides it, because "todd@Todds-MacBook-Pro" is more than
  * some people want to hand an app they are only trying out.
  */
+/**
+ * Wrap prose to a width a terminal will not re-wrap for us.
+ *
+ * Sentences assembled from a rule cannot be hard-wrapped where they are
+ * written, and an unwrapped consent runs past 150 columns — where the terminal
+ * breaks it mid-word and the reader skims. Consent that is not read is not
+ * consent.
+ */
+function wrap(text: string, width = 68): string {
+  const out: string[] = [];
+  let line = "";
+  for (const word of text.split(/\s+/)) {
+    if (line === "") line = word;
+    else if (`${line} ${word}`.length <= width) line = `${line} ${word}`;
+    else {
+      out.push(line);
+      line = word;
+    }
+  }
+  if (line !== "") out.push(line);
+  return out.join("\n");
+}
+
 function hostLabel(): string {
   const override = process.env["BYOLLM_LABEL"];
   if (override !== undefined && override !== "") return override.slice(0, 120);

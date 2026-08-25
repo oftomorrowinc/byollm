@@ -4,6 +4,7 @@ import {
   type BackendCost,
   BACKEND_IDS,
   backendDescriptor,
+  classifyCost,
   isLocalHost,
   resolveCost,
 } from "./backends.js";
@@ -431,5 +432,97 @@ describe("cloud-tagged models — byollm_007, 2026-08-24", () => {
     expect(resolveCost("claude-cli", undefined, "anything:cloud")).toBe(
       "subscription",
     );
+  });
+});
+
+describe("classifyCost — the consent a reader is asked to give", () => {
+  /**
+   * Todd offered `glm-5.2` and the ceremony asked him to consent to "Any
+   * OpenAI-compatible endpoint" — the registry's display label for the
+   * generic escape hatch, not the thing he was sharing. The classification
+   * was right; every word naming it was wrong. Worse, the sentence read "it
+   * bills per token", which is what the label does; the reason it actually
+   * fired was the `:cloud` tag on his model.
+   *
+   * So the rule now returns its own reason. One function decides and the same
+   * call explains, which is what makes it impossible for a message to
+   * describe a classification the code did not make.
+   */
+  const LOCAL = "http://127.0.0.1:11434/v1";
+
+  it("never disagrees with resolveCost, across the whole corpus", () => {
+    // The structural guarantee, stated as a property rather than trusted to
+    // a one-line delegation that a later edit could quietly fork.
+    const corpus: [string, string | undefined, string | undefined][] = [
+      ["openai-http", LOCAL, "glm-5.2:cloud"],
+      ["openai-http", LOCAL, "llama3.2"],
+      ["openai-http", LOCAL, undefined],
+      ["openai-http", "https://api.openai.com/v1", undefined],
+      ["openai-http", undefined, undefined],
+      ["openai-http", "not a url", undefined],
+      ["ollama", LOCAL, "llama3.2"],
+      ["openai", "https://api.openai.com/v1", "gpt-5"],
+      ["claude-cli", undefined, "opus"],
+      ["codex-cli", undefined, undefined],
+    ];
+    for (const [id, url, model] of corpus) {
+      const c = classifyCost(id as never, url, model);
+      const where = `${id} ${url ?? "(no url)"} ${model ?? "(no model)"}`;
+      expect(c.cost, where).toBe(resolveCost(id as never, url, model));
+    }
+  });
+
+  it("gives the `:cloud` tag its own reason, not the registry's", () => {
+    // The exact sentence Todd was shown the wrong version of.
+    const c = classifyCost("openai-http", LOCAL, "glm-5.2:cloud");
+    expect(c.cost).toBe("metered");
+    expect(c.because).toContain(":cloud");
+    // The label of the backend that happens to serve it is not the reason.
+    expect(c.because).not.toContain(BACKENDS["openai-http"].label);
+  });
+
+  it("distinguishes the four ways a generic service can be classified", () => {
+    // Four different truths, four different sentences. Collapsing any two
+    // would put a reader in front of a reason that is not why.
+    const reasons = new Set([
+      classifyCost("openai-http", LOCAL, "glm-5.2:cloud").because,
+      classifyCost("openai-http", LOCAL, "llama3.2").because,
+      classifyCost("openai-http", "https://api.openai.com/v1", undefined)
+        .because,
+      classifyCost("openai-http", undefined, undefined).because,
+    ]);
+    expect(reasons.size).toBe(4);
+  });
+
+  it("names the provider only where the registry is the reason", () => {
+    // A named provider's cost IS the registry's word [COST_NOT_CONFIGURABLE],
+    // so there the label is the honest answer — and only there.
+    for (const id of BACKEND_IDS) {
+      const declared = BACKENDS[id].cost;
+      if (declared === null) continue;
+      const c = classifyCost(id, BACKENDS[id].defaultBaseUrl, "anything");
+      expect(c.cost, id).toBe(declared);
+      expect(c.because, id).toContain(BACKENDS[id].label);
+    }
+  });
+
+  it("reads as the tail of a sentence beginning `because`", () => {
+    // The reason is always spliced mid-sentence, so it has to be a clause and
+    // not a sentence: no terminal period, and no mid-sentence capital unless
+    // it is the provider's own name.
+    for (const id of BACKEND_IDS) {
+      for (const model of [undefined, "glm-5.2:cloud", "llama3.2"]) {
+        const { because } = classifyCost(
+          id,
+          BACKENDS[id].defaultBaseUrl,
+          model,
+        );
+        expect(because, id).not.toMatch(/\.$/);
+        expect(because.length, id).toBeGreaterThan(10);
+        if (/^[A-Z]/.test(because)) {
+          expect(because.startsWith(BACKENDS[id].label), id).toBe(true);
+        }
+      }
+    }
   });
 });

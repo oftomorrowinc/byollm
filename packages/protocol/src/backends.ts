@@ -411,13 +411,77 @@ export function resolveCost(
    */
   model: string | undefined,
 ): BackendCost {
+  return classifyCost(id, baseUrl, model).cost;
+}
+
+/**
+ * Why a service costs what it costs — the same decision, said out loud.
+ *
+ * Consent has to name the rule that fired. The offer ceremony read
+ * "Any OpenAI-compatible server ... bills your account per token", which is
+ * false about the type — an owner's local qwen is `openai-http` and costs
+ * nothing but electricity — and so it gave a reason that its reader could
+ * check and find wrong. The thing that bills is the `:cloud` tag on one
+ * model, not the transport that carries it.
+ *
+ * One function decides and one function explains, and the second calls the
+ * first, so a message can never describe a classification the code did not
+ * make. Splitting them would be the same defect this signature was just
+ * hardened against, arriving as prose.
+ */
+export interface CostReason {
+  readonly cost: BackendCost;
+  /** The rule, in the words a person consenting needs. */
+  readonly because: string;
+}
+
+export function classifyCost(
+  id: BackendId,
+  baseUrl: string | undefined,
+  model: string | undefined,
+): CostReason {
   const declared = BACKENDS[id].cost;
-  if (declared !== null) return declared;
-  if (model !== undefined && isCloudTaggedModel(model)) return "metered";
-  if (baseUrl === undefined) return "metered";
+  if (declared !== null) {
+    // A named provider's cost is the registry's word and nothing else
+    // [COST_NOT_CONFIGURABLE], so here — and only here — the provider's own
+    // name is the honest reason. Each class gets its own sentence: a free
+    // provider described as billing per token is the same defect as a cloud
+    // model described as a generic endpoint.
+    const label = BACKENDS[id].label;
+    return {
+      cost: declared,
+      because: {
+        subscription: `${label} runs on an account you subscribe to`,
+        metered: `${label} bills per token`,
+        free: `${label} runs on this machine`,
+      }[declared],
+    };
+  }
+  if (model !== undefined && isCloudTaggedModel(model)) {
+    return {
+      cost: "metered",
+      because:
+        `its model tag ends in \`:cloud\`, so the work runs on your ` +
+        `provider's cloud account rather than on this machine`,
+    };
+  }
+  if (baseUrl === undefined) {
+    return {
+      cost: "metered",
+      because: "it has no address, so where the work runs cannot be checked",
+    };
+  }
   try {
-    return isLocalHost(new URL(baseUrl).hostname) ? "free" : "metered";
+    return isLocalHost(new URL(baseUrl).hostname)
+      ? { cost: "free", because: "it runs on this machine" }
+      : {
+          cost: "metered",
+          because: "its address is not on this machine, so the work leaves it",
+        };
   } catch {
-    return "metered";
+    return {
+      cost: "metered",
+      because: "its address cannot be read, so where the work runs is unknown",
+    };
   }
 }

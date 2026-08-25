@@ -5,7 +5,7 @@ import {
   OfferScope,
   backendDescriptor,
   effectiveOfferScope,
-  resolveCost,
+  classifyCost,
   type BackendCost,
   type BackendId,
 } from "@byollm/protocol";
@@ -425,7 +425,8 @@ export function resolveConfig(config: DaemonConfig): LoadedConfig {
     // Cost comes from the registry, or from where the request goes — never
     // from config ({@link MUSTS.COST_NOT_CONFIGURABLE},
     // {@link MUSTS.REMOTE_IS_NEVER_FREE}).
-    const cost = resolveCost(service.type, baseUrl, service.model);
+    const reason = classifyCost(service.type, baseUrl, service.model);
+    const cost = reason.cost;
     const acknowledged = service.spend?.acknowledged === true;
     const capCents = service.spend?.dailyCapCents;
 
@@ -463,11 +464,13 @@ export function resolveConfig(config: DaemonConfig): LoadedConfig {
               // about one named `self`. The command it names now carries the
               // ceiling too — without `--cap` it lands right back here, which
               // is the loop Todd hit.
-              `"${configured}" was narrowed to "private": ` +
-              `${descriptor.label} bills you per token, and this service has ` +
-              `no spend consent recorded. \`byollm offer ${name} ` +
-              `${configured} --cap <cents-per-day>\` to share it deliberately, ` +
-              `with a ceiling`,
+              // The same defect the consent ceremony had: `descriptor.label`
+              // is the type, and the type is not what bills. Naming the rule
+              // that fired lets an owner check the claim rather than take it.
+              `"${configured}" was narrowed to "private": ${name} bills you ` +
+              `per token because ${reason.because}, and no spend consent is ` +
+              `recorded. \`byollm offer ${name} ${configured} ` +
+              `--cap <cents-per-day>\` to share it deliberately, with a ceiling`,
       });
     }
 

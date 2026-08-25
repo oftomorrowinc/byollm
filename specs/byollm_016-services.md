@@ -1266,3 +1266,7 @@ by Cowork this week, recorded beside the first; the code was, again,
 the honest surface. Minor polish note for CCC: the `byollm sites` hub
 row prints id and fingerprint as two identical lines — technically
 true, reads as a stutter.
+
+## Roster-sync survey finding + phasing instruction (2026-08-25 evening)
+
+CCC's survey found the load-bearing fact: rosters flow control-plane → hub → relay, but the hub assembles them from rows — the routing party authoring them in bulk, exactly G.1.2's forbidden shape. Implementation is therefore a three-repo lockstep wire change: dashboard signs roster documents at authorship, hub projects, daemon pins (at pairing), holds, verifies, ages, admits. Instruction: **write the phasing against G's four properties first** (draft-then-rule; the artifact everything hangs off), sequenced protocol → daemon → control plane + hub as CCC proposed. Design steer carried into it: **the property is non-authorship, not opacity** — the hub may read rosters (it holds the rows; its filter was always advisory under the both-sides rule); what G requires is that the daemon's admission list arrive signed at authorship so a tampering hub is caught at the device. RELAY_BLIND covers payloads; roster opacity buys nothing the signature doesn't.

@@ -458,9 +458,16 @@ export function resolveConfig(config: DaemonConfig): LoadedConfig {
           cost === "subscription"
             ? `"${configured}" was ignored: ${descriptor.label} runs on your ` +
               `own subscription, so it is locked to your work only`
-            : `"${configured}" was narrowed to "self": ${descriptor.label} ` +
-              `bills you per token. \`byollm offer ${name} ` +
-              `${configured}\` to share it deliberately, with a ceiling`,
+            : // "self" is the pre-alpha.44 word and survived the rename here,
+              // so a message about a scope named `private` told its reader
+              // about one named `self`. The command it names now carries the
+              // ceiling too — without `--cap` it lands right back here, which
+              // is the loop Todd hit.
+              `"${configured}" was narrowed to "private": ` +
+              `${descriptor.label} bills you per token, and this service has ` +
+              `no spend consent recorded. \`byollm offer ${name} ` +
+              `${configured} --cap <cents-per-day>\` to share it deliberately, ` +
+              `with a ceiling`,
       });
     }
 

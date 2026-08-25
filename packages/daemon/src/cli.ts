@@ -1001,7 +1001,9 @@ async function commandStatus(
     const entry = byService.get(name) ?? { defaults: [], selectable: [] };
     const route = loaded.routes.find((r) => r.service === name);
     const shown =
-      route === undefined ? service.model : `${route.backendId}:${route.model}`;
+      route === undefined
+        ? service.model
+        : `${route.model}  (${route.backendId})`;
     // "private (only you)" rather than "offered to private" — the config's
     // word, with the consequence beside it, so nobody has to already know
     // what the word means to read the line.
@@ -1011,7 +1013,16 @@ async function commandStatus(
         : service.offer === "team"
           ? "team (you and people you allow)"
           : "public (anyone)";
-    io.out(`  ${name.padEnd(14)} ${shown}  ${scope}\n`);
+    // Three short lines rather than one long one. `openai-http:` prefixed
+    // onto `mlx-community/Qwen2.5-14B-Instruct-4bit` with a scope after it
+    // wrapped at any sane terminal width, and a wrapped line in a column
+    // layout stops looking like a column at all.
+    //
+    // The backend id goes with the scope rather than the model: it is the
+    // same *kind* of fact — how this service behaves — while the model is the
+    // thing a person recognises and the only part that is genuinely long.
+    io.out(`  ${name}\n`);
+    io.out(`      ${shown}\n`);
     const says: string[] = [];
     if (entry.defaults.length > 0) {
       says.push(`default for ${entry.defaults.join(", ")}`);
@@ -1022,7 +1033,7 @@ async function commandStatus(
       says.push(`selectable for ${entry.selectable.join(", ")}`);
     }
     io.out(
-      `                 ${says.length === 0 ? "not offered — see the problems below" : says.join(" · ")}\n`,
+      `      ${scope} · ${says.length === 0 ? "not offered — see the problems below" : says.join(" · ")}\n`,
     );
   }
 
@@ -1092,8 +1103,9 @@ async function commandStatus(
       `${String(outcomes.filter((o) => o.outcome === "refused").length)} refused\n`,
   );
   io.out(
-    `  full log: ${paths.ingressLog}  (community prompts kept ` +
-      `${String(loaded.config.ingress.communityPromptDays)} days, then hashed)\n`,
+    `  full log: ${paths.ingressLog}\n` +
+      `  other people's prompts are kept ` +
+      `${String(loaded.config.ingress.communityPromptDays)} days, then hashed\n`,
   );
   return 0;
 }
@@ -1335,7 +1347,18 @@ async function commandOffer(
 
   const descriptor = backendDescriptor(service.type);
   const baseUrl = service.baseUrl ?? descriptor.defaultBaseUrl;
-  const cost = resolveCost(service.type, baseUrl);
+  // **With the model.** `resolveCost` reads three things and this call passed
+  // two, so it and `resolveConfig` answered differently about the same
+  // service — the shape this codebase keeps deleting, arriving in a signature.
+  //
+  // What it cost: `glm-5.2:cloud` on `http://127.0.0.1:11434/v1` is metered,
+  // because the `:cloud` tag means the work leaves the machine whatever the
+  // address says. Without the model this saw a loopback URL, called it free,
+  // required no consent, and wrote `offer: "team"` with no spend block. The
+  // command then reported success truthfully — and the daemon, reading the
+  // same service *with* the model, narrowed it straight back and told the
+  // owner to run the command they had just run.
+  const cost = resolveCost(service.type, baseUrl, service.model);
   const widening = scope !== "private";
 
   // A subscription backend cannot be offered at all, so say that instead of

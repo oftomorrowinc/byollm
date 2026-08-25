@@ -566,8 +566,13 @@ describe("status shows services and defaults, not only routes", () => {
     await write(CONFIG);
     await run("status");
     expect(out).not.toMatch(/^routes$/m);
-    // The information did not go with it.
-    expect(out).toContain("openai-http:qwen");
+    // The information did not go with it. The model and the backend are on
+    // separate lines now — a service line that read
+    // `openai-http:mlx-community/Qwen2.5-14B-Instruct-4bit  team (…)` wrapped
+    // at any sane width, and a wrapped line in a column layout stops being a
+    // column.
+    expect(out).toContain("qwen");
+    expect(out).toContain("(openai-http)");
     expect(out).toContain("llm.generate");
   });
 });
@@ -688,5 +693,101 @@ describe("a device that is running and invisible", () => {
     await run("status");
     expect(out).toContain("PAUSED");
     expect(out).not.toContain("NOT REPORTING");
+  });
+});
+
+describe("offering a cloud-tagged service to a team", () => {
+  /**
+   * Todd ran `byollm offer glm-5.2 team --cap 2500`, was told "glm-5.2 is now
+   * offered to team", and `byollm status` then showed it narrowed back with a
+   * problem line telling him to run the command he had just run.
+   *
+   * `resolveCost` reads a backend id, a base URL and a model. This command
+   * passed two of the three; `resolveConfig` passed all three. So for
+   * `glm-5.2:cloud` on `http://127.0.0.1:11434/v1` the command saw a loopback
+   * address and called it free — no consent needed, no spend block written —
+   * while the daemon saw the `:cloud` tag, called it metered, found no
+   * consent, and narrowed it. Both were right about what they were asked.
+   *
+   * Two implementations of one rule, arriving through a signature.
+   */
+  const cloudService = {
+    services: {
+      "glm-5.2": {
+        type: "openai-http",
+        baseUrl: "http://127.0.0.1:11434/v1",
+        model: "glm-5.2:cloud",
+        kinds: ["llm.generate"],
+      },
+    },
+  };
+
+  const write = async (config: unknown) => {
+    await mkdir(join(home, ".byollm"), { recursive: true });
+    await writeFile(paths.config, JSON.stringify(config), "utf8");
+  };
+
+  const service = async () =>
+    (
+      JSON.parse(await readFile(paths.config, "utf8")) as {
+        services: Record<
+          string,
+          { offer?: string; spend?: Record<string, unknown> }
+        >;
+      }
+    ).services["glm-5.2"];
+
+  it("treats a cloud tag as metered even on a loopback address", async () => {
+    // The tag means the work leaves this machine, whatever the address says.
+    // Widening a metered service needs an explicit yes, so refusing without
+    // one is the proof this command now reads the same cost the daemon does.
+    await write(cloudService);
+    confirmAnswer = false;
+    await run("offer", "glm-5.2", "team", "--cap", "2500");
+    // Asserted on the config rather than the exit code: declining is a
+    // choice, not an error, and the command exits 0 either way. What must be
+    // true is that nothing was widened — and before this fix the command
+    // never asked, because it believed the service was free.
+    expect((await service())?.offer).not.toBe("team");
+    expect(confirmQuestions.length).toBeGreaterThan(0);
+  });
+
+  it("records the consent and the ceiling when the owner agrees", async () => {
+    // The half that was silently missing: `--cap` went nowhere, so the config
+    // said `offer: "team"` with no spend block at all — a state the daemon
+    // must refuse, and did.
+    await write(cloudService);
+    confirmAnswer = true;
+    const code = await run("offer", "glm-5.2", "team", "--cap", "2500");
+    expect(code).toBe(0);
+    const written = await service();
+    expect(written?.offer).toBe("team");
+    expect(written?.spend?.["acknowledged"]).toBe(true);
+    expect(written?.spend?.["dailyCapCents"]).toBe(2500);
+  });
+
+  it("survives the round trip the first attempt failed", async () => {
+    // The whole bug, end to end: offer it, then load it, and it is still
+    // shared. Previously this is exactly where it snapped back.
+    await write(cloudService);
+    confirmAnswer = true;
+    await run("offer", "glm-5.2", "team", "--cap", "2500");
+    out = "";
+    await run("status");
+    expect(out).toContain("team (you and people you allow)");
+    expect(out).not.toContain("was narrowed to");
+  });
+
+  it("says private, not self, when it does narrow", async () => {
+    // The message survived the alpha.44 rename: it told a reader about a
+    // scope named `self` in a build whose scopes are private, team, public.
+    await write(cloudService);
+    await run("offer", "glm-5.2", "team");
+    out = "";
+    await run("status");
+    if (out.includes("was narrowed")) {
+      expect(out).toContain('narrowed to "private"');
+      expect(out).not.toContain('narrowed to "self"');
+    }
   });
 });

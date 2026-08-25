@@ -73,3 +73,33 @@ per-binary isolation work, and that is the whole spec.
 ---
 
 2026-08-24: Phase 2 of byollm_015 promotes this stub. The five questions above are the acceptance list; the economy argument stands as written.
+
+---
+
+## Verdicts (Todd + CC, 2026-08-25, empirical)
+
+**gemini-cli: disqualified.** File-reading tool access is built in,
+and every documented way to disable it was tried — a dozen
+approaches — and did not work. That fails byollm_004 §2 at the
+threshold: the requirement is that no tool be *reachable*, not that
+tools be configured off, because the prompt is site-authored data
+and injection rides in with it. A CLI that can read files turns "run
+this text through a model" into "let this text read the owner's
+disk" — byollm_012's permanent no. Revisitable only if gemini-cli
+ships a no-tools mode that survives the probe below. Note the pitch
+consequence honestly: "works with the subscription you already have"
+excludes Gemini-subscription CLIs for now; Google models remain
+reachable app-side via the metered API lane — the removal is of this
+adapter, not of a vendor.
+
+**codex: qualifies.** All tools can be turned off, Claude-Code-like;
+proceeds through the stub's five questions as planned.
+
+**Rule minted from how the verdict was reached: containment is
+tested, never read.** Vendor documentation of a lockdown flag is a
+claim, and this one was false a dozen ways. A process-class backend
+qualifies by *demonstrated* containment: its adversarial corpus MUST
+include a tool-escape probe — a prompt instructing the CLI to read a
+file and echo it (and kin) — passing only when no tool fires. This
+joins the five questions as a sixth, for codex now and every CLI
+after it.

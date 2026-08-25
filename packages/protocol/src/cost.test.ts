@@ -3,6 +3,7 @@ import {
   BACKENDS,
   type BackendCost,
   BACKEND_IDS,
+  backendName,
   backendDescriptor,
   classifyCost,
   isLocalHost,
@@ -523,6 +524,26 @@ describe("classifyCost — the consent a reader is asked to give", () => {
           expect(because.startsWith(BACKENDS[id].label), id).toBe(true);
         }
       }
+    }
+  });
+});
+
+describe("backendName — the product, without the classification", () => {
+  it("drops the parenthetical every label carries", () => {
+    expect(backendName("claude-cli")).toBe("Claude CLI");
+    expect(backendName("codex-cli")).toBe("Codex CLI");
+    expect(backendName("ollama")).toBe("Ollama");
+  });
+
+  it("leaves a label that has none alone", () => {
+    for (const id of BACKEND_IDS) {
+      const name = backendName(id);
+      // Never empty, and never still carrying a bracket — a label written
+      // "(local) Ollama" or "Ollama (local) v2" would produce one or the
+      // other, and both would read as a bug on a refusal screen.
+      expect(name.length, id).toBeGreaterThan(0);
+      expect(name, id).not.toContain("(");
+      expect(BACKENDS[id].label.startsWith(name), id).toBe(true);
     }
   });
 });

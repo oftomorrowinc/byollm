@@ -76,7 +76,42 @@ const METERED = {
   },
 };
 
+const FREE = {
+  services: {
+    "my-ollama": {
+      type: "ollama",
+      model: "llama3.2",
+      kinds: ["llm.generate"],
+    },
+  },
+};
+
 describe("every command a message names", () => {
+  it("works, when `offer` refuses a ceiling it cannot use", async () => {
+    // The refusal used to end "Drop --cap" — an edit described, not a command
+    // to run. An error message is documentation that arrives at the moment
+    // somebody is stuck, so it now ends with the line they can paste, and
+    // this walks it.
+    await writeFile(paths.config, JSON.stringify(FREE), "utf8");
+    const refused = await run("offer", "my-ollama", "team", "--cap", "2500");
+    expect(refused).toBe(2);
+
+    const named = commandsIn(err);
+    expect(named.length, `no command named in: ${err}`).toBeGreaterThan(0);
+
+    for (const argv of named) {
+      out = "";
+      err = "";
+      const code = await run(...argv);
+      expect(code, `byollm ${argv.join(" ")} failed: ${err}`).toBe(0);
+    }
+
+    const config = JSON.parse(await readFile(paths.config, "utf8")) as {
+      services: Record<string, { offer?: string }>;
+    };
+    expect(config.services["my-ollama"]?.offer).toBe("team");
+  });
+
   it("works, when `offer` refuses for want of a ceiling", async () => {
     await writeFile(paths.config, JSON.stringify(METERED), "utf8");
     await run("offer", "glm", "team");

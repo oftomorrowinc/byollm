@@ -4,7 +4,7 @@ import { dirname } from "node:path";
 import { createInterface } from "node:readline/promises";
 import { FAILURES_BEFORE_ALARM, readHealth } from "./health.js";
 import { runSetup, terminalIo } from "./setup.js";
-import { backendDescriptor, classifyCost } from "@byollm/protocol";
+import { backendDescriptor, backendName, classifyCost } from "@byollm/protocol";
 import { Allowlist, normalizeOrigin } from "./allowlist.js";
 import { Budgets } from "./budgets.js";
 import { ClientError, ProtocolClient } from "./client.js";
@@ -1368,35 +1368,69 @@ async function commandOffer(
   const cost = reason.cost;
   const widening = scope !== "private";
 
-  // **A flag this path will not use is an error, not a shrug.**
-  //
-  // `--cap` was parsed, validated, and then reached only the metered branch.
-  // Ask to share a service this command believes is free and the ceiling
-  // vanished silently — which is exactly what happened when the cost
-  // calculation disagreed with the daemon's: the owner passed a ceiling, was
-  // told the share succeeded, and got neither.
-  //
-  // Refusing costs one message and removes a class where a command accepts an
-  // instruction it has no intention of following.
-  if (capCents !== undefined && !(cost === "metered" && widening)) {
-    io.err(
-      `--cap sets a daily spend ceiling, and ${serviceKey} ` +
-        (cost === "metered"
-          ? "is not being shared, so nothing would spend against it.\n"
-          : `is ${cost}-class, so sharing it costs you nothing.\n`) +
-        "Drop --cap, or offer a metered service to a wider scope.\n",
-    );
-    return 2;
-  }
-
-  // A subscription backend cannot be offered at all, so say that instead of
-  // writing a setting that would be silently ignored on the next load.
+  /**
+   * The fundamental refusal runs first — ruled 2026-08-25.
+   *
+   * This check used to sit below the `--cap` one, and the ordering told
+   * somebody the wrong thing twice. `byollm offer my-claude team --cap 2500`
+   * answered "sharing it costs you nothing. Drop --cap" — advice whose whole
+   * premise is that sharing is possible. Follow it, re-run, and only then
+   * learn the service cannot be offered at all.
+   *
+   * A fixable detail must never precede an unfixable fact. The ceiling is a
+   * flag somebody can drop; a subscription's terms are not a thing they can
+   * negotiate, and a message that leads with the flag has buried the answer
+   * behind an errand.
+   *
+   * Named by the service, not by the registry label. The label belongs in the
+   * sentence — a subscription's cost *is* the registry's word — but the
+   * subject is what the owner typed. "Claude CLI (your subscription) runs on
+   * your own subscription" both stuttered and answered a question about a
+   * service the owner never named.
+   */
   if (cost === "subscription" && widening) {
     io.err(
-      `${descriptor.label} runs on your own subscription, whose terms cover\n` +
-        "your work and nobody else's. It cannot be offered to other people.\n",
+      `${wrap(
+        `${serviceKey} runs on ${backendName(service.type)}, a subscription ` +
+          `whose terms cover your work and nobody else's. It cannot be ` +
+          `offered to other people.`,
+      )}\n`,
     );
     return 1;
+  }
+
+  /**
+   * **A flag this path will not use is an error, not a shrug.**
+   *
+   * `--cap` was parsed, validated, and then reached only the metered branch.
+   * Ask to share a service this command believes is free and the ceiling
+   * vanished silently — which is exactly what happened when the cost
+   * calculation disagreed with the daemon's: the owner passed a ceiling, was
+   * told the share succeeded, and got neither.
+   *
+   * Refusing costs one message and removes a class where a command accepts an
+   * instruction it has no intention of following.
+   *
+   * **No class names.** This said "my-ollama is free-class" and "my-claude is
+   * subscription-class", which is this codebase's vocabulary on somebody
+   * else's screen — nobody's mental model has classes in it. A refusal says
+   * what the class *means*: it runs on this machine, or it is not being
+   * shared.
+   *
+   * And it ends with the command to run, because an error message is
+   * documentation that arrives at the moment somebody needs it. "Drop --cap"
+   * describes an edit; the line under it can be pasted.
+   */
+  if (capCents !== undefined && !(cost === "metered" && widening)) {
+    const because =
+      cost === "metered"
+        ? "is not being shared, so nothing would spend against it"
+        : "runs on this machine, so sharing it costs you nothing";
+    io.err(
+      `${wrap(`--cap sets a daily spend ceiling, and ${serviceKey} ${because}.`)}\n` +
+        `Drop --cap: \`byollm offer ${serviceKey} ${scope}\`\n`,
+    );
+    return 2;
   }
 
   if (cost === "metered" && widening) {

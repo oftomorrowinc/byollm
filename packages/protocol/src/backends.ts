@@ -429,6 +429,27 @@ export function resolveCost(
  * make. Splitting them would be the same defect this signature was just
  * hardened against, arriving as prose.
  */
+/**
+ * The product's name alone, without the parenthetical that classifies it.
+ *
+ * Every label in this registry does two jobs: it names a product and says what
+ * that product means for the person paying — "Claude CLI (your subscription)",
+ * "Ollama (local)". That is right for a list, where the parenthetical is the
+ * only classification on screen.
+ *
+ * It is wrong inside a sentence that states the classification itself, which
+ * then stutters: "my-claude runs on Claude CLI (your subscription), a
+ * subscription whose terms…". Prose wants the name; the sentence around it is
+ * already carrying the meaning.
+ *
+ * One definition rather than a regex at each call site — and the place to
+ * change if the registry ever splits the two facts into two fields, which is
+ * the better shape and not worth a migration today.
+ */
+export function backendName(id: BackendId): string {
+  return BACKENDS[id].label.replace(/\s*\([^)]*\)$/, "");
+}
+
 export interface CostReason {
   readonly cost: BackendCost;
   /** The rule, in the words a person consenting needs. */

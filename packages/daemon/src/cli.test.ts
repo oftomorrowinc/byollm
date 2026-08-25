@@ -696,6 +696,101 @@ describe("a device that is running and invisible", () => {
   });
 });
 
+describe("refusing to offer, and in what order", () => {
+  /**
+   * `byollm offer my-claude team --cap 2500` used to answer:
+   *
+   *   --cap sets a daily spend ceiling, and my-claude is subscription-class,
+   *   so sharing it costs you nothing.
+   *   Drop --cap, or offer a metered service to a wider scope.
+   *
+   * Three defects in four lines. It leads with the flag, whose premise is
+   * that sharing is possible; drop the flag and re-run, and only then does it
+   * say the service cannot be offered at all. It says "subscription-class",
+   * which is this codebase's vocabulary on somebody else's screen. And the
+   * message that finally arrives names "Claude CLI (your subscription)" — a
+   * registry label — rather than the service the owner typed.
+   */
+  const write = async (config: unknown) => {
+    await mkdir(join(home, ".byollm"), { recursive: true });
+    await writeFile(paths.config, JSON.stringify(config), "utf8");
+  };
+
+  /**
+   * Assert on what a message says, not on where it wraps.
+   *
+   * These messages are wrapped to a terminal width, so a phrase can be split
+   * across a newline — "runs on this\nmachine". A test that matched the raw
+   * string would fail on a re-wrap and pass on a rewrite, which is exactly
+   * backwards from what it is for.
+   */
+  const said = () => err.replace(/\s+/g, " ");
+
+  const SUBSCRIPTION = {
+    services: {
+      "my-claude": {
+        type: "claude-cli",
+        model: "opus",
+        kinds: ["llm.generate"],
+      },
+    },
+  };
+  const FREE = {
+    services: {
+      "my-ollama": {
+        type: "ollama",
+        model: "llama3.2",
+        kinds: ["llm.generate"],
+      },
+    },
+  };
+
+  it("leads with the fact that cannot be fixed, not the flag that can", async () => {
+    // The ordering rule: a fixable detail never precedes an unfixable fact.
+    // Dropping --cap is an edit somebody can make; a subscription's terms are
+    // not something they can negotiate, so leading with the flag buries the
+    // answer behind an errand.
+    await write(SUBSCRIPTION);
+    const code = await run("offer", "my-claude", "team", "--cap", "2500");
+    expect(code).toBe(1);
+    expect(said()).toContain("cannot be offered to other people");
+    expect(said()).not.toContain("--cap");
+  });
+
+  it("names the service the owner typed, and the product once", async () => {
+    await write(SUBSCRIPTION);
+    await run("offer", "my-claude", "team", "--cap", "2500");
+    expect(said()).toContain("my-claude");
+    // The registry label is "Claude CLI (your subscription)", which inside a
+    // sentence that already says "a subscription" reads as a stutter. Prose
+    // gets the product's name; the sentence carries the meaning.
+    expect(said()).not.toContain("(your subscription)");
+    expect(said()).toContain("Claude CLI");
+  });
+
+  it("says what the class means, never what it is called", async () => {
+    // Minted as a rule: class vocabulary stays off user surfaces. Nobody's
+    // mental model has classes in it.
+    await write(FREE);
+    const code = await run("offer", "my-ollama", "team", "--cap", "2500");
+    expect(code).toBe(2);
+    expect(said()).toContain("runs on this machine");
+    for (const jargon of [
+      "free-class",
+      "subscription-class",
+      "metered-class",
+    ]) {
+      expect(said(), jargon).not.toContain(jargon);
+    }
+  });
+
+  it("ends with a line that can be pasted", async () => {
+    await write(FREE);
+    await run("offer", "my-ollama", "team", "--cap", "2500");
+    expect(said()).toContain("`byollm offer my-ollama team`");
+  });
+});
+
 describe("offering a cloud-tagged service to a team", () => {
   /**
    * Todd ran `byollm offer glm-5.2 team --cap 2500`, was told "glm-5.2 is now

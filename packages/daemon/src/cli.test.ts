@@ -453,3 +453,26 @@ describe("byollm run", () => {
     expect(err).toContain("byollm connect");
   });
 });
+
+describe("byollm setup, from the command line", () => {
+  it("declines when stdin is not a terminal, and exits non-zero", async () => {
+    // The command's own contract, exercised through the router rather than
+    // through `runSetup` directly — under vitest stdin is not a TTY, which is
+    // exactly the pipe case a scripted install would hit.
+    const code = await run("setup");
+    expect(code).toBe(1);
+    expect(err).toContain("needs a terminal");
+    // And it wrote nothing, which is the part that matters: a wizard that
+    // half-writes a config on refusal leaves a daemon in a state nobody chose.
+    await expect(readFile(paths.config, "utf8")).rejects.toThrow();
+  });
+
+  it("is listed in help, where somebody would look for it", () => {
+    // byollm_015's whole premise is that people should not have to know the
+    // config file exists. A command that solves that and is not in `--help`
+    // has not solved it.
+    return run("--help").then(() => {
+      expect(out).toContain("byollm setup");
+    });
+  });
+});

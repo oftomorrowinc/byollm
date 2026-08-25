@@ -2,6 +2,7 @@ import { mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { hostname, userInfo } from "node:os";
 import { dirname } from "node:path";
 import { createInterface } from "node:readline/promises";
+import { runSetup, terminalIo } from "./setup.js";
 import { backendDescriptor, resolveCost } from "@byollm/protocol";
 import { Allowlist, normalizeOrigin } from "./allowlist.js";
 import { Budgets } from "./budgets.js";
@@ -32,6 +33,7 @@ import { DAEMON_VERSION, formatVersion } from "./index.js";
 
 const USAGE = `byollm — run an app's LLM jobs on your own models.
 
+  byollm setup                answer three questions instead of editing JSON
   byollm connect [<url>]      pair with an app and start running its jobs
   byollm name [<name>]        what this device calls itself when it pairs
   byollm run [url]            run jobs for a paired app (or all of them)
@@ -121,6 +123,8 @@ export async function runCli(
       // arrives without a platform costs a round trip to learn one.
       io.out(formatVersion());
       return 0;
+    case "setup":
+      return commandSetup(paths, io);
     case "connect":
       return commandConnect(paths, rest, io, signal);
     case "name":
@@ -369,6 +373,27 @@ async function labelFor(
     // No saved name is the ordinary case, not a problem to report.
   }
   return hostLabel();
+}
+
+/**
+ * `byollm setup` — byollm_015 Phase 1.
+ *
+ * Thin on purpose: the conversation lives in `setup.ts` so it can be driven by
+ * a test that is not a terminal, and so this file stays a router.
+ */
+async function commandSetup(paths: DaemonPaths, io: CliIo): Promise<ExitCode> {
+  const result = await runSetup(
+    paths,
+    terminalIo(
+      (text) => {
+        io.out(text);
+      },
+      (text) => {
+        io.err(text);
+      },
+    ),
+  );
+  return result.wrote || result.services.length > 0 ? 0 : 1;
 }
 
 async function commandConnect(

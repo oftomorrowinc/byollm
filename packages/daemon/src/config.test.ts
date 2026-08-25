@@ -114,10 +114,17 @@ describe("resolveConfig — a broken route is dropped, not fatal", () => {
         },
       }),
     );
-    // Not advertised, deliberately. Announcing a kind it cannot resolve
-    // deterministically would turn a config ambiguity into a job-time
-    // mystery three hops away.
-    expect(routes).toHaveLength(0);
+    // Both are selectable; neither is the default — byollm_016 Phase B, and a
+    // deliberate change of meaning from Phase A, where this produced no routes
+    // at all.
+    //
+    // Withheld is a fact about the *kind*, not about the services. A job that
+    // names one of these by name is not ambiguous and never was; what has no
+    // answer is a job that named nothing, and that is exactly what the absent
+    // `isDefault` denies it. Refusing the named case too would punish a site
+    // for a decision its owner had not made about something else.
+    expect(routes.map((r) => r.service).sort()).toEqual(["llama", "qwen"]);
+    expect(routes.some((r) => r.isDefault)).toBe(false);
     expect(problems[0]?.where).toBe("defaults.llm.generate");
     expect(problems[0]?.message).toContain("qwen, llama");
   });
@@ -143,9 +150,13 @@ describe("resolveConfig — a broken route is dropped, not fatal", () => {
       }),
     );
     expect(problems).toEqual([]);
-    expect(routes).toHaveLength(1);
-    expect(routes[0]?.service).toBe("qwen");
-    expect(routes[0]?.model).toBe("qwen3");
+    // Both stay on the menu; the default decides only where an unselected job
+    // goes. Naming one is what `defaults` is for, not narrowing what exists.
+    expect(routes.map((r) => r.service).sort()).toEqual(["llama", "qwen"]);
+    const chosen = routes.filter((r) => r.isDefault);
+    expect(chosen).toHaveLength(1);
+    expect(chosen[0]?.service).toBe("qwen");
+    expect(chosen[0]?.model).toBe("qwen3");
   });
 
   it("refuses a default naming a service that does not answer the kind", () => {
@@ -168,7 +179,12 @@ describe("resolveConfig — a broken route is dropped, not fatal", () => {
         defaults: { "llm.generate": "claude" },
       }),
     );
-    expect(routes).toHaveLength(0);
+    // The services are still selectable — they are declared and healthy, and
+    // the owner's mistake is about which one wins, not about whether they
+    // exist. What nothing gets is a default, so an unselected job has no
+    // answer here and the problem says why.
+    expect(routes.map((r) => r.service).sort()).toEqual(["llama", "qwen"]);
+    expect(routes.some((r) => r.isDefault)).toBe(false);
     expect(problems[0]?.message).toContain("does not answer");
   });
 
@@ -406,5 +422,68 @@ describe("the pre-alpha.44 shape", () => {
     });
     const { routes } = await loadConfig(path);
     expect(routes.map((route) => route.service)).toEqual(["ollama"]);
+  });
+});
+
+describe("the menu travels — byollm_016 Phase B", () => {
+  const twoForOneKind = DaemonConfig.parse({
+    services: {
+      studio: {
+        type: "openai-http",
+        baseUrl: "http://127.0.0.1:8080/v1",
+        model: "qwen",
+        kinds: ["llm.generate"],
+      },
+      spare: {
+        type: "openai-http",
+        baseUrl: "http://127.0.0.1:1234/v1",
+        model: "mistral",
+        kinds: ["llm.generate"],
+      },
+    },
+    defaults: { "llm.generate": "studio" },
+  });
+
+  it("advertises the service a job might name, not only the winner", () => {
+    // The bug this replaces: only the default was a route, so it was the only
+    // thing in the advertised matrix, so it was the only name the hub could
+    // match a selection against. Selecting `spare` was refused as
+    // unadvertised — selection worked for exactly the service nobody needs to
+    // name, and for nothing else.
+    const { routes } = resolveConfig(twoForOneKind);
+    expect(routes.map((r) => r.service).sort()).toEqual(["spare", "studio"]);
+  });
+
+  it("marks exactly one of them as the default", () => {
+    const { routes } = resolveConfig(twoForOneKind);
+    expect(routes.filter((r) => r.isDefault).map((r) => r.service)).toEqual([
+      "studio",
+    ]);
+  });
+
+  it("marks none when the owner has not chosen", () => {
+    // Withheld is a fact about the kind. Both remain selectable by name; what
+    // has no answer is a job that named nothing.
+    const { routes, withheld } = resolveConfig(
+      DaemonConfig.parse({
+        services: {
+          studio: {
+            type: "openai-http",
+            baseUrl: "http://127.0.0.1:8080/v1",
+            model: "qwen",
+            kinds: ["llm.generate"],
+          },
+          spare: {
+            type: "openai-http",
+            baseUrl: "http://127.0.0.1:1234/v1",
+            model: "mistral",
+            kinds: ["llm.generate"],
+          },
+        },
+      }),
+    );
+    expect(routes).toHaveLength(2);
+    expect(routes.some((r) => r.isDefault)).toBe(false);
+    expect(withheld.map((w) => w.kind)).toEqual(["llm.generate"]);
   });
 });

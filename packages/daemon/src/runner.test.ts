@@ -17,7 +17,7 @@ import type {
 import { Budgets } from "./budgets.js";
 import { ProtocolClient } from "./client.js";
 import { composePrompt } from "./compose.js";
-import { DaemonConfig, resolveConfig } from "./config.js";
+import { DaemonConfig, resolveConfig, type ResolvedRoute } from "./config.js";
 import { IngressLog } from "./ingress.js";
 import { SpendLedger } from "./spend.js";
 import { Runner } from "./runner.js";
@@ -99,10 +99,19 @@ async function makeRunner(
     allow?: readonly string[];
     /** Override the whole services stanza, for the per-service cases. */
     services?: Record<string, unknown>;
+    /** Which service wins each kind, when more than one claims it. */
+    defaults?: Record<string, string>;
+    /**
+     * Which backend each route gets. Defaults to the shared spy; the
+     * selection cases pass one that records *which* route was asked for,
+     * because that is the whole question there.
+     */
+    backendFactory?: (route: ResolvedRoute) => Backend;
   } = {},
 ) {
   const loaded = resolveConfig(
     DaemonConfig.parse({
+      ...(options.defaults === undefined ? {} : { defaults: options.defaults }),
       services: options.services ?? {
         primary: {
           model: "m",
@@ -146,7 +155,7 @@ async function makeRunner(
     budgets,
     spend,
     ingress,
-    backendFactory: () => backend,
+    backendFactory: options.backendFactory ?? (() => backend),
   });
   return { runner, ingress, budgets };
 }
@@ -449,5 +458,77 @@ describe("composePrompt", () => {
     expect(
       composePrompt(job({ payload: { prompt: "x", system: "   " } })),
     ).toBe("x");
+  });
+});
+
+describe("which service runs a job — byollm_016 Phase B", () => {
+  /**
+   * The menu travels now, so a kind can have several routes and the daemon has
+   * to pick deliberately. It used to take the first match, which was correct
+   * while there was only ever one and became a coin-flip the moment there were
+   * two — the exact guess `withheld` exists to refuse, arriving by another
+   * door.
+   *
+   * A mutation replacing the default lookup with `find(r => r.kind === kind)`
+   * survived all 422 tests before these existed, which is how they came to be
+   * written.
+   */
+  const TWO = {
+    studio: {
+      type: "openai-http",
+      baseUrl: "http://127.0.0.1:8080/v1",
+      model: "studio-model",
+      kinds: ["llm.generate"],
+    },
+    spare: {
+      type: "openai-http",
+      baseUrl: "http://127.0.0.1:1234/v1",
+      model: "spare-model",
+      kinds: ["llm.generate"],
+    },
+  };
+
+  /** Which route the runner actually asked for a backend. */
+  const asked = async (
+    over: Partial<ClaimedStub & { payload: JobPayload }>,
+    defaults: Record<string, string>,
+  ) => {
+    const seen: string[] = [];
+    const made = await makeRunner({
+      services: TWO,
+      defaults,
+      backendFactory: (route) => {
+        seen.push(route.service);
+        return backend;
+      },
+    });
+    const outcome = await made.runner.runJob(job(over));
+    return { seen, outcome };
+  };
+
+  it("sends an unselected job to the default, not to whichever is first", async () => {
+    const { seen } = await asked({}, { "llm.generate": "spare" });
+    expect(seen).toEqual(["spare"]);
+  });
+
+  it("sends a selected job to the service it named", async () => {
+    const { seen } = await asked(
+      { service: "spare" },
+      { "llm.generate": "studio" },
+    );
+    expect(seen).toEqual(["spare"]);
+  });
+
+  it("refuses a name this device does not have, never substituting", async () => {
+    // The daemon's half of the both-sides rule. The hub already matched on the
+    // pair; serving a selection from something else is the substitution
+    // NO_PAYLOAD_ROUTING forbids, and falling back to the default would be
+    // exactly that — silently, behind a successful-looking job.
+    const { seen, outcome } = await asked(
+      { service: "not-here" },
+      { "llm.generate": "studio" },
+    );
+    expect(outcome.outcome).toBe("error");
+    expect(seen).toEqual([]);
   });
 });

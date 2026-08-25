@@ -514,14 +514,27 @@ describe("status shows services and defaults, not only routes", () => {
     defaults: { "llm.generate": "studio" },
   };
 
-  it("lists a service that is serving nothing, and says why", async () => {
-    // `spare` loses `llm.generate` to the default and therefore has no route.
-    // Before this it appeared nowhere at all.
+  it("tells apart the default and the merely selectable", async () => {
+    // Two different facts that had one sentence between them. `spare` loses
+    // `llm.generate` to the default, and is still a service a site may name —
+    // "serves nothing right now" said the opposite of what is true, and "not
+    // on the menu" would have been a third wrong answer.
     await write(CONFIG);
     await run("status");
     expect(out).toContain("spare");
-    expect(out).toContain("serves nothing right now");
-    expect(out).toContain("default for llm.generate");
+    expect(out).toContain("selectable for llm.generate");
+    expect(out).toMatch(/studio[\s\S]*?default for llm\.generate/);
+    expect(out).not.toContain("serves nothing");
+  });
+
+  it("says what a scope means beside the word for it", async () => {
+    // "offered to private" asks the reader to already know. The config's word
+    // stays, because the card and the file should read alike, and the
+    // consequence sits next to it.
+    await write(CONFIG);
+    await run("status");
+    expect(out).toContain("private (only you)");
+    expect(out).toContain("team (you and people you allow)");
   });
 
   it("names the default for a contended kind", async () => {
@@ -532,13 +545,18 @@ describe("status shows services and defaults, not only routes", () => {
     expect(out).toMatch(/defaults[\s\S]*llm\.generate\s+studio/);
   });
 
-  it("still lists the routes that resolved", async () => {
-    // The control: adding a section must not have replaced one. `routes` is
-    // what actually runs, and it is the answer to a different question.
+  it("has no routes section, because it said nothing the rest did not", async () => {
+    // Ruled 2026-08-25. `routes` was the old shape's ghost: one line per
+    // resolved kind, which in Phase A *was* the service list. By Phase B it
+    // was a third section describing facts the first two carry — a route is a
+    // (service, kind) pair plus which is default, and both are above. Three
+    // displays of two facts is how they drift.
     await write(CONFIG);
     await run("status");
-    expect(out).toContain("routes");
+    expect(out).not.toMatch(/^routes$/m);
+    // The information did not go with it.
     expect(out).toContain("openai-http:qwen");
+    expect(out).toContain("llm.generate");
   });
 });
 

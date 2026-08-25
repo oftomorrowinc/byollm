@@ -120,6 +120,20 @@ export const ClaimedJob = z
      * from, not a second copy of the routing key.
      */
     site: z.string().min(1).optional(),
+    /**
+     * Which service the site named, if it named one — byollm_016 Phase B.
+     *
+     * The same shape `site` documents above, and added for the same reason:
+     * the stub carries it, the opened job did not, and everything downstream
+     * of the payload lost it. Here that loss was not cosmetic — the daemon
+     * picks the backend from this, so a job that selected a non-default
+     * service would have been served by the default instead, which is the
+     * substitution `NO_PAYLOAD_ROUTING` forbids.
+     *
+     * Optional, because absent means "the owner's default" and that is every
+     * job written before selection existed.
+     */
+    service: z.string().min(1).optional(),
     lease: Lease,
   })
   .strict();

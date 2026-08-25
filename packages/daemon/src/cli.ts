@@ -926,48 +926,66 @@ async function commandStatus(
     }
   }
 
-  // **Services, not only routes** — byollm_016 Phase B.
+  // **Services and defaults. No routes section** — ruled 2026-08-25.
   //
-  // `routes` is what resolved: one line per kind that has a winner. That was
-  // the whole story in Phase A, where a kind had exactly one claimant. It is
-  // not the story now: a config may declare a service that serves nothing this
-  // moment because another is the default for its kinds, and `status` listing
-  // only routes made that service invisible — an owner reads their own config,
-  // reads `status`, and finds one of them missing with no line saying why.
+  // `routes` was the old shape's ghost. It listed one line per resolved kind,
+  // which in Phase A *was* the service list, and by Phase B it was a third
+  // section describing facts the first two already carry: a route is a
+  // (service, kind) pair plus which one is the default, and both of those are
+  // here. Three displays of two facts is how they drift apart, which is this
+  // morning's lesson pointed at our own output.
   //
-  // So every service is listed, and the ones serving nothing say so.
-  const serving = new Map<string, string[]>();
+  // The two facts a service can have about a kind are now said apart, because
+  // "serves nothing right now" and "is not on the menu" are different and no
+  // surface said which. Every declared service is selectable by name; the
+  // default is only where an *unselected* job goes.
+  const byService = new Map<
+    string,
+    { defaults: string[]; selectable: string[] }
+  >();
   for (const route of loaded.routes) {
-    serving.set(route.service, [
-      ...(serving.get(route.service) ?? []),
-      route.kind,
-    ]);
+    const entry = byService.get(route.service) ?? {
+      defaults: [],
+      selectable: [],
+    };
+    (route.isDefault ? entry.defaults : entry.selectable).push(route.kind);
+    byService.set(route.service, entry);
   }
+
   io.out("\nservices\n");
   const declared = Object.entries(loaded.config.services);
   if (declared.length === 0) {
     io.out("  (none configured)\n");
   }
   for (const [name, service] of declared) {
-    const kinds = serving.get(name) ?? [];
+    const entry = byService.get(name) ?? { defaults: [], selectable: [] };
     const route = loaded.routes.find((r) => r.service === name);
     const shown =
       route === undefined ? service.model : `${route.backendId}:${route.model}`;
-    io.out(`  ${name.padEnd(14)} ${shown}\n`);
+    // "private (only you)" rather than "offered to private" — the config's
+    // word, with the consequence beside it, so nobody has to already know
+    // what the word means to read the line.
+    const scope =
+      service.offer === "private"
+        ? "private (only you)"
+        : service.offer === "team"
+          ? "team (you and people you allow)"
+          : "public (anyone)";
+    io.out(`  ${name.padEnd(14)} ${shown}  ${scope}\n`);
+    const says: string[] = [];
+    if (entry.defaults.length > 0) {
+      says.push(`default for ${entry.defaults.join(", ")}`);
+    }
+    if (entry.selectable.length > 0) {
+      // Selectable and not the default: a site that names it gets it, a site
+      // that names nothing does not. That is a real state and it had no words.
+      says.push(`selectable for ${entry.selectable.join(", ")}`);
+    }
     io.out(
-      kinds.length === 0
-        ? // Declared and serving nothing. Almost always because another
-          // service is the default for its kinds, which is a decision rather
-          // than a fault — so it reads as one.
-          `                 serves nothing right now — another service is the ` +
-            `default for ${service.kinds.join(", ")}\n`
-        : `                 ${kinds.join(", ")} · offered to ${service.offer}\n`,
+      `                 ${says.length === 0 ? "not offered — see the problems below" : says.join(" · ")}\n`,
     );
   }
 
-  // The defaults, because a kind with two claimants is decided here and
-  // nowhere else, and an owner debugging "why did it use that one" has no
-  // other place to look.
   const defaults = Object.entries(loaded.config.defaults);
   if (defaults.length > 0) {
     io.out("\ndefaults\n");
@@ -976,16 +994,6 @@ async function commandStatus(
     }
   }
 
-  io.out("\nroutes\n");
-  if (loaded.routes.length === 0) {
-    io.out("  (none configured)\n");
-  }
-  for (const route of loaded.routes) {
-    io.out(
-      `  ${route.kind.padEnd(14)} ${route.backendId}:${route.model}  ` +
-        `offered to: ${route.offerScope}\n`,
-    );
-  }
   // **Withheld is shown, never merely absent.**
   //
   // A kind two services answer is not advertised until the owner says which

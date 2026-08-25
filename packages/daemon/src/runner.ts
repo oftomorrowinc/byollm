@@ -421,8 +421,29 @@ export class Runner {
     );
   }
 
-  #routeFor(kind: string): ResolvedRoute | undefined {
-    return this.#options.loaded.routes.find((route) => route.kind === kind);
+  /**
+   * The route a job takes — byollm_016 Phase B, both sides of it.
+   *
+   * Was `routes.find((r) => r.kind === kind)`, which was correct while a kind
+   * had exactly one route and became a coin-flip the moment the menu started
+   * travelling: it would have handed an unselected job to whichever service
+   * sorted first, which is the guess `withheld` exists to refuse.
+   *
+   * A named service is matched exactly and never approximately. `undefined`
+   * here means refuse — not fall back to the default — because serving a
+   * selection from something else is the substitution `NO_PAYLOAD_ROUTING`
+   * forbids, and the daemon is the party that owns that rule. The hub already
+   * matched on the same pair; this is the second check, for the same reason
+   * the allowlist is checked twice.
+   */
+  #routeFor(kind: string, service?: string): ResolvedRoute | undefined {
+    const routes = this.#options.loaded.routes;
+    if (service !== undefined) {
+      return routes.find(
+        (route) => route.kind === kind && route.service === service,
+      );
+    }
+    return routes.find((route) => route.kind === kind && route.isDefault);
   }
 
   /**
@@ -451,7 +472,7 @@ export class Runner {
       };
     }
 
-    const route = this.#routeFor(job.kind);
+    const route = this.#routeFor(job.kind, job.service);
     if (!route) {
       // An unknown or unrouted kind is refused, never guessed
       // ({@link MUSTS.KIND_TYPED_ONLY}).
@@ -509,7 +530,7 @@ export class Runner {
    * hangs the machine still leaves a record of what it was.
    */
   async runJob(job: ClaimedJob): Promise<JobOutcome> {
-    const route = this.#routeFor(job.kind);
+    const route = this.#routeFor(job.kind, job.service);
     if (!route) {
       return {
         outcome: "error",
@@ -871,7 +892,7 @@ export class Runner {
     if (!fetched) return;
     const payload = await this.#openPayload(job, fetched.envelope);
 
-    const route = this.#routeFor(job.kind);
+    const route = this.#routeFor(job.kind, job.service);
     const outcome = await this.runJob({ ...job, payload });
 
     // The site's consent ended while this ran — V1-7. There is nothing to

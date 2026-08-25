@@ -187,6 +187,20 @@ export interface ResolvedRoute {
    * does. Phase B lets a job select by this name.
    */
   readonly service: string;
+  /**
+   * Whether this is the service an *unselected* job for this kind reaches.
+   *
+   * Phase B advertises the whole menu, so a kind may have several routes and
+   * exactly one of them is where a job that named nothing goes. Stated rather
+   * than inferred from position: the previous shape advertised only the
+   * winner, so "the route for this kind" and "the default for this kind" were
+   * the same object, and every consumer that took the first match was correct
+   * by accident.
+   *
+   * False for a kind that is withheld — nothing is the default there, which
+   * is the whole meaning of withheld.
+   */
+  readonly isDefault: boolean;
   readonly backendId: BackendId;
   readonly backendClass: "http" | "process";
   readonly model: string;
@@ -450,13 +464,23 @@ export function resolveConfig(config: DaemonConfig): LoadedConfig {
     }
 
     for (const kind of service.kinds) {
-      // Only the service that serves this kind is advertised. A second
-      // claimant is configured and idle until Phase B lets a job name it —
-      // advertising it now would promise a selection nothing can make.
-      if (serves.get(kind) !== name) continue;
+      // **Every claimant is a route now** — byollm_016 Phase B.
+      //
+      // This read `if (serves.get(kind) !== name) continue;` under a comment
+      // saying a second claimant "is configured and idle until Phase B lets a
+      // job name it — advertising it now would promise a selection nothing can
+      // make". That was exactly right, and Phase B is the release that made
+      // its condition false: a job *can* name it now, and the hub matches a
+      // selection against what the device advertised. Advertising only the
+      // winner meant selecting anything else was refused as unadvertised — so
+      // selection worked for precisely the service you would never need to
+      // name.
+      //
+      // The menu travels; `isDefault` says which row an unselected job takes.
       routes.push({
         kind,
         service: name,
+        isDefault: serves.get(kind) === name,
         backendId: service.type,
         backendClass: descriptor.class,
         model: service.model,

@@ -1,5 +1,5 @@
 > [!WARNING]
-> **Alpha (`0.1.0-alpha.51`) — under active development. Don't use this yet.**
+> **Alpha (`0.1.0-alpha.52`) — under active development. Don't use this yet.**
 >
 > Install it as `byollm@alpha`, deliberately. npm forces a `latest` tag onto a
 > package's first publish and will not let it be removed, so a bare install
@@ -19,6 +19,27 @@
 > on-disk format — are written down and turn on with the first outside user.
 > If an upgrade leaves a daemon saying it is paired with nothing, `byollm
 > connect` is the answer and nothing else is lost.
+>
+> **`alpha.52` — a device that is running and invisible now says so, and
+> `byollm offer` no longer disagrees with the daemon about what a service
+> costs.**
+>
+> **If you shared a cloud-tagged model and it snapped back, this is why.**
+> `byollm offer <service> team --cap N` computed the service's cost without
+> its model, so `glm-5.2:cloud` on a local address looked free: no consent was
+> asked for, `--cap` was discarded, and the daemon — which does read the model
+> — refused the share and told you to run the command you had just run. Both
+> halves read the same three things now, and a `--cap` the command will not use
+> is an error rather than a silent drop.
+>
+> **`byollm status` leads with whether the hub is listening.** After six
+> consecutive rejected messages it says `NOT REPORTING` and names what the hub
+> said, because `state: running` was true for hours on a device whose every
+> heartbeat was refused. It also says, out loud, that everything below is what
+> the device believes rather than what the hub has been told.
+>
+> Services print on three short lines instead of one long one, so nothing
+> wraps: the widest line is 68 columns, down from 86.
 >
 > **`alpha.51` makes service selection actually work.** If you are using
 > `enqueue({ service })`, this is the release that makes it do what alpha.48

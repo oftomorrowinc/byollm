@@ -518,3 +518,48 @@ their team. Phase A ships `offer: "private" | "team"` (+ parked
 `public` in the enum) with roster-follow. Cowork's note for the
 record: the previous entry committed the array as ruled when it
 deserved this gate — caught by Todd asking "good idea or overkill?"
+
+## Consequences sweep (Cowork, 2026-08-25, before sending to CCC)
+
+What falls out of private-or-team + two-static-views, stated so none
+of it becomes an accidental discovery mid-build:
+
+1. **One wire revision, not four.** Phase A's capability changes now
+   include: the service id, the explicit default marker, withheld,
+   and the renamed offer scopes. Bundle them in a single protocol
+   rev. On naming: rename enum values once, now — `self` → `private`,
+   `named` → `team` (`public` parked, unchanged). MUST *ids* stay
+   stable per law; MUST text updates to the new words in the same
+   pass.
+2. **Roster sync rides the projection — the fence decides this.**
+   The roster lives in the control plane; the hub and daemon may
+   learn it only through the sanctioned projection path that already
+   carries devices and grants (cloud_001 fence: no writer crosses;
+   one reader each way). Roster membership becomes a projected
+   entity beside device rows. No new channel, no direct read.
+3. **Sync the resolved roster, never re-derive it.** Invite expiry
+   (14d) is a control-plane read-side predicate. The daemon receives
+   the resolved member list; neither hub nor daemon re-implements
+   expiry. One source, or the predicate forks.
+4. **The authorization matrix is now two independent axes.** Site
+   approved (device-side, per app) × roster member (central). The
+   old allowlist's per-(site, person) cell granularity is gone —
+   deliberately. "Kevin may use app A but not app B on this device"
+   is no longer sayable; if someone real ever needs it, that is the
+   email-array's evidence gate reopening, not a bug report.
+5. **Team jobs remain community-budgeted.** COMMUNITY_BUDGETS keys
+   on job-owner ≠ device-owner, which is unchanged by membership
+   being central — a teammate's runaway loop still hits the
+   jobs/hour, wall-clock, and payload caps. Worth one conformance
+   case so the rename can't silently widen the budget exemption.
+6. **Phase B's defaults-meet-audiences corner survives the
+   simplification.** A device whose kind-default is a *private*
+   service still receives member jobs kind-only; resolution for a
+   member must be audience-aware among team services (or terminally
+   refuse). Two static views simplified the *display*, not this
+   resolution rule.
+
+Also mooted by tonight: open question 4 (per-requester defaults) is
+dead — the team view is uniform by construction. The wizard's offer
+question (byollm_015) speaks the new vocabulary: "Offer this to your
+team? [y/N]".

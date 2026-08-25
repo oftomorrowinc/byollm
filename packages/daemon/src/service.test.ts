@@ -534,3 +534,80 @@ describe("describing this process to a service file", () => {
     expect(io.platform).toBe(servicePlatform(process.platform));
   });
 });
+
+describe("the service runs with a PATH that can find things", () => {
+  /**
+   * The gap this closes, found on a real machine.
+   *
+   * launchd gives an agent `/usr/bin:/bin:/usr/sbin:/sbin`. `claude` installs
+   * to `~/.local/bin`, npm globals live under a Node version directory, and
+   * Homebrew is `/opt/homebrew` — none of them on that list. So the daemon's
+   * health probe for a subscription CLI failed, the service was never
+   * advertised, and the device's page showed only the model server it could
+   * reach. Nothing logged an error: "not installed" is a legal answer, and the
+   * daemon cannot tell it from "installed somewhere I cannot see".
+   *
+   * `byollm services`, run in the user's shell, said the opposite.
+   */
+  const withPath = (path: string) => {
+    const previous = process.env["PATH"];
+    process.env["PATH"] = path;
+    return () => {
+      if (previous === undefined) delete process.env["PATH"];
+      else process.env["PATH"] = previous;
+    };
+  };
+
+  it("writes the installing shell's PATH into the launchd plist", () => {
+    const restore = withPath("/Users/x/.local/bin:/opt/homebrew/bin");
+    try {
+      const plan = servicePlan(target("darwin"));
+      expect(plan.unitContents).toContain("<key>EnvironmentVariables</key>");
+      expect(plan.unitContents).toContain("/Users/x/.local/bin");
+      expect(plan.unitContents).toContain("/opt/homebrew/bin");
+    } finally {
+      restore();
+    }
+  });
+
+  it("writes it into the systemd unit too", () => {
+    // A user unit does not inherit the login shell's environment either, so
+    // fixing one platform and not the other would leave the same bug wearing
+    // a different hat.
+    const restore = withPath("/home/x/.local/bin");
+    try {
+      expect(servicePlan(target("linux")).unitContents).toContain(
+        "Environment=PATH=/home/x/.local/bin",
+      );
+    } finally {
+      restore();
+    }
+  });
+
+  it("keeps the system directories, so a strange PATH still finds /bin", () => {
+    const restore = withPath("/only/this");
+    try {
+      const contents = servicePlan(target("darwin")).unitContents;
+      expect(contents).toContain("/only/this");
+      expect(contents).toContain("/usr/bin");
+      expect(contents).toContain("/sbin");
+    } finally {
+      restore();
+    }
+  });
+
+  it("does not repeat a directory that is already there", () => {
+    // Cosmetic, and the reason to bother is that this string is read by a
+    // person diagnosing exactly the failure above.
+    const restore = withPath("/usr/bin:/opt/homebrew/bin:/bin");
+    try {
+      const contents = servicePlan(target("darwin")).unitContents;
+      const path =
+        /<key>PATH<\/key><string>([^<]*)<\/string>/.exec(contents)?.[1] ?? "";
+      const dirs = path.split(":");
+      expect(new Set(dirs).size).toBe(dirs.length);
+    } finally {
+      restore();
+    }
+  });
+});

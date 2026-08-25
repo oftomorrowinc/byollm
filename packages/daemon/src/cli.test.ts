@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { generateKeys, publicIdentityOf, keyId } from "@byollm/protocol";
@@ -474,5 +474,69 @@ describe("byollm setup, from the command line", () => {
     return run("--help").then(() => {
       expect(out).toContain("byollm setup");
     });
+  });
+});
+
+describe("status shows services and defaults, not only routes", () => {
+  /**
+   * Todd's finding on a real config, and it is a Phase B consequence.
+   *
+   * `routes` is what *resolved* — one line per kind that has a winner. In
+   * Phase A that was the whole story, because a kind had exactly one claimant.
+   * It is not the story now: a service can be declared, healthy, and serving
+   * nothing this moment because another is the default for its kinds. Listing
+   * only routes made that service invisible, so an owner could read their own
+   * config, read `status`, and find an entry missing with no line saying why.
+   */
+  const write = async (config: unknown) => {
+    await mkdir(join(home, ".byollm"), { recursive: true });
+    await writeFile(paths.config, JSON.stringify(config), "utf8");
+  };
+
+  const CONFIG = {
+    services: {
+      claude: { type: "claude-cli", model: "sonnet", kinds: ["llm.chat"] },
+      studio: {
+        type: "openai-http",
+        baseUrl: "http://127.0.0.1:8080/v1",
+        model: "qwen",
+        kinds: ["llm.generate"],
+        offer: "team",
+      },
+      spare: {
+        type: "openai-http",
+        baseUrl: "http://127.0.0.1:1234/v1",
+        model: "mistral",
+        kinds: ["llm.generate"],
+      },
+    },
+    defaults: { "llm.generate": "studio" },
+  };
+
+  it("lists a service that is serving nothing, and says why", async () => {
+    // `spare` loses `llm.generate` to the default and therefore has no route.
+    // Before this it appeared nowhere at all.
+    await write(CONFIG);
+    await run("status");
+    expect(out).toContain("spare");
+    expect(out).toContain("serves nothing right now");
+    expect(out).toContain("default for llm.generate");
+  });
+
+  it("names the default for a contended kind", async () => {
+    // Where "why did it use that one" is answered. There is no other surface
+    // that says it.
+    await write(CONFIG);
+    await run("status");
+    expect(out).toMatch(/defaults[\s\S]*llm\.generate\s+studio/);
+  });
+
+  it("still lists the routes that resolved", async () => {
+    // The control: adding a section must not have replaced one. `routes` is
+    // what actually runs, and it is the answer to a different question.
+    await write(CONFIG);
+    await run("status");
+    expect(out).toContain("routes");
+    expect(out).toContain("openai-http:qwen");
   });
 });

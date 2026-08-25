@@ -925,6 +925,56 @@ async function commandStatus(
     }
   }
 
+  // **Services, not only routes** — byollm_016 Phase B.
+  //
+  // `routes` is what resolved: one line per kind that has a winner. That was
+  // the whole story in Phase A, where a kind had exactly one claimant. It is
+  // not the story now: a config may declare a service that serves nothing this
+  // moment because another is the default for its kinds, and `status` listing
+  // only routes made that service invisible — an owner reads their own config,
+  // reads `status`, and finds one of them missing with no line saying why.
+  //
+  // So every service is listed, and the ones serving nothing say so.
+  const serving = new Map<string, string[]>();
+  for (const route of loaded.routes) {
+    serving.set(route.service, [
+      ...(serving.get(route.service) ?? []),
+      route.kind,
+    ]);
+  }
+  io.out("\nservices\n");
+  const declared = Object.entries(loaded.config.services);
+  if (declared.length === 0) {
+    io.out("  (none configured)\n");
+  }
+  for (const [name, service] of declared) {
+    const kinds = serving.get(name) ?? [];
+    const route = loaded.routes.find((r) => r.service === name);
+    const shown =
+      route === undefined ? service.model : `${route.backendId}:${route.model}`;
+    io.out(`  ${name.padEnd(14)} ${shown}\n`);
+    io.out(
+      kinds.length === 0
+        ? // Declared and serving nothing. Almost always because another
+          // service is the default for its kinds, which is a decision rather
+          // than a fault — so it reads as one.
+          `                 serves nothing right now — another service is the ` +
+            `default for ${service.kinds.join(", ")}\n`
+        : `                 ${kinds.join(", ")} · offered to ${service.offer}\n`,
+    );
+  }
+
+  // The defaults, because a kind with two claimants is decided here and
+  // nowhere else, and an owner debugging "why did it use that one" has no
+  // other place to look.
+  const defaults = Object.entries(loaded.config.defaults);
+  if (defaults.length > 0) {
+    io.out("\ndefaults\n");
+    for (const [kind, name] of defaults) {
+      io.out(`  ${kind.padEnd(14)} ${name}\n`);
+    }
+  }
+
   io.out("\nroutes\n");
   if (loaded.routes.length === 0) {
     io.out("  (none configured)\n");

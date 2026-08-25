@@ -98,6 +98,48 @@ export interface ServiceTarget {
 }
 
 /** XML-escape a path — a home directory can contain `&` and an apostrophe. */
+/**
+ * The `PATH` the installed service runs with — the launchd gap, closed.
+ *
+ * launchd hands an agent `/usr/bin:/bin:/usr/sbin:/sbin` and nothing else, and
+ * that is not where anybody's CLI lives. `claude` installs to `~/.local/bin`;
+ * npm globals sit under a Node version directory; Homebrew is `/opt/homebrew`.
+ * None of them are on that list.
+ *
+ * What that cost, before this: the daemon under launchd could not find
+ * `claude`, so the health probe failed, so the service was never advertised —
+ * and the device's page showed only the model server it *could* reach. Nothing
+ * logged an error, because "not installed" is a legal answer to a health
+ * probe and the daemon has no way to tell it apart from "installed somewhere I
+ * cannot see".
+ *
+ * Worse, `byollm services` said the opposite. It runs in the user's shell,
+ * with the user's `PATH`, so it found the CLI and reported "healthy and will
+ * be advertised" — a promise about a program the daemon could not execute. A
+ * diagnostic that reads a different environment than the thing it diagnoses is
+ * worse than no diagnostic, because it is believed.
+ *
+ * So the installer captures the `PATH` of the shell that ran `byollm install`.
+ * That is the environment the person set up on purpose, and it is the only one
+ * available at the moment the service is defined. It is a snapshot: a CLI
+ * installed to a new directory afterwards needs `byollm install` again, which
+ * `byollm services` now says out loud when it notices the difference.
+ */
+function servicePath(): string {
+  const current = process.env["PATH"] ?? "";
+  // The launchd default stays on the end rather than being replaced, so a
+  // service still finds system binaries if the captured PATH is odd.
+  const fallback = "/usr/bin:/bin:/usr/sbin:/sbin";
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const dir of [...current.split(":"), ...fallback.split(":")]) {
+    if (dir === "" || seen.has(dir)) continue;
+    seen.add(dir);
+    out.push(dir);
+  }
+  return out.join(":");
+}
+
 function xml(value: string): string {
   return value
     .replaceAll("&", "&amp;")
@@ -135,6 +177,10 @@ export function servicePlan(target: ServiceTarget): ServicePlan {
     <string>${xml(scriptPath)}</string>
     <string>run</string>
   </array>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key><string>${xml(servicePath())}</string>
+  </dict>
   <key>RunAtLoad</key><true/>
   <key>KeepAlive</key><true/>
   <key>ThrottleInterval</key><integer>10</integer>
@@ -185,6 +231,10 @@ After=network-online.target
 
 [Service]
 Type=simple
+# The same gap launchd has, for the same reason: a user unit does not inherit
+# the login shell's PATH, so a CLI in ~/.local/bin is invisible to the daemon
+# while being perfectly visible to the person debugging it. See servicePath.
+Environment=PATH=${servicePath()}
 ExecStart=${execPath} ${scriptPath} run
 Restart=always
 RestartSec=10

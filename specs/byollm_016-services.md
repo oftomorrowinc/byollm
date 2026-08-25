@@ -599,3 +599,5 @@ for now, but if leaving it means every OfferScope↔Audience seam
 carries a mapping and docs forever explain "self vs private," say
 what riding the same rev would cost. One vocabulary is worth a
 bounded price; CCC has the numbers.
+
+**Ruled (Todd, 2026-08-25): one vocabulary — `private | team | public` — everywhere.** The Audience open question is resolved by ruling, not cost accounting: Audience's shared literals rename with OfferScope in the same single rev. "self" and "named" were insider vocabulary — meaningful after reading the spec; private and team mean the right thing to someone who never has. Bilingualism dies in the one release already reshaping the wire. MUST ids remain stable per law (SUBSCRIPTION_SELF_LOCK keeps its id; its text learns to say private), and the type-aware rename CCC scoped covers both types now.

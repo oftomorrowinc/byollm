@@ -833,3 +833,39 @@ Two returns from review:
    emptiness is the one party that can know — designed on its own,
    riding a later seam change. The exclusion must not quietly park
    the requirement.
+
+## Both returns closed, better than asked (CCC, 2026-08-25)
+
+**The oracle was real, and the fix is structural.** Both select
+causes had distinct wire values under a comment claiming they
+"disclose identically to a stranger" — prose reassuring auditors
+while the bytes said otherwise (the comment named as the worse half).
+Fix: REFUSED_SELECTION is a frozen constant — no builder takes the
+cause, because "a builder is a place to put a branch, and a branch is
+where the oracle grows back." The precise cause survives as
+SelectionFailure, a type with no schema, for owner tooling only.
+Contrast kept as a paired rule: REFUSAL_MESSAGES (owner-side) — four
+truths must never share a message; REFUSAL_TEXT (requester-side) —
+two truths must share a message exactly. Same project, opposite
+requirements; getting them backwards is the live risk.
+
+Kind-level refusals deliberately NOT collapsed, criterion recorded:
+the line is whether a requester can walk a namespace. Service names
+are unbounded and asker-supplied; kinds are neither, and
+awaitingDefault is already member-visible. Collapsing would cost apps
+a real distinction — the owner can fix "hasn't chosen"; nobody can
+fix "cannot serve you" — and buy nothing.
+
+**"Gone" found its true shape.** Not a tombstone (which "put history
+in the party that had discarded it, to be read by the party that
+still held it") but a present-tense report: the store says "I do not
+hold this job," asserting nothing about history; the site supplies
+the history (it enqueued and was acknowledged); absent + enqueued is
+terminal, and neither party claims more than it can know. This
+handles the motivating case with no special-casing — a flushed
+Valkey genuinely holds nothing, says so, and every affected site
+learns its work is gone instead of waiting out a deadline. **The
+full-flush rehearsal is unblocked by this design.** D.4 is now an
+address: a per-job query on the site plane (pending/results are
+batch polls with no per-id ask), riding the next change to that
+surface.

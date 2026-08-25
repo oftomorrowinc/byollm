@@ -1136,3 +1136,41 @@ per the spec history is that code was metered throughout and the
 interim was paper-only, resolved before it became code. Then .52 with
 ready-for-latest.mjs run on it, per the standing instruction CCC is
 already applying to the release they'd have called display-only.
+
+## alpha.52: gate's first run; consent-wording finding; Amendment G values (2026-08-25 night)
+
+The promotion gate's first production sentence — "the hub accepts
+everything this version sends — safe to promote" — produced by a
+check rather than judgment, as the standing instruction intended.
+CCC's two record items kept: CI caught an environment-dependent test
+written hours after CCC named that exact failure mode ("knowing the
+rule and writing the code are apparently separate acts, and the check
+is what closed the gap"), and the --cap bug's anatomy — one root
+cause, three layered defects, each individually invisible; the
+signature fix prevents recurrence, the other two are why it stayed
+hidden.
+
+**Consent-wording finding (Todd's read of the live ceremony), ruled:**
+the offer ceremony interpolates the registry's display label ("Any
+OpenAI-compatible server") where the consented-to thing belongs, and
+gives the type's boilerplate as the reason — wrong twice. The type
+doesn't bill per token (local qwen is the counterexample the same
+owner can see); the :cloud tag does. Ruling, under consent-wording-
+is-product-law: consent names the specific service (id, model,
+endpoint), states the TRUE classification reason (the rule that
+fired — here, :cloud → Ollama cloud account), and keeps the ceiling
+sentence, which is already right ("up to $25.00 a day, every day,
+until you change it"). Mechanism confirmed correct — the spend block
+is per-service; prose queued. Registry labels may classify; they may
+not be the object of consent.
+
+**Amendment G values (Cowork's recommendations to Todd):**
+ROSTER_MAX_AGE = one hour — stale-fails-narrow makes the constant a
+trade between revocation latency (removed member keeps access up to
+the window) and outage tolerance (a hub incident longer than the
+window silently stops admitting team members); one hour bounds the
+first at sixty minutes and rides out every incident we've actually
+had. Pin-at-pairing = yes — pairing is the ceremony where human
+judgment enters (fingerprint read, approval given); the pin anchors
+there, Amendment C succession handles rotation; a later pin arrives
+over the channels it exists to protect.

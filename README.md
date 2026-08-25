@@ -1,5 +1,5 @@
 > [!WARNING]
-> **Alpha (`0.1.0-alpha.46`) — under active development. Don't use this yet.**
+> **Alpha (`0.1.0-alpha.47`) — under active development. Don't use this yet.**
 >
 > Install it as `byollm@alpha`, deliberately. npm forces a `latest` tag onto a
 > package's first publish and will not let it be removed, so a bare install
@@ -19,6 +19,31 @@
 > on-disk format — are written down and turn on with the first outside user.
 > If an upgrade leaves a daemon saying it is paired with nothing, `byollm
 > connect` is the answer and nothing else is lost.
+>
+> **`alpha.47` adds `byollm setup` and the Codex CLI.** Neither is breaking.
+>
+> `byollm setup` asks three questions and writes `~/.byollm/config.json` for
+> you — device name, which of your subscription CLIs to use, and whether you
+> want a local model. It refuses to touch a config that already exists, so
+> running it on a working install tells you what you have and changes nothing.
+> It needs a real terminal; piped into it, it declines rather than answering
+> its own questions.
+>
+> **Codex CLI** joins Claude Code as a subscription backend, locked to your own
+> work by `SUBSCRIPTION_SELF_LOCK`. Codex is an *agent*, and its default
+> feature set has a shell tool, browser control and computer use all on — the
+> daemon disables every one of them and there is a check that reads a canary
+> file with the real binary to prove they stay off. `byollm_004` §2's
+> no-tools rule holds for it unchanged.
+>
+> **Gemini CLI is not supported, and that is a finding rather than a gap.** Its
+> built-in file access cannot be disabled: `--approval-mode=plan`,
+> `--allowed-tools ""`, `--policy` deny-all and both `--admin-policy` shapes
+> were each tried against the shipped binary, and it read a canary file every
+> time. Our isolation rules require that no tool be reachable from a prompt, so
+> a backend that can read your files does not qualify. Tested against the
+> version current in August 2026; we re-test on new releases, and if that
+> changes, support returns.
 >
 > **`alpha.46` lets a site name a service.** `enqueue` takes an optional
 > `service`, and a job that names one runs only on a device advertising that

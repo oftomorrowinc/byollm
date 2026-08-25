@@ -221,7 +221,7 @@ whichever one it did not pair with.
 ```ts
 const job = await getApp().enqueue({
   kind: "llm.generate",
-  audience: "self", // this user's own device only — the default
+  audience: "private", // this user's own device only — the default
   owner: userId,
   payload: { prompt: `Summarize this transcript:\n\n${transcript}` },
 });

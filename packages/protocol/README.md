@@ -166,10 +166,10 @@ job's owner.
 import { matchAudience } from "@byollm/protocol";
 
 matchAudience(
-  { owner: "alice", audience: "named" },
+  { owner: "alice", audience: "team" },
   {
     owner: "bob",
-    offerScope: "named",
+    offerScope: "team",
     account: "open",
     // The daemon's OWN allowlist decides — never the server's assertion.
     locallyAllows: (owner) => owner === "alice",

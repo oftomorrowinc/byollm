@@ -202,7 +202,7 @@ export const getConfig = () => ({
 // anywhere in your app
 const job = await getApp().enqueue({
   kind: "llm.generate",
-  audience: "self",            // this user's device only
+  audience: "private",         // this user's device only
   owner: userId,
   payload: { prompt: "Summarize this transcript:\n\n" + transcript },
 });

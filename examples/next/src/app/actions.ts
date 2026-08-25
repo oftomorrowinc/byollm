@@ -18,7 +18,7 @@ import { getApp } from "@/lib/byollm";
 export async function summarize(transcript: string): Promise<string> {
   const job = await getApp().enqueue({
     kind: "llm.generate",
-    audience: "self",
+    audience: "private",
     owner: "user_from_your_session",
     payload: { prompt: `Summarize this transcript:\n\n${transcript}` },
   });

@@ -181,7 +181,7 @@ Two optional hooks worth knowing about:
 
 - **`ownerId`** exists because owner ids are server-namespace-local. A target
   backed by real auth uses uuids, not names, and a kit that assumed names
-  round-tripped would be assuming away the very thing the `named` allowlist is
+  round-tripped would be assuming away the very thing the `team` allowlist is
   about.
 - **`advanceTime`** lets an in-memory server run the lease and TTL checks in
   milliseconds. A real Postgres cannot fake its clock, so the kit waits for
@@ -197,7 +197,7 @@ Two optional hooks worth knowing about:
 | `C003_UNKNOWN_KIND_REFUSED`            | a daemon is never handed a kind it did not advertise         |
 | `C004_LEASE_RECLAIM`                   | a job whose runner vanished is offered again, losing nothing |
 | `C005_AUDIENCE_MATRIX`                 | all nine audience × offer-scope combinations                 |
-| `C006_NAMED_LOCAL_ALLOWLIST`           | `named` runs only once the daemon's own list admits it       |
+| `C006_NAMED_LOCAL_ALLOWLIST`           | `team` runs only once the daemon's own list admits it        |
 | `C007_SUBSCRIPTION_SELF_LOCK`          | a subscription backend refuses others' work at any scope     |
 | `C008_REVOCATION`                      | a revoked daemon stops mid-queue                             |
 | `C009_CANCEL_MID_FLIGHT`               | cancel aborts a running job's backend call                   |

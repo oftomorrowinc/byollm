@@ -74,7 +74,7 @@
 > tests; the compiler cannot see this.
 >
 > **`alpha.3` is a breaking change.** A config naming `openai-http` with a
-> remote base URL and an offer scope wider than `self` is narrowed to `self`
+> remote base URL and an offer scope wider than `private` is narrowed to `private`
 > until you acknowledge the spend and set a daily ceiling:
 > `byollm offer <backend> public --cap <cents>`. Local base URLs are
 > unaffected. `byollm backends` shows the cost class per route.

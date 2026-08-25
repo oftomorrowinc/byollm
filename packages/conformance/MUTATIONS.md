@@ -72,8 +72,8 @@ not isolated anything — it means the mutation was too broad, or the checks
 overlap more than intended.
 
 Two is not six. `C005`'s second mutation also fails `C017`, because making
-`case "self"` return `ALLOWED` breaks the metered default that narrows _to_
-`self`. That is a shared chokepoint doing its job, not a broad mutation —
+`case "private"` return `ALLOWED` breaks the metered default that narrows
+_to_ `private`. That is a shared chokepoint doing its job, not a broad mutation —
 noted here so the overlap reads as expected rather than as a smell.
 
 ## Verified 2026-08-13
@@ -100,12 +100,12 @@ noted here so the overlap reads as expected rather than as a smell.
 The four this file previously nominated as most urgent, now done. (It named
 them by a wrong id: `C004` is `LEASE_RECLAIM`; the audience check is `C005`.)
 
-| Check                           | File                                | Mutation                                                                                             | Result                        |
-| ------------------------------- | ----------------------------------- | ---------------------------------------------------------------------------------------------------- | ----------------------------- |
-| `C005_AUDIENCE_MATRIX`          | `packages/protocol/src/audience.ts` | Two: delete the `audience === "self" && !sameOwner` refusal; and make `case "self"` return `ALLOWED` | ✓ bites (both)                |
-| `C007_SUBSCRIPTION_SELF_LOCK`   | `packages/protocol/src/audience.ts` | Delete **both** the `effectiveOfferScope` lock and the `matchAudience` refusal                       | ✓ bites — but only both       |
-| `C014_RESULT_PROVENANCE`        | `packages/protocol/src/job.ts`      | Hard-code `untrusted: false` in `provenanceFor`                                                      | ✓ bites                       |
-| `C015_INGRESS_BEFORE_EXECUTION` | `packages/daemon/src/runner.ts`     | Two: delete `recordPrompt`; and **move it after the backend call**                                   | ✓ bites (after strengthening) |
+| Check                           | File                                | Mutation                                                                                                   | Result                        |
+| ------------------------------- | ----------------------------------- | ---------------------------------------------------------------------------------------------------------- | ----------------------------- |
+| `C005_AUDIENCE_MATRIX`          | `packages/protocol/src/audience.ts` | Two: delete the `audience === "private" && !sameOwner` refusal; and make `case "private"` return `ALLOWED` | ✓ bites (both)                |
+| `C007_SUBSCRIPTION_SELF_LOCK`   | `packages/protocol/src/audience.ts` | Delete **both** the `effectiveOfferScope` lock and the `matchAudience` refusal                             | ✓ bites — but only both       |
+| `C014_RESULT_PROVENANCE`        | `packages/protocol/src/job.ts`      | Hard-code `untrusted: false` in `provenanceFor`                                                            | ✓ bites                       |
+| `C015_INGRESS_BEFORE_EXECUTION` | `packages/daemon/src/runner.ts`     | Two: delete `recordPrompt`; and **move it after the backend call**                                         | ✓ bites (after strengthening) |
 
 Two of these were more than a tick.
 
@@ -115,7 +115,7 @@ The subscription self-lock is enforced twice — `effectiveOfferScope` narrows
 what the daemon advertises, and `matchAudience` refuses again at match time.
 Removing either alone changes nothing observable: with only the first gone
 the daemon advertises `public` but still refuses; with only the second gone
-it never advertises wider than `self`, so the server never offers the work.
+it never advertises wider than `private`, so the server never offers the work.
 
 Deleting both fails `C007` and nothing else. So the MUST is genuinely
 enforced, in depth, and the check catches its removal — it just cannot

@@ -1072,3 +1072,37 @@ reinstall would fix it... I was reasoning from the last bug I'd fixed
 rather than from evidence — exactly the thing this morning was
 supposed to have taught me") — beside Cowork's morning misdiagnosis,
 same day, same lesson, both self-caught.
+
+## Observability fixes in; the gate goes mechanical (CCC, 2026-08-25 evening)
+
+NOT REPORTING shipped as a state that leads byollm status, with the
+line CCC rightly defends hardest — "anything below is what this
+device believes, not what the hub has been told" — without which a
+healthy-looking service list reads as evidence against the warning
+above it, when the list is exactly what the hub hasn't heard. Rule
+minted from it: **a status surface declares whose knowledge it
+shows** — device-belief and hub-confirmed are different facts and are
+labelled as such. Threshold six consecutive rejects; PAUSED
+precedence (a paused device needs no telling it stopped reporting).
+
+Liveness is now derived and named — online / stale / gone / never /
+unknown, stale coloured — and the mystery date from Todd's screenshots
+is explained: approved_at had been sitting unlabelled beside a
+liveness word, two facts dressed as one. Timestamps are labelled by
+what they are.
+
+#4's honest answer, recorded: the release-ordering rule was not
+skipped — it was *underdefined*. Three consecutive conscious
+wire-or-not calls were made from a model where a registry addition
+was not a wire change; the hub's schema validates the registry enum,
+so it was. Fix is mechanical and definition-free: /healthz advertises
+the accepted backend registry verbatim; ready-for-latest.mjs compares
+it against the registry in the published tarball — **sets, not
+versions, so the two sides need agree about nothing.** Proven against
+stubs and production. Standing instruction: the gate runs on every
+promotion including releases believed display-only — belief is the
+thing that failed.
+
+alpha.52 ruled: cut it (daemon + card fixes; the NOT REPORTING state
+only helps the installed). #3 (hub-side paired-identity reject
+anomaly) stays queued in the operator-alerting lane.

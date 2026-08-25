@@ -515,7 +515,24 @@ accepting an array later is a pure schema widening. So it joins
 system/sampling/label on the deferred list, evidence-gated: revived
 the first time someone real needs to share a service narrower than
 their team. Phase A ships `offer: "private" | "team"` (+ parked
-`public` in the enum) with roster-follow. Cowork's note for the
+`public` in the enum) with roster-follow.
+
+> **Correction (2026-08-25).** It did not. Phase A and Phase B both
+> shipped with `team` enforced by the per-person local allowlist, and
+> the daemon says so at load. Roster-follow was specified here and
+> built nowhere, which made this line a description of an intention
+> that a reader would have taken for a description of the product.
+>
+> The rule it broke is the one this project keeps re-deriving: a
+> sentence and the thing it describes ship together, or the sentence
+> waits. A spec is not exempt — it is the document somebody checks
+> the code against, so a spec that runs ahead of the build turns
+> every later reader into somebody reconciling two truths.
+>
+> Roster-follow is now byollm_001 Amendment G, RATIFIED 2026-08-25
+> and awaiting its build. The in-product notice retires with that
+> build and not with the ratification: a daemon whose `team` is still
+> local must keep saying so. Cowork's note for the
 record: the previous entry committed the array as ruled when it
 deserved this gate — caught by Todd asking "good idea or overkill?"
 

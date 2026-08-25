@@ -175,7 +175,13 @@ kit is the real gate** for `@byollm/protocol`; keep schema-validation
 unit tests but let conformance carry the guarantee (standards.md
 amended).
 
-# Amendment G — roster-follow, and what it costs (DRAFT, awaiting ruling)
+# Amendment G — roster-follow, and what it costs (RATIFIED 2026-08-25)
+
+Ruled by Todd, on one confirm: that G.2 states the accepted trade in
+plain words rather than leaving it to be inferred from the bounds.
+That was the condition, and it is the right one — an amendment that
+widens what a control plane can cause should be readable as such by
+somebody who did not write it.
 
 byollm_016's "private or team" ruling makes team membership central:
 an owner manages one roster instead of enrolling each person on each

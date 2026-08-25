@@ -153,6 +153,29 @@ export interface JobHandle {
  * enqueues and cancels through these methods and never writes job rows by
  * hand.
  */
+/**
+ * Every option `enqueue` accepts, as data.
+ *
+ * `Record<keyof EnqueueInput, true>` rather than a hand-kept array, so the
+ * compiler refuses this file when a field is added to `EnqueueInput` and not
+ * to this list. An allowlist that silently falls behind the type it guards is
+ * worse than none: it would start rejecting the very field somebody just
+ * added, in the name of catching typos.
+ */
+const ENQUEUE_OPTIONS: Readonly<Record<keyof EnqueueInput, true>> =
+  Object.freeze({
+    kind: true,
+    payload: true,
+    owner: true,
+    audience: true,
+    service: true,
+    audienceAllow: true,
+    dependsOn: true,
+    ttlMs: true,
+    deadlineAt: true,
+    id: true,
+  });
+
 export class ByollmApp {
   readonly #store: ByollmStore;
   readonly #siteKeys: StoredKeys;
@@ -218,6 +241,27 @@ export class ByollmApp {
    * the app is obliged to disclose that to whoever reads it.
    */
   async enqueue(input: EnqueueInput): Promise<JobHandle> {
+    // An option this SDK does not know is refused, never ignored.
+    //
+    // A caller newer than its SDK is the ordinary way this happens, and the
+    // case that produced the rule: a site called `enqueue({ service })`
+    // against a version that predated the field, the key went nowhere, and
+    // nothing said so. The app believed it was selecting a service, was not,
+    // and the only symptom was work running on one nobody chose. Silence is
+    // the hazard rather than the missing feature.
+    const unknown = Object.keys(input).filter(
+      (key) => !(key in ENQUEUE_OPTIONS),
+    );
+    if (unknown.length > 0) {
+      throw new Error(
+        `enqueue does not understand ${unknown.map((k) => `\`${k}\``).join(", ")}. ` +
+          `An option this @byollm/server does not know is refused rather than ` +
+          `ignored, because an ignored option is a job that runs differently ` +
+          `than you asked with nothing to see — most often an SDK older than ` +
+          `the code calling it. Upgrade @byollm/server, or remove the option.`,
+      );
+    }
+
     // Validate the payload against its kind before anything stores it.
     //
     // The schemas are `.strict()`, so this drops a payload carrying fields

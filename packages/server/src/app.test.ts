@@ -385,3 +385,81 @@ describe("naming a service — byollm_016 Phase B", () => {
     expect(stub?.["service"]).toBe("studio");
   });
 });
+
+describe("an SDK refuses what it does not understand", () => {
+  /**
+   * The hazard class this rule exists for, found the hard way.
+   *
+   * A site called `enqueue({ service })` against an SDK that predated the
+   * field. The key went nowhere, nothing threw, and the app spent the whole
+   * run believing it was selecting a service. The symptom was work running on
+   * one nobody chose — and there was nothing to see, anywhere, because a
+   * dropped option leaves no trace.
+   *
+   * A type does not catch it: types do not survive a JSON boundary, a
+   * JavaScript caller, or a version skew, and version skew is the ordinary
+   * case rather than the exotic one.
+   */
+
+  it("throws on an option it has never heard of", async () => {
+    const h = createHarness();
+    await expect(
+      h.app.enqueue({
+        kind: "llm.generate",
+        payload: { prompt: "hi" },
+        owner: "alice",
+        // The shape of a caller newer than its SDK.
+        temperature: 0.7,
+      } as unknown as Parameters<typeof h.app.enqueue>[0]),
+    ).rejects.toThrow(/does not understand `temperature`/);
+  });
+
+  it("names every unknown option, not just the first", async () => {
+    // Somebody upgrading finds out how far behind they are in one go, rather
+    // than one round trip per field.
+    const h = createHarness();
+    await expect(
+      h.app.enqueue({
+        kind: "llm.generate",
+        payload: { prompt: "hi" },
+        owner: "alice",
+        temperature: 0.7,
+        seed: 1,
+      } as unknown as Parameters<typeof h.app.enqueue>[0]),
+    ).rejects.toThrow(/`temperature`, `seed`/);
+  });
+
+  it("says the likely cause, because the message is the whole fix", async () => {
+    const h = createHarness();
+    await expect(
+      h.app.enqueue({
+        kind: "llm.generate",
+        payload: { prompt: "hi" },
+        owner: "alice",
+        service_name: "studio",
+      } as unknown as Parameters<typeof h.app.enqueue>[0]),
+    ).rejects.toThrow(/older than the code calling it/);
+  });
+
+  it("accepts every option it does document", async () => {
+    // The control, and the guard against over-refusing. `Required<>` makes
+    // TypeScript fail this file if a field is added to `EnqueueInput` and not
+    // set here — so "the allowlist rejects a real field" cannot ship quietly,
+    // which is the way this check could do more harm than the bug it prevents.
+    const h = createHarness();
+    const every: Required<Parameters<typeof h.app.enqueue>[0]> = {
+      kind: "llm.generate",
+      payload: { prompt: "hi" },
+      owner: "alice",
+      audience: "private",
+      service: "studio",
+      audienceAllow: ["bob"],
+      dependsOn: [],
+      ttlMs: 60_000,
+      deadlineAt: Date.now() + 60_000,
+      id: "job-every-option",
+    };
+    const handle = await h.app.enqueue(every);
+    expect(handle.id).toBe("job-every-option");
+  });
+});

@@ -448,3 +448,40 @@ deferred — it trades the device's local say over who runs on it for
 convenience, and gets ruled on only if roster churn makes snapshots
 genuinely annoying in practice. Timing: after Phase B; not in the
 critical path.
+
+## Ruling (Todd, 2026-08-25): private or team — membership is central. Done.
+
+Supersedes the `allow --team` snapshot ruled hours earlier (never
+built — superseded at the cheapest possible time) and the queued
+roster/allowlist drift surface (no drift when there is one list).
+
+Todd's ruling, GitHub-teams analogy: an owner manages membership once,
+centrally (the roster), not per-device. Offer is **private** (self)
+or **team** (the roster). Cowork's earlier per-person-allowlist
+defense is retracted on re-analysis: the laws that actually contain
+the account-compromise threat already exist and are stronger than the
+allowlist — the subscription self-lock is structural (no roster
+change reaches a subscription service; the lock consults no list),
+community budgets bound jobs/hour/day, wall-clock, and payload, and
+jobs are sealed and inert. Worst case of roster-following is bounded
+GPU burn on free-class services — not worth GitHub-without-teams
+ceremony on every device forever.
+
+The shape:
+- Roster syncs to the device through the hub; the daemon's per-job
+  re-check runs against the synced copy (both-sides preserved in
+  form: the daemon still checks, against the centrally managed team).
+- A roster change lands on the device as a **loud notice** ("X was
+  added to your team; this device now runs their jobs") — the
+  Amendment C pattern: no ceremony, two authorities, loud notice.
+- `byollm disallow` survives as a local per-person veto — an
+  emergency say with no enrollment ceremony. Per-person `allow` for
+  team members is gone.
+- Site approval (which apps may send work) is a different door,
+  untouched.
+- `public` stays parked for the community program (byollm_012/013
+  cloud series), unbuilt, unaffected by this ruling.
+
+Consequence for the wait-gap family: shown and runnable become the
+same fact for team members; the rostered-but-refused class is deleted
+rather than surfaced.

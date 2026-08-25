@@ -755,3 +755,44 @@ Presence — legal now, and exactly the class of change the compat
 procedures (N/N+1 wire) forbid the day the first stranger arrives.
 Pre-1.0 liberty is being spent on schema shape deliberately, while
 it's cheap.
+
+## PHASE A COMPLETE (2026-08-25)
+
+Hub on sha256:afc05fe3 running alpha.45, twelve posture checks green,
+real job sealed both ways, and the edge watch reported in full — 143
+probes over 301s, all 401 — restoring the control that had no line
+last round. Dashboard Ready, three repos clean, npm latest moved to
+alpha.45 by Todd *after* the hub deploy, per the release-ordering
+rule's first application. It held.
+
+What shipped, end to end: withheld travels the whole path — daemon
+computes, protocol parses, relay stores, Valkey persists, devices
+page renders — with the store contract forcing the last step (the
+pairing-ceiling lesson working structurally rather than being
+remembered).
+
+Design principle minted from the /devices split, CCC's phrasing kept:
+**disclosure boundaries are types that diverge, not filters that
+subtract.** OfferedDeviceView extending DeviceView would have handed
+every teammate the claimant names the moment withheld was added;
+"inherit-then-delete works until someone forgets the delete, which is
+exactly the shape of the filter that failed open earlier tonight."
+The views share a base and diverge — owner gets claimants because
+they're choosing between them; member gets kinds alone.
+
+Ops note for the release ritual: verify stamps HEAD, so the working
+order is commit → verify → push. The gate was right both times it
+refused.
+
+Queue after Phase A, per the ruled pipeline: **Phase B** (the (kind,
+service?) wire, with Kevin's feedback folding in), then roster sync
+(before anything is promoted as "team sharing works"), then the
+gemini/openai CLI backends, then the wizard. Also open: terminal-
+"gone" rides the next seam change; 21 ratcheted DB-read casts.
+
+Immediate consequence worth acting on: **the Qwen walk is unblocked
+today.** alpha.45 daemons + alpha.45 hub means Todd can write the
+services config on the Studio, pair, and hand-allow Kevin via the
+still-present local allowlist — which is not a workaround but the
+shipped, in-product-documented behavior of this build. Kevin tests
+against a real service on the final config shape.

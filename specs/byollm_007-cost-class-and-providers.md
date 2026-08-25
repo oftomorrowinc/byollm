@@ -293,3 +293,27 @@ addition is dropped as guarding a nonexistent case. Final rule, one
 line, applied to the config value only: **tag matches `:.*cloud$` →
 metered.** CCC's implementation (86ded5b) with the nimbuscloud corpus
 row is the complete and final form. Item closed.
+
+**Open question (Todd, 2026-08-25, late): is ollama:cloud metered — or
+subscription-class?** Todd's observation: ollama cloud is
+subscription-shaped — a fixed token allotment, overage billing only
+if enabled, some models (e.g. Kimi-K3) costing extra. The axes this
+spec separates decide it, and one requires homework:
+
+- **Terms (the deciding axis):** if ollama cloud's terms forbid
+  third-party work on the account, `:cloud` models are
+  subscription-class — self-locked, unwidenable by any spend
+  acknowledgment — and the tag rule upgrades from metered to
+  subscription. To be answered by reading the terms (byollm_008
+  discipline: per vendor, never assumed). Until read, metered stands
+  as the safe floor.
+- **Money:** overage ON = genuinely metered; existing law fits
+  (ack + ceiling). Overage OFF = a shape the classes don't name —
+  *quota-bounded*: sharing burns pre-paid allotment, cannot spend new
+  money, worst case is exhausted quota and refused jobs. Metered
+  classification remains legal for it (the permitted over-caution);
+  whether quota-bounded deserves its own class is deferred until a
+  second vendor exhibits the shape.
+
+Nothing changes tonight; the current rule is the conservative floor
+in both directions.

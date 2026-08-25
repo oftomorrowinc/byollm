@@ -333,3 +333,20 @@ any error is inconvenience, never leaked money; revisable only if
 ollama's terms are someday shown to expressly permit third-party
 serving. The quota-bounded shape stays named-and-deferred for a
 future vendor that actually exhibits it unencumbered.
+
+**Amended (Todd, minutes later): the ruling above is interim, and the
+oscillation stops here.** Todd's counter: ollama cloud may be "just a
+pool of tokens" with no personal-use restriction — which would break
+the Max analogy on the terms axis. Three classifications in one hour,
+each from a mental model rather than the terms, is the signal to
+stop. Standing state: **subscription-class holds as the interim
+because it is fail-safe on both axes** — if terms forbid and we'd
+said metered, an acknowledgment could widen into a terms violation
+(the exact hole this spec closes); if terms permit and we've said
+subscription, the cost is lost convenience only. Unknown terms fail
+toward the restrictive class — the regex's one-permitted-failure-
+direction logic, one level up. The question closes only by reading
+ollama cloud's terms for account-sharing/third-party language: forbid
+→ subscription, final; permit → metered (pool + overage spent by
+others is precisely what ack + ceiling protect), quota-bounded
+refinement deferred as above.

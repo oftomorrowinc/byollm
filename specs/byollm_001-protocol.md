@@ -174,3 +174,105 @@ types-and-schemas package is trivially met or gamed. The **conformance
 kit is the real gate** for `@byollm/protocol`; keep schema-validation
 unit tests but let conformance carry the guarantee (standards.md
 amended).
+
+# Amendment G — roster-follow, and what it costs (DRAFT, awaiting ruling)
+
+byollm_016's "private or team" ruling makes team membership central:
+an owner manages one roster instead of enrolling each person on each
+device. That is a change to `NAMED_LOCAL_ALLOWLIST`, whose Rev 1 §B
+text says a named job is admitted "never on the server's assertion
+alone" — and roster-follow is a daemon honouring exactly such an
+assertion. Written here rather than implied by an implementation,
+because a MUST the code contradicts is worse than either.
+
+## G.1 The property, in four parts
+
+1. **A list the daemon holds decides admission — never a per-job
+   assertion.** Nothing in a claim, a stub or a heartbeat response
+   admits a person for one job. The daemon consults its own held copy
+   and reaches the same answer whether or not anybody asked.
+
+2. **The list is authored and signed by the owner's control plane.
+   The relay delivers it and can never author it.** This is the half
+   an earlier draft of this amendment missed, and the miss mattered:
+   forbidding *per-job* assertions from the routing party leaves a
+   synced roster as a **bulk** assertion from that same party, so a
+   compromised relay could edit membership in transit. That silently
+   widens the accepted trade from "a compromised control plane can add
+   a member" to "a compromised relay can", which is not what was
+   ruled and is a materially larger surface — the relay is the one
+   component the trust model has always assumed hostile.
+
+   So the roster is signed where it is authored, verified against a
+   control-plane key the daemon has pinned, and refused otherwise.
+   Amendment C's rotation machinery covers that key's succession; no
+   second mechanism. The relay keeps exactly the power it always had,
+   which is denial: it can withhold a roster, as it can withhold a
+   job, and it can forge neither.
+
+3. **The local veto subtracts; nothing local adds.** `byollm disallow`
+   removes a person from what this device will serve, and no local
+   command puts one back in. An owner who wants somebody served edits
+   the roster, which is the single place membership lives. This keeps
+   one direction of the old per-person allowlist — the direction that
+   was ever used in an emergency — and drops the enrollment ceremony
+   that made the same fact live in N places.
+
+4. **A held roster has a maximum age, and stale fails narrow.** Past
+   it, the daemon admits its owner and nobody else. Staleness is
+   revocation latency: the case that decides the direction is a
+   teammate who was removed, and that removal cannot wait on a sync
+   that may never arrive. Failing wide would make a partitioned device
+   the most permissive one on the network, which is the opposite of
+   what a partition should mean. The bound is a protocol constant so
+   every implementation ages a roster the same way rather than each
+   choosing a comfortable number.
+
+## G.2 What this costs, in plain words
+
+Before this, a person could be added to a device's served set only by
+somebody typing a command on that device. After it, an owner adding a
+member to their team in the control plane causes their devices to
+start serving that member's jobs — and **a compromised control-plane
+account can do the same thing.** That is a real reduction and it is
+accepted deliberately, not overlooked.
+
+What bounds it is not this MUST and never was:
+
+- `SUBSCRIPTION_SELF_LOCK` is structural. A subscription-backed
+  service consults no list, so no roster change reaches it — somebody
+  else's terms stay unlendable however the roster moves.
+- `COMMUNITY_BUDGETS` bounds a teammate's jobs per hour and per day,
+  their wall-clock, and their payload size, whatever the roster says.
+- Jobs are sealed and inert. A job that runs reads nothing and writes
+  nothing; `byollm_004 §2` and `OUTPUT_INERT` do not consult
+  membership.
+
+So the worst case of a forged roster is bounded compute on free-class
+services belonging to somebody whose control-plane account was already
+taken. The ceremony being removed did not defend against that; it
+defended against it *twice*, in a second place, at the cost of every
+owner re-enrolling every teammate on every device forever.
+
+## G.3 The amended MUST
+
+> A `team` job MUST be admitted only by a roster the daemon holds,
+> signed by its owner's control plane and verified against a key the
+> daemon has pinned, minus any local veto — never by an assertion
+> from the party routing the job, per-job or in bulk, and never by a
+> roster older than `ROSTER_MAX_AGE_MS`, past which only the owner is
+> admitted.
+
+`NAMED_LOCAL_ALLOWLIST` keeps its id, per the id-stability law. The
+check that verifies it is renamed from
+"a named job runs only once the daemon's own allowlist admits it" —
+true only under a generous reading of "own" — to one that says what is
+now checked.
+
+## G.4 Sequencing note
+
+byollm_016 says Phase A ships `private | team` "with roster-follow".
+It did not: Phase A and Phase B both shipped with `team` enforced by
+the per-person local allowlist, and the daemon says so at load. That
+notice retires with this amendment, and not before — a build whose
+`team` is still local must keep saying so.

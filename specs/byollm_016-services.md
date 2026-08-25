@@ -500,3 +500,21 @@ account is inert until that person exists — invite-by-email
 semantics. Cost law unchanged: an array is named-class scope. The
 config remains the single owner-authored source — sharing with a
 person is editing config, not running enrollment commands.
+
+**Correction (minutes later, Todd + Cowork): the email array is
+deferred, not ruled.** Todd asked for the honest assessment; the
+answer is good design, no customer. Its motivating case (a
+one-person voice service) lost its artifact when the LoRA failed;
+current sharing needs are fully covered by `team`. Its cost is real:
+a third branch in mayRunFor, email→account resolution, identity edge
+cases, per-service re-check sync, three-form contract cases, and a
+third concept in wizard and docs — hours after "private or team.
+Done." removed per-person ceremony, the array would reintroduce
+per-person listing through a different door. Deferral costs nothing:
+accepting an array later is a pure schema widening. So it joins
+system/sampling/label on the deferred list, evidence-gated: revived
+the first time someone real needs to share a service narrower than
+their team. Phase A ships `offer: "private" | "team"` (+ parked
+`public` in the enum) with roster-follow. Cowork's note for the
+record: the previous entry committed the array as ruled when it
+deserved this gate — caught by Todd asking "good idea or overkill?"

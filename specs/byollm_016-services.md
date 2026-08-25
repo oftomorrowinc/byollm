@@ -730,3 +730,28 @@ it. The mid-upgrade window is now a test rather than a paragraph.
 Phase A remaining, unchanged: presence carrying
 service/isDefault/withheld, /devices owner/team split, dashboard
 defaults row, stage-5 docs rewrite (the two lint rulings land there).
+
+## Stage 5 live; release-ordering rule minted (2026-08-25)
+
+Docs rewrite deployed and verified against served pages (the house
+style): glossary at /guides/glossary; the team guide carries "does
+not open your device", `byollm allow`, and the roster-sync caveat.
+byollm at 1925399, tag v0.1.0-alpha.45 held for Todd's push;
+everything left in Phase A sits behind it — including a store
+contract that intentionally fails against Valkey until the package
+exists, which is the contract doing its job.
+
+**Rule minted (second occurrence graduates it from advice):** when a
+release changes the wire, `latest` moves only after the hub speaks
+it. Sequence: push tag → npm publish → hub deploy → verify → promote.
+The alpha tag suffices for anyone deliberately tracking between
+those steps. alpha.44 paid this rule's tuition (a live window where
+daemons vanished and jobs silently queued); alpha.45 is its first
+application. Joins the release ritual beside "promotion is Todd's,
+all-or-nothing."
+
+Era note for the 1.0 file: alpha.45 adds a *required* field to
+Presence — legal now, and exactly the class of change the compat
+procedures (N/N+1 wire) forbid the day the first stranger arrives.
+Pre-1.0 liberty is being spent on schema shape deliberately, while
+it's cheap.

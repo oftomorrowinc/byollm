@@ -380,7 +380,8 @@ export function resolveConfig(config: DaemonConfig): LoadedConfig {
         message:
           `${String(names.length)} services answer ${kind} (${names.join(", ")}) ` +
           `— set defaults.${kind} to the one that should serve it. Until then ` +
-          `${kind} is not advertised.`,
+          `a job that names one of them still runs; a job that names none has ` +
+          `nowhere to go.`,
       });
       withheld.push({ kind, services: names });
       continue;

@@ -324,11 +324,11 @@ describe("byollm services", () => {
   });
 
   it("shows a withheld kind by name, never merely omits it", async () => {
-    // **The loudness obligation.** A kind two services answer is not
-    // advertised until the owner picks a default — correct, and invisible in
-    // any surface that lists only what *is* advertised. The failure that
-    // makes it matter: an owner adds a second `llm.generate`, their team's
-    // jobs quietly stop matching, and nothing anywhere says why.
+    // **The loudness obligation.** A kind two services answer gets no default
+    // until the owner picks one — correct, and invisible in any surface that
+    // lists only what resolved. The failure that makes it matter: an owner
+    // adds a second `llm.generate`, jobs that named nothing quietly stop
+    // matching, and nothing anywhere says why.
     await writeFile(
       paths.config,
       JSON.stringify({
@@ -352,11 +352,18 @@ describe("byollm services", () => {
     await run("services");
 
     // Named, with both claimants and the fix — not absent, and not a count.
-    expect(out).toContain("withheld");
+    expect(out).toContain("no default");
     expect(out).toContain("llm.generate");
     expect(out).toContain("qwen, llama");
     expect(out).toContain("defaults.llm.generate");
-    expect(out).toContain("not offered to anyone until you choose");
+
+    // And it says what is actually true now, which is the half that went
+    // stale when the meaning changed under it. Both services *are* advertised
+    // and selectable; what has no answer is a job that named neither. The
+    // old sentence — "not offered to anyone until you choose" — described
+    // Phase A and survived the change that falsified it.
+    expect(out).toContain("a job naming one of them runs");
+    expect(out).not.toContain("not offered to anyone");
   });
 
   it("says team enforcement is still the local allowlist in this build", async () => {
@@ -537,12 +544,17 @@ describe("status shows services and defaults, not only routes", () => {
     expect(out).toContain("team (you and people you allow)");
   });
 
-  it("names the default for a contended kind", async () => {
-    // Where "why did it use that one" is answered. There is no other surface
-    // that says it.
+  it("says the default once, on the service that is it", async () => {
+    // There was a separate `defaults` section for about an hour. It printed
+    // `llm.generate → studio` beside a service line already reading
+    // `studio — default for llm.generate`: the same fact twice, which is the
+    // criticism that removed `routes` the same afternoon. A display that
+    // restates itself is two things to keep in step, and only one gets
+    // updated.
     await write(CONFIG);
     await run("status");
-    expect(out).toMatch(/defaults[\s\S]*llm\.generate\s+studio/);
+    expect(out).toMatch(/studio[\s\S]*?default for llm\.generate/);
+    expect(out).not.toMatch(/^defaults$/m);
   });
 
   it("has no routes section, because it said nothing the rest did not", async () => {

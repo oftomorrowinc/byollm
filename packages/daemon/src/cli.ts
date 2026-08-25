@@ -939,6 +939,13 @@ async function commandStatus(
   // "serves nothing right now" and "is not on the menu" are different and no
   // surface said which. Every declared service is selectable by name; the
   // default is only where an *unselected* job goes.
+  //
+  // There is no separate `defaults` section, and there was one for about an
+  // hour. It listed `llm.chat → claude` beside a service line already reading
+  // `claude — default for llm.chat`: the same fact twice, which is the
+  // criticism that removed `routes` the same afternoon. A display that
+  // restates itself is two things to keep in step, and only one of them gets
+  // updated.
   const byService = new Map<
     string,
     { defaults: string[]; selectable: string[] }
@@ -986,14 +993,6 @@ async function commandStatus(
     );
   }
 
-  const defaults = Object.entries(loaded.config.defaults);
-  if (defaults.length > 0) {
-    io.out("\ndefaults\n");
-    for (const [kind, name] of defaults) {
-      io.out(`  ${kind.padEnd(14)} ${name}\n`);
-    }
-  }
-
   // **Withheld is shown, never merely absent.**
   //
   // A kind two services answer is not advertised until the owner says which
@@ -1003,10 +1002,11 @@ async function commandStatus(
   // with the fix.
   for (const held of loaded.withheld) {
     io.out(
-      `  … ${held.kind.padEnd(14)} withheld — ${String(held.services.length)} services ` +
+      `  … ${held.kind.padEnd(14)} no default — ${String(held.services.length)} services ` +
         `answer it (${held.services.join(", ")})\n` +
-        `      not offered to anyone until you choose: ` +
-        `set defaults.${held.kind} in ~/.byollm/config.json\n`,
+        `      a job naming one of them runs; a job naming none has nowhere ` +
+        `to go\n` +
+        `      set defaults.${held.kind} in ~/.byollm/config.json\n`,
     );
   }
   for (const problem of loaded.problems) {
@@ -1606,10 +1606,11 @@ async function commandServices(
   // question.
   for (const held of loaded.withheld) {
     io.out(
-      `  … ${held.kind.padEnd(14)} withheld — ${String(held.services.length)} services ` +
+      `  … ${held.kind.padEnd(14)} no default — ${String(held.services.length)} services ` +
         `answer it (${held.services.join(", ")})\n` +
-        `      not offered to anyone until you choose: ` +
-        `set defaults.${held.kind} in ~/.byollm/config.json\n`,
+        `      a job naming one of them runs; a job naming none has nowhere ` +
+        `to go\n` +
+        `      set defaults.${held.kind} in ~/.byollm/config.json\n`,
     );
   }
   for (const problem of loaded.problems) {

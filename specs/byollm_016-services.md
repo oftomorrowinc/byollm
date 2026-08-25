@@ -686,3 +686,47 @@ values — an unknown value keeps work at home**; and **every
 audience/offer filter carries an unknown-literal case asserting
 closed** — the fixture for a value that can't exist yet is the one
 that catches the rename.
+
+## Phase A: hub + web deployed end-to-end on alpha.44 (CCC, 2026-08-25)
+
+Hub on sha256:1988b6f5, twelve posture checks green, real `audience:
+"private"` job through hub.byollm.cloud — enqueued, claimed, sealed
+both ways, run, opened. Dashboard and docs live, verified by served
+HTML rather than build logs. byollm 2745d9a + tag, byollm-cloud
+e9c061c, byollm-cloud-web 6049bbe. Todd's latest promotion unblocked
+by this deploy.
+
+Ratified judgment calls: (1) not rolling back a healthy hub when the
+proof harness — not the thing it measures — was what failed (the
+round-trip/long-job/kill-test scripts still built retired-shape
+configs, so the prover was refused by the daemon it drives); (2) the
+deliberate scope widening to the docs guides, for the right stated
+reason: "an error message pointing at the config it just refused is
+worse than no pointer."
+
+Honest-control note, kept as the standard: the edge watch died with
+the script, so this deploy has no during-rollout edge line; CCC ran
+the real watcher after (58 probes / 121s, all 401) and reported "a
+weaker claim than the deploy normally makes, and it's the one that's
+true" — including the confessed 404s from a guessed path. That
+sentence is the house style for controls that didn't report.
+
+Rules minted: **proof harnesses are consumers too** — a breaking
+change's migration checklist includes the scripts that prove
+deployments, or the prover blocks the proven (roll.sh's rollback
+advice was correct as a default and wrong here; the fix is harnesses
+that ride the migration, not softer advice). And **deploy-critical
+pipelines don't hide state**: two `| tail` mistakes cost visibility
+twice — a piped background deploy silent until exit, and a pipeline
+exit code masking a real failure with 0. Deploy paths run unpiped or
+with pipefail, never both buffered and trusted.
+
+Boundary relocation from the pin bump, recorded: every hub fixture
+said `audience: "self"`, so CLAIM_ATOMIC — a concurrency test — went
+red at parse. The Lua allowlist is the *second* line of defense; a
+stub carrying an old spelling is refused at parse and never reaches
+it. The mid-upgrade window is now a test rather than a paragraph.
+
+Phase A remaining, unchanged: presence carrying
+service/isDefault/withheld, /devices owner/team split, dashboard
+defaults row, stage-5 docs rewrite (the two lint rulings land there).

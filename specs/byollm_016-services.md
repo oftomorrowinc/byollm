@@ -485,3 +485,18 @@ The shape:
 Consequence for the wait-gap family: shown and runnable become the
 same fact for team members; the rostered-but-refused class is deleted
 rather than surfaced.
+
+**Amendment (Todd, 2026-08-25, minutes later): the third offer form.**
+`offer` is one of three shapes: `"private"`, `"team"`, or an array of
+emails written directly in the config. Not a replacement for the
+central-team ruling — its completion, and it restores per-service
+subset audiences the team scope structurally could not express
+("Lis's voice model is for Lis" is one config line). The GitHub
+analogy completed: private repo / org team / named collaborators.
+Mechanics: emails are the owner's vocabulary; the hub (owner of
+identity) resolves them to accounts; the daemon re-checks jobs
+against the resolved set (both-sides, same as team); an email with no
+account is inert until that person exists — invite-by-email
+semantics. Cost law unchanged: an array is named-class scope. The
+config remains the single owner-authored source — sharing with a
+person is editing config, not running enrollment commands.

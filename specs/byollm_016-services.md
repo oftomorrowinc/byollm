@@ -1002,3 +1002,34 @@ story. Status = identity/state, paired apps, services (inventory:
 every service, health, kinds, offer, idle-and-why), defaults
 (resolution), audience, budgets, history. Wording: "offered to
 private" → "private (only you)"; "team" likewise unprefixed.
+
+## Roster-sync MUST amendment: ruled properties (2026-08-25)
+
+CCC's pause-before-build was correct and its proposed wording almost
+right — it preserved the real property (the routing party cannot
+grant access per job) but left one hole and one bound unstated.
+Ruled: CCC drafts the NAMED_LOCAL_ALLOWLIST amendment against four
+properties, Todd/Cowork rule on the text:
+
+1. **Admission is decided by a list the daemon holds** — never a
+   per-job assertion.
+2. **The list is authored and signed by the owner's control plane;
+   the relay delivers but can never author it.** An unsigned synced
+   roster is a bulk assertion from the routing party — a compromised
+   hub editing membership in transit — which silently widens the
+   accepted trade from control-plane compromise to hub compromise.
+   The daemon verifies against a pinned control-plane key; Amendment
+   C's rotation machinery gives that key its succession story. The
+   hub retains only the denial it always had (delay, drop).
+3. **The local veto subtracts; nothing local adds.**
+4. **The held roster has a maximum age (protocol constant,
+   ROSTER_MAX_AGE-shaped), and stale fails narrow** — admit nobody
+   new; the owner always admits. Staleness is revocation latency:
+   the fired-teammate case must not wait on an unbounded sync.
+
+The amendment carries the accepted-trade sentence in plain words
+(a compromised control plane can add a member; bounded by the
+structural self-lock and community budgets) rather than eliding it,
+per CCC's own instinct. C006 is renamed rather than read generously.
+The Phase A sequencing drift in this spec is corrected in the same
+pass, and the in-product team-gap notice retires with the build.

@@ -63,7 +63,13 @@ try {
   console.log(`mutated ${file}: ${find.trim().slice(0, 60)}...`);
   result = spawnSync(
     "npx",
-    ["vitest", "run", "--reporter=json", "--outputFile=/tmp/mutation.json", ...testArgs],
+    [
+      "vitest",
+      "run",
+      "--reporter=json",
+      "--outputFile=/tmp/mutation.json",
+      ...testArgs,
+    ],
     { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] },
   );
 } finally {
@@ -103,4 +109,6 @@ if (failed === 0) {
   );
   process.exit(1);
 }
-console.log(`\nthe mutation was caught by ${String(failed)} of ${String(ran)} tests.`);
+console.log(
+  `\nthe mutation was caught by ${String(failed)} of ${String(ran)} tests.`,
+);

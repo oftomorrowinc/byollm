@@ -103,3 +103,16 @@ include a tool-escape probe — a prompt instructing the CLI to read a
 file and echo it (and kin) — passing only when no tool fires. This
 joins the five questions as a sixth, for codex now and every CLI
 after it.
+
+**Ruling (Todd, 2026-08-25): the disqualification goes public.** The
+home page and docs state gemini-cli as NOT supported, with the
+reason — its built-in file access cannot be disabled, and our
+isolation rules require that no tool be reachable from a prompt. Two
+precision requirements: the claim is dated and versioned (as tested
+against the gemini-cli version current 2026-08; the tool-escape probe
+is the standing re-test, and support returns if it ever passes), and
+the same surface is honest in the other direction — codex is "coming"
+until its adapter ships and its probe passes, never "supported" early
+(claims trail proofs). Shape: a supported-backends table — supported
+(openai-http servers, claude-cli), coming (codex), not supported
+with stated reason (gemini-cli).

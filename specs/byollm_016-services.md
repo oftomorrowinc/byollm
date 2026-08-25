@@ -639,3 +639,26 @@ the cloud docs teach private | team, mentioning public only as an
 open-source direct-mode capability awaiting the community program)
 and stays fully supported in the daemon and direct mode. Phase A's
 docs rewrite (stage 5) carries the docs half. Item closed.
+
+## Capability wire landed (CCC, 2026-08-25, 9a6d17e)
+
+One rev, deliberately bundled — three separate revs would have meant
+three rounds of every consumer re-agreeing what a capability row
+means. `service` (a device says which service answers a kind),
+`isDefault` (stated, not inferred — the Phase B guard implemented),
+and withheld as `{kind, claimants: [{service, offer}]}` (carry for
+computation, filter for display). Optional-with-a-default: a daemon
+withholding nothing sends nothing, and an older daemon against a
+newer hub reads as "no withheld kinds," not a parse failure. 1006
+tests green.
+
+On CCC's flagged trap for per-service detection (one Ollama endpoint
+serving both free local and metered :cloud models): resolved by the
+shape, not by a new ruling. Cost is a property of the *service*, and
+a service pins one model — two services may share a baseUrl and
+classify differently, each from its own configured model name. The
+suffix check runs against the config value, not the server listing;
+aliasing to evade spends the owner's own quota (already ruled
+self-punishing). The old backends shape had this trap; the
+reorganization removes it. Endpoint-level cost is dead; long live
+service-level cost.

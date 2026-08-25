@@ -235,3 +235,14 @@ acknowledgment to share a free model — inconvenient, safe; a false
 negative silently donates real money to the audience. This check may
 only fail toward metered. Corpus rows should include both suffix
 forms and a near-miss (e.g. `cloudless`, which must NOT match).
+
+**Refined (Todd, minutes later): the tag always has a `:`; cloud-ness
+lives in the tag.** Rule: the model's *tag* ends with `cloud` —
+pseudo-regex `:.*cloud$` (end-anchored; unanchored would catch
+`:cloudless`). Supersedes `[:-]cloud$`, and is more precise in both
+directions: a base name containing "cloud" with an ordinary tag
+(`cloudmodel:7b`) does not match, and an untagged model (no colon)
+reads free. Oddballs like `:xcloud` still classify metered — the
+permitted failure direction. Corpus rows: `x:cloud`,
+`x:0731-cloud`, `x:cloudless` (no), `cloudmodel:7b` (no), untagged
+(no).

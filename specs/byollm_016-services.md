@@ -869,3 +869,52 @@ full-flush rehearsal is unblocked by this design.** D.4 is now an
 address: a per-job query on the site plane (pending/results are
 batch polls with no per-id ask), riding the next change to that
 surface.
+
+## Phase B functionally complete; the ruling and two rules (2026-08-25 morning)
+
+Published: alpha.46 (wire + matching), .47 (wizard + codex), .48 (SDK
+selection; Todd set latest). Hub on sha256:2a98901e, twelve posture
+checks, edge held 144 probes. Selection proven in production:
+advertised service runs, unadvertised stays queued — verified against
+the deployed hub.
+
+**The proof that passed while the opposite was true, recorded
+precisely:** the first selection proof asserted `state === "ok"`
+while the state was `claimed`, and its own output showed the
+"must never run" job had run. Two defects, one in the check (now
+reads `seen`, the device's own record, with a control: if the
+advertised name didn't run either, the negative proves nothing) and
+one in the run (the hub's pinned SDK predated `service` and dropped
+the field — the Lua was never exercised, so selection was never
+actually violated in production; the proof was simply about nothing).
+The fixed check was validated by running it against .46, where it
+fails on exactly what the old one called a pass, and now runs on
+every deploy. Third control-needed instance in one night: codex's
+canary, the escaped mutation, this.
+
+**Ruling — terminal refusals live with the site's deadline, never on
+the wire at enqueue.** Services exist only while advertised;
+advertisement rides presence; therefore every selection-failure cause
+is entangled with transient absence, and enqueue-time terminality
+would make a device reboot fatal to jobs that would have run.
+Instead: enqueue accepts, the availability report answers at t=0
+("nothing currently serves this selection") so silence never occurs,
+and the site's deadline/onNoRunner policy is the sole terminal
+authority — only the site knows its urgency. Constraints: the
+requester-facing advisory uses the same opaque collapse as
+REFUSED_SELECTION (one state for unadvertised and unoffered, else the
+advisory is the oracle through a side door), and deadline expiry of
+an unmatched selected job carries the same opaque cause — the
+post-mortem isn't silence either.
+
+**Rule — SDKs refuse what they don't understand.** An alpha.46 SDK
+silently dropped `service`; a JS site believing it was selecting
+wasn't, with no error anywhere. From .48 the SDK parses enqueue
+options strictly: unknown field throws, never drops.
+
+Wizard refinements queued (Todd's first human run): example name
+`my-computer`; "to verify" over "to check it"; codex caution note
+removed citing the passed probe; and server discovery by **probe,
+not ps** — hit well-known local ports with /v1/models and
+multi-select from what answered (byollm_013 applied to onboarding;
+cross-platform for free).

@@ -1249,3 +1249,20 @@ structural self-lock). Ruling:
 
 Interim: today's walk uses the shipped two-door state (byollm
 approve) — a counted annoyance with a death date, not a design.
+
+**Correction (minutes later, Cowork's error, confirmed from code):**
+the two-door ruling above addressed a door that does not exist.
+`byollm approve` acts on a *waiting* queue of direct-mode site
+requests; on the cloud route there is no per-site device ceremony —
+the daemon serves the hub it paired with, and a site's authorization
+IS the consent row ("nothing waiting matches" was the daemon saying
+so). The cloud route was already one-click; Kevin's checklist was
+complete; Cowork's "step 4" and the amendment plan derived from it
+are withdrawn. What survives of the ruling: the **loud first-delivery
+notice** ("<site> sent its first job here, for <member>") stays
+queued as a worthwhile addition, and direct mode's approve ceremony
+stays load-bearing and unchanged. Second unverified-assumption error
+by Cowork this week, recorded beside the first; the code was, again,
+the honest surface. Minor polish note for CCC: the `byollm sites` hub
+row prints id and fingerprint as two identical lines — technically
+true, reads as a stutter.

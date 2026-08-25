@@ -151,3 +151,45 @@ load-time ambiguity error becomes the fallback for hand-written
 configs, not the mainstream experience. The unblock condition
 stands: the wizard writes the byollm_016 shape, so it builds only
 after Phase A settles it (now satisfied by the pipeline order).
+
+---
+
+## Wizard shipped (CCC, 2026-08-25 night, rides alpha.46)
+
+`byollm setup` landed: three questions, writes the config, and parses
+what it built with the daemon's own schema before writing a byte —
+the wizard cannot author a config the daemon would refuse. Codex
+shipped beside it with its tools proven off: canary read blocked,
+plus a control leak confirming the test can detect (live check gated
+behind BYOLLM_CODEX_LIVE=1) — the sixth question answered with both
+controls. Pipeline-order note: this ran ahead of Phase B's hub half;
+deviation ratified because wizard-last existed to build once against
+the final CLI set, and the set went final when gemini-cli was
+disqualified. To confirm in daylight: the conditional fourth question
+(authoring `defaults` when a kind has two claimants) is present per
+this spec.
+
+Two findings worth more than the feature, both kept:
+
+- **Detection is a parameter.** The empty-machine test failed because
+  the developer's laptop has claude — "a test whose answer depends on
+  the developer's install would say one thing here and another in CI,
+  which is worse than no test." Rule: tests never read the
+  developer's environment; they're handed it.
+- **The runtime outranks the declaration.** @types/node declares
+  isTTY boolean; Node sets undefined off-terminal. The linter argued
+  three times from the wrong declaration, and obeying it put
+  undefined into a boolean field — caught by the terminal-adapter
+  test. The eslint-disable carries its explanation. Same family as
+  the no-as-casts ratchet: types are claims, runtime is truth.
+
+**The honest gap, stated as the handoff it is:** the interactive path
+has never run against a human terminal (pty attempts hit readline EOF
+then hung; killed rather than sunk time). Proven: 19 unit tests + the
+CLI refusal path. Todd's one-minute morning task: run `byollm setup`
+in a real terminal — the standing rule (Todd tests through the real
+path) applied to the wizard's first breath.
+
+alpha.46 publishing; per the release-ordering rule, latest moves only
+after CCC's hub-on-.46 deploy report exists — not merely after time
+has passed.

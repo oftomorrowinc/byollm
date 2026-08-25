@@ -30,6 +30,16 @@ const MODEL = "claude-opus-5";
  */
 const ALLOWED_ENV = new Set([
   "PATH",
+  // `USER`, affirmed here as this file asks — 2026-08-25. macOS keeps the
+  // CLI's credentials in the login Keychain rather than under `HOME`, and
+  // reaching them needs the user's name; without it the backend reports
+  // healthy and every job fails "Not logged in".
+  //
+  // Does it belong? It names the account the daemon is already running as,
+  // which a child that can read `HOME` can read off the path anyway. It
+  // carries no secret and widens no reach: the containment here is the empty
+  // tool set and the read-only sandbox, not the absence of a username.
+  "USER",
   "HOME",
   "LANG",
   "LC_ALL",

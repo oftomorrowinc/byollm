@@ -76,3 +76,28 @@ the names — a model name goes through detection, so the guide says
 "edit, restart, run `byollm services`; a wrong name fails loudly
 there," never just a table of strings to trust. Aliases-vs-pinning
 stated plainly (float tracks the vendor's default; pin survives it).
+
+## Docs sweep for the identity + selection wiring (Todd's ask, 2026-08-25)
+
+**Now (rides the paste-id interim):** the integrate guide is actively
+wrong — it teaches owner-from-session, direct-mode truth and
+cloud-route error, the exact confusion the first real integrator hit.
+It gains the two-mode split: direct = your app's own user ids;
+cloud = the byollm.cloud id, user must have connected your site,
+read-and-paste from the account page today, save-time validation via
+available({kind, owner}) with the existence-neutral wording taught as
+the pattern. Same content in the @byollm/server package README (npm
+is where integrators actually land). Cheap riders: the reference
+documents Phase B selection (the service field, key-vs-value, the
+menu, selection-unavailable — shipped in .48, never documented); the
+glossary gains "your BYOLLM id" (caveat in the UI's own words) and
+"consent/connect."
+
+**Queued, already ruled:** model-name reference; supported-backends
+table incl. gemini's not-supported entry; connect guide re-opened
+wizard-first (byollm setup, byollm install, NOT REPORTING in
+troubleshooting).
+
+**Deliberately not yet:** the Connect button (cut-until-true — the
+connect-flow PR documents itself atomically); trust-page MUST
+additions (wait for Amendment G's RATIFIED, cite law not drafts).

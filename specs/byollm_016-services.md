@@ -1614,3 +1614,31 @@ the source-level check now covers all four.
 document NAMES, not the count, while it's advisory: a member
 silently absent becomes a refusal the moment B2 makes the document
 decide. Todd ruled: B2 now, then .57 with everything folded.
+
+## Composition resolved; first-person rule's second instance (2026-08-26)
+
+The roster is CORRECT, read by name from the signed document: owner
+tsampson, members Kevin and Lis. Owners are never in their own member
+list — a three-person team yields a two-member roster; "2 of 10
+seats" counts seats sold, the roster counts people who may route to
+the owner's devices. Same fact, two frames. The earlier "you and
+Kevin" reading was wrong; B2's document admits Lis and carries no
+redundancy. B2 unblocked.
+
+**The duplicate was real — the first-person-filter rule's second
+instance in two days, wider blast (b41a866):** "Teams you are on"
+filtered by role !== admin and nothing else — two teammates, two
+rows, your own group listed twice with Leave buttons; the rosters
+page variant would have shown a co-admin's roster as their own.
+Connections needed a platform admin; this needed only a teammate.
+The broad memberships read is correct (every member may read the
+group) — the defect is always the reader filtering by role and
+forgetting the person. Kept for permanence: **tsc stays green with
+the ownership predicate deleted** — no type or lint catches
+"filtered by role but not by person"; the predicates are extracted
+and tested as rules, signed-out pinned (empty-string viewer matches
+NO row, never every row).
+
+Go: B2 finishes (C006 rename + in-product notice retiring in the
+release whose flip makes the sentence true), then .57 with the
+ordering fix folded, gate deciding the hub question as always.

@@ -2552,3 +2552,34 @@ unshareable ever), the platform ceiling on cloud-routed metered spend (v1.2 —
 this scenario is exactly what it was corrected to cover), explicit-cap consent,
 and loudness on every widening. My asymmetric rule is withdrawn with attribution
 — it defended most strongly the case class law already made impossible.
+
+### Web-door additions ratified; CLI control-plane twins deferred; glm diagnostic closed (2026-08-26)
+
+Todd ratified step-up re-auth and both-channel widening notices ("exactly right").
+
+**Ruled: control-plane actions are web-only for v1.** The CLI keeps the four
+verbs — all device-local, device-credentialed. Commands that act on the account
+at a relay (team add, mapping edits, site enablement — the "CLI twin" family from
+the Amendment I rider) are NOT built now: person-level credentials in the daemon
+CLI are a real security surface (token storage, a step-up flow needing browser
+handoff), two doors during the rip means drift risk while the law is still
+settling, and the two-credentials-never-mix line stays sharpest when the byollm
+binary holds only the device's identity. The rider's deferral stands — designed
+later as a deliberate subcommand family, not grown now. (`byollm offer` is not in
+this family: it authors device state and stays.)
+
+**glm offer diagnostic: closed.** Post-patch, `byollm offer glm-5.2 team --cap
+2500` took, with the full metered ceremony — explicit dollar translation
+("$25.00 a day... stops at that ceiling and resumes the next day"), y/N consent —
+and services now shows the effective state. The earlier "never took" is
+attributed to the pre-fix surfaces; no further diagnosis owed.
+
+**Three wording items from Todd's paste, for commit 3 (product-law surfaces —
+wording gates the merge):**
+1. The consent prompt says "people you have allowed" — allowlist vocabulary,
+   which is a dead concept mid-rip. It must say the audience: "your team."
+2. services prints "metered — shared, cap 2500c/day" — "shared" is not a scope;
+   one-vocabulary says the row prints its offer scope by name: team.
+3. The consent ceremony speaks dollars ("$25.00 a day"); the services row speaks
+   cents ("2500c/day"). Surfaces sharing a value share its unit — print dollars
+   where the consent did.

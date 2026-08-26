@@ -2125,3 +2125,21 @@ Seven holes were put to Todd with proposed answers. Rulings:
    relay; cloud surfaces speak private|team only. Public remains fully valid in
    OSS direct mode. `byollm services` says so plainly ("public: direct mode only").
    Revisited only if the parked paying-owners marketplace gets its session.
+
+### Correction to hole 4's v1.2 scope (2026-08-26, Todd's, with attribution)
+
+My scoping line — "what an owner spends on their own machine for their own jobs is
+not the platform's to cap" — was wrong, and Todd caught it: "If a dev did a poor
+setup on their server or leaked their hub keys I think we should do our best to cap
+their damages for a while. Anthropic and OpenAI both limit your spend to start on
+your own endpoints to prevent a foot gun as you learn."
+
+The ceiling's purpose is protecting the account holder from mistakes, not only from
+other people — a leaked site key or a runaway server loop enqueues the owner's OWN
+jobs and burns their metered backend just as fast. The correct scope line is not
+whose jobs but which route: the progressive ceiling governs ALL cloud-routed spend
+on metered services — every job the hub authors a grant for, the owner's included.
+What stays outside is machine-local and direct-mode spend, and for the correct
+reason: the platform never sees those jobs, and a cap on what you cannot see is
+either surveillance or fiction. The Anthropic/OpenAI analogy lands exactly because
+their caps govern spend flowing through their platform — same here.

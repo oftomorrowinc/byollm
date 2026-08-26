@@ -1554,3 +1554,33 @@ routing-state connectivity; examine before real traffic.
 
 Todd's next walk step: re-pair the Studio (byollm connect) to pin
 the key — which also walks option 1's notice the moment it exists.
+
+## Pre-.56 close-out (2026-08-26)
+
+Todd's empty roster status explained honestly: the re-pair was
+correct against a hub that offers the key — but the .55 daemon's
+storing wire is unreleased, so it dropped the offer on the floor.
+Expected, not a bug; the release boundary is the missing link. .56
+ruled cut before B2 — a verifiable roster on a real device before the
+thing that depends on it.
+
+Keepers: (1) the smoke assertion now checks membership plus
+every-offered-key-is-a-self-consistent-identity — preserving what
+the count was reaching for (catching an unverifiable upstream
+insertion) without encoding how many consents Todd happens to have.
+(2) **The option-1 notice fires on evidence, never a guess:** the
+daemon can't know whether an upstream has a control plane, and a
+standing roster line on every direct-mode pairing would be wallpaper
+— the trigger is "this upstream sent a roster AND this pairing holds
+no key," which can only mean the pairing predates it. Notices earn
+attention by firing only when they know. (3) **no-pinned-key
+unfolded from bad-signature** — bad-signature describes a
+verification that never happened and sends someone hunting a
+forgery, and no-pinned-key is the only refusal with a remedy;
+collapsing them lost the actionable sentence. The refusal laws'
+two sides navigated correctly in one change: requester-facing
+refusals collapse (disclosure); owner-facing refusals split by
+remedy (action). A mutation proved the split worth its own test.
+
+Todd's sequence on publish: latest → byollm install → one byollm
+connect → status shows a signed roster of 2 held. Then B2.

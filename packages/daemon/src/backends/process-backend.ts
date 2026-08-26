@@ -41,6 +41,21 @@ export interface ProcessJob {
 }
 
 export async function runProcessJob(job: ProcessJob): Promise<BackendResult> {
+  // A call with no time limit is a caller bug, and running it unbounded is a
+  // worse answer than refusing it. Guarded here rather than trusted to the
+  // type: the message this replaces read "did not answer within undefinedms",
+  // which names a number nobody set — and it fired instantly, so the run
+  // looked like a timeout that had not happened.
+  if (!Number.isFinite(job.request.timeoutMs) || job.request.timeoutMs <= 0) {
+    return {
+      ok: false,
+      code: "backend-error",
+      message: "no time limit was set for this call",
+      retryable: false,
+      durationMs: 0,
+    };
+  }
+
   // An empty directory of our own making. The child's `cwd` is never the
   // daemon's, never the user's home, and never anything a payload named.
   const scratch = await mkdtemp(join(tmpdir(), "byollm-job-"));

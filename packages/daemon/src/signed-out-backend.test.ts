@@ -52,3 +52,28 @@ describe("a process backend whose credentials have gone", () => {
     }
   });
 });
+
+describe("a call with no time limit", () => {
+  it("is refused, rather than reported as a timeout that did not happen", async () => {
+    // Found by passing the wrong field name in a test: the message read "the
+    // model did not answer within undefinedms" and arrived in 2ms, so a
+    // caller bug presented as a timeout and named a number nobody set.
+    const dir = await mkdtemp(join(tmpdir(), "byollm-notimeout-"));
+    const binary = join(dir, "fake-claude.mjs");
+    await writeFile(binary, SIGNED_OUT, "utf8");
+    await chmod(binary, 0o755);
+
+    const result = await new ClaudeCliBackend(binary).execute({
+      model: "claude-opus-5",
+      prompt: "say hi",
+      maxOutputBytes: 4096,
+      signal: new AbortController().signal,
+    } as never);
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.code).not.toBe("timeout");
+      expect(result.message).toBe("no time limit was set for this call");
+    }
+  });
+});

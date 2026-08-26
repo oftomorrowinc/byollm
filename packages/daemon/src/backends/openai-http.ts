@@ -103,6 +103,21 @@ export class OpenAiHttpBackend implements Backend {
   }
 
   async execute(request: BackendRequest): Promise<BackendResult> {
+    // A call with no time limit is a caller bug, and running it unbounded is a
+    // worse answer than refusing it. Guarded here rather than trusted to the
+    // type: the message this replaces read "did not answer within undefinedms",
+    // which names a number nobody set — and it fired instantly, so the run
+    // looked like a timeout that had not happened.
+    if (!Number.isFinite(request.timeoutMs) || request.timeoutMs <= 0) {
+      return {
+        ok: false,
+        code: "backend-error",
+        message: "no time limit was set for this call",
+        retryable: false,
+        durationMs: 0,
+      };
+    }
+
     const started = Date.now();
     // One timeout governs the call whether it stalls before or during the
     // response body — a server that accepts and then dribbles forever must

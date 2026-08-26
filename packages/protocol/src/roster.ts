@@ -101,7 +101,7 @@ export function rosterStatement(input: {
 
 /** Sign a roster with the control plane's own key. */
 export function signRoster(
-  keys: StoredKeys,
+  keys: Pick<StoredKeys, "identityPrivate">,
   input: { owner: string; members: readonly string[]; issuedAt: number },
 ): SignedRoster {
   const members = [...input.members].sort();

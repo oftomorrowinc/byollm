@@ -154,7 +154,20 @@ export function verifyPublicIdentity(identity: PublicIdentity): boolean {
 }
 
 /** Sign arbitrary bytes with an identity key. */
-export function signWith(keys: StoredKeys, data: Uint8Array): string {
+/**
+ * Sign bytes with an identity key.
+ *
+ * Takes only the private half it uses. A signer that demanded a whole
+ * {@link StoredKeys} would make every caller hold an encryption keypair for a
+ * job that has no encryption in it — and the control plane, which signs
+ * rosters and opens nothing, would be generating and storing secret material
+ * it can never need. Every existing caller passes a full `StoredKeys`, which
+ * satisfies this.
+ */
+export function signWith(
+  keys: Pick<StoredKeys, "identityPrivate">,
+  data: Uint8Array,
+): string {
   return sign(null, data, importPrivate(keys.identityPrivate)).toString(
     "base64url",
   );

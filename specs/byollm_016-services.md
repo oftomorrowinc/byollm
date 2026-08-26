@@ -1403,3 +1403,26 @@ work. Docs fixes from the night recorded: the reference page carried
 the owner bug on the page meant to be pasted into a coding assistant
 verbatim — fixed; Phase B selection documented at last; glossary
 gained the own-id entry.
+
+## Contradiction resolved by firsthand testimony (Todd, 2026-08-26 morning)
+
+Todd's account of the walk settles it: consent (dashboard, post-RLS
+fix) → the hub THEN offered press to the daemon → byollm sites showed
+it → byollm approve succeeded → then the claude/keychain failure and
+the default switch → pong. **The per-site device ceremony exists on
+the cloud route, ordered after consent.** Cowork's withdrawal was the
+error — "nothing waiting matches" during the pre-consent attempts
+meant nothing had been OFFERED yet, not that no door exists; an empty
+queue read as a nonexistent queue, the evidence-of-absence class,
+fourth instance, by its own chronicler. CCC's overnight fingerprint-
+pair observation is vindicated.
+
+**The device-follows-consent ruling UN-WITHDRAWS, with better
+evidence than it originally had:** two ceremonies ask the same person
+the same question and the second cost the first walk a round. Revived
+as originally shaped, on Amendment G's real machinery — the owner's
+consent delivered to the daemon as a signed control-plane fact on the
+Phase C channel, loud first-delivery notice, byollm forget as the
+local veto, direct mode's ceremony untouched and load-bearing there.
+This is onboarding item #1 for today, Amendment-H-shaped, drafted
+against G's properties once C lands.

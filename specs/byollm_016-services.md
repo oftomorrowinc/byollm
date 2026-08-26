@@ -1785,3 +1785,37 @@ loudly on the notices channel, never silently; Todd's probe specimen
 (toddsampson2008@gmail.com) rides that retirement. Status's "who can use this device"
 becomes: you, always; then per approved site — for rostered relays, the roster count
 with its signing age, minus any "refusing …" rows; for direct sites, the site itself.
+
+### Amendment I, rider: CLI add-user as a client of the roster authority (2026-08-26)
+
+Todd: "We made the relay open source for this reason. I can see the CLI allowing you
+to add a user to a hub you are a member of."
+
+Recorded as the completion of the git analogy. `gh` can add a collaborator — but it
+does so by calling GitHub's API, never by editing a local list. The convenience lives
+in the client; the authority stays where the namespace lives. Same here:
+
+- The command is a control-plane client, not admission machinery. It writes nothing
+  local and the daemon never sees it. It calls the relay's roster API, authenticated
+  as the person (their cloud identity — the device's pinned keys play no part; two
+  credentials, never mixed), and the change reaches devices only as a newly signed
+  roster through G's ordinary channel. "Nothing local adds" survives untouched — the
+  add is not local.
+- Two doors, one law. The CLI does exactly what the team page does: same API, same
+  authorization, same refusals split by remedy (over seat cap → upgrade; not
+  authorized → ask the team owner). The door count may grow; the law count may not.
+- Authorization is role, not membership. Being on a team does not confer the right to
+  add to it — owners/admins add, per the relay's own rules, enforced at the API. The
+  seat limit is enforced there too, as always, at roster authorship.
+- It targets a relay, plural-ready. "A hub you are a member of": defaultable when
+  there is one, explicit when there are several, fails closed on an unknown name. The
+  open-source relay is the point — anyone's relay, own namespace, own signing key,
+  pinned at pairing; the command hardcodes nothing.
+- Naming stays away from the corpse. It must not be `byollm allow` reborn — the
+  tombstone may not point at a near-twin that silently acts remotely. It is the team
+  page's CLI twin and should read that way (e.g. under a team/hub noun).
+
+Build order: design recorded now; the build rides after the Amendment I remediation
+lands, naturally alongside cloud_015's onboarding work. Auth mechanics for
+person-level CLI credentials (keychain, connect-flow assertion, or login ceremony)
+are CCC's to propose when it's picked up.

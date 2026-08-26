@@ -2471,3 +2471,47 @@ per Amendment L's "services stay under the device" and the four verbs. The
 dashboard is a view of device-reported truth. What the control plane manages is
 membership, site enablement, mappings, and grants — never offers or service
 definitions.
+
+### Offer locality, refined not reversed; caps stop grants at the source (2026-08-26)
+
+Todd challenged offers-live-on-the-device: strange to manage there, especially
+after the replicas ruling — and shouldn't a hit cap mean the job never sends?
+
+**Why the offer is per-device by nature.** The dashboard's own heading answers
+him: "What this device runs." An offer doesn't describe the service, it describes
+what THIS machine will do for whom — and the replicas ruling composes instead of
+contradicting: the hub routes among devices that are online AND offer the service
+at the needed scope; a service appears in a user's pulldown if ANY of the owner's
+devices team-offers it. Studio offering qwen to the team while the laptop keeps
+it private is not incoherence — it is the owner saying my Studio serves the team,
+my laptop is mine. No narrowing rule needed; per-device offers are the feature.
+
+**The security floor that forbids moving it.** Private-is-absolute — the one
+check no control-plane compromise can defeat — works only because the device
+knows locally what it offers. Hub-managed offers would let a compromised hub (or
+account) flip private Claude to team and then grant it away; the strongest
+sentence in the posture would quietly die.
+
+**Ruled: management is asymmetric — narrowing from anywhere, widening only at
+the machine.** The dashboard (and CLI twin) may narrow an offer or pause sharing
+remotely — reducing exposure from a phone is safety-positive, like pause. But
+widening (private → team) and spend consent (--cap on metered) are machine
+ceremonies: an account compromise can shrink your sharing, never grow it. Two
+doors for narrowing, one guarded door for widening. The remote narrow travels as
+an owner-authenticated instruction the device applies to its own config and
+reports back — the control plane relays it, never authors it.
+
+**Ruled: a hit cap stops grants at the source.** The device remains the
+authoritative enforcer of its own cap — its money, its book, fail closed at the
+machine. But the hub, knowing the cap and the device-reported spend (the v1.1
+channel), stops authoring grants against an exhausted cap, so the job never
+sends: no prompt ships to a machine that will refuse it. Disclosure boundary:
+the site and requesting user see plain unavailability — never "cap exhausted,"
+which is the owner's financial state; the owner gets the real reason on the
+notices channel.
+
+**Open diagnostic:** Todd ran `byollm offer glm-5.2 team --cap 2500` earlier and
+it never took; possibly the display defect, possibly a real bug. Retry
+post-patch; if it still doesn't take, CCC diagnoses from evidence. Added to the
+acceptance probe: the offer ceremony visibly takes — services and status both
+show team with the cap, and the dashboard follows.

@@ -1300,3 +1300,15 @@ alpha.54: cut — stutters, USER, isDefault, health all reach installed
 daemons only by release; gate decides the hub question; Todd
 reinstalls after promotion (the plist PATH capture already landed
 in .50, so `byollm install` alone suffices).
+
+**alpha.54 closed (2026-08-25, late):** published, gate said promote
+(19/19 backends), Todd set latest and reinstalled. His Studio now
+runs everything the first cross-user job taught: keychain-reachable
+claude, both health legs, honest isDefault, no stutters,
+fundamental-first refusals, and no-time-limit refused rather than
+mislabeled a timeout. CCC's standing instincts recorded on their
+side: predictions become checks (both of the week's cases sat
+directly above their bug), and test the call site, not only the
+mechanism. Next artifact: the roster-sync phasing doc against
+Amendment G's four properties, non-authorship-not-opacity carried
+through, doc before code as ruled.

@@ -1642,3 +1642,37 @@ NO row, never every row).
 Go: B2 finishes (C006 rename + in-product notice retiring in the
 release whose flip makes the sentence true), then .57 with the
 ordering fix folded, gate deciding the hub question as always.
+
+## B2 shipped in .57; promotion gated on one probe (2026-08-26)
+
+B2's design recorded in CCC's words: with a key pinned, the roster
+admits minus the local veto, nothing local adds; stale-or-absent
+narrows to owner; without a key, the per-person allowlist decides —
+"not a fallback but the other half of the design." **The veto is a
+new list, not a missing row**: where a roster decides there is no
+allow entry to remove, and "removing nothing would have reported
+success while the person went on being served." C006 keeps its id
+with the true title; the notice retires in the release whose flip
+makes its opposite true. Three mutations caught: allowlist widening
+a roster, veto ceasing to subtract, stale falling back instead of
+narrowing.
+
+**Promotion gate:** Todd's .57 status shows "nobody else" AND
+"(2 more, from a roster…)" — contradiction; if display-only, promote;
+if the flip isn't engaged, stop-ship. Ten-second probe: `byollm
+allow` must REFUSE and point at the team page. Evidence before
+latest, per the house rule.
+
+**The superseded-code finding (Todd's early walk):** a second
+pair-start replaces the first code by design (mistyped-code
+recovery — correct), but the first terminal keeps displaying the
+dead code, counting down its ten minutes — "correct behaviour,
+silent about it," the day's shape. CCC verified replacement is
+scoped to one keypair. Ruled: .57 ships with the already-paired
+guard; **option 1 for .58** — the abandoned terminal's poll notices
+its code is gone and says so ("this code was replaced by a newer
+one — check your other terminal"); option 2 (hub refuses the second
+start) rejected because it breaks the deliberate recovery path to
+fix a messaging problem. Riders still open in the same output: the
+pinned rows remain unlabeled; the run-summary denominator (4 vs
+3+1+1) remains unfixed — both queued.

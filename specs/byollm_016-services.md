@@ -1819,3 +1819,47 @@ Build order: design recorded now; the build rides after the Amendment I remediat
 lands, naturally alongside cloud_015's onboarding work. Auth mechanics for
 person-level CLI credentials (keychain, connect-flow assertion, or login ceremony)
 are CCC's to propose when it's picked up.
+
+### Amendment I, second rider: the veto moves too — daemon holds no user-level state (2026-08-26)
+
+Todd: "I think disallow goes away too. You can't veto a github user for your repo
+locally."
+
+Correct, and the analogy again shows where the capability goes rather than deleting
+it. GitHub has blocking — but you block at GitHub, and GitHub enforces it. The veto
+is not removed as a capability; it moves to where the namespace lives. The control
+plane authors an owner's blocks into the roster it signs for that owner's devices:
+the roster arrives already subtracted, inside the signature. mayRunFor already reads
+rosters per device owner, so this is the existing document shape — no new type, the
+subtraction just happens at authorship.
+
+What this buys:
+- The daemon holds zero user-level state. Site approvals and pinned keys only.
+  Admission on a rostered relay is now one question: is the user in the signed
+  roster. The daemon becomes a pure verifier.
+- The unsigned-field law is finally fully satisfied on this surface. A local deny
+  list was a thing the verifier trusted that lived outside every signature —
+  tolerated under G because it only subtracted. Now nothing local adds OR subtracts.
+  G property 3 is amended accordingly: the signed roster is the whole answer.
+- The split-brain surface dies. Status's "refusing …" rows showed local knowledge
+  the control plane couldn't see; a status surface declares whose knowledge it shows,
+  and this one now shows only the control plane's, labeled by its signing age.
+  Blocks appear on the team page (and its CLI twin) — one source of truth, two doors.
+- B2's deny list, built days ago, is deleted along with the flip. Pre-1.0 liberty;
+  both retire loudly on the notices channel.
+
+Direct mode: no per-user controls of any kind. A direct site is its own user
+authority — approve the site or don't; take a user complaint to the site, or
+`byollm forget` the site. Same as git: you cannot locally veto a user of someone
+else's server.
+
+Emergency brake, recorded honestly: blocking at the control plane requires the
+control plane. If the hub is unreachable, a held roster keeps admitting until stale
+— bounded by ROSTER_MAX_AGE_MS (1 hour). The immediate local remedies are site-level
+and total: `byollm forget`, or stop the daemon. That is the trade: per-user control
+is the relay's, on the relay's availability; the off-switch is the owner's, always.
+
+Tombstones now cover both commands: `byollm allow` and `byollm disallow` each point
+at the team page / CLI twin. The re-probe on Todd's machine updates once more: both
+commands must hit their tombstones; a block placed on the team page must reach the
+device as a smaller signed roster and show in status as such.

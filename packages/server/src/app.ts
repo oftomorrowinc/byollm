@@ -9,6 +9,7 @@ import {
   type StoredKeys,
   backendDescriptor,
   matchAudience,
+  type Audience,
   type DeliveredResult,
   type JobKind,
   type MatchRefusal,
@@ -96,7 +97,7 @@ export interface AvailabilityQuery {
   readonly owner: string;
   /** The service the job named, if it named one — byollm_016 Phase B. */
   readonly service?: string;
-  readonly audience?: "private" | "team" | "public";
+  readonly audience?: Audience;
   readonly audienceAllow?: readonly string[];
 }
 

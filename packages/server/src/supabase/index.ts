@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type {
+  Audience,
   Capability,
   JobOutcome,
   JobState,
@@ -49,7 +50,19 @@ interface JobRow {
   kind: string;
   envelope: unknown;
   size_class: "small" | "medium" | "large" | "unbounded";
-  audience: "private" | "team" | "public";
+  /**
+   * Typed as {@link Audience} rather than re-spelled, after a spelling of it
+   * here outlived the enum by a week.
+   *
+   * `public` was removed on 2026-08-26 and this column may still hold it in a
+   * database written before then. Nothing in this adapter validates a row —
+   * `kind` and `envelope` are both plain casts — so this is a contract with
+   * the schema, not a check, and a legacy row is a **migration** obligation
+   * rather than a runtime one. Recorded so the migration is written on
+   * purpose: a `public` row must be resolved by the deploy, never quietly
+   * reinterpreted here as something narrower.
+   */
+  audience: Audience;
   /** byollm_016 Phase B. Null for every job that named no service. */
   service: string | null;
   owner: string;

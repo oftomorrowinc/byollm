@@ -139,7 +139,7 @@ export interface HarnessDaemon {
 
 /** Build the daemon-side config for a given offer scope and backend class. */
 function daemonConfig(options: {
-  offer: "private" | "team" | "public";
+  offer: "private" | "team";
   subscription: boolean;
   metered?: MeteredOptions;
 }): LoadedConfig {
@@ -215,7 +215,15 @@ export async function pairDaemon(
   options: {
     owner: string;
     label?: string;
-    offer?: "private" | "team" | "public";
+    /**
+     * **Required — no default.** A harness default is part of every test's
+     * claim (ruled 2026-08-26), and this one decides whether the device's
+     * admission check runs at all. The relay suite's equivalent defaulted to
+     * `public` and silently disabled admission in every cross-user check it
+     * had; this one defaulted to the safe direction and was still a value no
+     * reader of a call site could see.
+     */
+    offer: "private" | "team";
     /** Use the subscription-class backend, to exercise the self-lock. */
     subscription?: boolean;
     /** Use a paid backend, to exercise the cost rules. */
@@ -224,7 +232,7 @@ export async function pairDaemon(
 ): Promise<HarnessDaemon> {
   const home = await mkdtemp(join(tmpdir(), "byollm-conformance-"));
   const loaded = daemonConfig({
-    offer: options.offer ?? "private",
+    offer: options.offer,
     subscription: options.subscription ?? false,
     ...(options.metered === undefined ? {} : { metered: options.metered }),
   });

@@ -72,7 +72,7 @@ class EchoBackend implements Backend {
 }
 
 async function makeRunner(options: {
-  offer: "private" | "public";
+  offer: "private" | "team";
   acknowledged: boolean;
   capCents?: number;
 }) {
@@ -98,6 +98,19 @@ async function makeRunner(options: {
 
   const allowlist = new Allowlist(join(dir, "allow.json"));
   await allowlist.load();
+  /**
+   * `stranger` is admitted, explicitly, because this file is about money.
+   *
+   * These tests used to offer the service `public`, which made
+   * `matchAudience` return ALLOWED without consulting the device at all — so
+   * every spend-consent and ceiling assertion below was reached through a
+   * door that answered before the question. With `public` gone, admission is
+   * a fact each test states, and the cost laws are measured on their own.
+   */
+  await allowlist.add(
+    { origin: "https://app.test", owner: "stranger" },
+    Date.now(),
+  );
   const budgets = new Budgets(join(dir, "b.json"), loaded.config.community);
   await budgets.load(Date.now());
   const spend = new SpendLedger(join(dir, "spend.json"));
@@ -132,7 +145,7 @@ const job = (
   id: "job_1",
   kind: "llm.generate",
   payload: { prompt: "hello" },
-  audience: "public",
+  audience: "team",
   owner: "stranger",
   site: "BYOLLM-TEST-SITE-KEY-ID",
   sizeClass: "small",
@@ -162,7 +175,7 @@ const paidService = (fields: Record<string, unknown>) =>
 describe("the ledger is written by the work, not by hand", () => {
   it("charges community work on a metered backend to the ledger", async () => {
     const { runner, spend } = await makeRunner({
-      offer: "public",
+      offer: "team",
       acknowledged: true,
       capCents: 500,
     });
@@ -177,7 +190,7 @@ describe("the ledger is written by the work, not by hand", () => {
 
   it("does not charge the owner for their own work", async () => {
     const { runner, spend } = await makeRunner({
-      offer: "public",
+      offer: "team",
       acknowledged: true,
       capCents: 500,
     });
@@ -190,7 +203,7 @@ describe("the ledger is written by the work, not by hand", () => {
 
   it("refuses the next community job once the ceiling is reached [METERED_REQUIRES_CEILING]", async () => {
     const { runner, spend } = await makeRunner({
-      offer: "public",
+      offer: "team",
       acknowledged: true,
       capCents: 1,
     });
@@ -206,7 +219,7 @@ describe("the ledger is written by the work, not by hand", () => {
 
   it("keeps taking the owner's own work after the ceiling [own work is never billed to the community]", async () => {
     const { runner, spend } = await makeRunner({
-      offer: "public",
+      offer: "team",
       acknowledged: true,
       capCents: 1,
     });
@@ -226,13 +239,19 @@ describe("the ledger is written by the work, not by hand", () => {
             model: "m",
             kinds: ["llm.generate"],
             type: "ollama",
-            offer: "public",
+            offer: "team",
           },
         },
       }),
     );
     const allowlist = new Allowlist(join(dir, "a2.json"));
     await allowlist.load();
+    // Admitted here too: the claim is about the *ledger*, so everything else
+    // has to be a yes or the test passes for the wrong reason.
+    await allowlist.add(
+      { origin: "https://app.test", owner: "stranger" },
+      Date.now(),
+    );
     const budgets = new Budgets(join(dir, "b2.json"), loaded.config.community);
     await budgets.load(Date.now());
     // Deliberately never loaded: touching it would throw, which is the
@@ -298,7 +317,7 @@ describe("what the user is told about their money", () => {
       // cost stays `metered` anyway — the registry decides that, not the
       // base URL ({@link MUSTS.COST_NOT_CONFIGURABLE}).
       baseUrl: "http://127.0.0.1:1/v1",
-      offer: "public",
+      offer: "team",
       spend: { acknowledged: true, dailyCapCents: 250 },
     });
 
@@ -395,11 +414,11 @@ describe("byollm offer — the command the config error names", () => {
   };
 
   it("is a real command — the error message does not lie", async () => {
-    await write({ type: "openai", offer: "public" });
+    await write({ type: "openai", offer: "team" });
 
     // The message resolveConfig prints tells the owner to run this. Whatever
     // else it does, it must not be "unknown command".
-    const code = await run("offer", "paid", "public", "--cap", "250");
+    const code = await run("offer", "paid", "team", "--cap", "250");
     expect(code).toBe(0);
     expect(out).not.toContain("unknown command");
   });
@@ -407,7 +426,7 @@ describe("byollm offer — the command the config error names", () => {
   it("names the money before widening a metered backend", async () => {
     await write({ type: "openai" });
 
-    await run("offer", "paid", "public", "--cap", "250");
+    await run("offer", "paid", "team", "--cap", "250");
 
     // Not "are you sure?" — the actual sentence, with the actual number.
     expect(asked).toHaveLength(1);
@@ -416,7 +435,7 @@ describe("byollm offer — the command the config error names", () => {
     expect(asked[0]).toContain("paying for their work");
 
     const paid = await read();
-    expect(paid.offer).toBe("public");
+    expect(paid.offer).toBe("team");
     expect(paid.spend?.acknowledged).toBe(true);
     expect(paid.spend?.dailyCapCents).toBe(250);
   });
@@ -425,7 +444,7 @@ describe("byollm offer — the command the config error names", () => {
     await write({ type: "openai" });
     answer = false;
 
-    expect(await run("offer", "paid", "public", "--cap", "250")).toBe(0);
+    expect(await run("offer", "paid", "team", "--cap", "250")).toBe(0);
     expect(out).toContain("nothing changed");
     expect((await read()).offer).toBeUndefined();
   });
@@ -433,7 +452,7 @@ describe("byollm offer — the command the config error names", () => {
   it("refuses to widen a metered backend with no ceiling [METERED_REQUIRES_CEILING]", async () => {
     await write({ type: "openai" });
 
-    expect(await run("offer", "paid", "public")).toBe(2);
+    expect(await run("offer", "paid", "team")).toBe(2);
     expect(out).toContain("daily");
     expect(out).toContain("--cap");
     // It must not have asked, and must not have written.
@@ -452,15 +471,15 @@ describe("byollm offer — the command the config error names", () => {
   it("widens a free backend without asking about money there is none of", async () => {
     await write({ type: "ollama" });
 
-    expect(await run("offer", "paid", "public")).toBe(0);
+    expect(await run("offer", "paid", "team")).toBe(0);
     expect(asked).toEqual([]);
-    expect((await read()).offer).toBe("public");
+    expect((await read()).offer).toBe("team");
   });
 
   it("withdraws consent when narrowing back to private", async () => {
     await write({
       type: "openai",
-      offer: "public",
+      offer: "team",
       spend: { acknowledged: true, dailyCapCents: 250 },
     });
 
@@ -475,7 +494,7 @@ describe("byollm offer — the command the config error names", () => {
   it("says what it does not recognise rather than guessing", async () => {
     await write({ type: "ollama" });
 
-    expect(await run("offer", "nope", "public")).toBe(2);
+    expect(await run("offer", "nope", "team")).toBe(2);
     expect(out).toContain("no service named");
     expect(out).toContain("paid");
 

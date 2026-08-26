@@ -142,7 +142,7 @@ export type ClaimedJob = z.infer<typeof ClaimedJob>;
 /**
  * The provenance that travels with every result to the delivery seam.
  *
- * byollm_003 Rev 1: a `named`/`public` result is attacker-controlled text.
+ * byollm_003 Rev 1: a `team` result is attacker-controlled text.
  * The app must never render volunteer output as its own AI's answer without
  * knowing that is what it is ({@link MUSTS.PROVENANCE_NAMES_DEVICE}).
  */
@@ -527,7 +527,7 @@ export const JobStub = z
     // cloud_008 §0.2.
     //
     // It was a list of the people who may run a job, travelling to every
-    // routing party on every `named` job. byollm_001 Rev 1 §B settled who
+    // routing party on every shared job. byollm_001 Rev 1 §B settled who
     // decides that long before this schema existed: *the daemon's own list
     // decides, not the server's*, and `allowlist.predicateFor(origin)` is the
     // enforcement in both lanes. So this was a second answer to a question the

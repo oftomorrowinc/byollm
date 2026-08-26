@@ -94,7 +94,7 @@ afterEach(async () => {
 async function makeRunner(
   options: {
     owner?: string;
-    offer?: "private" | "team" | "public";
+    offer?: "private" | "team";
     subscription?: boolean;
     allow?: readonly string[];
     /** Override the whole services stanza, for the per-service cases. */
@@ -297,11 +297,11 @@ describe("admit — the daemon enforcing against the server", () => {
   it("refuses another owner's work on a subscription backend at any scope", async () => {
     const { runner } = await makeRunner({
       owner: "me",
-      offer: "public",
+      offer: "team",
       subscription: true,
       allow: ["alice"],
     });
-    const result = runner.admit(job({ owner: "alice", audience: "public" }));
+    const result = runner.admit(job({ owner: "alice", audience: "team" }));
     expect(result.ok).toBe(false);
     if (!result.ok)
       expect(result.reason).toContain("protocol rule, not a setting");
@@ -310,13 +310,17 @@ describe("admit — the daemon enforcing against the server", () => {
   it("refuses community work past the owner's budget [COMMUNITY_BUDGETS]", async () => {
     const { runner, budgets } = await makeRunner({
       owner: "me",
-      offer: "public",
+      offer: "team",
+      // Admitted, so the budget is the only thing left to refuse her. Without
+      // this the assertion passes on "not admitted" and says nothing about
+      // budgets at all.
+      allow: ["alice"],
     });
     // Fill the hourly allowance.
     const now = Date.now();
     for (let i = 0; i < 20; i += 1) await budgets.record(now);
 
-    const result = runner.admit(job({ owner: "alice", audience: "public" }));
+    const result = runner.admit(job({ owner: "alice", audience: "team" }));
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.reason).toContain("community jobs");
   });
@@ -368,9 +372,9 @@ describe("runJob [INGRESS_LOGGED_BEFORE_EXECUTION]", () => {
   it("counts a community job against the budget, and its own against nothing", async () => {
     const { runner, budgets } = await makeRunner({
       owner: "me",
-      offer: "public",
+      offer: "team",
     });
-    await runner.runJob(job({ owner: "alice", audience: "public" }));
+    await runner.runJob(job({ owner: "alice", audience: "team" }));
     expect(budgets.usage(Date.now()).hour).toBe(1);
 
     await runner.runJob(job({ id: "job_2", owner: "me" }));

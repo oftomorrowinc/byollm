@@ -49,17 +49,16 @@ describe("result provenance", () => {
     );
   });
 
-  it("marks named and public results untrusted — they are attacker-controlled", () => {
+  it("marks a team result untrusted — it is attacker-controlled", () => {
     // byollm_003 Rev 1: a volunteer's machine can return anything, and the app
     // would otherwise render it as its own AI's output.
     expect(provenanceFor({ ...base, audience: "team" }).untrusted).toBe(true);
-    expect(provenanceFor({ ...base, audience: "public" }).untrusted).toBe(true);
   });
 
   it("derives untrusted rather than accepting it from a caller", () => {
-    const provenance = provenanceFor({ ...base, audience: "public" });
-    // No input shape can set `untrusted: false` for a public job.
-    expect(provenance).toMatchObject({ audience: "public", untrusted: true });
+    const provenance = provenanceFor({ ...base, audience: "team" });
+    // No input shape can set `untrusted: false` for somebody else's machine.
+    expect(provenance).toMatchObject({ audience: "team", untrusted: true });
   });
 });
 

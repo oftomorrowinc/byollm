@@ -205,8 +205,20 @@ export class IngressLog {
 
     const kept = entries.map((entry) => {
       if (entry.type !== "prompt") return entry;
-      const isCommunity =
-        entry.audience === "team" || entry.audience === "public";
+      /**
+       * Not-private, rather than a list of the sharing scopes.
+       *
+       * The stored `audience` is `z.string()` on purpose, so this log keeps
+       * reading entries written by older daemons — including `public`, a
+       * scope removed on 2026-08-26. Enumerating the sharing scopes would
+       * have made those legacy rows non-community overnight and kept
+       * somebody else's prompts on this disk for ever.
+       *
+       * Stated this way an audience this version does not recognise is
+       * retained *less*, never more, which is the safe direction for text
+       * that belongs to somebody who is not the owner.
+       */
+      const isCommunity = entry.audience !== "private";
       if (!isCommunity || entry.prompt === undefined || entry.at >= cutoff) {
         return entry;
       }

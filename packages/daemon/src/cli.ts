@@ -46,7 +46,7 @@ const USAGE = `byollm — run an app's LLM jobs on your own models.
   byollm resume               start claiming again
   byollm allow <url> <user>   let someone else's jobs run here (named audience)
   byollm allow --list         who can currently use this device
-  byollm offer <backend> <scope>  who a backend is offered to (self|named|public)
+  byollm offer <service> <scope>  who a service is offered to (private|team)
   byollm disallow <url> <user>
   byollm sites                which sites this device serves, and which are waiting
   byollm approve <site>       serve a site that asked (or --all)
@@ -1093,12 +1093,20 @@ async function commandStatus(
     // "private (only you)" rather than "offered to private" — the config's
     // word, with the consequence beside it, so nobody has to already know
     // what the word means to read the line.
+    //
+    // **The effective scope, not the configured one.** This read
+    // `service.offer` and so answered from the file rather than from the
+    // daemon: a metered service configured `team` but narrowed to `private`
+    // pending spend consent printed "team (you and people you allow)" while
+    // refusing every one of them. The config is a request; `route.offerScope`
+    // is what happened to it.
+    const effective = route?.offerScope ?? service.offer;
+    const narrowed = effective !== service.offer;
     const scope =
-      service.offer === "private"
+      (effective === "private"
         ? "private (only you)"
-        : service.offer === "team"
-          ? "team (you and people you allow)"
-          : "public (anyone)";
+        : "team (you and people you allow)") +
+      (narrowed ? ` — narrowed from ${service.offer}` : "");
     // Three short lines rather than one long one. `openai-http:` prefixed
     // onto `mlx-community/Qwen2.5-14B-Instruct-4bit` with a scope after it
     // wrapped at any sane terminal width, and a wrapped line in a column
@@ -1462,16 +1470,35 @@ async function commandOffer(
 ): Promise<ExitCode> {
   const [serviceKey, scope, ...rest] = args;
   if (serviceKey === undefined || scope === undefined) {
+    io.err("usage: byollm offer <service> <private|team> [--cap <cents>]\n");
+    return 2;
+  }
+  if (scope === "public") {
+    /**
+     * A tombstone, not a typo — refusals split by remedy.
+     *
+     * `public` was a real scope until 2026-08-26 and somebody's fingers still
+     * know it, so it gets its own answer rather than being lumped in with a
+     * misspelling. The reason is worth saying because it is the whole point
+     * of removing it: `matchAudience` returned ALLOWED for a public service
+     * **without consulting this device at all**, so the value was an off
+     * switch for admission. Every scope that remains asks a question.
+     */
     io.err(
-      "usage: byollm offer <backend> <self|named|public> [--cap <cents>]\n",
+      `${wrap(
+        `\`public\` is gone. A service is offered to you alone, or to the ` +
+          `people your relay admits — there is no longer a scope that runs a ` +
+          `stranger's job without this device checking who they are.`,
+      )}\n\n` +
+        `\`byollm offer ${serviceKey} team\` shares it with your team.\n`,
     );
     return 2;
   }
-  if (scope !== "private" && scope !== "team" && scope !== "public") {
-    // `self, named` are the pre-alpha.44 words, surviving inside a string
-    // where the rename could not see them — the second such survivor found in
-    // an hour, and the reason error text now joins the one-vocabulary lint.
-    io.err(`"${scope}" is not an offer scope — use private, team, or public\n`);
+  if (scope !== "private" && scope !== "team") {
+    // `self, named` were the pre-alpha.44 words, and they survived inside a
+    // string where the rename could not see them — the reason error text now
+    // joins the one-vocabulary lint.
+    io.err(`"${scope}" is not an offer scope — use private or team\n`);
     return 2;
   }
 
@@ -1638,7 +1665,7 @@ async function commandOffer(
         // is one somebody skims.
         `${wrap(`It bills your account per token because ${reason.because}.`)}\n\n` +
         `${wrap(`You would be paying for their work, up to $${dollars} a day, every day, until you change it. Spending stops at that ceiling and resumes the next day.`)}\n\n` +
-        `Offer ${serviceKey} to ${scope === "public" ? "anyone" : "people you have allowed"}?`,
+        `Offer ${serviceKey} to the people your relay admits?`,
     );
     if (!confirmed) {
       io.out("nothing changed\n");
@@ -1922,11 +1949,35 @@ async function commandServices(
           : route.spendAcknowledged
             ? `metered — shared, cap ${String(route.spendDailyCapCents ?? 0)}c/day`
             : "metered — your money, not shared";
+    /**
+     * Who it is offered to — which this command did not say at all.
+     *
+     * It printed the kind, the service, the backend, the model, the address
+     * and who pays, and left out the one fact somebody runs `byollm services`
+     * to check. Found on 2026-08-26 when the question "is anything on this
+     * machine offered publicly?" had to be answered by reading config.json:
+     * the surface built to answer it could not, and the surface that could
+     * was the file the daemon does not necessarily agree with.
+     *
+     * Effective, therefore, not configured — for the reason `status` carries
+     * the same note. A `team` request that the spend rules narrowed to
+     * `private` is a service shared with nobody, and printing the request
+     * would be reporting an intention as a state.
+     */
+    const configured = loaded.config.services[route.service]?.offer;
+    const narrowed =
+      configured !== undefined && configured !== route.offerScope;
+    const offered =
+      (route.offerScope === "private"
+        ? "offered to: you only"
+        : "offered to: you and the people you allow") +
+      (narrowed ? ` (narrowed from ${configured} — see ! below)` : "");
     io.out(
       `  ${ok ? "✓" : "✗"} ${route.kind.padEnd(14)} ` +
         `${route.service} — ${route.backendId}:${route.model}` +
         `${route.baseUrl === undefined ? "" : ` @ ${route.baseUrl}`}\n` +
-        `      ${pays}\n`,
+        `      ${pays}\n` +
+        `      ${offered}\n`,
     );
     // Why, and what to do about it — cloud_002's detection-first ruling.
     // "0 of 2 routes are healthy" is a true sentence that leaves the reader

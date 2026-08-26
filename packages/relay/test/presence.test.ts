@@ -44,7 +44,11 @@ describe("a daemon that has only ever heartbeat", () => {
     const site = publicIdentityOf(siteKeys);
     const fixture = fixtureFor(site);
     const relay = new Relay({ fixture, now: () => clock });
-    const daemon = await makeDaemon(relay, fixture, { owner: "alice", site });
+    const daemon = await makeDaemon(relay, fixture, {
+      owner: "alice",
+      site,
+      offer: "private",
+    });
     disposers.push(daemon.dispose);
 
     const atPairing = await relay.state.presence(daemon.runnerId);
@@ -99,7 +103,11 @@ describe("a daemon that has only ever heartbeat", () => {
     // business rather than something the contract should offer.
     const store = new RelayState({ now: () => clock });
     const relay = new Relay({ fixture, store, now: () => clock });
-    const daemon = await makeDaemon(relay, fixture, { owner: "alice", site });
+    const daemon = await makeDaemon(relay, fixture, {
+      owner: "alice",
+      site,
+      offer: "private",
+    });
     disposers.push(daemon.dispose);
 
     // Everything the store held, gone — a reschedule, in one line.
@@ -132,7 +140,11 @@ describe("a daemon that has only ever heartbeat", () => {
     const fixture = fixtureFor(site);
     const store = new RelayState({ now: () => clock });
     const relay = new Relay({ fixture, store, now: () => clock });
-    const daemon = await makeDaemon(relay, fixture, { owner: "alice", site });
+    const daemon = await makeDaemon(relay, fixture, {
+      owner: "alice",
+      site,
+      offer: "private",
+    });
     disposers.push(daemon.dispose);
 
     await store.dropPresenceForTests(daemon.runnerId);
@@ -156,7 +168,11 @@ describe("a daemon that has only ever heartbeat", () => {
     const fixture = fixtureFor(site);
     const store = new RelayState({ now: () => clock });
     const relay = new Relay({ fixture, store, now: () => clock });
-    const daemon = await makeDaemon(relay, fixture, { owner: "alice", site });
+    const daemon = await makeDaemon(relay, fixture, {
+      owner: "alice",
+      site,
+      offer: "private",
+    });
     disposers.push(daemon.dispose);
 
     await store.dropPresenceForTests(daemon.runnerId);
@@ -236,7 +252,11 @@ describe("a daemon that has only ever heartbeat", () => {
     const site = publicIdentityOf(siteKeys);
     const fixture = fixtureFor(site);
     const relay = new Relay({ fixture, now: () => clock });
-    const daemon = await makeDaemon(relay, fixture, { owner: "alice", site });
+    const daemon = await makeDaemon(relay, fixture, {
+      owner: "alice",
+      site,
+      offer: "private",
+    });
     disposers.push(daemon.dispose);
 
     const full = await daemon.runner.detectCapabilities();

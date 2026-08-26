@@ -80,28 +80,24 @@ describe("effectiveOfferScope", () => {
   });
 });
 
-describe("matchAudience — the nine-way matrix", () => {
+describe("matchAudience — the four-way matrix", () => {
   // Expected outcome for every (audience × offer scope) pair when the job's
-  // owner is NOT the daemon's owner and the daemon's local allowlist is empty.
-  // This is the table byollm_001's audience model describes in prose.
-  const EXPECTED: Record<
-    Audience,
-    Record<OfferScope, MatchRefusal | "allow">
-  > = {
+  // owner is NOT the daemon's owner and nothing admits them.
+  //
+  // **Every cell is a refusal**, and that is the shape to notice rather than
+  // the size. When `public` existed, two of nine cells returned ALLOWED
+  // without the device being consulted; a matrix with no such cell is a
+  // matrix where a stranger's job cannot run unless something this device
+  // checked said yes. The admitting case is its own test below, where what
+  // does the admitting is visible.
+  const EXPECTED: Record<Audience, Record<OfferScope, MatchRefusal>> = {
     private: {
       private: "audience-self-other-owner",
       team: "audience-self-other-owner",
-      public: "audience-self-other-owner",
     },
     team: {
       private: "offer-scope-too-narrow",
       team: "not-locally-allowed",
-      public: "allow",
-    },
-    public: {
-      private: "offer-scope-too-narrow",
-      team: "not-locally-allowed",
-      public: "allow",
     },
   };
 
@@ -110,11 +106,7 @@ describe("matchAudience — the nine-way matrix", () => {
       const expected = EXPECTED[audience][scope];
       it(`audience=${audience} × offer=${scope} → ${expected}`, () => {
         const result = matchAudience({ owner: OWNER, audience }, daemon(scope));
-        if (expected === "allow") {
-          expect(result.ok).toBe(true);
-        } else {
-          expect(result).toEqual({ ok: false, refusal: expected });
-        }
+        expect(result).toEqual({ ok: false, refusal: expected });
       });
     }
   }
@@ -132,8 +124,8 @@ describe("matchAudience — the nine-way matrix", () => {
   });
 });
 
-describe("matchAudience — named requires the daemon's own allowlist", () => {
-  it("admits a named job once the local allowlist names its owner", () => {
+describe("matchAudience — a team job requires this device to admit", () => {
+  it("admits a team job once this device admits its owner", () => {
     const result = matchAudience(
       { owner: OWNER, audience: "team" },
       daemon("team", { allows: [OWNER] }),
@@ -141,7 +133,7 @@ describe("matchAudience — named requires the daemon's own allowlist", () => {
     expect(result.ok).toBe(true);
   });
 
-  it("refuses a named job the local allowlist omits, whatever the server says", () => {
+  it("refuses a team job this device does not admit, whatever the server says", () => {
     // The server asserts this runner is allowed; the daemon's own list does
     // not. byollm_001 Rev 1 §B: the daemon decides.
     const result = matchAudience(
@@ -175,7 +167,7 @@ describe("matchAudience — the subscription self-lock", () => {
   it("refuses another owner's work even if the caller passed a widened scope", () => {
     for (const scope of OFFER_SCOPES) {
       const result = matchAudience(
-        { owner: OWNER, audience: "public" },
+        { owner: OWNER, audience: "team" },
         daemon(scope, { cost: "subscription", allows: [OWNER] }),
       );
       expect(result, `scope=${scope}`).toEqual({

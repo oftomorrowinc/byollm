@@ -119,7 +119,7 @@ export class SiteConnector {
   async enqueue(input: {
     prompt: string;
     owner: string;
-    audience?: "private" | "team" | "public";
+    audience?: "private" | "team";
   }): Promise<{ jobId: string; payload: string }> {
     this.#next += 1;
     const jobId = `job_relay_${String(this.#next)}`;
@@ -285,20 +285,22 @@ export async function makeDaemon(
     owner: string;
     site: PublicIdentity;
     /**
-     * Who this device's service is offered to. Defaults to `public`.
+     * Who this device's service is offered to. **Required — no default.**
      *
-     * An option rather than a constant because the default makes device-side
-     * admission a no-op: `matchAudience` returns ALLOWED for a publicly
-     * offered service without consulting the daemon's own list at all. Every
-     * cross-user test in this suite ran against that default, so none of them
-     * ever exercised the device's admission decision — freeze gate §6 even
-     * carried a comment claiming its `allowlist.add` was load-bearing, and a
-     * mutation showed the test passes without it.
+     * Ruled 2026-08-26: *a harness default is part of every test's claim*, so
+     * a security-relevant fixture value is stated per test or the harness
+     * refuses to supply one.
      *
-     * Anything asserting who a device will and will not serve has to narrow
-     * this, or it is asserting nothing.
+     * This field is why the rule exists. It defaulted to `public`, and
+     * `matchAudience` returned ALLOWED for a publicly offered service
+     * *without consulting the device at all* — so every cross-user test in
+     * this suite ran past an admission check that was never executing.
+     * Freeze gate §6 even carried a comment calling its `allowlist.add`
+     * load-bearing; deleting the call left all nine tests green. The default
+     * was doing the work, silently, and nobody writing a test could see it in
+     * the call they wrote.
      */
-    offer?: "private" | "team" | "public";
+    offer: "private" | "team";
   },
 ): Promise<{
   runner: Runner;
@@ -323,7 +325,7 @@ export async function makeDaemon(
           kinds: ["llm.generate"],
           type: "openai-http",
           baseUrl: "http://127.0.0.1:11434/v1",
-          offer: input.offer ?? "public",
+          offer: input.offer,
         },
       },
       concurrency: 2,

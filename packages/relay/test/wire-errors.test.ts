@@ -64,7 +64,11 @@ async function relayWithDaemon() {
   const fixture = fixtureFor(site);
   const relay = new Relay({ fixture });
   const connector = new SiteConnector(relay, siteKeys);
-  const daemon = await makeDaemon(relay, fixture, { owner: "alice", site });
+  const daemon = await makeDaemon(relay, fixture, {
+    owner: "alice",
+    site,
+    offer: "private",
+  });
   disposers.push(daemon.dispose);
   return { relay, connector, daemon, siteKeys };
 }
@@ -195,7 +199,11 @@ describe("an identified caller refused", () => {
     const site = publicIdentityOf(siteKeys);
     const fixture = fixtureFor(site);
     const relay = new Relay({ fixture });
-    const daemon = await makeDaemon(relay, fixture, { owner: "alice", site });
+    const daemon = await makeDaemon(relay, fixture, {
+      owner: "alice",
+      site,
+      offer: "private",
+    });
     disposers.push(daemon.dispose);
 
     relay.project({

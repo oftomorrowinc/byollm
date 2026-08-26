@@ -385,9 +385,9 @@ export const MUSTS = Object.freeze({
   NAMED_LOCAL_ALLOWLIST: must({
     id: "NAMED_LOCAL_ALLOWLIST",
     statement:
-      "A 'named' job MUST be admitted only by the daemon's own local " +
-      "(server origin, user id) allowlist — never on the server's assertion " +
-      "alone.",
+      "A 'team' job MUST be admitted only by something the device itself " +
+      "verified, keyed by (server origin, user id) — never on the routing " +
+      "party's assertion alone.",
     enforcedBy: "daemon",
     verifiedBy: "conformance",
     source: "byollm_001 Rev 1 §B",

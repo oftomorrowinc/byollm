@@ -201,7 +201,7 @@ describe("audience, which the relay was ignoring", () => {
     await state.enqueue({
       id: "shared",
       siteId: SITE,
-      stub: { ...stub("shared", "alice"), audience: "public" },
+      stub: { ...stub("shared", "alice"), audience: "team" },
     });
 
     expect((await state.claim(rosterClaim())).map((j) => j.id)).toEqual([

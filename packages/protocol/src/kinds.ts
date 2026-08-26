@@ -11,9 +11,9 @@ import { z } from "zod";
  * per-field limits were real and the aggregate one was a number in a frozen
  * object.
  *
- * byollm_004 §4 requires stricter limits for community (`named`/`public`)
- * jobs; those are applied on top of these by the daemon's budget check, which
- * knows the job's audience. These are the absolute ceilings for any job.
+ * byollm_004 §4 requires stricter limits for community (`team`) jobs; those
+ * are applied on top of these by the daemon's budget check, which knows the
+ * job's audience. These are the absolute ceilings for any job.
  */
 export const PAYLOAD_LIMITS = Object.freeze({
   /** Max characters in any single text field. */

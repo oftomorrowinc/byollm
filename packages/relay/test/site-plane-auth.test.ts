@@ -210,7 +210,11 @@ describe("the site plane refuses anyone it cannot verify", () => {
 
   it("never offers a daemon a job belonging to another site", async () => {
     const { site, fixture, relay } = setup();
-    const daemon = await makeDaemon(relay, fixture, { owner: "alice", site });
+    const daemon = await makeDaemon(relay, fixture, {
+      owner: "alice",
+      site,
+      offer: "private",
+    });
     disposers.push(daemon.dispose);
 
     // Injected past the site plane's guard, because the guard is not what is
@@ -279,7 +283,11 @@ describe("the site plane refuses anyone it cannot verify", () => {
 
   it("refuses a daemon's signature presented on the site plane", async () => {
     const { siteKeys, site, fixture, relay } = setup();
-    const daemon = await makeDaemon(relay, fixture, { owner: "alice", site });
+    const daemon = await makeDaemon(relay, fixture, {
+      owner: "alice",
+      site,
+      offer: "private",
+    });
     disposers.push(daemon.dispose);
 
     // The device signs a daemon-plane call, and its signature is moved into
@@ -328,7 +336,11 @@ describe("enqueue is idempotent per job id", () => {
     const fixture = fixtureFor(site);
     const relay = new Relay({ fixture });
     const connector = new SiteConnector(relay, siteKeys);
-    const daemon = await makeDaemon(relay, fixture, { owner: "alice", site });
+    const daemon = await makeDaemon(relay, fixture, {
+      owner: "alice",
+      site,
+      offer: "private",
+    });
     disposers.push(daemon.dispose);
 
     const { jobId } = await connector.enqueue({
@@ -371,7 +383,11 @@ describe("revocation does not wait for a heartbeat", () => {
     const fixture = fixtureFor(site);
     const relay = new Relay({ fixture });
     const connector = new SiteConnector(relay, siteKeys);
-    const daemon = await makeDaemon(relay, fixture, { owner: "alice", site });
+    const daemon = await makeDaemon(relay, fixture, {
+      owner: "alice",
+      site,
+      offer: "private",
+    });
     disposers.push(daemon.dispose);
 
     await connector.enqueue({ prompt: "after revocation", owner: "alice" });
@@ -493,7 +509,11 @@ describe("a clock too far from the relay's", () => {
     const site = publicIdentityOf(siteKeys);
     const fixture = fixtureFor(site);
     const relay = new Relay({ fixture });
-    const daemon = await makeDaemon(relay, fixture, { owner: "alice", site });
+    const daemon = await makeDaemon(relay, fixture, {
+      owner: "alice",
+      site,
+      offer: "private",
+    });
     disposers.push(daemon.dispose);
 
     // Ten minutes ahead — well past MAX_CLOCK_SKEW_MS, and signed correctly.
@@ -550,7 +570,11 @@ describe("a clock too far from the relay's", () => {
     const site = publicIdentityOf(siteKeys);
     const fixture = fixtureFor(site);
     const relay = new Relay({ fixture });
-    const daemon = await makeDaemon(relay, fixture, { owner: "alice", site });
+    const daemon = await makeDaemon(relay, fixture, {
+      owner: "alice",
+      site,
+      offer: "private",
+    });
     disposers.push(daemon.dispose);
 
     const stranger = generateKeys(Date.now());

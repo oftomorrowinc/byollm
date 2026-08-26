@@ -60,6 +60,7 @@ describe("what the relay projects", () => {
     const daemon = await makeDaemon(plain, fixtureFor(publicIdentityOf(K1)), {
       owner: "alice",
       site: publicIdentityOf(K1),
+      offer: "private",
     });
     disposers.push(daemon.dispose);
 
@@ -81,6 +82,7 @@ describe("a site that rotates while a daemon is watching", () => {
     const daemon = await makeDaemon(relay, fixtureFor(publicIdentityOf(K1)), {
       owner: "alice",
       site: publicIdentityOf(K1),
+      offer: "private",
     });
     disposers.push(daemon.dispose);
 

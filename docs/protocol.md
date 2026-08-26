@@ -34,7 +34,7 @@ channel.
 `owner` is the app's own id for a user. It has no meaning outside the server
 that issued it. A daemon MUST NOT treat an owner id from one server as the
 same principal as an identical string from another `[NAMED_LOCAL_ALLOWLIST]`.
-This is why the daemon's `named` allowlist is keyed by **(server origin, user
+This is why the daemon's admission is keyed by **(server origin, user
 id)** and not by user id alone.
 
 ---
@@ -146,14 +146,20 @@ Every job carries an `audience`; every daemon backend carries an
 1. the job's audience admits the daemon's owner, **and**
 2. the backend's offer scope admits the job's owner.
 
-| | `offer: self` | `offer: named` | `offer: public` |
-|---|---|---|---|
-| **`audience: self`** | owner's own work only | owner's own work only | owner's own work only |
-| **`audience: named`** | refused | runs if locally allowed | runs |
-| **`audience: public`** | refused | runs if locally allowed | runs |
+| | `offer: private` | `offer: team` |
+|---|---|---|
+| **`audience: private`** | owner's own work only | owner's own work only |
+| **`audience: team`** | refused | runs if this device admits the owner |
 
-A daemon always runs its own owner's work, at any scope. All nine cells are
+A daemon always runs its own owner's work, at any scope. All four cells are
 asserted by the conformance kit.
+
+**There is no cell that runs a stranger's work unconditionally.** `public` was
+a third value on both axes until 2026-08-26, and its two `runs` cells were
+reached without the device being consulted at all — an off switch for
+admission wearing the costume of a wider setting. It was removed rather than
+deprecated, in direct mode as well as cloud. Every scope that remains asks the
+device a question.
 
 ### 4.1 The subscription self-lock
 
@@ -168,9 +174,9 @@ Note that account class is independent of backend class (§6): `claude-cli` is
 both process-class and subscription-class; a future local `mlx_lm.lora`
 backend would be process-class and open.
 
-### 4.2 `named` is enforced locally
+### 4.2 `team` is enforced locally
 
-A `named` job is admitted only when the **daemon's own** allowlist contains
+A `team` job is admitted only when the **daemon's own** allowlist contains
 `(server origin, job owner)` `[NAMED_LOCAL_ALLOWLIST]`. A server's assertion
 that a runner is allowed is never sufficient — user ids are
 server-namespace-local, so honouring a server's list would mean obeying the
@@ -190,8 +196,8 @@ because a relay narrows on it. A roster does not travel at all, which is how
 
 ### 4.3 Community results are best-effort
 
-There is no redundancy, voting, or verification of `named`/`public` results in
-v0. An app that opts jobs into a wider audience is choosing that trade
+There is no redundancy, voting, or verification of `team` results in v0. An
+app that opts jobs into a wider audience is choosing that trade
 explicitly, and MUST disclose it wherever the prompt originates. See §8 for
 what the app is obliged to do with the result.
 
@@ -399,7 +405,7 @@ poll, the adapter's choice — never an implied in-request `await`.
 
 ## 8. The return trip is untrusted too
 
-A `named`/`public` result is **attacker-controlled text**. The volunteer's
+A `team` result is **attacker-controlled text**. The volunteer's
 device, or a compromised one, can return anything, and the app would
 otherwise render it as its own AI's output.
 

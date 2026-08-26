@@ -46,7 +46,7 @@ excuses — the security posture depends on naming these out loud.
    local apps go hosted and consume `@byollm/server`'s Supabase
    adapter. MLX *inference* is HTTP-class via `mlx_lm.server`, so v1
    is sufficient to prove the whole path (generation on your box as
-   `named`, Claude review on a colleague's as `self`, chained via
+   `team`, Claude review on a colleague's as `private`, chained via
    `dependsOn`). MLX *training* (`train.*`, process-class
    `mlx_lm.lora`) is a later kind.
 3. `byollm_005` — site build-out + generated docs. **Done.**
@@ -89,7 +89,7 @@ large break, not a thing you discover after.
 That suite's fact-checker verification calls the model with WebSearch —
 which byollm_004 §2 forbids ("no tools, functions, retrieval, or
 MCP"), ~96% of that app's calls. The ban is **correct and essential
-for `named`/`public`** (tools + untrusted payload + someone else's
+for `team`** (tools + untrusted payload + someone else's
 computer = breakout/exfiltration). But for **`self` jobs on the
 owner's own box, the ban is overbroad** — it's identical to the user
 running the tool-enabled CLI themselves, which they already do; no
@@ -106,7 +106,7 @@ Two consequences:
    explicitly-owner-opted, **per-kind declared toolset** — a job kind
    may request a named set of tools, runnable only when audience is
    `self` AND the daemon owner enabled that toolset for that kind.
-   `named`/`public` stay tool-free forever. This would let a
+   `team` jobs stay tool-free forever. This would let a
    fact-checker-style app run on the daemon without a metered key,
    without weakening the community-compute guarantee. Needs its own
    threat review before it ships.

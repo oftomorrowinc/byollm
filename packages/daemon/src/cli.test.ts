@@ -117,6 +117,36 @@ describe("byollm pause / resume", () => {
   });
 });
 
+describe("byollm status — what it says about sharing", () => {
+  it("names the offer that took effect, not the one in the file", async () => {
+    // The same defect `services` had, on the other surface. This line read
+    // `service.offer`, so a metered service asked to be shared — and narrowed
+    // straight back to `private` for want of a spend acknowledgment — printed
+    // "team (you and people you allow)" while refusing every one of them.
+    //
+    // A status surface declares whose knowledge it shows. This one shows the
+    // daemon's, and the daemon narrowed it.
+    await writeFile(
+      paths.config,
+      JSON.stringify({
+        services: {
+          paid: {
+            model: "gpt-4o",
+            kinds: ["llm.generate"],
+            type: "openai",
+            offer: "team",
+          },
+        },
+      }),
+    );
+
+    expect(await run("status")).toBe(0);
+    expect(out).toContain("private (only you)");
+    expect(out).toContain("narrowed from team");
+    expect(out).not.toContain("team (you and people you allow)");
+  });
+});
+
 describe("byollm allow — widening access", () => {
   it("says nobody can use the machine when the list is empty", async () => {
     expect(await run("allow", "--list")).toBe(0);
@@ -239,7 +269,7 @@ describe("byollm log", () => {
       origin: "https://app.test",
       jobId: "job_1",
       kind: "llm.generate",
-      audience: "public",
+      audience: "team",
       owner: "stranger",
       backendId: "openai-http",
       backendClass: "http",
@@ -248,7 +278,7 @@ describe("byollm log", () => {
     });
 
     expect(await run("log")).toBe(0);
-    expect(out).toContain("public");
+    expect(out).toContain("team");
     expect(out).toContain("stranger");
     expect(out).toContain("summarise the thing");
   });
@@ -289,7 +319,7 @@ describe("byollm log", () => {
       origin: "https://app.test",
       jobId: "job_1",
       kind: "llm.generate",
-      audience: "public",
+      audience: "team",
       owner: "stranger",
       backendId: "openai-http",
       backendClass: "http",
@@ -335,6 +365,67 @@ describe("byollm services", () => {
     expect(out).toContain("llm.generate");
     expect(out).toContain("0 of 1 services are");
     expect(out).toContain("not advertise what it cannot actually run");
+  });
+
+  it("says who each service is offered to", async () => {
+    // The question `byollm services` could not answer. On 2026-08-26 "is
+    // anything on this machine offered publicly?" had to be answered by
+    // reading config.json, because this command printed the kind, the
+    // service, the backend, the model, the address and who pays — and left
+    // out who it is shared with.
+    await writeFile(
+      paths.config,
+      JSON.stringify({
+        services: {
+          mine: {
+            model: "qwen3",
+            kinds: ["llm.generate"],
+            type: "openai-http",
+            baseUrl: "http://127.0.0.1:1/v1",
+            offer: "private",
+          },
+          shared: {
+            model: "llama3.2",
+            kinds: ["llm.chat"],
+            type: "openai-http",
+            baseUrl: "http://127.0.0.1:2/v1",
+            offer: "team",
+          },
+        },
+      }),
+    );
+
+    await run("services");
+
+    expect(out).toContain("offered to: you only");
+    expect(out).toContain("offered to: you and the people you allow");
+  });
+
+  it("says the offer that took effect, not the one that was asked for", async () => {
+    // A metered service asked to be shared without a spend acknowledgment is
+    // narrowed to `private` — correct, and previously invisible here: the
+    // line read from `service.offer`, so it reported the request as though it
+    // were the state, and a service shared with nobody printed as shared.
+    await writeFile(
+      paths.config,
+      JSON.stringify({
+        services: {
+          paid: {
+            model: "gpt-4o",
+            kinds: ["llm.generate"],
+            type: "openai",
+            offer: "team",
+          },
+        },
+      }),
+    );
+
+    await run("services");
+
+    expect(out).toContain("offered to: you only");
+    expect(out).toContain("narrowed from team");
+    // Never the un-narrowed claim on its own.
+    expect(out).not.toContain("offered to: you and the people you allow");
   });
 
   it("shows a withheld kind by name, never merely omits it", async () => {

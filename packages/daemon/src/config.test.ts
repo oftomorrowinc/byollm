@@ -63,7 +63,7 @@ describe("resolveConfig — the subscription self-lock [SUBSCRIPTION_SELF_LOCK]"
             model: "claude-opus-5",
             kinds: ["llm.generate"],
             type: "claude-cli",
-            offer: "public",
+            offer: "team",
           },
         },
       }),
@@ -81,12 +81,12 @@ describe("resolveConfig — the subscription self-lock [SUBSCRIPTION_SELF_LOCK]"
             kinds: ["llm.generate"],
             type: "openai-http",
             baseUrl: "http://127.0.0.1:11434/v1",
-            offer: "public",
+            offer: "team",
           },
         },
       }),
     );
-    expect(routes[0]?.offerScope).toBe("public");
+    expect(routes[0]?.offerScope).toBe("team");
   });
 });
 
@@ -274,10 +274,10 @@ describe("byollm_007 — cost class and providers", () => {
   });
 
   it("narrows a metered backend to self, and says why in words", () => {
-    // The bug byollm_007 closes: a paid key offered publicly by accident.
+    // The bug byollm_007 closes: a paid key shared by accident.
     const { routes, problems } = resolveConfig(
       DaemonConfig.parse({
-        ...only("gpt", { type: "openai", apiKeyEnv: "K", offer: "public" }),
+        ...only("gpt", { type: "openai", apiKeyEnv: "K", offer: "team" }),
       }),
     );
     expect(routes[0]?.offerScope).toBe("private");
@@ -291,7 +291,7 @@ describe("byollm_007 — cost class and providers", () => {
         ...only("gpt", {
           type: "openai",
           apiKeyEnv: "K",
-          offer: "public",
+          offer: "team",
           spend: { acknowledged: true },
         }),
       }),
@@ -326,7 +326,7 @@ describe("byollm_007 — cost class and providers", () => {
           type: "openai-http",
           baseUrl: "https://api.openai.com/v1",
           apiKeyEnv: "K",
-          offer: "public",
+          offer: "team",
         }),
       }),
     );
@@ -341,13 +341,13 @@ describe("byollm_007 — cost class and providers", () => {
         ...only("local", {
           type: "openai-http",
           baseUrl: "http://127.0.0.1:11434/v1",
-          offer: "public",
+          offer: "team",
         }),
       }),
     );
     expect(problems).toEqual([]);
     expect(routes[0]?.cost).toBe("free");
-    expect(routes[0]?.offerScope).toBe("public");
+    expect(routes[0]?.offerScope).toBe("team");
   });
 
   it("refuses a config that tries to declare its own cost", () => {
@@ -365,7 +365,7 @@ describe("byollm_007 — cost class and providers", () => {
       DaemonConfig.parse({
         ...only("claude", {
           type: "claude-cli",
-          offer: "public",
+          offer: "team",
           spend: { acknowledged: true, dailyCapCents: 10_000 },
         }),
       }),

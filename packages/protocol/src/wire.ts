@@ -707,8 +707,8 @@ export const ReleaseRequest = z
     /**
      * Why, so the app's runner list can say something true.
      *
-     * `refused` is load-bearing, not cosmetic: the server cannot evaluate a
-     * daemon's *local* `named` allowlist (§4.2), so it may legitimately offer
+     * `refused` is load-bearing, not cosmetic: the server cannot evaluate
+     * what a device will admit (§4.2), so it may legitimately offer
      * a job this daemon then declines. The server MUST record the refusal and
      * stop offering that job to that runner, or the pair would spin between
      * claim and release forever.

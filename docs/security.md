@@ -1,7 +1,7 @@
 # BYOLLM — threat model and security contract
 
 **Premise: every job payload is hostile input.** A server the daemon paired
-with — or an attacker who reached that server, or another user whose `public`
+with — or an attacker who reached that server, or another user whose `team`
 job we claimed — is untrusted from the daemon's seat. The daemon runs prompts
 on the owner's computer, so it MUST be incapable of turning a prompt into code
 execution, tool use, file access, or network calls beyond the model call
@@ -309,7 +309,7 @@ subscription" and "free to share" are different claims:
 | `subscription` | A provider's terms | `self`, always |
 
 The bug this closed: `openai-http` was classed "open" while also accepting an
-API key, so an owner could point it at a paid endpoint, offer it `public`, and
+API key, so an owner could point it at a paid endpoint, share it, and
 donate their credit balance. The community budgets capped job *count*, not
 spend, so nothing noticed.
 
@@ -337,7 +337,7 @@ already do it in one line by acknowledging the spend; the relay is a harder
 path to the same place they were always permitted to go.
 
 What the rule does prevent is the accident, which is the failure that actually
-happens: `openai-http` pointed at a remote paid endpoint and offered `public`
+happens: `openai-http` pointed at a remote paid endpoint and offered `team`
 without anyone deciding to spend money. That case is caught, and it is caught
 by construction rather than by noticing.
 
@@ -364,7 +364,7 @@ daemon's owner:
   applied on top of the global ceilings.
 - **The ingress log records the job's owner**, so the device's owner can see
   who they have been working for.
-- **Retention**: a `named`/`public` prompt is kept in full for 7 days by
+- **Retention**: a `team` prompt is kept in full for 7 days by
   default, then reduced to its hash. A volunteer must not indefinitely retain
   strangers' content. The hash and the metadata stay, so the owner can still
   prove what ran.
@@ -382,7 +382,7 @@ Test id: `COMMUNITY_BUDGETS`.
 §1–5 protect the volunteer's computer from the app's payload. This section is
 the mirror: it protects the app from the volunteer's result.
 
-A `named`/`public` result is **attacker-controlled text**. The volunteer's
+A `team` result is **attacker-controlled text**. The volunteer's
 device, or a compromised one, can return anything, and an app would otherwise
 render it as its own AI's output.
 
@@ -413,9 +413,9 @@ Test id: `RESULT_PROVENANCE`.
   authenticated session during device-code pairing. A daemon can never assert
   who it is.
 - Owner ids are **server-namespace-local**. `alice` on one app is not `alice`
-  on another, which is why the daemon's `named` allowlist is keyed by
+  on another, which is why the daemon's admission is keyed by
   **(server origin, user id)**.
-- A `named` job is admitted only by the daemon's **own local allowlist**. A
+- A `team` job is admitted only by the daemon's **own local allowlist**. A
   server's assertion that a runner is allowed is never sufficient — honouring
   it would mean obeying the server rather than enforcing against it.
 - The allowlist is **empty by default**, so a fresh daemon is effectively

@@ -137,6 +137,7 @@ describe.each(CASES)("the cloud lane over $name", (storeCase) => {
     const daemon = await makeDaemon(relay, fixture, {
       owner,
       site,
+      offer: "private",
     });
     disposers.push(daemon.dispose);
 
@@ -200,6 +201,7 @@ describe.each(CASES)("the cloud lane over $name", (storeCase) => {
     const daemon = await makeDaemon(relay, fixture, {
       owner,
       site,
+      offer: "private",
     });
     disposers.push(daemon.dispose);
 
@@ -260,6 +262,7 @@ describe.each(CASES)("the cloud lane over $name", (storeCase) => {
     const daemon = await makeDaemon(relay, fixture, {
       owner,
       site,
+      offer: "private",
     });
     disposers.push(daemon.dispose);
 
@@ -332,7 +335,11 @@ describe.each(CASES)("the cloud lane over $name", (storeCase) => {
       },
     });
 
-    const daemon = await makeDaemon(relay, fixture, { owner, site });
+    const daemon = await makeDaemon(relay, fixture, {
+      owner,
+      site,
+      offer: "private",
+    });
     disposers.push(daemon.dispose);
 
     const handle = await app.enqueue({
@@ -400,7 +407,11 @@ describe("provenance names a person, not a key", () => {
         fetch: (i, init) => relay.handle(new Request(i, init)),
       },
     });
-    const daemon = await makeDaemon(relay, fixture, { owner, site });
+    const daemon = await makeDaemon(relay, fixture, {
+      owner,
+      site,
+      offer: "private",
+    });
     disposers.push(daemon.dispose);
 
     const job = await app.enqueue({

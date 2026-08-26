@@ -21,9 +21,9 @@ export type BackendClass = z.infer<typeof BackendClass>;
  *
  * This replaced a two-valued `account` field that conflated two unrelated
  * constraints and, in doing so, left a hole: `openai-http` was "open", but it
- * accepts an API key, so an owner could point it at a paid endpoint, offer it
- * `public`, and donate their credit balance to strangers. The community
- * budgets cap job *count*, not spend.
+ * accepts an API key, so an owner could point it at a paid endpoint, share it,
+ * and donate their credit balance to strangers. The community budgets cap job
+ * *count*, not spend.
  *
  * - `free` — local compute. Costs electricity, not money. Shareable.
  * - `metered` — per-token billing against the owner's account. Legal to
@@ -296,7 +296,7 @@ export function backendDescriptor(id: BackendId): BackendDescriptor {
  * an act by the machine's owner against their own account, and the threat
  * model here is a hostile *job*, not an owner routing around a rule that
  * exists to protect them. What this catches is the accident — a remote paid
- * endpoint offered `public` because nobody thought about the bill. See
+ * endpoint offered to a team because nobody thought about the bill. See
  * `docs/security.md` §4a.
  */
 export function isLocalHost(hostname: string): boolean {
@@ -315,7 +315,7 @@ export function isLocalHost(hostname: string): boolean {
   // with the letters f-c or f-d**: `fdapi.example.com`, `fchat.ai`,
   // `fc-inference.io`. A paid remote endpoint at such a name resolved to
   // `free`, which is `REMOTE_IS_NEVER_FREE` inverted: no ceiling, no metering,
-  // and eligible for a `public` offer. The worst of them needs no attacker and
+  // and eligible to be shared. The worst of them needs no attacker and
   // no unusual config — just a vendor whose domain happens to start with two
   // particular letters.
   //

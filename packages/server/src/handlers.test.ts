@@ -387,13 +387,13 @@ describe("audience enforcement on the server [AUDIENCE_BOTH_SIDES]", () => {
     // must ignore the widened scope, not honour it.
     const bob = await h.pair({
       owner: "bob",
-      capabilities: subscriptionCapabilities("public"),
+      capabilities: subscriptionCapabilities("team"),
     });
     await h.app.enqueue({
       kind: "llm.generate",
       payload: { prompt: "hi" },
       owner: "alice",
-      audience: "public",
+      audience: "team",
     });
 
     const res = await h.call(
@@ -401,7 +401,7 @@ describe("audience enforcement on the server [AUDIENCE_BOTH_SIDES]", () => {
       {
         protocolVersion: "0",
         runnerId: bob.runnerId,
-        capabilities: subscriptionCapabilities("public"),
+        capabilities: subscriptionCapabilities("team"),
         max: 4,
       },
       bob,
@@ -413,13 +413,13 @@ describe("audience enforcement on the server [AUDIENCE_BOTH_SIDES]", () => {
     const h = createHarness();
     const bob = await h.pair({
       owner: "bob",
-      capabilities: httpCapabilities("public"),
+      capabilities: httpCapabilities("team"),
     });
     await h.app.enqueue({
       kind: "llm.generate",
       payload: { prompt: "hi" },
       owner: "alice",
-      audience: "public",
+      audience: "team",
     });
 
     const res = await h.call(
@@ -427,7 +427,7 @@ describe("audience enforcement on the server [AUDIENCE_BOTH_SIDES]", () => {
       {
         protocolVersion: "0",
         runnerId: bob.runnerId,
-        capabilities: httpCapabilities("public"),
+        capabilities: httpCapabilities("team"),
         max: 4,
       },
       bob,
@@ -439,7 +439,7 @@ describe("audience enforcement on the server [AUDIENCE_BOTH_SIDES]", () => {
     const h = createHarness();
     const bob = await h.pair({
       owner: "bob",
-      capabilities: httpCapabilities("public"),
+      capabilities: httpCapabilities("team"),
     });
     await h.app.enqueue({
       kind: "llm.generate",
@@ -454,7 +454,7 @@ describe("audience enforcement on the server [AUDIENCE_BOTH_SIDES]", () => {
       {
         protocolVersion: "0",
         runnerId: bob.runnerId,
-        capabilities: httpCapabilities("public"),
+        capabilities: httpCapabilities("team"),
         max: 4,
       },
       bob,
@@ -683,20 +683,20 @@ describe("result [RESULT_IDEMPOTENT, PROVENANCE_NAMES_DEVICE]", () => {
 
     const bob = await h.pair({
       owner: "bob",
-      capabilities: httpCapabilities("public"),
+      capabilities: httpCapabilities("team"),
     });
     const publicJob = await h.app.enqueue({
       kind: "llm.generate",
       payload: { prompt: "hi" },
       owner: "alice",
-      audience: "public",
+      audience: "team",
     });
     const claimed = await h.call(
       "claim",
       {
         protocolVersion: "0",
         runnerId: bob.runnerId,
-        capabilities: httpCapabilities("public"),
+        capabilities: httpCapabilities("team"),
         max: 4,
       },
       bob,
@@ -717,7 +717,7 @@ describe("result [RESULT_IDEMPOTENT, PROVENANCE_NAMES_DEVICE]", () => {
     const delivered = await h.app.result(publicJob.id);
     expect(delivered?.provenance).toMatchObject({
       untrusted: true,
-      audience: "public",
+      audience: "team",
       runnerOwner: "bob",
     });
   });
@@ -911,7 +911,7 @@ describe("release [REFUSAL_NOT_REOFFERED]", () => {
     const h = createHarness();
     const bob = await h.pair({
       owner: "bob",
-      capabilities: httpCapabilities("public"),
+      capabilities: httpCapabilities("team"),
     });
     const handle = await h.app.enqueue({
       kind: "llm.generate",
@@ -920,7 +920,7 @@ describe("release [REFUSAL_NOT_REOFFERED]", () => {
       audience: "team",
     });
 
-    const capabilities = httpCapabilities("public");
+    const capabilities = httpCapabilities("team");
     const first = await h.call(
       "claim",
       { protocolVersion: "0", runnerId: bob.runnerId, capabilities, max: 4 },

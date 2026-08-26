@@ -458,7 +458,7 @@ describe("the loop", () => {
             {
               id: "job_1",
               kind: "llm.generate",
-              audience: "public",
+              audience: "team",
               owner: "stranger",
               site: TEST_SITE_ID,
               sizeClass: "small",

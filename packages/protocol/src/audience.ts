@@ -5,42 +5,43 @@ import { type BackendCost } from "./backends.js";
  * Who may run a job, declared by the app that enqueued it.
  *
  * - `private` — only the job owner's own devices.
- * - `team` — a device whose owner has this person on their roster.
- * - `public` — any device offering `public` compute.
+ * - `team` — a device whose owner admits this person.
  *
  * **One vocabulary, ruled 2026-08-24.** These were `self | named | public`
- * while {@link OfferScope} became `private | team | public`, which would have
- * left every seam where the two meet speaking two languages for one idea, and
- * every doc explaining "self versus private" for ever. They are still
- * independent axes — a job says who may run it, a service says who it will run
- * for — and a job runs only where both agree
- * ({@link MUSTS.AUDIENCE_BOTH_SIDES}). Sharing the words costs nothing and
- * saves a mapping layer nobody would have enjoyed maintaining.
+ * while {@link OfferScope} used different words for the same idea, which would
+ * have left every seam where the two meet speaking two languages, and every
+ * doc explaining "self versus private" for ever. They are still independent
+ * axes — a job says who may run it, a service says who it will run for — and a
+ * job runs only where both agree ({@link MUSTS.AUDIENCE_BOTH_SIDES}).
+ *
+ * **`public` is gone, ruled 2026-08-26 (byollm_016).** Not deprecated,
+ * removed, and removed from the OSS daemon too rather than parked as a
+ * community posture. The argument was a measurement rather than a preference:
+ * device-side admission had never once been exercised end to end, because
+ * every cross-user test ran against a publicly offered service and
+ * {@link matchAudience} returned ALLOWED for those *without consulting the
+ * device at all*. `public` was the off switch for admission, and an enum with
+ * a value that skips verification is a fail-open waiting for the wiring bug
+ * that reaches it. There is now no such value.
  */
-export const Audience = z.enum(["private", "team", "public"]);
+export const Audience = z.enum(["private", "team"]);
 export type Audience = z.infer<typeof Audience>;
 
 /**
  * What a device's owner is willing to run for other people, per service.
  *
  * - `private` — the owner's own work only.
- * - `team` — the owner's roster. Membership is **central**, not per-person:
- *   the device follows the roster rather than holding its own copy of who is
- *   in it (byollm_016, 2026-08-24).
- * - `public` — any job, from anyone. This is the community posture the daemon
- *   has always had (`byollm offer <service> public`), bounded by community
- *   budgets. byollm_016 parks it as a **hosted-product** surface — the cloud
- *   dashboard does not offer it — which is not the same as removing it from
- *   the daemon, and the CLI still accepts it.
+ * - `team` — whoever the owner's authority admits. Membership is **central**,
+ *   not per-person: the device follows what it is told by a signature it can
+ *   check, rather than holding its own copy of who is in it (byollm_016).
  *
- * Deliberately *not* the same words as {@link Audience}, which they used to
- * share. They are independent axes — a job says who may run it, a service says
- * who it will run for — and identical spellings made that read as one concept
- * with two homes. A job runs only where both agree
- * ({@link MUSTS.AUDIENCE_BOTH_SIDES}); {@link matches} is the one place the
- * correspondence lives.
+ * Two values, and no third that means "everyone". See {@link Audience} for
+ * why `public` was removed rather than parked, and note the shape of the
+ * remaining enum: **every value left requires the device to verify
+ * something.** `private` checks the owner; `team` checks admission. That is
+ * the property, not an accident of there being two.
  */
-export const OfferScope = z.enum(["private", "team", "public"]);
+export const OfferScope = z.enum(["private", "team"]);
 export type OfferScope = z.infer<typeof OfferScope>;
 
 /** All audience values, in widening order. */
@@ -57,15 +58,15 @@ export const OFFER_SCOPES = Object.freeze(OfferScope.options);
 export const MatchRefusal = z.enum([
   /** The daemon advertises no capability for this kind. */
   "no-capability",
-  /** Job is `self` but this daemon belongs to a different user. */
+  /** Job is `private` but this daemon belongs to a different user. */
   "audience-self-other-owner",
-  /** Job is `named` but this daemon's local allowlist does not admit the owner. */
+  /** Job is `team` but this device does not admit the job's owner. */
   "not-locally-allowed",
-  /** Job is `named`/`public` but the server's own allowlist excludes this runner. */
+  /** Job is `team` but the server's own allowlist excludes this runner. */
   "not-in-server-allowlist",
-  /** The backend offers only `self` and the job belongs to someone else. */
+  /** The service offers only `private` and the job belongs to someone else. */
   "offer-scope-too-narrow",
-  /** The matched backend is subscription-class, which is locked to `self`. */
+  /** The matched backend is subscription-class, which is locked to `private`. */
   "subscription-self-lock",
   /** The backend spends the owner's money and they have not agreed to share it. */
   "metered-no-spend-consent",
@@ -98,7 +99,7 @@ export interface SpendConsent {
  * its matcher call, so no code path can observe a scope wider than the cost
  * class allows:
  *
- * - `subscription` is locked to `self` regardless of config
+ * - `subscription` is locked to `private` regardless of config
  *   ({@link MUSTS.SUBSCRIPTION_SELF_LOCK}) — someone else's terms.
  * - `metered` narrows to `private` unless the owner has explicitly acknowledged
  *   the spend ({@link MUSTS.METERED_DEFAULTS_SELF}) — their money.
@@ -125,7 +126,8 @@ export interface MatchJob {
   readonly audience: Audience;
   /**
    * Optional server-side restriction on which runner owners may take a
-   * `named` job. Defence in depth only — the daemon's local allowlist is the
+   * `team` job. Defence in depth only, and direct-mode only — it never
+   * reaches a daemon (cloud_008 §0.2), so the device's own admission is the
    * enforcing side ({@link MUSTS.NAMED_LOCAL_ALLOWLIST}).
    */
   readonly audienceAllow?: readonly string[] | undefined;
@@ -158,8 +160,8 @@ export interface MatchDaemon {
  * 1. the job's audience must admit the daemon's owner, and
  * 2. the backend's offer scope must admit the job's owner.
  *
- * The full nine-way matrix (three audiences × three offer scopes) is asserted
- * by the conformance kit. The function is pure and total so both the daemon
+ * The full four-way matrix (two audiences × two offer scopes) is asserted by
+ * the conformance kit. The function is pure and total so both the daemon
  * and the server can run the identical rule — the daemon refuses, and the
  * server refuses too (byollm_003 §Server-side MUSTs).
  *
@@ -225,23 +227,15 @@ export function matchAudience(job: MatchJob, daemon: MatchDaemon): MatchResult {
     case "private":
       return refuse("offer-scope-too-narrow");
     case "team":
-      // **Interim: this is still the local allowlist.**
-      //
-      // byollm_016 rules that team membership is central — the device follows
-      // the owner's roster, synced down the projection path, with a local
-      // `disallow` surviving only as a per-person veto. That sync does not
-      // exist yet, so `team` currently enforces through the same local list
-      // `named` did.
-      //
-      // Written here rather than left to be discovered: the value is named for
-      // what it will mean, and until roster sync lands the name is ahead of
-      // the behaviour. Nothing may be promoted as "team sharing" on this
-      // alone.
+      // The device decides, always. There is deliberately no branch here that
+      // returns ALLOWED without asking it — `public` was that branch, and its
+      // removal is what makes this switch a verification rather than a
+      // lookup. Whatever supplies `locallyAllows` may change (byollm_016
+      // Amendment J replaces a local list with a signed claim-time grant);
+      // that it is *consulted* may not.
       return daemon.locallyAllows(job.owner)
         ? ALLOWED
         : refuse("not-locally-allowed");
-    case "public":
-      return ALLOWED;
   }
 }
 

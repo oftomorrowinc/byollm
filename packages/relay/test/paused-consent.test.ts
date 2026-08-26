@@ -56,7 +56,11 @@ describe("a paused consent", () => {
       consents: [{ owner: "alice", siteId: SITE_ID, paused: true }],
     });
     const relay = new Relay({ fixture });
-    const daemon = await makeDaemon(relay, fixture, { owner: "alice", site });
+    const daemon = await makeDaemon(relay, fixture, {
+      owner: "alice",
+      site,
+      offer: "private",
+    });
     disposers.push(daemon.dispose);
 
     // The heartbeat answers, and answers "you are fine": a 403 here reads as
@@ -106,7 +110,11 @@ describe("a paused consent", () => {
     });
     const relay = new Relay({ fixture });
     const connector = new SiteConnector(relay, siteKeys);
-    const daemon = await makeDaemon(relay, fixture, { owner: "alice", site });
+    const daemon = await makeDaemon(relay, fixture, {
+      owner: "alice",
+      site,
+      offer: "private",
+    });
     disposers.push(daemon.dispose);
 
     await connector.enqueue({ prompt: "while paused", owner: "alice" });
@@ -143,7 +151,11 @@ describe("a paused consent", () => {
     });
     const relay = new Relay({ fixture });
     const connector = new SiteConnector(relay, siteKeys);
-    const daemon = await makeDaemon(relay, fixture, { owner: "bob", site });
+    const daemon = await makeDaemon(relay, fixture, {
+      owner: "bob",
+      site,
+      offer: "private",
+    });
     disposers.push(daemon.dispose);
     await daemon.allowlist.add(
       { origin: "http://relay.test", owner: "alice" },
@@ -181,7 +193,11 @@ describe("a paused consent", () => {
     });
     const relay = new Relay({ fixture });
     const connector = new SiteConnector(relay, siteKeys);
-    const daemon = await makeDaemon(relay, fixture, { owner: "bob", site });
+    const daemon = await makeDaemon(relay, fixture, {
+      owner: "bob",
+      site,
+      offer: "private",
+    });
     disposers.push(daemon.dispose);
     await daemon.allowlist.add(
       { origin: "http://relay.test", owner: "alice" },

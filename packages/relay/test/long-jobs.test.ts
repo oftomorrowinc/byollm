@@ -47,7 +47,11 @@ async function slowJob() {
   const fixture = fixtureFor(site);
   const relay = new Relay({ fixture, leaseMs: LEASE_MS });
   const connector = new SiteConnector(relay, siteKeys);
-  const daemon = await makeDaemon(relay, fixture, { owner: "alice", site });
+  const daemon = await makeDaemon(relay, fixture, {
+    owner: "alice",
+    site,
+    offer: "private",
+  });
   disposers.push(daemon.dispose);
   daemon.backend.hangMs = JOB_MS;
 

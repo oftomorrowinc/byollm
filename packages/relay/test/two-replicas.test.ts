@@ -55,7 +55,11 @@ describe("two replicas, one load balancer", () => {
     const a = new Relay({ fixture });
     const b = new Relay({ fixture });
 
-    const daemon = await makeDaemon(a, fixture, { owner: "alice", site });
+    const daemon = await makeDaemon(a, fixture, {
+      owner: "alice",
+      site,
+      offer: "private",
+    });
     disposers.push(daemon.dispose);
 
     // The site happens to enqueue against replica A.
@@ -98,7 +102,11 @@ describe("two replicas, one load balancer", () => {
     const a = new Relay({ fixture });
     const b = new Relay({ fixture });
 
-    const daemon = await makeDaemon(a, fixture, { owner: "alice", site });
+    const daemon = await makeDaemon(a, fixture, {
+      owner: "alice",
+      site,
+      offer: "private",
+    });
     disposers.push(daemon.dispose);
 
     expect(await a.state.everyone()).toHaveLength(1);
@@ -153,9 +161,17 @@ describe("two replicas sharing one store", () => {
     const a = new Relay({ fixture, store });
     const b = new Relay({ fixture, store });
 
-    const one = await makeDaemon(a, fixture, { owner: "alice", site });
+    const one = await makeDaemon(a, fixture, {
+      owner: "alice",
+      site,
+      offer: "private",
+    });
     disposers.push(one.dispose);
-    const two = await makeDaemon(b, fixture, { owner: "alice", site });
+    const two = await makeDaemon(b, fixture, {
+      owner: "alice",
+      site,
+      offer: "private",
+    });
     disposers.push(two.dispose);
     a.project(fixture);
     b.project(fixture);
@@ -202,7 +218,11 @@ describe("two replicas sharing one store", () => {
     const a = new Relay({ fixture, store });
     const b = new Relay({ fixture, store });
 
-    const daemon = await makeDaemon(a, fixture, { owner: "alice", site });
+    const daemon = await makeDaemon(a, fixture, {
+      owner: "alice",
+      site,
+      offer: "private",
+    });
     disposers.push(daemon.dispose);
 
     // Paired against A. B knows it too, because the store is the same one.

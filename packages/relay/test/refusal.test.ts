@@ -34,7 +34,11 @@ async function routed() {
   const fixture = fixtureFor(site);
   const relay = new Relay({ fixture });
   const connector = new SiteConnector(relay, siteKeys);
-  const daemon = await makeDaemon(relay, fixture, { owner: "alice", site });
+  const daemon = await makeDaemon(relay, fixture, {
+    owner: "alice",
+    site,
+    offer: "private",
+  });
   disposers.push(daemon.dispose);
   return { relay, connector, daemon };
 }

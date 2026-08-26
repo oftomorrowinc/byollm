@@ -271,7 +271,7 @@ describe("IngressLog [INGRESS_LOGGED_BEFORE_EXECUTION]", () => {
         origin: "https://app.test",
         jobId,
         kind: "llm.generate",
-        audience: "public",
+        audience: "team",
         owner: "stranger",
         backendId: "openai-http",
         backendClass: "http",
@@ -315,6 +315,49 @@ describe("IngressLog [INGRESS_LOGGED_BEFORE_EXECUTION]", () => {
     expect(entry?.type === "prompt" && entry.prompt).toBe("my old prompt");
   });
 
+  it("reduces a legacy `public` prompt a newer daemon can no longer write", async () => {
+    /**
+     * Written by hand, because `recordPrompt` will not accept the value any
+     * more — `public` was removed as an offer scope and an audience on
+     * 2026-08-26, and that is exactly the point. Lines this daemon can no
+     * longer *write* it must still be able to *read*, and the stored
+     * `audience` is `z.string()` so it can.
+     *
+     * If retention listed the sharing scopes instead of excluding `private`,
+     * every one of these rows would have become non-community the day the
+     * enum shrank, and somebody else's prompts would sit on this disk for
+     * ever. The rule is not-private, so an audience this version does not
+     * recognise is retained less, never more.
+     */
+    const path = join(dir, "legacy.log");
+    const now = 100 * 86_400_000;
+    await writeFile(
+      path,
+      `${JSON.stringify({
+        type: "prompt",
+        at: now - 30 * 86_400_000,
+        origin: "https://app.test",
+        jobId: "job_legacy",
+        kind: "llm.generate",
+        audience: "public",
+        owner: "stranger",
+        backendId: "openai-http",
+        backendClass: "http",
+        model: "m",
+        promptHash: "a".repeat(64),
+        promptChars: 4,
+        prompt: "text",
+      })}\n`,
+    );
+
+    const log = new IngressLog(options(path));
+    expect(await log.applyRetention(now)).toBe(1);
+    const [entry] = await log.read();
+    expect(entry?.type === "prompt" && entry.prompt).toBeUndefined();
+    // Still readable, still counted — the record that it ran never goes.
+    expect(entry?.type === "prompt" && entry.promptHash).toHaveLength(64);
+  });
+
   it("is idempotent — a second retention pass changes nothing", async () => {
     const log = new IngressLog(options(join(dir, "i.log")));
     const now = 100 * 86_400_000;
@@ -323,7 +366,7 @@ describe("IngressLog [INGRESS_LOGGED_BEFORE_EXECUTION]", () => {
       origin: "https://app.test",
       jobId: "job_old",
       kind: "llm.generate",
-      audience: "public",
+      audience: "team",
       owner: "stranger",
       backendId: "openai-http",
       backendClass: "http",

@@ -61,7 +61,10 @@ export const CHECKS: readonly Check[] = [
     title: "a runner token is bound to exactly the approving user",
     musts: ["PAIR_ONE_USER", "PAIR_INTERACTIVE"],
     async run(target: ConformanceTarget): Promise<void> {
-      const alice = await pairDaemon(target, { owner: "alice" });
+      const alice = await pairDaemon(target, {
+        owner: "alice",
+        offer: "private",
+      });
       try {
         assert(
           alice.owner === (await ownerIdFor(target, "alice")),
@@ -69,7 +72,10 @@ export const CHECKS: readonly Check[] = [
         );
 
         // Alice's private job must not reach Bob's daemon.
-        const bob = await pairDaemon(target, { owner: "bob" });
+        const bob = await pairDaemon(target, {
+          owner: "bob",
+          offer: "private",
+        });
         assert(
           bob.owner !== alice.owner,
           "two different approvers produced the same runner owner",
@@ -103,7 +109,10 @@ export const CHECKS: readonly Check[] = [
       "an enqueued job runs on the owner's daemon and the result comes back",
     musts: ["CLAIM_REQUIRES_CAPABILITY", "RESULT_IDEMPOTENT"],
     async run(target: ConformanceTarget): Promise<void> {
-      const daemon = await pairDaemon(target, { owner: "alice" });
+      const daemon = await pairDaemon(target, {
+        owner: "alice",
+        offer: "private",
+      });
       try {
         const job = await target.enqueue({
           kind: "llm.generate",
@@ -136,7 +145,10 @@ export const CHECKS: readonly Check[] = [
     title: "a daemon is never handed a kind it did not advertise",
     musts: ["KIND_TYPED_ONLY", "CLAIM_REQUIRES_CAPABILITY"],
     async run(target: ConformanceTarget): Promise<void> {
-      const daemon = await pairDaemon(target, { owner: "alice" });
+      const daemon = await pairDaemon(target, {
+        owner: "alice",
+        offer: "private",
+      });
       try {
         // The server must match against the matrix in the claim request, so a
         // job for a kind the daemon does not offer is simply never returned.
@@ -204,7 +216,11 @@ export const CHECKS: readonly Check[] = [
     title: "a job whose runner vanished is offered again, losing nothing",
     musts: ["LEASE_RECLAIMABLE", "LEASE_HONORED"],
     async run(target: ConformanceTarget): Promise<void> {
-      const dead = await pairDaemon(target, { owner: "alice", label: "dead" });
+      const dead = await pairDaemon(target, {
+        owner: "alice",
+        label: "dead",
+        offer: "private",
+      });
       const job = await target.enqueue({
         kind: "llm.generate",
         payload: prompt("work"),
@@ -232,6 +248,7 @@ export const CHECKS: readonly Check[] = [
       const alive = await pairDaemon(target, {
         owner: "alice",
         label: "alive",
+        offer: "private",
       });
       try {
         // The stale-holder case goes **here**, while the reclaimed job is
@@ -302,22 +319,25 @@ export const CHECKS: readonly Check[] = [
 
   {
     id: "C005_AUDIENCE_MATRIX",
-    title: "all nine audience × offer-scope combinations behave as specified",
+    title: "all four audience x offer-scope combinations behave as specified",
     musts: ["AUDIENCE_BOTH_SIDES", "NAMED_LOCAL_ALLOWLIST"],
     async run(target: ConformanceTarget): Promise<void> {
       // Expected outcome for a job owned by `alice` offered to `bob`'s daemon
       // whose local allowlist is empty.
       // Keyed `audience:offer`, in the one vocabulary both axes now speak.
+      //
+      // **Every cell is `false`**, and that is the property rather than an
+      // oddity of the table. `public` was removed on 2026-08-26 because it
+      // was the one offer scope that returned ALLOWED *without consulting the
+      // device*; the two `true` cells here were both its doing. A matrix with
+      // no `true` in it is a matrix in which a stranger's job cannot run
+      // until something this device verified says so, and C006 is where that
+      // something is supplied and named.
       const expected: Record<string, boolean> = {
         "private:private": false,
         "private:team": false,
-        "private:public": false,
         "team:private": false,
-        "team:team": false, // refused locally — allowlist is empty
-        "team:public": true,
-        "public:private": false,
-        "public:team": false, // refused locally — allowlist is empty
-        "public:public": true,
+        "team:team": false, // refused locally — nothing admits alice
       };
 
       for (const audience of AUDIENCES) {
@@ -442,7 +462,7 @@ export const CHECKS: readonly Check[] = [
       // lock must win, on both sides.
       const bob = await pairDaemon(target, {
         owner: "bob",
-        offer: "public",
+        offer: "team",
         subscription: true,
       });
       try {
@@ -455,7 +475,7 @@ export const CHECKS: readonly Check[] = [
           kind: "llm.generate",
           payload: prompt("someone else's work"),
           owner: "alice",
-          audience: "public",
+          audience: "team",
         });
 
         await bob.runner.tick();
@@ -497,7 +517,10 @@ export const CHECKS: readonly Check[] = [
     // declared in a spec, absent from the registry, and tested all along.
     musts: ["REVOCATION_HONORED", "REVOCATION_IMMEDIATE"],
     async run(target: ConformanceTarget): Promise<void> {
-      const daemon = await pairDaemon(target, { owner: "alice" });
+      const daemon = await pairDaemon(target, {
+        owner: "alice",
+        offer: "private",
+      });
       try {
         await target.revokeRunner(daemon.runnerId);
 
@@ -529,7 +552,10 @@ export const CHECKS: readonly Check[] = [
     title: "cancel aborts a running job's backend call",
     musts: ["CANCEL_HONORED"],
     async run(target: ConformanceTarget): Promise<void> {
-      const daemon = await pairDaemon(target, { owner: "alice" });
+      const daemon = await pairDaemon(target, {
+        owner: "alice",
+        offer: "private",
+      });
       try {
         daemon.backend.hangMs = 30_000;
         const job = await target.enqueue({
@@ -575,7 +601,10 @@ export const CHECKS: readonly Check[] = [
       // that reaches the idempotency branch at all. A replay under a
       // *different* grant is a different rule (`LEASE_HONORED`, §1.4a) and
       // would be refused before idempotency was consulted.
-      const daemon = await pairDaemon(target, { owner: "alice" });
+      const daemon = await pairDaemon(target, {
+        owner: "alice",
+        offer: "private",
+      });
       try {
         const job = await target.enqueue({
           kind: "llm.generate",
@@ -641,7 +670,10 @@ export const CHECKS: readonly Check[] = [
         // and a job id becomes a terminality probe: anyone holding an id
         // could learn whether the work had finished by watching which
         // rejection came back.
-        const stranger = await pairDaemon(target, { owner: "alice" });
+        const stranger = await pairDaemon(target, {
+          owner: "alice",
+          offer: "private",
+        });
         try {
           const foreign = await postResult(target, stranger, {
             jobId: job.id,
@@ -677,8 +709,11 @@ export const CHECKS: readonly Check[] = [
       // The Press-shaped case from byollm_001 Rev 1 §E: two halves of one
       // piece of work, owned by different people, landing on different
       // machines, in order.
-      const alice = await pairDaemon(target, { owner: "alice" });
-      const bob = await pairDaemon(target, { owner: "bob" });
+      const alice = await pairDaemon(target, {
+        owner: "alice",
+        offer: "private",
+      });
+      const bob = await pairDaemon(target, { owner: "bob", offer: "private" });
       try {
         const first = await target.enqueue({
           kind: "llm.generate",
@@ -764,7 +799,10 @@ export const CHECKS: readonly Check[] = [
       "a dependent job's TTL starts when it becomes claimable, not at enqueue",
     musts: ["TTL_EXPIRY"],
     async run(target: ConformanceTarget): Promise<void> {
-      const daemon = await pairDaemon(target, { owner: "alice" });
+      const daemon = await pairDaemon(target, {
+        owner: "alice",
+        offer: "private",
+      });
       try {
         // The dependency is held open past the dependent's whole TTL.
         daemon.backend.hangMs = target.ttlMs * 2;
@@ -806,13 +844,22 @@ export const CHECKS: readonly Check[] = [
     // the granted device is refused rather than recorded.
     musts: ["PROVENANCE_NAMES_DEVICE"],
     async run(target: ConformanceTarget): Promise<void> {
-      const bob = await pairDaemon(target, { owner: "bob", offer: "public" });
+      const bob = await pairDaemon(target, { owner: "bob", offer: "team" });
       try {
+        // Admitted explicitly. This check offered `public` until 2026-08-26,
+        // which meant the provenance assertion below was reached without the
+        // device ever deciding anything — the claim was about a label on a
+        // result, and the path to it skipped the step that makes the label
+        // meaningful.
+        await bob.allowlist.add(
+          { origin: target.origin, owner: await ownerIdFor(target, "alice") },
+          Date.now(),
+        );
         const community = await target.enqueue({
           kind: "llm.generate",
           payload: prompt("run this anywhere"),
           owner: "alice",
-          audience: "public",
+          audience: "team",
         });
         await bob.runner.tick();
         await waitFor(
@@ -823,7 +870,7 @@ export const CHECKS: readonly Check[] = [
         const delivered = await target.job(community.id);
         assert(
           delivered?.provenance?.untrusted === true,
-          "a public result was not marked untrusted",
+          "a shared result was not marked untrusted",
         );
         // `delivered.provenance` is already narrowed by the assertion above.
         assert(
@@ -856,7 +903,10 @@ export const CHECKS: readonly Check[] = [
     title: "every executed prompt is in the ingress log before it runs",
     musts: ["INGRESS_LOGGED_BEFORE_EXECUTION"],
     async run(target: ConformanceTarget): Promise<void> {
-      const daemon = await pairDaemon(target, { owner: "alice" });
+      const daemon = await pairDaemon(target, {
+        owner: "alice",
+        offer: "private",
+      });
       let ticking: Promise<unknown> = Promise.resolve();
       try {
         // The ordering is the MUST, and it is not decoration. The daemon is
@@ -955,7 +1005,7 @@ export const CHECKS: readonly Check[] = [
       // and the server must act on what it was told.
       const bob = await pairDaemon(target, {
         owner: "bob",
-        offer: "public",
+        offer: "team",
         // Pointed at localhost — which changes nothing, because a named
         // provider's cost comes from the registry, not from an address
         // ({@link MUSTS.COST_NOT_CONFIGURABLE}).
@@ -980,7 +1030,7 @@ export const CHECKS: readonly Check[] = [
           kind: "llm.generate",
           payload: prompt("spend someone else's money"),
           owner: "alice",
-          audience: "public",
+          audience: "team",
         });
 
         await bob.runner.tick();
@@ -1000,7 +1050,7 @@ export const CHECKS: readonly Check[] = [
         const availability = await target.runnerAvailability({
           kind: "llm.generate",
           owner: "alice",
-          audience: "public",
+          audience: "team",
         });
         assert(
           !availability.available,
@@ -1032,7 +1082,7 @@ export const CHECKS: readonly Check[] = [
       // This time Bob means it: consent, and a number.
       const bob = await pairDaemon(target, {
         owner: "bob",
-        offer: "public",
+        offer: "team",
         metered: {
           // The generic backend pointed at a remote address. No registry entry
           // says what this costs; it is metered because of where it goes
@@ -1049,7 +1099,7 @@ export const CHECKS: readonly Check[] = [
           "a remote backend was treated as free",
         );
         assert(
-          bob.loaded.routes.every((route) => route.offerScope === "public"),
+          bob.loaded.routes.every((route) => route.offerScope === "team"),
           "a deliberately shared metered backend was narrowed anyway",
         );
 
@@ -1062,7 +1112,7 @@ export const CHECKS: readonly Check[] = [
           kind: "llm.generate",
           payload: prompt("work bob agreed to pay for"),
           owner: "alice",
-          audience: "public",
+          audience: "team",
         });
         await bob.runner.tick();
         await waitFor(
@@ -1077,7 +1127,7 @@ export const CHECKS: readonly Check[] = [
           kind: "llm.generate",
           payload: prompt("work past the ceiling"),
           owner: "alice",
-          audience: "public",
+          audience: "team",
         });
         const seenBefore = bob.backend.seen.length;
         await bob.runner.tick();
@@ -1119,8 +1169,16 @@ export const CHECKS: readonly Check[] = [
       // between "read queued" and "write claimed", passes every other check
       // in this kit and double-runs jobs the moment two daemons are online.
       // The user sees one prompt answered twice and pays for it twice.
-      const a = await pairDaemon(target, { owner: "alice", label: "laptop" });
-      const b = await pairDaemon(target, { owner: "alice", label: "desktop" });
+      const a = await pairDaemon(target, {
+        owner: "alice",
+        label: "laptop",
+        offer: "private",
+      });
+      const b = await pairDaemon(target, {
+        owner: "alice",
+        label: "desktop",
+        offer: "private",
+      });
       try {
         const job = await target.enqueue({
           kind: "llm.generate",
@@ -1232,7 +1290,10 @@ export const CHECKS: readonly Check[] = [
       // the server route work to a machine that cannot run it — and the app
       // would wait for a result nobody is producing, which is exactly the
       // failure `NO_RUNNER_SIGNAL` exists to prevent.
-      const daemon = await pairDaemon(target, { owner: "alice" });
+      const daemon = await pairDaemon(target, {
+        owner: "alice",
+        offer: "private",
+      });
       try {
         // Configured, but the model is not there.
         daemon.backend.healthy = false;
@@ -1281,7 +1342,10 @@ export const CHECKS: readonly Check[] = [
       // daemon. That only holds if the server refuses to pass through keys
       // the schema does not name — a store that round-trips arbitrary JSON
       // would hand the daemon whatever the app wrote.
-      const daemon = await pairDaemon(target, { owner: "alice" });
+      const daemon = await pairDaemon(target, {
+        owner: "alice",
+        offer: "private",
+      });
       const SMUGGLED = ["command", "argv", "model", "baseUrl"];
       try {
         // Two mechanisms satisfy this MUST and the kit must accept either:
@@ -1521,7 +1585,10 @@ export const CHECKS: readonly Check[] = [
     title: "authentication is a signature over the request, not a secret",
     musts: ["REQUESTS_SIGNED_NOT_BEARER"],
     async run(target: ConformanceTarget): Promise<void> {
-      const daemon = await pairDaemon(target, { owner: "alice" });
+      const daemon = await pairDaemon(target, {
+        owner: "alice",
+        offer: "private",
+      });
       try {
         const body = JSON.stringify({
           protocolVersion: PROTOCOL_VERSION,
@@ -1625,7 +1692,10 @@ export const CHECKS: readonly Check[] = [
       // both survive a claim-release-reclaim cycle. A replayed release then
       // drops a later grant while the daemon is still executing, and the
       // owner's compute runs the job twice.
-      const daemon = await pairDaemon(target, { owner: "alice" });
+      const daemon = await pairDaemon(target, {
+        owner: "alice",
+        offer: "private",
+      });
       try {
         const job = await target.enqueue({
           kind: "llm.generate",
@@ -1675,7 +1745,10 @@ export const CHECKS: readonly Check[] = [
     title: "a claim carries routing metadata and no work",
     musts: ["STUB_METADATA_EXHAUSTIVE"],
     async run(target: ConformanceTarget): Promise<void> {
-      const daemon = await pairDaemon(target, { owner: "alice" });
+      const daemon = await pairDaemon(target, {
+        owner: "alice",
+        offer: "private",
+      });
       try {
         await target.enqueue({
           kind: "llm.generate",
@@ -1757,7 +1830,10 @@ export const CHECKS: readonly Check[] = [
     musts: ["ENVELOPE_SEALED_AND_SIGNED"],
     async run(target: ConformanceTarget): Promise<void> {
       const secret = "a prompt nobody should read from storage";
-      const daemon = await pairDaemon(target, { owner: "alice" });
+      const daemon = await pairDaemon(target, {
+        owner: "alice",
+        offer: "private",
+      });
       try {
         const job = await target.enqueue({
           kind: "llm.generate",
@@ -1817,7 +1893,10 @@ export const CHECKS: readonly Check[] = [
       // the *device*, the daemon is an opener too — so the kit can hand it an
       // envelope nobody it trusts signed, which is exactly what a relay
       // substituting work would look like.
-      const daemon = await pairDaemon(target, { owner: "alice" });
+      const daemon = await pairDaemon(target, {
+        owner: "alice",
+        offer: "private",
+      });
       try {
         const keys = await daemon.identityKeys();
         const relay = generateKeys(Date.now());
@@ -1887,7 +1966,10 @@ export const CHECKS: readonly Check[] = [
       // because the primitive already has unit tests and the question here is
       // whether the endpoint uses it. That distinction is what made C028 fail
       // to bite.
-      const daemon = await pairDaemon(target, { owner: "alice" });
+      const daemon = await pairDaemon(target, {
+        owner: "alice",
+        offer: "private",
+      });
       try {
         const job = await target.enqueue({
           kind: "llm.generate",
@@ -1974,7 +2056,7 @@ export const CHECKS: readonly Check[] = [
       // This claims over the raw protocol instead. No daemon admission logic
       // runs, so what comes back is exactly what the server was willing to
       // hand over — which is the half nothing else observes.
-      const bob = await pairDaemon(target, { owner: "bob", offer: "public" });
+      const bob = await pairDaemon(target, { owner: "bob", offer: "team" });
       try {
         const priv = await target.enqueue({
           kind: "llm.generate",
@@ -1996,7 +2078,7 @@ export const CHECKS: readonly Check[] = [
           kind: "llm.generate",
           payload: prompt("anyone may run this"),
           owner: "alice",
-          audience: "public",
+          audience: "team",
         });
         const second = await claimRaw(target, bob);
         assert(
@@ -2022,7 +2104,10 @@ export const CHECKS: readonly Check[] = [
       // Worth writing precisely rather than generously, because this MUST was
       // cited in code comments, in relay tests and in two specs as though it
       // were enforced data while having no registry entry and no check at all.
-      const daemon = await pairDaemon(target, { owner: "alice" });
+      const daemon = await pairDaemon(target, {
+        owner: "alice",
+        offer: "private",
+      });
       try {
         const job = await target.enqueue({
           kind: "llm.generate",

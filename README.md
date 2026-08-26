@@ -221,11 +221,12 @@
 >   metered backend you were saving.
 > - **`byollm backends` is now `byollm services`**, and rows lead with the
 >   service name rather than the backend id.
-> - **One sharing vocabulary: `private | team | public`.** `self` and `paid` are
+> - **One sharing vocabulary: `private | team`.** `self`, `named` and `paid` are
 >   gone as scope words. `byollm offer <service> <scope>` takes the new set.
-> - **`public` is unchanged in direct mode.** A daemon talking to sites without
->   the cloud still offers publicly exactly as before. It is cloud's *supported*
->   list that is `private | team`.
+> - **`public` is gone**, in direct mode too. Not deprecated — removed. It was
+>   the one scope that ran a stranger's job *without the device checking who
+>   they were*, which made it an off switch for admission rather than a wider
+>   setting. Every scope that remains asks a question.
 >
 > **One gap this build describes about itself, out loud.** `offer: "team"` is
 > enforced by the daemon's **local allowlist**, not by a central roster — the
@@ -405,29 +406,26 @@ Point it at your models:
 ```jsonc
 // ~/.byollm/config.json
 {
-  "backends": {
-    // One HTTP backend covers Ollama, MLX, llama.cpp and vLLM — they all speak
+  "services": {
+    // One HTTP type covers Ollama, MLX, llama.cpp and vLLM — they all speak
     // OpenAI-compatible /v1/chat/completions. Configure as many as you run.
-    "local":  { "backend": "openai-http", "baseUrl": "http://127.0.0.1:11434/v1",
-                "offer": "self" },                  // or "named" / "public" for open models
-    "mlx":    { "backend": "openai-http", "baseUrl": "http://127.0.0.1:8080/v1" },
-    "claude": { "backend": "claude-cli" }           // subscription CLIs are locked to "self"
-  },
-  "routes": {
-    "llm.generate": { "backend": "local",  "model": "gemma3:12b" },
-    "llm.chat":     { "backend": "claude", "model": "claude-opus-5" }
+    "local":  { "type": "openai-http", "baseUrl": "http://127.0.0.1:11434/v1",
+                "model": "gemma3:12b", "kinds": ["llm.generate"],
+                "offer": "private" },               // or "team" to share it
+    "claude": { "type": "claude-cli", "model": "claude-opus-5",
+                "kinds": ["llm.chat"] }             // subscriptions are locked to "private"
   }
 }
 ```
 
 ```bash
-byollm backends       # what's installed, healthy, and actually advertised
+byollm services       # what's installed, healthy, advertised — and who each is offered to
 byollm sites          # which sites this device serves — and which are waiting on you
 byollm approve <site> # say yes to one that asked (nothing runs for it until you do)
 byollm log            # every prompt that ran here, ever
 byollm pause          # stop claiming work
 byollm allow --list   # everyone who can use this device (empty by default)
-byollm offer <backend> public --cap 250   # share a paid backend, deliberately
+byollm offer <service> team --cap 250     # share a paid service, deliberately
 ```
 
 ## The audience model — sharing, safely
@@ -436,9 +434,9 @@ Every job carries an **audience** and every backend an **offer scope**. A job ru
 
 | Backend | Cost | Can offer | Why |
 |---|---|---|---|
-| **Ollama, MLX, llama.cpp, vLLM, LM Studio** | `free` | `self` → `named` (friends) → `public` (anyone) | Local compute. Costs electricity, not money — the folding@home posture. |
-| **Anthropic, OpenAI, Gemini, Grok, Groq, OpenRouter…** | `metered` | `self` by default; wider only with an explicit spend acknowledgment **and** a daily ceiling | Your API key, your money, per token. Sharing it is legitimate and ruinous by accident. |
-| **claude CLI & other subscription accounts** | `subscription` | `self` **only, enforced** | One account runs one person's work. A protocol MUST, not a setting. |
+| **Ollama, MLX, llama.cpp, vLLM, LM Studio** | `free` | `private` → `team` | Local compute. Costs electricity, not money. |
+| **Anthropic, OpenAI, Gemini, Grok, Groq, OpenRouter…** | `metered` | `private` by default; `team` only with an explicit spend acknowledgment **and** a daily ceiling | Your API key, your money, per token. Sharing it is legitimate and ruinous by accident. |
+| **claude CLI & other subscription accounts** | `subscription` | `private` **only, enforced** | One account runs one person's work. A protocol MUST, not a setting. |
 
 Cost class comes from the protocol registry and is **not yours to declare**. Point the generic `openai-http` backend at a remote endpoint and it is `metered` no matter what you call it — "free" is derived from the address the request is sent to, not from the config. That is the one rule that makes the rest enforceable.
 
@@ -446,12 +444,12 @@ Note the pair: `anthropic` and `claude-cli` reach one vendor in two different co
 
 The derivation reads the address, not the destination — a localhost proxy forwarding to a paid API classes as `free`, and nothing downstream can see through it. That is a deliberate act by the device's owner against their own account, and it is [outside the threat model](docs/security.md#4a-cost-class--whose-money-and-whose-terms); what the rule prevents is the *accident*.
 
-Want to lend your GPU to the open-source community, or let your friends' jobs run overnight on your computer? `byollm offer <backend> public` flips an open backend over. Your subscription is never part of that.
+Want your friends' jobs to run overnight on your computer? `byollm offer <service> team` flips an open service over to the people your relay admits. Your subscription is never part of that, and there is no scope that opens a device to people it cannot check.
 
 Widening a **paid** backend is the one path that asks first, and the question names the money rather than asking whether you are sure:
 
 ```bash
-$ byollm offer openai public --cap 250
+$ byollm offer openai team --cap 250
 
 This lets other people's jobs run on OpenAI (your API key), which bills
 your account per token. You would be paying for their work, up to
@@ -463,7 +461,7 @@ Offer openai to anyone? [y/N]
 
 Sharing a metered backend without a ceiling is refused outright — an unlimited one is not something anyone means on purpose. Narrowing back to `self` withdraws the consent too, so widening again has to be agreed to again.
 
-`named` is enforced by **your** daemon, not by the app: it keeps a local allowlist of `(app, user)` pairs — `byollm allow <app-url> <user-id>` — and refuses anything not on it, whatever the server claims. The list starts empty, so a fresh daemon runs your work and nobody else's until you say otherwise.
+`team` is enforced by **your** daemon, not by the app: it keeps a local allowlist of `(app, user)` pairs — `byollm allow <app-url> <user-id>` — and refuses anything not on it, whatever the server claims. The list starts empty, so a fresh daemon runs your work and nobody else's until you say otherwise.
 
 ## Security
 

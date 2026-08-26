@@ -38,6 +38,7 @@ describe("the freeze gate — cloud_004 §14", () => {
     const daemon = await makeDaemon(relay, fixture, {
       owner: "alice",
       site,
+      offer: "private",
     });
     disposers.push(daemon.dispose);
 
@@ -67,6 +68,7 @@ describe("the freeze gate — cloud_004 §14", () => {
     const daemon = await makeDaemon(relay, fixture, {
       owner: "alice",
       site,
+      offer: "private",
     });
     disposers.push(daemon.dispose);
 
@@ -103,6 +105,7 @@ describe("the freeze gate — cloud_004 §14", () => {
     const daemon = await makeDaemon(relay, fixture, {
       owner: "alice",
       site,
+      offer: "private",
     });
     disposers.push(daemon.dispose);
 
@@ -157,6 +160,7 @@ describe("the freeze gate — cloud_004 §14", () => {
     const daemon = await makeDaemon(relay, fixture, {
       owner: "alice",
       site,
+      offer: "private",
     });
     disposers.push(daemon.dispose);
 
@@ -217,6 +221,7 @@ describe("the freeze gate — cloud_004 §14", () => {
     const daemon = await makeDaemon(relay, fixture, {
       owner: "alice",
       site,
+      offer: "private",
     });
     disposers.push(daemon.dispose);
 
@@ -269,23 +274,36 @@ describe("the freeze gate — cloud_004 §14", () => {
     const daemon = await makeDaemon(relay, fixture, {
       owner: "bob",
       site,
+      // The only test in this suite that genuinely shares. Every other one
+      // routes its own owner's work and now says `private`, which is how we
+      // learned that "cross-user routing" had exactly one real case.
+      offer: "team",
     });
     disposers.push(daemon.dispose);
-    // No device-side admission is set up here, and none is needed: this
-    // harness offers its service `public`, and a publicly offered service
-    // admits everyone without consulting the daemon's own list.
-    //
-    // There used to be an `allowlist.add` on this line under a comment saying
-    // bob's daemon "would refuse without this". It would not — a mutation
-    // deleting the call left all nine tests here green. Dead setup under a
-    // false claim, and worse than clutter: it made this look like the place
-    // device-side admission was covered, so nothing covered it. Every
-    // cross-user test in this suite ran against the same permissive default.
-    //
-    // What this gate actually proves is that the *relay* routes a foreign
-    // owner's job correctly and learns nothing doing it. Who a device will
-    // serve is admission.test.ts, which narrows the offer scope so the
-    // question is live.
+    /**
+     * Now load-bearing — and worth the paragraph, because for a week it was
+     * not.
+     *
+     * This line used to sit under a comment claiming bob's daemon "would
+     * refuse without this". It would not: the harness offered its service
+     * `public`, and `matchAudience` returned ALLOWED for a public service
+     * without consulting the device at all. A mutation deleting the call left
+     * all nine tests here green — dead setup under a false claim, which is
+     * worse than either, because it made this look like the place device-side
+     * admission was covered and so nothing covered it.
+     *
+     * `public` is gone (byollm_016, 2026-08-26) and the offer above is
+     * `team`, so the device now genuinely refuses without this. Removing it
+     * fails this test, which is the only reason it is allowed to stay.
+     *
+     * What this gate proves is still a *relay* property — that a foreign
+     * owner's job routes and the relay learns nothing doing it. The
+     * device-side law is admission.test.ts.
+     */
+    await daemon.allowlist.add(
+      { origin: "http://relay.test", owner: "alice" },
+      Date.now(),
+    );
 
     const { jobId } = await connector.enqueue({
       prompt: "alice's work on bob's machine",
@@ -317,6 +335,7 @@ describe("the freeze gate — cloud_004 §14", () => {
     const daemon = await makeDaemon(relay, fixture, {
       owner: "alice",
       site,
+      offer: "private",
     });
     disposers.push(daemon.dispose);
 
@@ -358,7 +377,11 @@ describe("identity is the control plane's to decide", () => {
 
     // And an approved device still pairs — so this is not a check that
     // refuses everything.
-    const daemon = await makeDaemon(relay, fixture, { owner: "alice", site });
+    const daemon = await makeDaemon(relay, fixture, {
+      owner: "alice",
+      site,
+      offer: "private",
+    });
     disposers.push(daemon.dispose);
     expect(daemon.runnerId).toBeTruthy();
   });
@@ -370,7 +393,11 @@ describe("identity is the control plane's to decide", () => {
     const site = publicIdentityOf(siteKeys);
     const fixture = fixtureFor(site);
     const relay = new Relay({ fixture });
-    const daemon = await makeDaemon(relay, fixture, { owner: "alice", site });
+    const daemon = await makeDaemon(relay, fixture, {
+      owner: "alice",
+      site,
+      offer: "private",
+    });
     disposers.push(daemon.dispose);
 
     const approvedKeys = fixture.devices[0]?.device;

@@ -128,12 +128,12 @@ describe("resolveCost [REMOTE_IS_NEVER_FREE, COST_NOT_CONFIGURABLE]", () => {
 });
 
 describe("the hole byollm_007 closes", () => {
-  const strangersJob = { owner: "alice", audience: "public" as const };
+  const strangersJob = { owner: "alice", audience: "team" as const };
 
-  it("no longer lets a paid key be offered publicly by default", () => {
+  it("no longer lets a paid key be shared by default", () => {
     const result = matchAudience(strangersJob, {
       owner: "bob",
-      offerScope: "public",
+      offerScope: "team",
       cost: resolveCost("openai-http", "https://api.openai.com/v1", undefined),
       spend: { acknowledged: false },
       locallyAllows: () => true,
@@ -147,7 +147,7 @@ describe("the hole byollm_007 closes", () => {
   it("still allows it deliberately, with consent", () => {
     const result = matchAudience(strangersJob, {
       owner: "bob",
-      offerScope: "public",
+      offerScope: "team",
       cost: "metered",
       spend: { acknowledged: true, ceilingReached: false },
       locallyAllows: () => true,
@@ -158,7 +158,7 @@ describe("the hole byollm_007 closes", () => {
   it("stops at the ceiling [METERED_REQUIRES_CEILING]", () => {
     const result = matchAudience(strangersJob, {
       owner: "bob",
-      offerScope: "public",
+      offerScope: "team",
       cost: "metered",
       spend: { acknowledged: true, ceilingReached: true },
       locallyAllows: () => true,
@@ -184,7 +184,7 @@ describe("the hole byollm_007 closes", () => {
   it("keeps local compute freely shareable", () => {
     const result = matchAudience(strangersJob, {
       owner: "bob",
-      offerScope: "public",
+      offerScope: "team",
       cost: resolveCost("openai-http", "http://127.0.0.1:11434/v1", undefined),
       locallyAllows: () => true,
     });
@@ -193,10 +193,10 @@ describe("the hole byollm_007 closes", () => {
 });
 
 describe("the audience matrix across all three cost classes", () => {
-  // byollm_001 described a nine-way table; byollm_007 gives it a third axis.
-  // The point of writing all 27 out is that a change to any rule has to be
-  // argued for here, in a table a reader can check against the spec, rather
-  // than discovered later by whoever gets the bill.
+  // byollm_001 described a four-way table; byollm_007 gives it a third axis.
+  // The point of writing all twelve out is that a change to any rule has to
+  // be argued for here, in a table a reader can check against the spec,
+  // rather than discovered later by whoever gets the bill.
   const OWNER = "alice";
   const OTHER = "bob";
 
@@ -214,47 +214,31 @@ describe("the audience matrix across all three cost classes", () => {
     locallyAllows: (o: string) => (opts.allows ?? []).includes(o),
   });
 
-  const SHARED: Record<Audience, Record<OfferScope, MatchRefusal | "allow">> = {
+  const SHARED: Record<Audience, Record<OfferScope, MatchRefusal>> = {
     private: {
       private: "audience-self-other-owner",
       team: "audience-self-other-owner",
-      public: "audience-self-other-owner",
     },
     team: {
       private: "offer-scope-too-narrow",
       team: "not-locally-allowed",
-      public: "allow",
-    },
-    public: {
-      private: "offer-scope-too-narrow",
-      team: "not-locally-allowed",
-      public: "allow",
     },
   };
 
   // A subscription backend refuses on its own terms before scope is even
   // considered — but the job's own audience still gets the first word, so a
   // `self` job is refused for being someone else's, not for the subscription.
-  const SUBSCRIPTION: Record<
-    Audience,
-    Record<OfferScope, MatchRefusal | "allow">
-  > = {
+  const SUBSCRIPTION: Record<Audience, Record<OfferScope, MatchRefusal>> = {
     private: SHARED.private,
     team: {
       private: "subscription-self-lock",
       team: "subscription-self-lock",
-      public: "subscription-self-lock",
-    },
-    public: {
-      private: "subscription-self-lock",
-      team: "subscription-self-lock",
-      public: "subscription-self-lock",
     },
   };
 
   const TABLE: Record<
     BackendCost,
-    Record<Audience, Record<OfferScope, MatchRefusal | "allow">>
+    Record<Audience, Record<OfferScope, MatchRefusal>>
   > = {
     // A consented, in-budget metered backend behaves exactly like a free one.
     // That equivalence is the whole design: cost decides whether sharing is
@@ -273,11 +257,7 @@ describe("the audience matrix across all three cost classes", () => {
             { owner: OWNER, audience },
             daemon(scope, cost),
           );
-          if (expected === "allow") {
-            expect(result.ok).toBe(true);
-          } else {
-            expect(result).toEqual({ ok: false, refusal: expected });
-          }
+          expect(result).toEqual({ ok: false, refusal: expected });
         });
       }
     }
@@ -297,10 +277,10 @@ describe("the audience matrix across all three cost classes", () => {
     }
   });
 
-  it("opens a named offer to the locally allowed owner, at every cost that can share", () => {
+  it("opens a team offer to an admitted owner, at every cost that can share", () => {
     for (const cost of ["free", "metered"] as const) {
       const result = matchAudience(
-        { owner: OWNER, audience: "public" },
+        { owner: OWNER, audience: "team" },
         daemon("team", cost, { allows: [OWNER] }),
       );
       expect(result.ok, cost).toBe(true);

@@ -476,6 +476,7 @@ export function fixtureFor(
     consents: [{ owner: "alice", siteId: SITE_ID, paused: false }],
     devices: [],
     rosters: [],
+    signedRosters: [],
     revoked: [],
     ...extra,
   } satisfies RelayFixture;

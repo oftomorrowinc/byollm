@@ -2,6 +2,7 @@ import {
   MAX_SUCCESSION_CHAIN,
   Succession,
   PublicIdentity,
+  SignedRoster,
 } from "@byollm/protocol";
 import { routeKey } from "./state.js";
 import { z } from "zod";
@@ -159,6 +160,22 @@ export const RosterRecord = z
 export type RosterRecord = z.infer<typeof RosterRecord>;
 
 /**
+ * One owner's roster as the control plane signed it — Amendment G.
+ *
+ * Keyed by owner rather than by group, because that is the question a daemon
+ * asks: "who may this device serve?" A group is the control plane's way of
+ * arriving at that answer, and the relay has no business holding the
+ * derivation.
+ */
+const SignedRosterRecord = z
+  .object({
+    owner: z.string().min(1),
+    roster: SignedRoster,
+  })
+  .strict();
+type SignedRosterRecord = z.infer<typeof SignedRosterRecord>;
+
+/**
  * A device its owner has approved — cloud_005 §7.1.
  *
  * The relay refuses a device that is not here, and that refusal is the point.
@@ -196,6 +213,22 @@ export const RelayFixture = z
     devices: z.array(DeviceRecord).default([]),
     rosters: z.array(RosterRecord).default([]),
     /**
+     * The same memberships, signed by the control plane — Amendment G.
+     *
+     * Carried, never read for a routing decision and never assembled here.
+     * `rosters` above is the relay's own advisory copy, which it uses to
+     * filter what a device may claim; this is a document the relay hands to a
+     * daemon untouched, and the daemon checks it against a key pinned at
+     * pairing.
+     *
+     * The two coexisting is the point of the ruling: **non-authorship, not
+     * opacity.** The relay may go on knowing who is on a roster — it needs to,
+     * to route — and simply stops being the party anybody trusts about it. A
+     * relay that edited this would be caught at the device; a relay that
+     * withholds it narrows the device, which is the denial it always had.
+     */
+    signedRosters: z.array(SignedRosterRecord).default([]),
+    /**
      * Routes that were revoked, as structured pairs.
      *
      * A separate list rather than deleting the consent record, because the
@@ -219,6 +252,7 @@ export const EMPTY_FIXTURE: RelayFixture = {
   consents: [],
   devices: [],
   rosters: [],
+  signedRosters: [],
   revoked: [],
 };
 
@@ -321,6 +355,19 @@ export class Projection {
     return this.#fixture.sites
       .filter((site) => this.consentFor(owner, site.siteId) !== null)
       .sort((a, b) => (a.siteId < b.siteId ? -1 : 1));
+  }
+
+  /**
+   * The signed roster for this owner, to hand over untouched — Amendment G.
+   *
+   * Returned exactly as it arrived. There is no filtering, narrowing or
+   * merging here on purpose: any of those would be this relay having an
+   * opinion about membership, and the daemon would have no way to tell the
+   * opinion from the control plane's own words.
+   */
+  signedRosterFor(owner: string): SignedRoster | undefined {
+    return this.#fixture.signedRosters.find((row) => row.owner === owner)
+      ?.roster;
   }
 
   /**

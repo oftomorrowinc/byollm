@@ -261,6 +261,7 @@ describe("the freeze gate — cloud_004 §14", () => {
       devices: [],
       // Bob's machine runs work for his team, of which alice is a member.
       rosters: [{ id: "team_1", owner: "bob", members: ["alice"] }],
+      signedRosters: [],
       revoked: [],
     };
     const relay = new Relay({ fixture });

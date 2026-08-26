@@ -119,6 +119,21 @@ export interface DaemonPlaneDeps {
    */
   readonly pairingCodes?: PairingCodes | undefined;
   /**
+   * The control plane's roster-signing public key — Amendment G.
+   *
+   * Handed to a daemon at pairing so it can check every roster this relay
+   * later delivers. The relay holds only the public half and could not sign a
+   * roster if it wanted to, which is the property the whole amendment rests
+   * on: this is the one moment the relay tells a device whom to believe, and
+   * it happens inside the ceremony where a human is already comparing
+   * fingerprints.
+   *
+   * Optional so a relay with no control plane behind it keeps working
+   * unchanged: a daemon that receives none holds no roster, and serves no
+   * `team` work through this pairing.
+   */
+  readonly controlPlanePublic?: string | undefined;
+  /**
    * Where a human goes to approve a code — the control plane, always.
    *
    * The relay cannot approve anything: approving is looking at a fingerprint
@@ -248,6 +263,13 @@ export class DaemonPlane {
       sites: Object.fromEntries(
         sites.map((record) => [keyId(record.site.identity), record.site]),
       ),
+      // The key every later roster is checked against — Amendment G. Sent
+      // here and nowhere else: pairing is the ceremony where a human is
+      // already deciding whether to trust this upstream, so a key learned
+      // here rides a decision that has been made rather than inventing one.
+      ...(this.#deps.controlPlanePublic === undefined
+        ? {}
+        : { controlPlanePublic: this.#deps.controlPlanePublic }),
     });
   }
 
@@ -368,6 +390,13 @@ export class DaemonPlane {
       sites: Object.fromEntries(
         sites.map((record) => [keyId(record.site.identity), record.site]),
       ),
+      // The key every later roster is checked against — Amendment G. Sent
+      // here and nowhere else: pairing is the ceremony where a human is
+      // already deciding whether to trust this upstream, so a key learned
+      // here rides a decision that has been made rather than inventing one.
+      ...(this.#deps.controlPlanePublic === undefined
+        ? {}
+        : { controlPlanePublic: this.#deps.controlPlanePublic }),
     });
   }
 
@@ -686,6 +715,13 @@ export class DaemonPlane {
           Object.keys(successions).length > 0 ? { successions } : {};
         // A subset: paused sites keep their pin and route nothing, so the
         // daemon can name what the user has to go and read.
+        // The control plane's own statement of who this owner may serve,
+        // carried and not composed — Amendment G. Absent until the control
+        // plane signs one, and absent is not "admit nobody": the daemon
+        // narrows on age, and a roster never sent ages the same way as one
+        // withheld.
+        const roster = this.#deps.projection.signedRosterFor(device.owner);
+
         const awaitingConsent = pinned
           .filter(
             (record) =>
@@ -702,6 +738,7 @@ export class DaemonPlane {
             sites,
             ...rotations,
             awaitingConsent,
+            ...(roster === undefined ? {} : { roster }),
             cancel: [],
             lost: request.activeLeases.map((lease) => ({
               jobId: lease.jobId,
@@ -736,6 +773,7 @@ export class DaemonPlane {
           sites,
           ...rotations,
           awaitingConsent,
+          ...(roster === undefined ? {} : { roster }),
           cancel,
           lost,
           serverTime: now,

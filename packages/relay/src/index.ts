@@ -42,6 +42,13 @@ export interface RelayOptions {
    */
   /** Consent and rosters, projected from the control plane. */
   readonly fixture?: RelayFixture;
+  /**
+   * The control plane's roster-signing public key — Amendment G.
+   *
+   * Handed to daemons at pairing. Public half only: this relay cannot sign a
+   * roster, which is what makes carrying one safe.
+   */
+  readonly controlPlanePublic?: string | undefined;
   /** How long a claim is good for. */
   readonly leaseMs?: number;
   /** Injectable clock, so tests move time instead of sleeping. */
@@ -131,6 +138,9 @@ export class Relay {
       ...(options.verificationUrl === undefined
         ? {}
         : { verificationUrl: options.verificationUrl }),
+      ...(options.controlPlanePublic === undefined
+        ? {}
+        : { controlPlanePublic: options.controlPlanePublic }),
     });
     this.#site = new SitePlane({
       state: this.state,

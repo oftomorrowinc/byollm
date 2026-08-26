@@ -2290,3 +2290,57 @@ is formally withdrawn.
 What survives from that discussion is the scope sentence, which stays law: a team
 is an owner's guest list for the owner's own devices — nothing more. No org
 features are implied by the word, and none should be built on its strength alone.
+
+### Phase 0 complete; two record corrections; Phase 1 go (2026-08-26)
+
+CCC's Phase 0 landed (two commits, verify green): normalizeOrigin parses or
+refuses, scheme-less hosts get the scheme a person meant (https; http on
+loopback), pairings normalize at load and quarantine what won't, and a bad
+address is answered centrally with remedy and exit 2 — centrally because a
+per-command version is a hand-maintained list, the exact shape that missed. Six
+mutations caught; one exposed a false comment (an unreachable guard claiming
+new URL("http://") parses — it throws), replaced by the invariant property-tested
+over ~2,000 generated strings.
+
+**Correction one (CCC's own premise):** the end-to-end harness already existed
+(relay/test/harness.ts — real Runner, real ProtocolClient, claim→seal→fetch→run→
+report). What was missing was narrower and worse: no test anywhere exercised the
+device's admission decision. makeDaemon hardcoded offer:"public", under which
+matchAudience returns ALLOWED without consulting any list — every cross-user test
+inherited that default — and freeze-gate §6 carried a comment claiming the
+opposite over setup whose deletion leaves all nine tests green. Measured, not
+argued: mutating admission to () => true, the old suites caught nothing (15 ran,
+0 failed); the new admission.test.ts catches it (2 of 4). The net states
+invariants, not mechanisms — owner always runs; admitted stranger runs;
+unadmitted stranger refused with the model never seeing the prompt; a grant for
+one origin never admits the same name on another — so Phase 1 deletes against it
+and only admit() changes.
+
+Two rules minted from part 2:
+- **A harness default is part of every test's claim.** A fixture that quietly
+  supplies a security-relevant value (offer:"public") shapes the whole suite;
+  such fields are forced explicitly per test or the harness refuses to default
+  them.
+- **A comment asserting coverage is a claim, and deleting the setup it praises is
+  the proof.** The freeze-gate comment was a claim shipped without proof, sitting
+  on dead code — which is worse than either alone, because it marks the hole as
+  covered.
+
+**Correction two (mine, ruled accepted):** the probe entry was inoperative. The
+same pre-fix normalizer meant the typed schemeless entry could never match the
+Runner's schemed DEFAULT_ORIGIN — the ceremony completed and lied; no admission
+ever happened through it. The severity line in the local-allow-vs-seat-limit
+clarification is corrected with attribution: not "a live demonstration of a
+seat-limit bypass" but **"authored a false grant — the ceremony completed and
+lied to the owner."** The stop-ship stands as correctly called (a guard that
+didn't fire; a forbidden state authored). Noted for the record's honesty: the
+bug neutered its own bypass — the hole protected the system from the hole.
+
+**Open check, Todd's to run:** if any service is offered public, device-side
+admission is a no-op by design (public means anyone) — which makes holes-ruling 7
+load-bearing rather than tidy. `byollm services` on Todd's machine tells us what
+qwen (and everything else) is actually offered at, i.e. what the pre-rip exposure
+really was. Diagnostic, not a Phase 1 blocker.
+
+**Phase 1: go.** Kevin's migration note is written
+(docs/press-migration-note.md); the purpose vocabulary is his one open decision.

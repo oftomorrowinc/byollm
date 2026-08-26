@@ -114,3 +114,37 @@ permission to the app; the two doors are different on purpose and
 the missing one produces a meaningful-looking timeout); (5) owner id
 pasted site-side. Teach it as the owner's half of the test, beside
 the integrator's half the guide already carries.
+
+## byo-llm.com review vs alpha.56 (Cowork, 2026-08-26) — cloud never mentioned
+
+Ordered list, from source review of site/index.html (banner already
+says alpha.56, making stale content read as current):
+
+Breaks-if-pasted: (1) enqueue example says audience: "self" — the
+schema refuses it; must be "private". (2) Step 2 teaches
+backends+routes with the "backend" field — becomes services/defaults
+with "type".
+
+Wrong/missing law: (3) Sharing-section scope words self/named →
+private/team (CSS class names may stay; rendered words may not).
+(4) The ruled gemini-cli not-supported entry never landed — add with
+reason + date + re-test sentence. (5) Ollama's unqualified "free"
+gains the :cloud footnote (tagged models run on Ollama's cloud,
+metered — the money direction may not be implied wrong on a
+marketing page).
+
+Stale: (6) banner news line says alpha.5/relay under an alpha.56
+version — replace with cloud-free current news (services config,
+setup wizard, codex). (7) hero "no keys leave their computer" →
+"their device" per the keys-are-identity scope ruling. (8)
+daemon-side "backend" naming the config entry → "service".
+(9) Security's "process backends (the claude CLI)" → claude and
+codex CLIs.
+
+Missing product: (10) byollm setup and byollm install absent — the
+page implies hand-edited JSON and a foreground process; the
+direct-mode onboarding sell (three questions, background service)
+is shipped and unmade.
+
+Constraint held throughout: direct-mode framing only; no cloud,
+no rosters, no hub.

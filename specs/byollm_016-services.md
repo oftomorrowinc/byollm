@@ -2344,3 +2344,25 @@ really was. Diagnostic, not a Phase 1 blocker.
 
 **Phase 1: go.** Kevin's migration note is written
 (docs/press-migration-note.md); the purpose vocabulary is his one open decision.
+
+### Pre-rip exposure answered — and a display finding (2026-08-26)
+
+Todd ran `byollm services`. Verdict on CCC's worry: **nothing is offered public.**
+Claude and codex are subscription-class and "locked to your work" (the class law
+doing its job); glm-5.2 shows the narrowing warning working exactly as designed —
+authored offer "team" narrowed to "private" because it is metered and no spend
+consent is recorded, with the remedy printed (`byollm offer glm-5.2 team --cap`).
+So the public no-op admission path was never live on this machine, and the only
+cross-user-capable services are deliberate team offers. Pre-rip exposure: bounded
+and intended.
+
+The finding the paste hands us for free: **`byollm services` does not print each
+service's offer scope.** qwen-2.5-14b shows its cost class ("free — your
+electricity") and health, but the question this whole check existed to answer —
+"what is qwen offered at?" — is not answerable from the surface named services;
+it takes reading config.json. The offer is explicit in config (Phase A requires
+it); the surface just doesn't say it. Ruled as a Phase 1 item, riding the rip
+since the surface changes anyway: every service row states its offer scope in so
+many words ("offered: private" / "offered: team"). A surface whose name is
+services answers "offered to whom" — the same law as a status surface declaring
+whose knowledge it shows.

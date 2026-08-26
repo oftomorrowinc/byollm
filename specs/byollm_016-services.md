@@ -1469,3 +1469,26 @@ Todd's two actions: latest → .55; mint the roster keypair (his
 secret ritual; script single-use by design). Hub half proceeds
 unconfigured meanwhile — remainder of the current build, not a
 second workstream.
+
+## Phase C complete, unconfigured (2026-08-26)
+
+Hub half (5a65d14): fetches, holds, authors nothing. Ratified: the
+one-minute poll — cadence buys margin against the age bound, not
+freshness (signed-on-read made freshness structural); 60× margin at
+1/400th the requests of 2s. The failed-fetch-never-clears rider built
+and mutation-checked both paths. The database reader returns
+signedRosters: [] with a why-comment (assembling there = the hub
+authoring) — **graduation suggested per the predictions-become-checks
+rule: a lint asserting hub code never imports signRoster; carry and
+verify only.** Rule minted from the caught test: **an instrument that
+doesn't touch the thing it measures reports success identically**
+(Object.assign onto a private field, passing while exercising
+nothing; rewritten as swappable fetch, two polls, one instance —
+mutations bite only against that version).
+
+Todd's configuration run-book: mint (with the root-dep resolution
+fix), env:push, then — before pulumi config + hub deploy — **confirm
+no live daemon below .55 anywhere** (the .strict() hazard protects
+every paired daemon; Kevin's test machines included; a message
+closes it). After deploy: B2 (admission flip + deny-list veto)
+unblocks, then Amendment H on the same channel.

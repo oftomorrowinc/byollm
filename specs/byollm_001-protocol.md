@@ -329,3 +329,118 @@ It did not: Phase A and Phase B both shipped with `team` enforced by
 the per-person local allowlist, and the daemon says so at load. That
 notice retires with this amendment, and not before — a build whose
 `team` is still local must keep saying so.
+
+## G.5 Build phasing (CCC, 2026-08-25) — proposed, one decision to rule
+
+Written before code, as ruled. Sequenced protocol → daemon → control
+plane + hub, which is the order dependencies actually run in: the
+daemon cannot hold what the wire cannot carry, and the control plane
+cannot sign into a shape nobody has agreed.
+
+### What exists today
+
+Rosters already flow. `dashboard_team_roster_members` is read by the
+hub's projection (`ROSTERS`, every two seconds), lands in the relay
+fixture, and filters what a device may claim. Three of the four
+properties are therefore *partly* met by accident of the current
+design, and the fourth is met nowhere.
+
+**The gap, property by property:**
+
+1. *A list the daemon holds decides admission.* **Not met.** The
+   daemon holds no roster at all. `team` is enforced by the
+   per-person local allowlist, and the roster decides routing at the
+   relay instead — which is a filter, not an admission.
+2. *Authored and signed by the control plane; the relay may deliver
+   and never author.* **Not met.** The hub reads rows and assembles
+   the roster itself, which is the routing party authoring in bulk —
+   G.1.2's forbidden shape, arrived at honestly.
+3. *The local veto subtracts; nothing local adds.* **Partly met.**
+   `byollm disallow` exists and subtracts. `byollm allow` also adds,
+   which this amendment removes for `team`.
+4. *Maximum age, stale fails narrow.* **Not met.** Nothing ages.
+
+**The steer, kept:** the property is **non-authorship, not opacity.**
+The hub may go on reading rosters — it holds the rows, and its filter
+was always advisory under both-sides. What must change is that the
+daemon's admission list arrives *signed where it was authored*, so a
+tampering hub is caught at the device. No blindness is built that the
+signature already makes unnecessary; the hub keeps its filter, and
+the filter stops being the thing anybody trusts.
+
+### The one decision to rule: where freshness comes from
+
+`ROSTER_MAX_AGE_MS` is one hour, measured from the `issuedAt` **inside
+the signed document** — it cannot be measured from receipt, because a
+relay that withholds updates would then keep a removed member served
+forever, which is precisely what property 4 exists to prevent.
+
+That has a consequence worth ruling on rather than discovering: a
+signed roster must be re-issued far more often than hourly, or every
+device narrows to owner-only once an hour. Two shapes:
+
+**(a) Sign on read — recommended.** The dashboard exposes a hub-only
+endpoint returning freshly-signed roster documents; the hub polls it
+the way it already polls the database, and relays what it gets. The
+signature is minted on demand, so freshness is automatic and no
+schedule can fall behind. Costs a hub→dashboard runtime dependency:
+if the dashboard is down for an hour, team routing narrows — which is
+fail-narrow working, and worth stating out loud rather than meeting.
+
+**(b) Re-sign on a schedule.** A cron re-signs every few minutes into
+a table the hub already reads. No new dependency, no new endpoint —
+but the margin between the re-sign interval and the max age is a
+number somebody must keep true, and Vercel's cron floor may be an
+hour, which would leave no margin at all.
+
+(a) is recommended because the failure mode of (b) is silent and
+periodic: a cron that slips produces devices that narrow, recover,
+and narrow again, and nothing in the product would name the cron.
+
+**Where the key lives is already settled by precedent.** The suite
+mints hub tokens with an Ed25519 keypair whose private half is a
+Vercel environment variable and whose public half the hub holds
+(`USAGE_TOKEN_*`, `scripts/mint-hub-keypair.mjs`). Roster signing is
+the same shape with a different audience: the daemon holds the public
+half, pinned at pairing.
+
+### Phase A — protocol
+
+- `ROSTER_MAX_AGE_MS = 60 * 60_000`, exported and used by both sides.
+- `SignedRoster`: `{ owner, members[], issuedAt, signature }`, with
+  `signRoster` / `verifyRoster` beside the existing request signing,
+  under their own domain separator so a roster signature can never be
+  replayed as a request signature.
+- Wire: the pair response gains the control-plane public key to pin;
+  the heartbeat response gains the signed roster.
+- The MUST text is already ratified; this is the shape it needs.
+
+**This is a wire change**, so protocol lockstep applies: publish,
+bump, deploy, and the gate before promotion.
+
+### Phase B — daemon
+
+- Pin the control-plane key at pairing, beside the site pins.
+- Hold the roster; verify signature and age on receipt and on use.
+- `team` admission becomes: the held roster admits the asker, minus
+  local veto. `byollm allow` stops adding for `team`; `disallow`
+  keeps subtracting.
+- Past `ROSTER_MAX_AGE_MS`, admit the owner and nobody else, and say
+  so — a device that has narrowed must be able to tell somebody why,
+  or this is another silent state.
+
+### Phase C — control plane + hub
+
+- Roster signing key, minted the way the hub token key was.
+- The dashboard signs; the hub reads and relays; neither the hub nor
+  the relay can mint one.
+- The hub's existing roster filter stays, now advisory by admission
+  rather than by hope.
+
+### What rides with the build, and not before
+
+`C006_NAMED_LOCAL_ALLOWLIST`'s check title, and the in-product notice
+saying `team` is enforced locally. Both describe roster-follow as the
+enforcement, and until Phase B ships it is not. A check whose title
+claims a property nothing enforces is the defect this project spent
+the week deleting.

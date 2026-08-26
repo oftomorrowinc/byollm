@@ -148,3 +148,47 @@ is shipped and unmade.
 
 Constraint held throughout: direct-mode framing only; no cloud,
 no rosters, no hub.
+
+## Full docs/readme discrepancy sweep, all three repos (Cowork, 2026-08-26)
+
+Method: grep battery over the week's stale-marker taxonomy (retired
+scope vocab, old config shape, renamed commands, adapter-path,
+gemini, owner guidance), specs/ excluded as dated records. Result:
+**all drift lives in the byollm repo's prose; byollm-cloud-web and
+byollm-cloud are clean.**
+
+**byollm repo:**
+1. **README.md — the changelog knows, the body doesn't.** Top notes
+   correctly announce setup/install/PATH/the services rename; the
+   body still teaches the old world: config sample in
+   backends+routes with the "backend" field and offer "self"/"named"
+   (~408–418); `byollm backends` in the commands list (424) two
+   hundred lines below the note announcing its rename (222); the
+   sharing section (466) in `named` vocabulary. Sweep: config →
+   services/defaults/"type" + private/team; commands → services;
+   sharing → team words. The byollm-allow description is TRUE until
+   B2 — mark it to retire with B2, don't fix it early (claims ship
+   with their proof, in both directions).
+2. **packages/daemon/README.md:** full old config sample (~166–183),
+   `byollm backends` twice (80, 187), "Keep it running" opens with
+   terminal-holding — rewrite to services shape and lead with
+   `byollm install`.
+3. **docs/protocol.md (149, 413) + docs/security.md (397) — law
+   docs teaching refused wire values.** `offer: self|named|public`
+   table and `audience !== "self"` derivation (twice): the schema
+   refuses "self" since the one-vocabulary rename. Same
+   breaks-if-followed class as the site's enqueue sample — highest
+   priority of the sweep.
+4. Clean: packages/{protocol,server,relay,conformance}/README.md;
+   the README's gemini not-supported note is present and correct.
+
+**byollm-cloud-web:** clean — guides, www, llms.txt all current;
+models guide's adapter-path mention is the honest callout. Cosmetic
+only: apps/docs pins @byollm/protocol alpha.38 (dep freshness).
+
+**byollm-cloud:** clean — README's "machine" is plain-English
+hardware per the scope rule.
+
+Priority order: (3) law docs (breaks if followed), then (1) README
+body, then (2) daemon README. Batch with the byo-llm.com ten-item
+list; same PR sweep is natural.

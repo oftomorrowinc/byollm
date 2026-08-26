@@ -325,11 +325,18 @@ describe("what the user is told about their money", () => {
 
     await run("status");
     expect(out).toContain("metered services — your money");
-    expect(out).toContain("250c");
+    // Money, in the unit the money is in. The consent ceremony that authorises
+    // this ceiling says "$2.50 a day"; a surface reporting the same number as
+    // "250c" makes a reader check whether it is the same figure.
+    expect(out).toContain("$2.50");
+    expect(out).not.toContain("250c");
 
     out = "";
     await run("services");
-    expect(out).toContain("metered — shared, cap 250c/day");
+    // The scope by name, not "shared". `shared` is not one of the two words
+    // this system uses for an audience, and a row that invents a third is the
+    // one-vocabulary rule breaking on the surface built to report it.
+    expect(out).toContain("metered — team, cap $2.50/day");
   });
 
   it("says an unshared metered backend is the owner's work only", async () => {

@@ -1265,8 +1265,8 @@ async function commandStatus(
       const spent = spentToday[route.service] ?? 0;
       io.out(
         route.spendAcknowledged
-          ? `  ${route.service}: ${spent.toFixed(1)}c spent today of ` +
-              `${String(route.spendDailyCapCents ?? 0)}c\n`
+          ? `  ${route.service}: ${dollars(spent)} spent today of ` +
+              `${dollars(route.spendDailyCapCents ?? 0)}\n`
           : `  ${route.service}: not shared — your work only\n`,
       );
     }
@@ -1442,6 +1442,18 @@ function commandRetiredAdmission(name: "allow" | "disallow", io: CliIo): 2 {
 }
 
 // -- offer -------------------------------------------------------------------
+
+/**
+ * Cents, as money — one place, because three surfaces print this number.
+ *
+ * The consent ceremony said "$25.00 a day" and the `services` row said
+ * "2500c/day" for the same ceiling, which made a person check whether they
+ * were looking at the same figure. Surfaces sharing a value share its unit,
+ * and the unit is the one the money is in.
+ */
+function dollars(cents: number): string {
+  return `$${(cents / 100).toFixed(2)}`;
+}
 
 /**
  * What a service's offer scope actually amounts to on this machine.
@@ -1711,7 +1723,7 @@ async function commandOffer(
         // is one somebody skims.
         `${wrap(`It bills your account per token because ${reason.because}.`)}\n\n` +
         `${wrap(`You would be paying for their work, up to $${dollars} a day, every day, until you change it. Spending stops at that ceiling and resumes the next day.`)}\n\n` +
-        `Offer ${serviceKey} to the people your relay admits?`,
+        `Offer ${serviceKey} to your team?`,
     );
     if (!confirmed) {
       io.out("nothing changed\n");
@@ -1748,7 +1760,7 @@ async function commandOffer(
     `${serviceKey} is now offered to ${scope}` +
       (written === undefined || !widening
         ? ""
-        : `, capped at ${String(written)}c a day`) +
+        : `, capped at ${dollars(written)} a day`) +
       "\n",
   );
   return 0;
@@ -1951,7 +1963,7 @@ async function commandServices(
         : route.cost === "subscription"
           ? "your subscription — locked to your work"
           : route.spendAcknowledged
-            ? `metered — shared, cap ${String(route.spendDailyCapCents ?? 0)}c/day`
+            ? `metered — ${route.offerScope}, cap ${dollars(route.spendDailyCapCents ?? 0)}/day`
             : "metered — your money, not shared";
     /**
      * Who it is offered to — which this command did not say at all.

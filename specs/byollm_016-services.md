@@ -1426,3 +1426,11 @@ Phase C channel, loud first-delivery notice, byollm forget as the
 local veto, direct mode's ceremony untouched and load-bearing there.
 This is onboarding item #1 for today, Amendment-H-shaped, drafted
 against G's properties once C lands.
+
+*Completing the file (2026-08-26): the primary evidence was a named
+refusal — Kevin's retry came back `this device has not approved
+site…`, seen live by CCC, which disproved Cowork's withdrawal in
+real time; the overnight observation already reflected that
+corrected view. The refusal did what refusals were taught to do this
+week: name the truth loudly. Phase C proceeds, starting where the
+wire meets the relay.*

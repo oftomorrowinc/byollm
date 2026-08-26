@@ -2161,3 +2161,79 @@ laws do not: the fence, RELAY_BLIND, pin-at-pairing, the unsigned-field law,
 private-is-device-enforced, refusal indistinguishability, and consent wording as
 product law all survive by name. Kevin gets a press migration note before he starts
 tomorrow — the rip lands while he's offline, which is the timing, not an accident.
+
+### Stop-ship diagnosis lands: my hypothesis was wrong; the real class is worse (2026-08-26)
+
+CCC's diagnosis, verified against cli.ts:1421 and allowlist.ts:228: the B2 guard WAS
+wired and correct. The fifth-unwired-caller hypothesis — mine — is withdrawn with
+attribution. The lookup key never matched: normalizeOrigin does new URL(input).origin
+and, on throw, silently falls back to the raw string. Todd typed the schemeless form;
+the pairing was stored under the schemed origin; two different strings, undefined,
+and the guard read "no control plane here." The status line rendering the schemeless
+string was the same fact showing through.
+
+The real class, still live and surviving the redesign: **a normalizer that silently
+degrades unparseable input into its own distinct identity makes every lookup built
+on it a false-negative factory.** Nothing warns. Two checks minted:
+- normalizeOrigin refuses input it cannot parse — it never passes raw strings through.
+- A property test: any two spellings of one origin either normalize equal or both
+  refuse.
+
+Second lesson, CCC's, recorded plainly: the source-level grep check passed because
+all four listed call sites were present — a hand-maintained list of call sites
+cannot catch a wiring class, because it does not grow when the code does. What
+catches an unwired (or mis-keyed) caller of any kind is one end-to-end test — real
+Runner, fixture relay, real job. That is Phase 0, and it is the durable form of
+"every lesson becomes a check" for this whole category.
+
+### CCC's five pushbacks: all ratified (2026-08-26)
+
+1. **Single-use binds to a grant id, not the job id.** A timed-out claim re-claimed
+   means a second grant for the same job; a device that pinned the job id as spent
+   would refuse its own retry. The grant carries its own id (single-use on that) and
+   binds the job id. Ratified as non-optional — CCC is right that it isn't.
+2. **The first-serve notice fires before the job runs.** Synchronous notice, then
+   execution — loud first, not a receipt after the first drain job already ran.
+   Ratified; this also makes the notice the detection surface for posture item 3.
+3. **The compromise posture, stated in its strongest true form:** private-is-
+   device-enforced protects private services from other USERS, not from arbitrary
+   SITES. After approve moves to the control plane, a compromised control plane can
+   author a grant for a site the owner has never heard of, as the owner, against
+   their private service. Caps and pause bound the spend; the first-serve notice
+   (now ordered before execution) is the detection surface; nothing bounds the
+   fact. This is the largest single trade in the redesign and the record now reads
+   like one. Hole 4's earlier wording is superseded by this paragraph.
+4. **Auto-mapped slots are displayed, never controlled.** My "auto-maps, silently"
+   wording was wrong — Todd's rule was no control, not no disclosure. A one-
+   candidate slot renders as text ("writing_assistant → your Claude"); the consent
+   screen always shows every mapping it authors. Corrected with attribution.
+5. **The flat-kind sugar gets a reserved purpose id**, renderable label included,
+   forbidden in explicit manifests. And the sharp edge said out loud for site
+   authors: graduating from a flat list to named purposes unmaps every existing
+   user once — correct under never-silently-remap, and in Kevin's migration note.
+
+### Two constants, ruled (2026-08-26)
+
+- **Grant expiry: 120 seconds.** Gates acceptance, not execution — a long job keeps
+  running. Comfortably over claim-to-verify latency; a captured grant is worthless
+  (and dead anyway under grant-id single-use); wide enough that ordinary drift
+  doesn't refuse.
+- **Skew: warn at 30s** in status/health/problems; **any expiry refusal with
+  measured skew over 5s names the clock and its remedy** instead of reading as
+  denial.
+
+### Build phases: approved (2026-08-26)
+
+Phases 0–5 approved as proposed, Phase 0 strictly first — no cutting before a test
+that runs a job. One reorder inside CCC's own stated freedom: publish @alpha BEFORE
+the hub flips, not after — @alpha is inert until installed, and it shrinks the
+broken window on Todd's machine to just his upgrade rather than upgrade-plus-
+publish. Deploy order otherwise ratified, including the rule that mappings exist
+before grants resolve from them, and that old-daemon-against-new-hub refuses loudly
+with a named remedy — a deliverable, not an accident. Phase 1's concentration of
+risk into four device-side checks is acknowledged; over-testing them (each with its
+own test and mutation) is endorsed over speed. Riding along in Phase 1: the CLI
+help's stale offer vocabulary (self|named|public) dies with the machinery. Todd's
+acceptance probe gains one item from the diagnosis: the schemeless spelling of any
+origin must behave identically to the schemed one — normalize equal or refuse
+loudly, never a silent distinct identity.

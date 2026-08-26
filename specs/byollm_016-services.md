@@ -2270,3 +2270,23 @@ Boundary kept explicit so earlier rulings stay coherent: **seeing is not capping
 The platform ceiling still governs only what the hub grants; device-reported local
 usage appears on the owner's graph but is never the platform's to limit. The graph
 is the owner knowing; the ceiling is the platform protecting.
+
+### Formal ruling: teams stay — mechanism and name (2026-08-26)
+
+Todd flagged that after the mapping additions we never formally closed the
+keep-teams-vs-rename-to-sharing question. Ruled: **teams stay, both the mechanism
+and the word.**
+
+The mechanism was never in doubt after Amendment L — mapping made teams the thing
+that answers "whose model serves this slot," and Todd's own verdict stands in the
+record: "makes teams really powerful while keeping it simple." The name now stays
+too, and the deciding law is one-vocabulary: `team` is a MUST wire literal
+(offer: private|team|public), the pulldowns say "Team toddsampson/qwen-14-4b", and
+renaming the surface word while the wire says `team` is exactly the split
+vocabulary the one-vocabulary rule exists to prevent. Renaming the wire literal
+mid-bandaid would be churn with no buyer. The demote-to-"sharing" proposal (mine)
+is formally withdrawn.
+
+What survives from that discussion is the scope sentence, which stays law: a team
+is an owner's guest list for the owner's own devices — nothing more. No org
+features are implied by the word, and none should be built on its strength alone.

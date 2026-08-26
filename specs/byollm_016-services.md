@@ -2399,3 +2399,51 @@ team); "shared" answers "what happened" and leaves "with whom" dangling.
 Revival path recorded: if the parked paying-owners marketplace gets its session,
 public returns deliberately, designed with payment and abuse handling attached —
 never as a loaded chamber kept around unused.
+
+### Phase 1 checkpoint after commits 1–2; two laws minted; commit 3 go (2026-08-26)
+
+Commit 1 (public is dead) surfaced three findings, all now recorded:
+- The suite was running through the off switch: with every relay-test call site
+  forced to its narrowest scope, one test of forty-one genuinely shares (freeze
+  gate §6 — the only real cross-user case in the relay suite). Conformance C005's
+  nine-cell matrix had two true cells, both produced by public; it is four cells
+  now and every one is a refusal. C014 asserted a provenance label on a path that
+  never reached the decision that makes the label mean anything.
+- `byollm services` OMITTED offer scope entirely — kind, backend, model, address,
+  who pays, but never who it's shared with. Confirms and sharpens the earlier
+  display ruling.
+- `byollm status` printed the CONFIGURED offer, not the effective one: Todd's glm,
+  narrowed to private pending spend consent, printed "team (you and people you
+  allow)" while refusing every one of them. Both surfaces now print effective
+  scope and name the narrowing. **Law minted (CCC's words): a request is not a
+  state.** A surface that prints an authored value where an enforced value
+  differs is lying in the owner's voice — sibling of "a status surface declares
+  whose knowledge it shows."
+
+Commit 2 (grant, protocol half, additive): all three ruled constants in; grantId
+separate from jobId as ratified. The schema-drives-statement test exceeded its
+brief: signed bytes derive from SignedGrant.shape, and the test reads fields off
+the schema and tampers with each — it covers fields nobody has written yet, so
+the unsigned-field attack cannot arrive via a list that doesn't grow. Mutation
+testing then found a live gap: nothing asserted the four domain-separation
+contexts differ — GRANT_CONTEXT set equal to ROSTER_CONTEXT passed all 256
+protocol tests, and a collision would let a captured roster replay as a grant.
+**Law minted: domain separation is asserted, never commented** — every context
+constant in the codebase is tested distinct, namespaced, versioned, and leading
+the bytes it protects, as a set that the test enumerates from the code, not by
+hand.
+
+The direct-mode consequence CCC asked to have on record as a decision: it was
+one. The public-kill ruling stated it before Todd ratified ("direct mode becomes
+owner-only... sharing requires an authority that can name people") and Todd said
+yes to that text. Confirmed here in CCC's sharper sentence so no reader misses
+it: **byollm without cloud is BYO-compute for one person; sharing a device
+between users is a reason to run a relay** — an architecture step, not a
+paywall, because the relay is open source. Sequencing the narrowing into the
+daemon rip (it presumes allow is gone) is approved.
+
+Commit 3: go. The rip lands against admission.test.ts with only admit()
+changing; four device checks each with test and mutation — signature, replay,
+offer-consistency, private-is-absolute. The domain-separation set law applies
+across the rip: when roster contexts die with their machinery, the test's
+enumeration shrinks with the code, which is the point.

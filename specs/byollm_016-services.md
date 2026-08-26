@@ -1929,3 +1929,62 @@ signed, claim-time authored, job-bound, short-lived, verified against the pinned
 
 Direct mode: untouched. No hub, no grants — site approval is the whole law per
 Amendment I.
+
+### Amendment K — the daemon's four verbs; per-user resolution; the BYO-compute story (2026-08-26)
+
+Todd ratified moving site approval (and all people/site policy) to the relay's control
+plane, in his words: "pair with relays, offer services, cap spend, pause feels so
+right to me." That sentence is now the daemon's whole local law and should be treated
+as spec language. `byollm approve`, the offered-sites queue, and the per-site local
+state retire with it (cloud route; direct mode keeps its pairing-per-app shape, which
+is the same verb). The defense-in-depth trade is recorded as accepted: site policy
+now moves at account speed, and the retained machine-side root is the pairing
+ceremony itself — plus one mitigation, reusing the first-delivery pattern
+legitimately: the first grant naming a site this device has never served fires a
+notice ("now serving <site>, enabled from your dashboard"), so account-driven change
+is always loud at the machine. Notices fire on evidence — the grant is the evidence.
+
+**Per-user model selection.** Todd's probe at where sharing falls down: he needs
+llm.generate = claude for himself, qwen for Lis via the same site, and the site needs
+a fallback for everyone else — "the site needs to know to call qwen-14-4b only for
+her." It doesn't, and the reason is that selection was already audience-scoped; it
+just needs to resolve per user:
+
+- The candidate set is per user by construction: what's advertised to a user is the
+  union of services offered to them across every device that mayRunFor them. Todd
+  sees claude (private) + qwen (team); Lis sees qwen only. If the site enqueues
+  llm.generate with no service name, Lis's set has one member — she gets qwen with
+  the site knowing nothing. Offer scoping IS the per-audience routing.
+- Resolution therefore moves hub-side, and necessarily so: a user with their own
+  device AND a team share has candidates from multiple devices — no single device's
+  `defaults` block can see that set, so per-user resolution cannot live in device
+  config on the cloud route. It happens at claim, where everything else now happens.
+  Order: one candidate → it; several → the user's own preference (a byollm.cloud
+  account setting — "when several services can serve a kind, prefer X"); none set →
+  loud refusal to the site under the existing ambiguity law (withheld, carried not
+  inferred). The owner's device `defaults` remain law for direct mode and for the
+  owner's own machine-local resolution — they no longer speak for other users.
+- The grant carries the resolution: (kind, service) arrives resolved and signed; the
+  device verifies the named service is one it actually offers at a scope that
+  includes this user, then runs. Selection is the hub's; offer-consistency is the
+  device's. Key-vs-value law untouched — sites may still select by advertised name,
+  they just never need to.
+- "Locks one model for the team" is thereby false in both directions: one team
+  service → members get it automatically; several → each member's own preference
+  picks, per member, no site involvement.
+
+**Fallback for users without byollm.** The site's branch, already in the design:
+a user who never connected has no assertion — site uses its own API. A connected
+user with nothing capable online gets the availability advisory at t=0 / terminal
+refusal at deadline — site falls back then. Refusal indistinguishability holds; the
+site learns "unavailable," never why.
+
+**The story, per Todd (recorded as given).** Eric's coaching-management app wants
+each of HIS users to bring their own compute so Eric never pays for, marks up,
+limits, or thinks about inference — the user decides their own spend. "If they do
+that on two or more sites they need pro." Developers wanting their own compute
+across their own sites are the second pro case. So the primary product is
+BYO-compute per user (free: one site; pro: many), and sharing is an overlay for the
+Lis/family/team case — consistent with demoting the Teams branding to "sharing."
+Open question, not ruled: what plan gates sharing your devices with N other people,
+now that per-user pro, not team seats, is the primary meter.

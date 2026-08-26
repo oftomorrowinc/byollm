@@ -2237,3 +2237,18 @@ help's stale offer vocabulary (self|named|public) dies with the machinery. Todd'
 acceptance probe gains one item from the diagnosis: the schemeless spelling of any
 origin must behave identically to the schemed one — normalize equal or refuse
 loudly, never a silent distinct identity.
+
+### Posture guidance and the usage surface (2026-08-26)
+
+Todd, closing the compromise-posture discussion: the user-facing guidance is
+"connect your compute to sites you trust" — trust in the site is the thing the
+mapping ceremony asks for, and the product says so plainly (final wording is
+Todd's, as product law). And the trend-level detection surface is ruled in:
+**per-service usage attribution** — each service shows which sites (and, for
+team-shared services, which users) are driving it, with an opt-in weekly or
+monthly digest email. An abusing site sticks out like a sore thumb on its own
+graph. This generalizes v1.1's per-user spend attribution into one attribution
+surface: usage by site and by user, spend where metered. Detection now has two
+layers: the first-serve notice (immediate, before the first job runs) and the
+usage digest (trend). Disclosure check: this is the owner's view of the owner's
+own services — sites never see it.

@@ -1863,3 +1863,69 @@ Tombstones now cover both commands: `byollm allow` and `byollm disallow` each po
 at the team page / CLI twin. The re-probe on Todd's machine updates once more: both
 commands must hit their tombstones; a block placed on the team page must reach the
 device as a smaller signed roster and show in status as such.
+
+### Amendment J — the roster was a cache: per-job signed admission (2026-08-26)
+
+Two rulings from Todd, the second one large.
+
+First, closing the block question: "We don't need that. Each owner has their own team
+and only shares their devices. So keeping a user on my team without access to my
+devices lets them do nothing." Block == removal, and not as a v1 simplification — as
+structure. A team IS access to its owner's devices and nothing else, so
+"member-but-blocked" is not a deferred feature, it is an empty state. Owner-scoped
+blocks are deleted from the design space entirely.
+
+Second: "If the hub routes you something you should just run it, right? We shouldn't
+need a copy of roster locally at all? If we add or remove a user to hub, or someone
+else adds them to a relay, it should just work or stop working instantly."
+
+Yes — and the reason it's safe is worth stating precisely, because Amendment G
+property 1 said "never per-job assertion" and this looks like per-job assertion. It
+isn't the thing G outlawed. G outlawed trusting the *relay's or site's unsigned*
+per-job claim. What replaces the roster is the *control plane's signed* per-job
+admission: at claim time — where we already gate consent by routeKey — the hub
+attaches a signed grant to the job: site, user, owner, job id, issuedAt, short
+expiry. The device verifies it against the key pinned at pairing and runs. Everything
+the verifier trusts still lives inside a signature; the signature now covers one job
+instead of a membership window.
+
+The held roster was a cache, and the cache bought nothing. On the cloud route the job
+path and the roster path share fate: jobs enqueue through the hub, so if the hub is
+down there are no jobs to admit — a locally held roster adds no availability, only
+staleness. And staleness was the whole cost: ROSTER_MAX_AGE_MS existed to bound how
+long a removed user kept running. With claim-time grants the bound collapses to the
+grant expiry — add a user and the next job works; remove them and the next claim
+fails, including jobs already queued, because the grant is authored at claim, not at
+enqueue. Instant in both directions, which is what Todd asked for.
+
+What survives of Amendment G — the properties were right; the mechanism moves:
+- The trust root: pinned-at-pairing control-plane key. Grants verify against it.
+  N relays each sign their own grants with their own key; nothing hardcodes hub.
+- Relay delivers, never authors. The relay cannot forge a grant; RELAY_BLIND intact.
+- The unsigned-field law: the grant is self-contained; nothing outside its signature
+  is trusted, including anything the site or relay says about the user.
+- Monotonicity/refused-document reasoning becomes replay protection: a grant binds to
+  its job id (single-use at the device) and carries a short expiry.
+
+What dies: the daemon-held roster, sign-on-read, /api/hub/rosters polling,
+ROSTER_MAX_AGE_MS, first-delivery notices, the roster parenthetical in status. The
+B1/B2 sign-on-read machinery, live for under a week, retires with it — the build is
+sunk but the properties it proved carry straight into grants (author-side signing,
+pinned verification, deploy-order lesson all reuse). Pre-1.0 liberty; loud
+retirement on the notices channel.
+
+Status surface consequence, ruled by existing law ("a status surface declares whose
+knowledge it shows"): the device can no longer display who *would* be admitted — it
+never knows that anymore. Device status shows the device's own knowledge: approved
+sites, pinned authorities, recent jobs and their grant verdicts. Membership is the
+team page's knowledge, and status points there. "Who can use this device" becomes
+"you, always; and whoever <relay> admits for approved sites — see your team page."
+
+Consolidation note for CCC: consent gating already happens hub-side at claim
+(routeKey). Membership now checks there too. One signed claim-time grant can carry
+what three mechanisms did — consented, member, admitted — one signature, one verify
+at the device. Design space is CCC's; the law is that the grant is control-plane
+signed, claim-time authored, job-bound, short-lived, verified against the pinned key.
+
+Direct mode: untouched. No hub, no grants — site approval is the whole law per
+Amendment I.

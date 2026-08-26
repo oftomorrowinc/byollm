@@ -1727,3 +1727,61 @@ counterpart. This upgrades the stop-ship's severity framing: the probe entry
 (toddsampson2008@gmail.com) is a live demonstration of a seat-limit bypass, not merely
 a wrong prompt. The fix restores both boundaries at once, because they are the same
 boundary.
+
+### Amendment I — one admission law: devices approve sites, authorities govern users (2026-08-26)
+
+Todd, reacting to the seat-limit clarification: "I think we may have our design wrong.
+I could see someone having multiple relays with their own users — one of which is hub.
+But I don't think local allow for users makes sense. Can you imagine if github and git
+worked that way?"
+
+The analogy holds and the deeper reason is already in our own law. A git client makes
+one trust decision: which remotes it has. Who may push is GitHub's decision, made in
+GitHub's namespace, enforced where the namespace lives. No git client keeps a local
+list of allowed GitHub users, because the client has no way to know who those users
+are — it would just be trusting the server's per-request claim.
+
+That is exactly what `byollm allow <site> <user>` always was. The daemon cannot verify
+a foreign site's user identities; a local allowlist entry admits whatever the site
+asserts per job about who the user is. Amendment G property 1 outlawed per-job
+assertion for the cloud route — the direct-mode allowlist was the same thing wearing
+an allowlist costume. The user-granularity was illusory: against a dishonest site it
+gates nothing, and against an honest site it second-guesses the one party who actually
+owns the namespace. The enforceable trust decision was always the site.
+
+**The law.** One admission chain, every route:
+1. The fundamental refusal runs first (unchanged).
+2. The site is approved — the pairing/approve ceremony, key pinned at pairing. This is
+   the device owner's grant, and the only additive grant a device owner has.
+3. If the site's pinned authority publishes a roster (a relay with a control plane —
+   hub is the first instance, not a special case): the user is in the signed roster,
+   under G's four properties, held per-relay.
+4. The user is not vetoed. `byollm disallow` survives as the uniform subtractive
+   control on both routes. Recorded with its trust status: a veto binds a name only as
+   strongly as the authority that asserts it — real against a signed roster, honest-site
+   policy in direct mode.
+
+`byollm allow` is removed entirely — not refused on hub-keyed sites, gone. It leaves a
+tombstone with remedy (owner-facing refusals split by remedy): devices approve sites;
+sites and relays govern their own users; `byollm disallow` still vetoes.
+
+**Relays generalize.** Multiple relays, each with its own users and its own pinned
+roster key, is the intended shape; nothing in admission may hardcode hub's identity.
+Pin-at-pairing (already ratified) is what makes N relays safe: the roster authority is
+whoever was pinned when this site was approved.
+
+**Effect on the stop-ship.** The dark flip dies with the branch it lived in. B2 tried
+to route hub-keyed sites to a second admission law and left the router unwired — the
+fifth unwired caller. The remediation is no longer to wire the branch but to delete
+it: with one law there is no flip to leave dark, and the seat-limit boundary becomes
+structural (nothing local adds — now with no command that could even try). CCC still
+owes the diagnosis lesson: why the source-level call-site check did not fire. Every
+lesson becomes a check, and that lesson survives the redesign that mooted the bug.
+
+**Effect elsewhere.** Amendment H strengthens: `byollm approve` is now the sole device
+grant, which is also what cloud_015 wanted — onboarding loses an entire class of
+per-user steps. Migration is pre-1.0 liberty, but existing allowlist entries retire
+loudly on the notices channel, never silently; Todd's probe specimen
+(toddsampson2008@gmail.com) rides that retirement. Status's "who can use this device"
+becomes: you, always; then per approved site — for rostered relays, the roster count
+with its signing age, minus any "refusing …" rows; for direct sites, the site itself.

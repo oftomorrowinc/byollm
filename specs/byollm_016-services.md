@@ -2447,3 +2447,27 @@ changing; four device checks each with test and mutation — signature, replay,
 offer-consistency, private-is-absolute. The domain-separation set law applies
 across the rip: when roster contexts die with their machinery, the test's
 enumeration shrinks with the code, which is the point.
+
+### Exposure follow-up: qwen confirmed team; glm's "never worked" explained (2026-08-26)
+
+Todd's dashboard screenshot confirms qwen-2.5-14b at llm.generate · team (Lis's
+path is live) and glm-5.2 at private — the device page was already showing the
+EFFECTIVE scope while local status showed the configured one, so the web surface
+was telling the truth the CLI wasn't. All surfaces now agree under "a request is
+not a state."
+
+Todd's report that offering glm as team "never worked before" is explained by the
+same defect compounding the guardrail: the narrowing to private was the metered
+ceremony working as designed (a consent promise may not rest on a configurable
+default — team-sharing a metered service requires `byollm offer glm-5.2 team
+--cap <cents-per-day>` to record spend consent), but status simultaneously
+printed "team," so a working guardrail read as a silent failure. The law's value,
+demonstrated on the owner's own machine: the enforcement was right, the display
+made it look broken.
+
+Clarified for the record (Todd asked whether the offer is "managed by the site"):
+no — offers are authored on the device, in config.json or via `byollm offer`,
+per Amendment L's "services stay under the device" and the four verbs. The
+dashboard is a view of device-reported truth. What the control plane manages is
+membership, site enablement, mappings, and grants — never offers or service
+definitions.

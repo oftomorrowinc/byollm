@@ -1,3 +1,9 @@
+import {
+  generateKeys,
+  signGrant,
+  type GrantClaims,
+  type SignedGrant,
+} from "@byollm/protocol";
 import { rm } from "node:fs/promises";
 
 /**
@@ -43,5 +49,43 @@ export function noSupervisor(): ServiceIo {
     execPath: "/usr/bin/node",
     scriptPath: "/tmp/byollm/bin.js",
     run: () => Promise.resolve({ code: 127, output: "" }),
+  };
+}
+
+/**
+ * A control plane a unit test can hold — Amendment J.
+ *
+ * Admission is a signed document now, so a test that wants a stranger's job
+ * admitted has to produce one. That is more setup than `allowlist.add` was,
+ * and the extra line is the point: it is exactly what the daemon checks, so a
+ * test that skips it is testing a device that refuses.
+ *
+ * `sign` takes the whole claim set so a test can bend any single field and
+ * watch the device refuse — which is how the four checks are tested one at a
+ * time rather than through whichever one happens to fire first.
+ */
+export function testControlPlane(now = 1_800_000_000_000): {
+  readonly controlPlanePublic: string;
+  readonly sign: (over: Partial<GrantClaims>) => SignedGrant;
+} {
+  const keys = generateKeys(now);
+  let serial = 0;
+  return {
+    controlPlanePublic: keys.identityPublic,
+    sign: (over) => {
+      serial += 1;
+      return signGrant(keys, {
+        grantId: `grant_${String(serial)}`,
+        jobId: "job_1",
+        siteId: "BYOLLM-TEST-SITE-KEY-ID",
+        user: "stranger",
+        owner: "me",
+        purpose: "testing",
+        kind: "llm.generate",
+        service: "paid",
+        issuedAt: Date.now(),
+        ...over,
+      });
+    },
   };
 }

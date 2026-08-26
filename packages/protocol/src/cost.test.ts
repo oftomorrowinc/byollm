@@ -136,7 +136,7 @@ describe("the hole byollm_007 closes", () => {
       offerScope: "team",
       cost: resolveCost("openai-http", "https://api.openai.com/v1", undefined),
       spend: { acknowledged: false },
-      locallyAllows: () => true,
+      admits: () => true,
     });
     expect(result).toEqual({
       ok: false,
@@ -150,7 +150,7 @@ describe("the hole byollm_007 closes", () => {
       offerScope: "team",
       cost: "metered",
       spend: { acknowledged: true, ceilingReached: false },
-      locallyAllows: () => true,
+      admits: () => true,
     });
     expect(result.ok).toBe(true);
   });
@@ -161,7 +161,7 @@ describe("the hole byollm_007 closes", () => {
       offerScope: "team",
       cost: "metered",
       spend: { acknowledged: true, ceilingReached: true },
-      locallyAllows: () => true,
+      admits: () => true,
     });
     expect(result).toEqual({ ok: false, refusal: "metered-ceiling-reached" });
   });
@@ -175,7 +175,7 @@ describe("the hole byollm_007 closes", () => {
         offerScope: "private",
         cost: "metered",
         spend: { acknowledged: false, ceilingReached: true },
-        locallyAllows: () => false,
+        admits: () => false,
       },
     );
     expect(result.ok).toBe(true);
@@ -186,7 +186,7 @@ describe("the hole byollm_007 closes", () => {
       owner: "bob",
       offerScope: "team",
       cost: resolveCost("openai-http", "http://127.0.0.1:11434/v1", undefined),
-      locallyAllows: () => true,
+      admits: () => true,
     });
     expect(result.ok).toBe(true);
   });
@@ -211,7 +211,7 @@ describe("the audience matrix across all three cost classes", () => {
     // A metered backend its owner deliberately shared, with room left on the
     // ceiling — the only configuration where metered can behave like free.
     spend: { acknowledged: true, ceilingReached: false },
-    locallyAllows: (o: string) => (opts.allows ?? []).includes(o),
+    admits: (o: string) => (opts.allows ?? []).includes(o),
   });
 
   const SHARED: Record<Audience, Record<OfferScope, MatchRefusal>> = {

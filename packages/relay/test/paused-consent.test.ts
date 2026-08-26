@@ -5,6 +5,7 @@ import {
   SITE_ID,
   SiteConnector,
   fixtureFor,
+  controlPlane,
   makeDaemon,
   route,
 } from "./harness.js";
@@ -149,18 +150,19 @@ describe("a paused consent", () => {
       ],
       rosters: [{ id: "team_1", owner: "bob", members: ["alice"] }],
     });
-    const relay = new Relay({ fixture });
+    // Bob's control plane would admit alice, and his service is offered to
+    // his team — so the *only* thing that can stop her work here is her own
+    // paused consent, which is what this test is about.
+    const plane = controlPlane();
+    plane.members.add("alice");
+    const relay = new Relay({ fixture, ...plane });
     const connector = new SiteConnector(relay, siteKeys);
     const daemon = await makeDaemon(relay, fixture, {
       owner: "bob",
       site,
-      offer: "private",
+      offer: "team",
     });
     disposers.push(daemon.dispose);
-    await daemon.allowlist.add(
-      { origin: "http://relay.test", owner: "alice" },
-      Date.now(),
-    );
 
     await connector.enqueue({
       prompt: "alice's work",
@@ -191,18 +193,19 @@ describe("a paused consent", () => {
       ],
       rosters: [{ id: "team_1", owner: "bob", members: ["alice"] }],
     });
-    const relay = new Relay({ fixture });
+    // Bob's control plane would admit alice, and his service is offered to
+    // his team — so the *only* thing that can stop her work here is her own
+    // paused consent, which is what this test is about.
+    const plane = controlPlane();
+    plane.members.add("alice");
+    const relay = new Relay({ fixture, ...plane });
     const connector = new SiteConnector(relay, siteKeys);
     const daemon = await makeDaemon(relay, fixture, {
       owner: "bob",
       site,
-      offer: "private",
+      offer: "team",
     });
     disposers.push(daemon.dispose);
-    await daemon.allowlist.add(
-      { origin: "http://relay.test", owner: "alice" },
-      Date.now(),
-    );
 
     await connector.enqueue({
       prompt: "alice's work",

@@ -1,7 +1,13 @@
 import { cryptoReady, generateKeys, publicIdentityOf } from "@byollm/protocol";
 import { afterEach, beforeAll, describe, expect, it } from "vitest";
 import { Relay } from "../src/index.js";
-import { SITE_ID, SiteConnector, makeDaemon, route } from "./harness.js";
+import {
+  SITE_ID,
+  SiteConnector,
+  controlPlane,
+  makeDaemon,
+  route,
+} from "./harness.js";
 import type { Runner } from "byollm";
 
 /**
@@ -21,12 +27,12 @@ import type { Runner } from "byollm";
  *
  * ## This file outlives the mechanism it currently uses
  *
- * byollm_016 Amendment J replaces the local allowlist and the held roster
- * with a claim-time signed grant. When it lands, the *assertions* below are
- * unchanged — a device runs work for whoever it admits and refuses everyone
- * else — and only {@link admit} changes, from a line that writes a local
- * entry to a line that has the control plane sign a grant. That is why the
- * describe blocks name the property and not the machinery.
+ * byollm_016 Amendment J replaced the local allowlist and the held roster
+ * with a claim-time signed grant. It landed, and this file is the receipt:
+ * every assertion below is the one it was written with, and the only thing
+ * that changed is {@link admit} — one line that used to write a local entry
+ * and now tells a control plane to author grants. That is what naming the
+ * property instead of the machinery buys.
  */
 
 let disposers: (() => Promise<void>)[] = [];
@@ -52,6 +58,7 @@ async function bobsMachine(): Promise<{
   relay: Relay;
   connector: SiteConnector;
   daemon: Awaited<ReturnType<typeof makeDaemon>>;
+  plane: ReturnType<typeof controlPlane>;
 }> {
   const siteKeys = generateKeys(Date.now());
   const site = publicIdentityOf(siteKeys);
@@ -63,10 +70,10 @@ async function bobsMachine(): Promise<{
     ],
     devices: [],
     rosters: [{ id: "team_1", owner: "bob", members: ["alice"] }],
-    signedRosters: [],
     revoked: [],
   };
-  const relay = new Relay({ fixture });
+  const plane = controlPlane();
+  const relay = new Relay({ fixture, ...plane });
   const connector = new SiteConnector(relay, siteKeys);
   // Offered to the team, not to the public. A publicly offered service
   // admits everyone by definition, which would make every assertion below
@@ -77,24 +84,22 @@ async function bobsMachine(): Promise<{
     offer: "team",
   });
   disposers.push(daemon.dispose);
-  return { relay, connector, daemon };
+  return { relay, connector, daemon, plane };
 }
 
 /**
- * Bob admits alice to his device.
+ * Bob admits alice.
  *
- * The one line that Amendment J rewrites. Today it is a local allowlist
- * entry; after J it is a signed grant from the control plane, and nothing
- * below this line changes.
+ * The one line Amendment J rewrote. It used to write a device-local allowlist
+ * entry; it now tells the control plane whose work it will author grants for,
+ * and the device learns nothing until a job actually arrives with one.
+ *
+ * Not async any more, and that is the design showing through rather than a
+ * tidy-up: there is no longer any device state to write, so there is nothing
+ * to await.
  */
-async function admit(
-  daemon: Awaited<ReturnType<typeof makeDaemon>>,
-  owner: string,
-): Promise<void> {
-  await daemon.allowlist.add(
-    { origin: "http://relay.test", owner },
-    Date.now(),
-  );
+function admit(plane: ReturnType<typeof controlPlane>, owner: string): void {
+  plane.members.add(owner);
 }
 
 /**
@@ -129,8 +134,8 @@ describe("who this device will run work for", () => {
   });
 
   it("runs a stranger's work once the owner admits them", async () => {
-    const { relay, connector, daemon } = await bobsMachine();
-    await admit(daemon, "alice");
+    const { relay, connector, daemon, plane } = await bobsMachine();
+    admit(plane, "alice");
     await connector.enqueue({
       prompt: "alice's work",
       owner: "alice",
@@ -163,17 +168,45 @@ describe("who this device will run work for", () => {
     expect(await connector.collect()).toEqual([]);
   });
 
-  it("refuses a stranger the owner admitted on a different site", async () => {
-    // Admission is keyed by (origin, user) because owner ids are namespace
-    // local: `alice` on one server is not `alice` on another. An entry that
-    // matched on the name alone would let any relay this device pairs with
-    // borrow every name it had ever been told to trust.
-    const { connector, daemon } = await bobsMachine();
-    await admit(daemon, "alice-elsewhere");
-    await daemon.allowlist.add(
-      { origin: "https://somewhere-else.test", owner: "alice" },
-      Date.now(),
-    );
+  it("names the device that ran a stranger's work [PROVENANCE_NAMES_DEVICE]", async () => {
+    /**
+     * The half of C014 that a direct conformance target can no longer show.
+     *
+     * A stranger's job cannot run against a direct server any more — nothing
+     * there can author a grant — so the "a community result names the machine
+     * that produced it" claim lost its end-to-end home. It lives here, where
+     * a real control plane admits alice and a real device seals the answer.
+     *
+     * Asserted on the sealing key rather than on a label, because the key is
+     * the part that cannot be forged: an app deciding whether to trust a
+     * result is deciding whether it came from a machine it knows about, and
+     * `runnerOwner` is only as good as the identity underneath it.
+     */
+    const { relay, connector, daemon, plane } = await bobsMachine();
+    admit(plane, "alice");
+    await connector.enqueue({
+      prompt: "alice's work, on bob's hardware",
+      owner: "alice",
+      audience: "team",
+    });
+    await route(relay, connector, daemon);
+
+    const [result] = await connector.collect();
+    expect(result?.outcome).toMatchObject({
+      text: "echo: alice's work, on bob's hardware",
+    });
+    // Bob's device, not the relay's and not the site's.
+    expect(result?.device.identity).toBe(daemon.keys.identityPublic);
+  });
+
+  it("refuses a stranger a different relay would admit", async () => {
+    // Admission is per relay because owner ids are namespace local: `alice`
+    // on one server is not `alice` on another. Under the allowlist this was a
+    // rule about how entries were keyed. Under grants it is structural — a
+    // grant verifies against the key pinned with *this* pairing, so another
+    // relay's word about `alice` is not a document this device can even read.
+    const { connector, daemon, plane } = await bobsMachine();
+    admit(plane, "alice-elsewhere");
     await connector.enqueue({
       prompt: "alice's work under another origin's grant",
       owner: "alice",

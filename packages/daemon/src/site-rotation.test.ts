@@ -13,7 +13,6 @@ import {
   type Succession,
 } from "@byollm/protocol";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { Allowlist } from "./allowlist.js";
 import { Budgets } from "./budgets.js";
 import { ProtocolClient } from "./client.js";
 import { DaemonConfig, resolveConfig } from "./config.js";
@@ -115,8 +114,6 @@ async function runnerWith(
       },
     }),
   );
-  const allowlist = new Allowlist(join(dir, "allow.json"));
-  await allowlist.load();
   const budgets = new Budgets(join(dir, "b.json"), loaded.config.community);
   await budgets.load(Date.now());
   const spend = new SpendLedger(join(dir, "spend.json"));
@@ -145,7 +142,6 @@ async function runnerWith(
     },
     daemonVersion: "0.0.0",
     loaded,
-    allowlist,
     budgets,
     spend,
     ingress: new IngressLog({

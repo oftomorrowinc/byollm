@@ -8,7 +8,6 @@ import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { Allowlist } from "./allowlist.js";
 import type {
   Backend,
   BackendRequest,
@@ -21,7 +20,7 @@ import { DaemonConfig, resolveConfig, type ResolvedRoute } from "./config.js";
 import { IngressLog } from "./ingress.js";
 import { SpendLedger } from "./spend.js";
 import { Runner, type RunnerEvent } from "./runner.js";
-import { removeTemp } from "./test-support.js";
+import { removeTemp, testControlPlane } from "./test-support.js";
 
 /** A daemon identity for tests: real keys, signing the real canonical form. */
 const TEST_KEYS = generateKeys(1_800_000_000_000);
@@ -96,7 +95,6 @@ async function makeRunner(
     owner?: string;
     offer?: "private" | "team";
     subscription?: boolean;
-    allow?: readonly string[];
     /** Override the whole services stanza, for the per-service cases. */
     services?: Record<string, unknown>;
     /** Which service wins each kind, when more than one claims it. */
@@ -128,12 +126,6 @@ async function makeRunner(
     }),
   );
 
-  const allowlist = new Allowlist(join(dir, "allow.json"));
-  await allowlist.load();
-  for (const owner of options.allow ?? []) {
-    await allowlist.add({ origin: "https://app.test", owner }, Date.now());
-  }
-
   const budgets = new Budgets(join(dir, "b.json"), loaded.config.community);
   await budgets.load(Date.now());
   const spend = new SpendLedger(join(dir, "spend.json"));
@@ -145,6 +137,10 @@ async function makeRunner(
   });
 
   const runner = new Runner({
+    // Every runner in this file has a control plane, so admission is a
+    // signed document rather than a device-local list: `job()` attaches a
+    // genuine grant, and a test that wants one refused bends a field.
+    controlPlanePublic: plane.controlPlanePublic,
     client: new ProtocolClient({
       origin: "https://app.test",
       identity: TEST_SIGNER,
@@ -153,7 +149,6 @@ async function makeRunner(
     owner: options.owner ?? "me",
     daemonVersion: "0.0.0",
     loaded,
-    allowlist,
     budgets,
     spend,
     ingress,
@@ -162,6 +157,16 @@ async function makeRunner(
   });
   return { runner, ingress, budgets };
 }
+
+/**
+ * The control plane behind every runner here — Amendment J.
+ *
+ * File-level, so `job()` can attach a genuine grant by default and the tests
+ * that are *about* a bad grant can bend one field at a time. That is how the
+ * four device checks get tested individually rather than through whichever
+ * one happens to fire first.
+ */
+const plane = testControlPlane();
 
 const job = (
   overrides: Partial<ClaimedStub & { payload: JobPayload }> = {},
@@ -180,6 +185,11 @@ const job = (
     runnerId: "runner_1",
     expiresAt: Date.now() + 60_000,
   },
+  grant: plane.sign({
+    jobId: overrides.id ?? "job_1",
+    user: overrides.owner ?? "me",
+    service: overrides.service ?? "primary",
+  }),
   ...overrides,
 });
 
@@ -276,19 +286,21 @@ describe("admit — the daemon enforcing against the server", () => {
     if (!result.ok) expect(result.reason).toContain("private to its owner");
   });
 
-  it("refuses a named job the local allowlist omits [NAMED_LOCAL_ALLOWLIST]", async () => {
+  it("refuses a team job the control plane did not grant [NAMED_LOCAL_ALLOWLIST]", async () => {
+    // The MUST keeps its id, because ids are public and cited by conformance
+    // output. What satisfies it has moved: it used to be a device-local
+    // allowlist, and it is now a signed grant. The law never changed — a
+    // stranger's work runs only on something this device could check.
     const { runner } = await makeRunner({ owner: "me", offer: "team" });
-    const result = runner.admit(job({ owner: "alice", audience: "team" }));
+    const result = runner.admit(
+      job({ owner: "alice", audience: "team", grant: undefined }),
+    );
     expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.reason).toContain("allowlist");
+    if (!result.ok) expect(result.reason).toContain("no grant arrived");
   });
 
-  it("admits a named job once the local allowlist names its owner", async () => {
-    const { runner } = await makeRunner({
-      owner: "me",
-      offer: "team",
-      allow: ["alice"],
-    });
+  it("admits a team job the control plane granted", async () => {
+    const { runner } = await makeRunner({ owner: "me", offer: "team" });
     expect(runner.admit(job({ owner: "alice", audience: "team" })).ok).toBe(
       true,
     );
@@ -299,7 +311,6 @@ describe("admit — the daemon enforcing against the server", () => {
       owner: "me",
       offer: "team",
       subscription: true,
-      allow: ["alice"],
     });
     const result = runner.admit(job({ owner: "alice", audience: "team" }));
     expect(result.ok).toBe(false);
@@ -311,10 +322,6 @@ describe("admit — the daemon enforcing against the server", () => {
     const { runner, budgets } = await makeRunner({
       owner: "me",
       offer: "team",
-      // Admitted, so the budget is the only thing left to refuse her. Without
-      // this the assertion passes on "not admitted" and says nothing about
-      // budgets at all.
-      allow: ["alice"],
     });
     // Fill the hourly allowance.
     const now = Date.now();

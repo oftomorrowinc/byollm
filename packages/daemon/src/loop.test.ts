@@ -11,7 +11,6 @@ import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { Allowlist } from "./allowlist.js";
 import { OpenAiHttpBackend } from "./backends/openai-http.js";
 import type {
   Backend,
@@ -133,8 +132,6 @@ async function makeRunner(fetchImpl: typeof fetch, owner = "me") {
       concurrency: 2,
     }),
   );
-  const allowlist = new Allowlist(join(dir, "allow.json"));
-  await allowlist.load();
   const budgets = new Budgets(join(dir, "b.json"), loaded.config.community);
   await budgets.load(Date.now());
   const spend = new SpendLedger(join(dir, "spend.json"));
@@ -151,7 +148,6 @@ async function makeRunner(fetchImpl: typeof fetch, owner = "me") {
     owner,
     daemonVersion: "0.0.0",
     loaded,
-    allowlist,
     budgets,
     spend,
     ingress: new IngressLog({

@@ -15,7 +15,6 @@ import {
   type SealedEnvelope,
 } from "@byollm/protocol";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { Allowlist } from "./allowlist.js";
 import type {
   Backend,
   BackendRequest,
@@ -243,8 +242,6 @@ async function runnerOver(fetchImpl: typeof fetch): Promise<Runner> {
       concurrency: 2,
     }),
   );
-  const allowlist = new Allowlist(join(dir, "allow.json"));
-  await allowlist.load();
   const budgets = new Budgets(join(dir, "b.json"), loaded.config.community);
   await budgets.load(Date.now());
   const spend = new SpendLedger(join(dir, "spend.json"));
@@ -261,7 +258,6 @@ async function runnerOver(fetchImpl: typeof fetch): Promise<Runner> {
     owner: "me",
     daemonVersion: "0.0.0",
     loaded,
-    allowlist,
     budgets,
     spend,
     ingress: new IngressLog({

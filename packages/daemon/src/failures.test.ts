@@ -9,7 +9,6 @@ import {
   signRequest,
 } from "@byollm/protocol";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { Allowlist } from "./allowlist.js";
 import { ClaudeCliBackend } from "./backends/claude-cli.js";
 import type {
   Backend,
@@ -151,8 +150,6 @@ async function makeRunner(fetchImpl: typeof fetch, backend: Backend) {
       },
     }),
   );
-  const allowlist = new Allowlist(join(dir, "allow.json"));
-  await allowlist.load();
   const budgets = new Budgets(join(dir, "b.json"), loaded.config.community);
   await budgets.load(Date.now());
   const spend = new SpendLedger(join(dir, "spend.json"));
@@ -169,7 +166,6 @@ async function makeRunner(fetchImpl: typeof fetch, backend: Backend) {
     owner: "me",
     daemonVersion: "0.0.0",
     loaded,
-    allowlist,
     budgets,
     spend,
     ingress: new IngressLog({

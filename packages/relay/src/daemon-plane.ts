@@ -13,6 +13,9 @@ import {
   verifyPublicIdentity,
   PublicIdentity,
   ERROR_STATUS,
+  type CapabilityMatrix,
+  type ClaimedStub,
+  type SignedGrant,
 } from "@byollm/protocol";
 import { z } from "zod";
 import type { Projection } from "./fixture.js";
@@ -119,20 +122,29 @@ export interface DaemonPlaneDeps {
    */
   readonly pairingCodes?: PairingCodes | undefined;
   /**
-   * The control plane's roster-signing public key — Amendment G.
+   * The control plane's grant-signing public key — Amendment J.
    *
-   * Handed to a daemon at pairing so it can check every roster this relay
-   * later delivers. The relay holds only the public half and could not sign a
-   * roster if it wanted to, which is the property the whole amendment rests
-   * on: this is the one moment the relay tells a device whom to believe, and
-   * it happens inside the ceremony where a human is already comparing
-   * fingerprints.
+   * Handed to a daemon at pairing so it can check every grant this relay
+   * later delivers. This is the one moment the relay tells a device whom to
+   * believe, and it happens inside the ceremony where a human is already
+   * comparing fingerprints — the alternative, trust-on-first-grant, would
+   * hand the choice of authority to whoever controls delivery.
    *
    * Optional so a relay with no control plane behind it keeps working
-   * unchanged: a daemon that receives none holds no roster, and serves no
-   * `team` work through this pairing.
+   * unchanged: a daemon that receives none serves its owner alone through
+   * this pairing.
    */
   readonly controlPlanePublic?: string | undefined;
+  /**
+   * Author a grant for one claimed job — Amendment J. See
+   * {@link RelayOptions.authorGrant}; this plane only calls it.
+   */
+  readonly authorGrant?: (input: {
+    readonly job: ClaimedStub;
+    readonly owner: string;
+    readonly runnerId: string;
+    readonly capabilities: CapabilityMatrix;
+  }) => Promise<SignedGrant | undefined> | SignedGrant | undefined;
   /**
    * Where a human goes to approve a code — the control plane, always.
    *
@@ -263,7 +275,7 @@ export class DaemonPlane {
       sites: Object.fromEntries(
         sites.map((record) => [keyId(record.site.identity), record.site]),
       ),
-      // The key every later roster is checked against — Amendment G. Sent
+      // The key every later grant is checked against — Amendment J. Sent
       // here and nowhere else: pairing is the ceremony where a human is
       // already deciding whether to trust this upstream, so a key learned
       // here rides a decision that has been made rather than inventing one.
@@ -390,7 +402,7 @@ export class DaemonPlane {
       sites: Object.fromEntries(
         sites.map((record) => [keyId(record.site.identity), record.site]),
       ),
-      // The key every later roster is checked against — Amendment G. Sent
+      // The key every later grant is checked against — Amendment J. Sent
       // here and nowhere else: pairing is the ceremony where a human is
       // already deciding whether to trust this upstream, so a key learned
       // here rides a decision that has been made rather than inventing one.
@@ -585,7 +597,59 @@ export class DaemonPlane {
         leaseMs: this.#deps.leaseMs,
       });
 
-      return ok({ jobs: granted, leaseMs: this.#deps.leaseMs });
+      /**
+       * The grant, attached at claim and nowhere else — Amendment J.
+       *
+       * After the store's atomic claim, deliberately. A grant authored for a
+       * job this device did not actually win would be a signed statement
+       * about work somebody else is running, and the window between deciding
+       * and writing is exactly where that goes wrong.
+       *
+       * A job whose grant comes back `undefined` is released here rather
+       * than sent bare. Sending it would cost three round trips to reach an
+       * answer this side already has, and a device refusing a job with no
+       * grant cannot tell "the control plane said no" from "the relay lost
+       * it" — so it would report the wrong thing.
+       *
+       * Released as `refused`, which means this job is never offered to this
+       * device again. That is the correct permanence: `undefined` is the
+       * control plane declining to authorise this work here, and hole 1's
+       * ruling is that removal stops future claims including queued ones.
+       * The record is honest about authorship too — the relay is writing
+       * down its own control plane's decision, not attributing it to the
+       * device.
+       */
+      const author = this.#deps.authorGrant;
+      if (author === undefined) {
+        return ok({ jobs: granted, leaseMs: this.#deps.leaseMs });
+      }
+      const withGrants: ClaimedStub[] = [];
+      const ungranted: { jobId: string; leaseId: string }[] = [];
+      for (const job of granted) {
+        const grant = await author({
+          job,
+          owner: device.owner,
+          runnerId: device.runnerId,
+          capabilities: request.capabilities,
+        });
+        if (grant === undefined) {
+          ungranted.push({ jobId: job.id, leaseId: job.lease.id });
+          continue;
+        }
+        withGrants.push({ ...job, grant });
+      }
+      // Released rather than left leased. A job nobody may run should be back
+      // in the queue for a device whose owner still may, not held by a lease
+      // that has to time out first.
+      if (ungranted.length > 0) {
+        await this.#deps.state.releaseLeases({
+          runnerId: device.runnerId,
+          leases: ungranted,
+          reason: "refused",
+        });
+      }
+
+      return ok({ jobs: withGrants, leaseMs: this.#deps.leaseMs });
     });
   }
 
@@ -715,12 +779,6 @@ export class DaemonPlane {
           Object.keys(successions).length > 0 ? { successions } : {};
         // A subset: paused sites keep their pin and route nothing, so the
         // daemon can name what the user has to go and read.
-        // The control plane's own statement of who this owner may serve,
-        // carried and not composed — Amendment G. Absent until the control
-        // plane signs one, and absent is not "admit nobody": the daemon
-        // narrows on age, and a roster never sent ages the same way as one
-        // withheld.
-        const roster = this.#deps.projection.signedRosterFor(device.owner);
 
         const awaitingConsent = pinned
           .filter(
@@ -738,7 +796,6 @@ export class DaemonPlane {
             sites,
             ...rotations,
             awaitingConsent,
-            ...(roster === undefined ? {} : { roster }),
             cancel: [],
             lost: request.activeLeases.map((lease) => ({
               jobId: lease.jobId,
@@ -773,7 +830,6 @@ export class DaemonPlane {
           sites,
           ...rotations,
           awaitingConsent,
-          ...(roster === undefined ? {} : { roster }),
           cancel,
           lost,
           serverTime: now,

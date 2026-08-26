@@ -22,12 +22,12 @@ import {
   type RunMetadata,
   type SealedOutcome,
   type JobOutcome,
-  ROSTER_MAX_AGE_MS,
-  type RosterRefusal,
-  type SignedRoster,
-  verifyRoster,
+  CLOCK_ATTRIBUTION_MS,
+  GRANT_MAX_AGE_MS,
+  type GrantRefusal,
+  type SignedGrant,
+  verifyGrant,
 } from "@byollm/protocol";
-import type { Allowlist } from "./allowlist.js";
 import { createBackend, type Backend } from "./backends/index.js";
 import type { Budgets } from "./budgets.js";
 import { ClientError, type ProtocolClient } from "./client.js";
@@ -58,14 +58,21 @@ export interface RunnerOptions {
   readonly owner: string;
   readonly daemonVersion: string;
   readonly loaded: LoadedConfig;
-  readonly allowlist: Allowlist;
   /**
-   * The control plane's roster-signing key, pinned at pairing — Amendment G.
+   * The control plane's grant-signing key, pinned at pairing — Amendment J.
    *
-   * Absent for a direct-mode server, which has no control plane, and for any
-   * pairing made before this existed. Absent means no roster is honoured:
-   * there is nothing to check a signature against, and accepting one anyway
-   * would trust whoever delivered it.
+   * **This field decides which of two regimes the device is in**, and it is
+   * the only thing that does.
+   *
+   * Present: a relayed route with a control plane. Every claimed job must
+   * carry a grant that verifies against this key, including the owner's own —
+   * a job with no grant is refused rather than admitted by default.
+   *
+   * Absent: direct mode. There is no control plane to author anything, so
+   * there is no way for a device to learn that a stranger may use it, and
+   * the owner's own work is the only work that runs (ruled 2026-08-26). A
+   * `team` offer on such a device narrows to `private`, loudly, because a
+   * scope that admits nobody should not print as though it admits somebody.
    */
   readonly controlPlanePublic?: string | undefined;
   readonly budgets: Budgets;
@@ -149,17 +156,17 @@ export type RunnerEvent =
       readonly detail: string;
     }
   /**
-   * A roster arrived and was not honoured.
+   * A grant arrived and was not honoured — Amendment J.
    *
-   * Loud, because the consequence is a narrower device and the cause is
-   * invisible from the outside: somebody whose teammate's jobs stopped
-   * routing has no other way to learn that the document saying they may was
-   * refused, and why.
+   * Loud, because the consequence is a job that did not run and the cause is
+   * invisible from the outside: somebody whose teammate's work stopped
+   * landing has no other way to learn that the document saying it could was
+   * refused, or which of the four checks refused it.
    */
   | {
-      readonly type: "roster-refused";
-      readonly refusal: RosterRefusal;
-      readonly issuedAt: number;
+      readonly type: "grant-refused";
+      readonly refusal: GrantRefusal | "replayed" | "absent" | "wrong-user";
+      readonly jobId: string;
     }
   | {
       readonly type: "site-awaiting-approval";
@@ -286,22 +293,31 @@ export class Runner {
   readonly #unauthenticated = new Set<string>();
 
   /**
-   * The roster this device holds — Amendment G.
-   *
-   * Held verified: nothing reaches this field that did not carry a signature
-   * from the key pinned at pairing. A relay can withhold it, which narrows
-   * this device, and can forge nothing.
-   */
-  #roster: SignedRoster | undefined;
-  /**
-   * The key rosters are checked against — from the pairing, or adopted later.
+   * The key grants are checked against — from the pairing, or adopted later.
    *
    * Mutable because a re-pair happens in another process and must reach this
    * loop without a restart; see {@link Runner.adoptControlPlaneKey}.
    */
   #controlPlanePublic: string | undefined;
-  /** Why the last roster was refused, if it was. For status, not for callers. */
-  #rosterRefusal: RosterRefusal | undefined;
+  /**
+   * Grant ids this device has already acted on, with when they stop mattering.
+   *
+   * Check two of four: **replay**. A grant is a bearer document for one unit
+   * of work, and one that could be presented twice would let a relay run a
+   * job again after the owner's membership ended — inside the signature's own
+   * window, with every check passing.
+   *
+   * Keyed by grant id rather than job id, which is the distinction Amendment
+   * J's pushback established: a claim that times out is re-claimed and gets a
+   * *fresh* grant, so binding single-use to the job would refuse the retry
+   * this device asked for.
+   *
+   * In memory, and bounded by {@link GRANT_MAX_AGE_MS} rather than by size. A
+   * restart forgets it, which is honest and not a hole: an entry can only
+   * matter for as long as the grant naming it is still fresh, and a device
+   * that has restarted since is past that window anyway.
+   */
+  readonly #spentGrants = new Map<string, number>();
   #lastUpstreamError: string | undefined;
   #lastError: string | undefined;
   #completed = 0;
@@ -577,49 +593,212 @@ export class Runner {
    * Who this device will serve, and on whose authority — Amendment G, B2.
    *
    * Two regimes, and never both at once. The one that applies is decided by
-   * whether this pairing has a control-plane key, which is the honest
-   * question: a key means this upstream authors rosters, and a device that
-   * pinned one has an answer to consult.
+   * whether this pairing pinned a control-plane key, which is the honest
+   * question: a key means this upstream has a control plane that authors
+   * grants, and a device that pinned one knows whose word to check them
+   * against.
    *
-   * **With a key**, the roster decides, minus the local veto. Nothing local
-   * adds — an owner who wants somebody served edits the roster, which is the
-   * one place membership lives, rather than enrolling them on each machine.
-   * A roster that is stale or absent admits nobody but the owner, because
-   * staleness is revocation latency and a membership this device can no
-   * longer confirm is not one it may act on.
+   * **With a key**, the grant decides. Nothing local adds and nothing local
+   * subtracts — the document is the whole answer, and this device's job is to
+   * establish that it is genuine, fresh, unspent, and about work this device
+   * actually offers to this person.
    *
-   * **Without one**, the per-person allowlist decides, exactly as before.
-   * Direct mode has no control plane to author a roster, so this is not a
-   * fallback or a transition — it is the other half of the design, and the
-   * daemon says which one is in force at load.
+   * **Without one**, the owner's own work is the only work that runs. Direct
+   * mode has no control plane, so there is no signature that could tell this
+   * device a stranger may use it, and a local list of names would be back to
+   * believing the site's per-job claim about who its users are — the thing
+   * Amendment G property 1 outlawed, wearing an allowlist costume. Ruled
+   * 2026-08-26: direct mode is owner-only.
    *
-   * The two never combine. An allowlist consulted alongside a roster would be
-   * two authorities on one question, which is the shape byollm_016 removed
-   * from `team` in the first place.
+   * The two never combine, and there is no third.
    */
-  #admits(): (owner: string) => boolean {
-    const origin = this.#options.client.origin;
-    const allowlist = this.#options.allowlist;
-
-    if (this.#controlPlanePublic === undefined) {
-      return allowlist.predicateFor(origin);
+  #grantAdmits(job: ClaimedStub): { ok: true } | { ok: false; reason: string } {
+    const key = this.#controlPlanePublic;
+    if (key === undefined) {
+      // Direct mode. `matchAudience` still runs and still refuses a stranger
+      // at `private` scope; this only has to make sure a `team` offer does
+      // not admit one, since there is nothing here that could have checked
+      // who they are.
+      return job.owner === this.#options.owner
+        ? { ok: true }
+        : {
+            ok: false,
+            reason:
+              "this device serves its owner only — it is not paired with a " +
+              "relay, so nothing here can tell it who anybody else is " +
+              "(`byollm connect <relay>` to share it)",
+          };
     }
 
-    const members = this.rosterMembers();
-    if (members === undefined) return () => false;
-    const admitted = new Set(members);
-    return (owner) => admitted.has(owner) && !allowlist.vetoes(origin, owner);
+    const grant = job.grant;
+    if (grant === undefined) {
+      // **Refused, not admitted by default.** An upstream with a control
+      // plane authors a grant for every job it routes, including the owner's
+      // own, so a claimed job without one is either a relay that dropped it
+      // or a version skew — and both are answered the same way, because a
+      // device cannot tell them apart and must not guess in the open
+      // direction.
+      this.#noteGrantRefusal("absent", job.id);
+      return {
+        ok: false,
+        reason:
+          `no grant arrived with job ${job.id}, and this device only runs ` +
+          "relayed work its control plane has signed for",
+      };
+    }
+
+    // Check one of four: the signature, plus everything the signature is
+    // *about* — that this grant names this device's owner, this job, and a
+    // moment close enough to now to still mean something.
+    const refusal = verifyGrant({
+      grant,
+      owner: this.#options.owner,
+      jobId: job.id,
+      controlPlanePublic: key,
+      now: this.#now(),
+    });
+    if (refusal !== null) {
+      this.#noteGrantRefusal(refusal, job.id);
+      return { ok: false, reason: this.#grantRefusalText(refusal, grant) };
+    }
+
+    /**
+     * Still check one: the grant must be about this job's *person*.
+     *
+     * `verifyGrant` binds the document to this device's owner and to this job
+     * id. Neither says anything about who the work belongs to, and the stub's
+     * `owner` is a claim by the party that routed it. A grant written for bob
+     * attached to a job stubbed as carol's would otherwise admit carol —
+     * every signature valid, the wrong person served, and the budget charged
+     * against a name nobody authorised.
+     *
+     * The grant wins because it is the signed one. They are never reconciled,
+     * only refused: two answers to "whose work is this" is exactly the shape
+     * that must not survive the consolidation.
+     */
+    if (grant.user !== job.owner) {
+      this.#noteGrantRefusal("wrong-user", job.id);
+      return {
+        ok: false,
+        reason: "the grant for this job names a different user than the job",
+      };
+    }
+
+    // Check two of four: replay.
+    this.#forgetStaleGrants();
+    if (this.#spentGrants.has(grant.grantId)) {
+      this.#noteGrantRefusal("replayed", job.id);
+      return {
+        ok: false,
+        reason:
+          "this grant has already been used — a grant admits one job, once",
+      };
+    }
+
+    return { ok: true };
+  }
+
+  /**
+   * Drop replay entries that can no longer matter.
+   *
+   * An entry only has to outlive the grant naming it: past
+   * {@link GRANT_MAX_AGE_MS} the freshness check refuses it anyway, so
+   * keeping the id would be guarding a door that is already shut. Swept on
+   * use rather than on a timer, because a daemon claiming nothing has nothing
+   * to forget and should not wake up to say so.
+   */
+  #forgetStaleGrants(): void {
+    const now = this.#now();
+    for (const [id, expiresAt] of this.#spentGrants) {
+      if (expiresAt <= now) this.#spentGrants.delete(id);
+    }
+  }
+
+  /**
+   * Say why, in words that send somebody to the right place.
+   *
+   * The clock gets named rather than implied. A device whose clock disagrees
+   * with its control plane by more than {@link GRANT_MAX_AGE_MS} refuses
+   * every grant it is sent, and "this grant expired" is a true sentence that
+   * would have somebody debugging the relay for an afternoon. Past
+   * {@link CLOCK_ATTRIBUTION_MS} of apparent disagreement the refusal says
+   * what is actually wrong; below it the clock is not the story and saying so
+   * would send them to check ntp about something else.
+   */
+  #grantRefusalText(refusal: GrantRefusal, grant: SignedGrant): string {
+    const skew = this.#now() - grant.issuedAt;
+    const clockIsTheStory =
+      (refusal === "expired" || refusal === "from-the-future") &&
+      Math.abs(skew) > GRANT_MAX_AGE_MS + CLOCK_ATTRIBUTION_MS;
+    if (clockIsTheStory) {
+      return (
+        `this device's clock disagrees with its control plane by about ` +
+        `${String(Math.round(Math.abs(skew) / 1000))}s, so every grant it is ` +
+        `sent looks ${refusal === "expired" ? "expired" : "post-dated"} — ` +
+        "fix the clock, not the relay"
+      );
+    }
+    switch (refusal) {
+      case "expired":
+        return "the grant for this job was signed too long ago to honour";
+      case "from-the-future":
+        return "the grant for this job is dated in the future";
+      case "wrong-owner":
+        return "the grant for this job was written for a different device owner";
+      case "wrong-job":
+        return "the grant that arrived was written for a different job";
+      case "bad-signature":
+        return (
+          "the grant for this job is not signed by the control plane this " +
+          "device paired with"
+        );
+      case "no-pinned-key":
+        return (
+          "this device pinned no control-plane key when it paired, so it " +
+          "cannot check grants — run `byollm connect` again"
+        );
+    }
+  }
+
+  #noteGrantRefusal(
+    refusal: GrantRefusal | "replayed" | "absent" | "wrong-user",
+    jobId: string,
+  ): void {
+    this.#options.onEvent?.({ type: "grant-refused", refusal, jobId });
   }
 
   /**
    * Decide whether this machine will run a claimed job.
    *
-   * The server already applied its own version of the audience rules, and
-   * that is not what this checks. This is the daemon enforcing against the
-   * server: the local `named` allowlist
-   * ({@link MUSTS.NAMED_LOCAL_ALLOWLIST}), the subscription self-lock, and
-   * the owner's community budgets. A job that fails here is released with
-   * reason `refused`, which the server remembers so it is never offered back.
+   * The upstream already applied its own version of these rules, and that is
+   * not what this checks. This is the device enforcing against the upstream.
+   *
+   * **Four checks, and they are now the whole of it** — Amendment J folded
+   * consent, membership, admission and selection into one signed document, so
+   * what remains on this side is the entire defence:
+   *
+   * 1. **the signature**, against the key pinned at pairing, over a document
+   *    that must name this owner, this job and this job's user;
+   * 2. **replay** — a grant admits one job, once;
+   * 3. **offer-consistency** — the service the grant names is one this device
+   *    actually offers, for this kind;
+   * 4. **private is absolute** — a `private` service runs the owner's work
+   *    and nobody else's, whatever any grant says.
+   *
+   * Four is deliberately load-bearing. A bug in any one of them is a bug in
+   * consent, membership, admission and selection at once, which is the price
+   * of the consolidation and the reason each has its own test and its own
+   * mutation.
+   *
+   * Check 4 is structural rather than written here, and that is the strongest
+   * form it can take: {@link matchAudience} only consults `admits` in its
+   * `team` branch, so a `private` service refuses a stranger before any grant
+   * is looked at. **No compromise of a control plane can grant somebody
+   * else's job onto a private service**, because the code path that would
+   * carry the grant is not reached.
+   *
+   * A job that fails here is released with reason `refused`, which the
+   * upstream remembers so it is never offered back.
    */
   admit(job: ClaimedStub): { ok: true } | { ok: false; reason: string } {
     // Before anything else, and before a payload is fetched: is this a site
@@ -637,10 +816,44 @@ export class Runner {
       };
     }
 
-    const route = this.#routeFor(job.kind, job.service);
+    // Checks one and two.
+    const granted = this.#grantAdmits(job);
+    if (!granted.ok) return granted;
+
+    /**
+     * Check three, first half: whose choice of service is this?
+     *
+     * On a relayed route the grant carries the resolution the control plane
+     * made from this user's own mapping, and it is the only answer — a stub
+     * naming something else is a second answer to a settled question, which
+     * is the shape this codebase keeps deleting. It is refused rather than
+     * quietly overridden, because a silent override is how "the grant
+     * decides" would become "whichever we read last".
+     *
+     * `job.service` retires entirely with Amendment L; until then this guard
+     * is what keeps the two from disagreeing.
+     */
+    const requested = job.grant?.service ?? job.service;
+    if (
+      job.grant !== undefined &&
+      job.service !== undefined &&
+      job.service !== job.grant.service
+    ) {
+      return {
+        ok: false,
+        reason:
+          "the job asks for a different service than its grant resolved to",
+      };
+    }
+
+    // Check three, second half: do we actually offer it, for this kind? An
+    // unknown or unrouted kind is refused, never guessed
+    // ({@link MUSTS.KIND_TYPED_ONLY}), and a grant naming a service this
+    // device does not serve is refused the same way — the control plane
+    // chooses from what this device advertised, and anything else is either
+    // stale or forged.
+    const route = this.#routeFor(job.kind, requested);
     if (!route) {
-      // An unknown or unrouted kind is refused, never guessed
-      // ({@link MUSTS.KIND_TYPED_ONLY}).
       return { ok: false, reason: REFUSAL_MESSAGES["no-capability"] };
     }
 
@@ -650,7 +863,7 @@ export class Runner {
         audience: job.audience,
         // No `audienceAllow`: it is not on the wire any more (cloud_008
         // §0.2), and this is the branch that made it look load-bearing. It
-        // narrowed a decision `locallyAllows` below already owns — the site
+        // narrowed a decision `admits` below already owns — the site
         // could only ever agree with the daemon's own list or contradict it,
         // and nothing wrote down which won.
       },
@@ -662,8 +875,11 @@ export class Runner {
           acknowledged: route.spendAcknowledged,
           ceilingReached: this.#spendCeilingReached(route),
         },
-        // Who this device will serve — Amendment G, Phase B2.
-        locallyAllows: this.#admits(),
+        // Checks three and four, applied by the one function that owns the
+        // audience law. `true` here is not a shortcut: `#grantAdmits` above
+        // is what earned it, and this predicate is only *reached* for a
+        // `team` service — which is what makes check 4 structural.
+        admits: () => true,
       },
     );
     if (!match.ok) {
@@ -680,6 +896,17 @@ export class Runner {
         sizeClassCeiling(job.sizeClass),
       );
       if (!decision.ok) return { ok: false, reason: decision.detail };
+    }
+
+    // Spent only now, on the way out. A grant burned by a refusal would make
+    // the retry that follows fail for a second, unrelated reason — and the
+    // upstream re-offers with a *fresh* grant anyway, so there is nothing to
+    // protect against by burning it early.
+    if (job.grant !== undefined) {
+      this.#spentGrants.set(
+        job.grant.grantId,
+        job.grant.issuedAt + GRANT_MAX_AGE_MS,
+      );
     }
 
     return { ok: true };
@@ -977,8 +1204,6 @@ export class Runner {
     // exists to refuse. Amendment A.3.1's rotation is an explicit path, not
     // a silent swap.
     this.#applySites(heartbeat.sites, heartbeat.successions);
-    // Verified before it is held, and held only if it verifies — Amendment G.
-    this.#applyRoster(heartbeat.roster);
 
     // Announced *after* the set is applied — V1-17. The CLI persists
     // `runner.sites` when it sees this event, so firing it first wrote the
@@ -1369,89 +1594,6 @@ export class Runner {
   readonly #announced = new Set<string>();
 
   /**
-   * Take a roster the upstream delivered — Amendment G.
-   *
-   * Verified against the key pinned at pairing, and **held only if it
-   * verifies**. A refused roster leaves the previous one in place rather than
-   * clearing it: a relay that could replace a good roster with a broken one
-   * would otherwise narrow this device on demand, which is the denial this
-   * design accepts turned into something sharper.
-   *
-   * A device with no pinned control-plane key holds no roster at all. There is
-   * nothing to check a signature against, and accepting one on that basis
-   * would be trusting whoever delivered it — the exact substitution pinning
-   * exists to refuse.
-   */
-  /**
-   * The heartbeat path, reachable from a test.
-   *
-   * Named for what it is rather than hidden behind a fake heartbeat: driving
-   * a whole exchange to reach one branch tests the exchange, and the branch
-   * is what Amendment G rests on.
-   */
-  applyRosterForTest(roster: SignedRoster | undefined): void {
-    this.#applyRoster(roster);
-  }
-
-  #applyRoster(roster: SignedRoster | undefined): void {
-    if (roster === undefined) return;
-    const key = this.#controlPlanePublic;
-    if (key === undefined) {
-      // Evidence, not a failure: this upstream sends rosters, so it has a
-      // control plane — and this pairing holds no key from it, which can only
-      // mean it was made before roster sync existed. The remedy is a re-pair,
-      // and this is the one refusal that has one.
-      this.#noteRosterRefusal("no-pinned-key", roster);
-      return;
-    }
-    const refusal = verifyRoster({
-      roster,
-      owner: this.#options.owner,
-      controlPlanePublic: key,
-      now: this.#now(),
-    });
-    if (refusal !== null) {
-      this.#noteRosterRefusal(refusal, roster);
-      return;
-    }
-    // An older document than the one already held is not an update. Without
-    // this a relay could replay yesterday's membership over today's, inside
-    // the age window, and every signature check would pass.
-    if (this.#roster !== undefined && roster.issuedAt < this.#roster.issuedAt) {
-      this.#noteRosterRefusal("stale", roster);
-      return;
-    }
-    this.#roster = roster;
-    this.#rosterRefusal = undefined;
-  }
-
-  #noteRosterRefusal(refusal: RosterRefusal, roster: SignedRoster): void {
-    if (this.#rosterRefusal === refusal) return;
-    this.#rosterRefusal = refusal;
-    this.#options.onEvent?.({
-      type: "roster-refused",
-      refusal,
-      issuedAt: roster.issuedAt,
-    });
-  }
-
-  /**
-   * Who this device's roster admits, right now.
-   *
-   * `undefined` when there is no usable roster — which is a different answer
-   * from "admits nobody", and the caller has to say which it means. A stale
-   * roster is not consulted at all: staleness is revocation latency, and a
-   * membership this device can no longer confirm is not one it may act on.
-   */
-  rosterMembers(): readonly string[] | undefined {
-    const roster = this.#roster;
-    if (roster === undefined) return undefined;
-    return this.#now() - roster.issuedAt > ROSTER_MAX_AGE_MS
-      ? undefined
-      : roster.members;
-  }
-
-  /**
    * Take a control-plane key that arrived after this loop started.
    *
    * `byollm connect` is a different process: it writes a new pairing and the
@@ -1466,57 +1608,12 @@ export class Runner {
    *
    * **Adopted only when there is none.** A key that could be *replaced* from
    * disk would be a downgrade path: anything that could write the file could
-   * swap the authority this device checks rosters against. Rotation is
+   * swap the authority this device checks grants against. Rotation is
    * Amendment C's ceremony, not a file edit.
    */
   adoptControlPlaneKey(key: string): void {
     if (this.#controlPlanePublic !== undefined) return;
     this.#controlPlanePublic = key;
-    // The refusal it caused is no longer true. Cleared so the next heartbeat
-    // writes a file that describes the device as it now is.
-    if (this.#rosterRefusal === "no-pinned-key") {
-      this.#rosterRefusal = undefined;
-    }
-  }
-
-  /** Why the last roster was refused, for the file. */
-  rosterRefusal(): RosterRefusal | undefined {
-    return this.#rosterRefusal;
-  }
-
-  /** The roster as it arrived, for the file. Verified, or absent. */
-  heldRoster(): SignedRoster | undefined {
-    return this.#roster;
-  }
-
-  /** What `byollm status` says about the roster. */
-  rosterStatus(): {
-    readonly held: boolean;
-    readonly members: number;
-    readonly stale: boolean;
-    readonly issuedAt?: number;
-    readonly refusal?: RosterRefusal;
-  } {
-    const roster = this.#roster;
-    if (roster === undefined) {
-      return {
-        held: false,
-        members: 0,
-        stale: false,
-        ...(this.#rosterRefusal === undefined
-          ? {}
-          : { refusal: this.#rosterRefusal }),
-      };
-    }
-    return {
-      held: true,
-      members: roster.members.length,
-      stale: this.#now() - roster.issuedAt > ROSTER_MAX_AGE_MS,
-      issuedAt: roster.issuedAt,
-      ...(this.#rosterRefusal === undefined
-        ? {}
-        : { refusal: this.#rosterRefusal }),
-    };
   }
 
   /**

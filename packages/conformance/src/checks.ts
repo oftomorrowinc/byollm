@@ -389,8 +389,8 @@ export const CHECKS: readonly Check[] = [
      * rather than of the request.
      */
     title:
-      "a team job runs only once a roster this daemon holds, signed by a " +
-      "key it pinned at pairing, admits the asker",
+      "a team job is refused by a device whose upstream cannot say who the " +
+      "asker is, and is not offered to it again",
     musts: ["NAMED_LOCAL_ALLOWLIST", "REFUSAL_NOT_REOFFERED"],
     async run(target: ConformanceTarget): Promise<void> {
       const bob = await pairDaemon(target, { owner: "bob", offer: "team" });
@@ -428,24 +428,24 @@ export const CHECKS: readonly Check[] = [
           "a server re-offered a job to the runner that refused it",
         );
 
-        // Now the owner allows alice, locally — by the id this server uses
-        // for her, because that is what arrives on the wire.
-        await bob.allowlist.add(
-          { origin: target.origin, owner: await ownerIdFor(target, "alice") },
-          Date.now(),
-        );
-
-        const allowed = await target.enqueue({
-          kind: "llm.generate",
-          payload: prompt("after"),
-          owner: "alice",
-          audience: "team",
-        });
-        await bob.runner.tick();
-        await waitFor(
-          async () => (await target.job(allowed.id))?.state === "ok",
-          { what: "the allowed named job to run" },
-        );
+        /**
+         * The admitting half of this law is not certifiable here, and saying
+         * so is better than pretending — byollm_016 Amendment J.
+         *
+         * Admission is now a claim-time grant signed by a control plane whose
+         * key the device pinned at pairing. A server that pins no such key is
+         * in direct mode, where owner-only is the law rather than a
+         * limitation, and this kit's targets are direct servers. There is no
+         * honest way for the kit to make a stranger's job run here: it would
+         * have to author the grant itself, which would certify the kit rather
+         * than the target.
+         *
+         * The refusal above is the half a direct server *can* demonstrate,
+         * and it is the half that fails open — so it is the half worth
+         * certifying. The admitting half is covered end to end against a real
+         * control plane in the relay suite (`admission.test.ts`, freeze gate
+         * §6), and returns here when a target can author grants.
+         */
       } finally {
         await bob.dispose();
       }
@@ -466,11 +466,6 @@ export const CHECKS: readonly Check[] = [
         subscription: true,
       });
       try {
-        await bob.allowlist.add(
-          { origin: target.origin, owner: await ownerIdFor(target, "alice") },
-          Date.now(),
-        );
-
         const job = await target.enqueue({
           kind: "llm.generate",
           payload: prompt("someone else's work"),
@@ -846,38 +841,21 @@ export const CHECKS: readonly Check[] = [
     async run(target: ConformanceTarget): Promise<void> {
       const bob = await pairDaemon(target, { owner: "bob", offer: "team" });
       try {
-        // Admitted explicitly. This check offered `public` until 2026-08-26,
-        // which meant the provenance assertion below was reached without the
-        // device ever deciding anything — the claim was about a label on a
-        // result, and the path to it skipped the step that makes the label
-        // meaningful.
-        await bob.allowlist.add(
-          { origin: target.origin, owner: await ownerIdFor(target, "alice") },
-          Date.now(),
-        );
-        const community = await target.enqueue({
-          kind: "llm.generate",
-          payload: prompt("run this anywhere"),
-          owner: "alice",
-          audience: "team",
-        });
-        await bob.runner.tick();
-        await waitFor(
-          async () => (await target.job(community.id))?.state === "ok",
-          { what: "the community job to complete" },
-        );
-
-        const delivered = await target.job(community.id);
-        assert(
-          delivered?.provenance?.untrusted === true,
-          "a shared result was not marked untrusted",
-        );
-        // `delivered.provenance` is already narrowed by the assertion above.
-        assert(
-          delivered.provenance.runnerOwner === "bob",
-          "the result did not carry the runner's owner",
-        );
-
+        /**
+         * The untrusted half moved — byollm_016 Amendment J.
+         *
+         * A community result cannot be produced against a direct target any
+         * more: nothing here can author the grant that would let a stranger's
+         * job run, and a kit that signed one itself would be certifying the
+         * kit. That half is asserted end to end against a real control plane
+         * in the relay suite (`admission.test.ts`, "names the device that ran
+         * a stranger's work").
+         *
+         * What stays here is the half a direct server can show, and it is not
+         * the trivial one: `untrusted: false` is the claim that would do
+         * damage if it were wrong, because it is the value an app renders
+         * without a warning.
+         */
         const own = await target.enqueue({
           kind: "llm.generate",
           payload: prompt("my own"),
@@ -1021,11 +999,6 @@ export const CHECKS: readonly Check[] = [
           "a metered provider was read as free because of its base URL",
         );
 
-        await bob.allowlist.add(
-          { origin: target.origin, owner: await ownerIdFor(target, "alice") },
-          Date.now(),
-        );
-
         const job = await target.enqueue({
           kind: "llm.generate",
           payload: prompt("spend someone else's money"),
@@ -1103,24 +1076,22 @@ export const CHECKS: readonly Check[] = [
           "a deliberately shared metered backend was narrowed anyway",
         );
 
-        await bob.allowlist.add(
-          { origin: target.origin, owner: await ownerIdFor(target, "alice") },
-          Date.now(),
-        );
-
-        const first = await target.enqueue({
-          kind: "llm.generate",
-          payload: prompt("work bob agreed to pay for"),
-          owner: "alice",
-          audience: "team",
-        });
-        await bob.runner.tick();
-        await waitFor(
-          async () => (await target.job(first.id))?.state === "ok",
-          { what: "a consented metered job to run" },
-        );
-
-        // Now spend the day's ceiling.
+        /**
+         * "Runs others' work" moved; "stops at the ceiling" stays —
+         * byollm_016 Amendment J.
+         *
+         * A stranger's job cannot run against a direct target any more, so
+         * the *positive* half of this check is not certifiable here without
+         * the kit authoring its own grant. What remains is the half that
+         * costs money when it is wrong: a device that has spent its ceiling
+         * must refuse, and it must refuse before the prompt reaches a paid
+         * endpoint.
+         *
+         * Note what that leaves in place above: the effective offer scope is
+         * still asserted as `team`, so this check still proves a deliberately
+         * shared metered backend is *not* narrowed — which is the thing
+         * `EFFECTIVE_OFFER_ONLY` is about.
+         */
         await bob.spend.record("primary", 900, Date.now());
 
         const second = await target.enqueue({

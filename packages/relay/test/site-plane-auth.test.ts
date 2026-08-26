@@ -151,7 +151,6 @@ describe("the site plane refuses anyone it cannot verify", () => {
         consents: [],
         devices: [],
         rosters: [],
-        signedRosters: [],
         revoked: [],
       },
     });
@@ -458,7 +457,6 @@ describe("the projection, collapsed to data a store can match on", () => {
           { id: "team_bob", owner: "bob", members: ["alice", "erin"] },
           { id: "team_carol", owner: "carol", members: ["alice"] },
         ],
-        signedRosters: [],
         revoked: [],
       },
     });

@@ -17,7 +17,6 @@ import {
   type ClaimedStub,
 } from "@byollm/protocol";
 import {
-  Allowlist,
   Budgets,
   IngressLog,
   SpendLedger,
@@ -102,7 +101,6 @@ export class EchoBackend implements Backend {
 export interface HarnessDaemon {
   readonly runner: Runner;
   readonly backend: EchoBackend;
-  readonly allowlist: Allowlist;
   readonly runnerId: string;
   readonly owner: string;
   /** This daemon's keys, so a check can sign as it — or deliberately not. */
@@ -237,8 +235,6 @@ export async function pairDaemon(
     ...(options.metered === undefined ? {} : { metered: options.metered }),
   });
 
-  const allowlist = new Allowlist(join(home, "allow.json"));
-  await allowlist.load();
   const budgets = new Budgets(
     join(home, "budgets.json"),
     loaded.config.community,
@@ -349,7 +345,6 @@ export async function pairDaemon(
     },
     daemonVersion: "conformance",
     loaded,
-    allowlist,
     budgets,
     spend,
     ingress,
@@ -359,7 +354,6 @@ export async function pairDaemon(
   return {
     runner,
     backend,
-    allowlist,
     runnerId: result.pairing.runnerId,
     owner: result.pairing.owner,
     keys: await deviceIdentity.load(Date.now()),

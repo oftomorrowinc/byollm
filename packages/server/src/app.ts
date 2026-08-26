@@ -489,7 +489,7 @@ export class ByollmApp {
           spend: { acknowledged: true },
           // Same conservative assumption the claim path makes: the server
           // cannot see a remote daemon's local allowlist (protocol §4.2).
-          locallyAllows: () => true,
+          admits: () => true,
         },
       );
       if (match.ok) admitted += 1;

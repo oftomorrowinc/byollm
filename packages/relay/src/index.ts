@@ -1,4 +1,10 @@
-import { checkProtocolVersion, declaredVersion } from "@byollm/protocol";
+import {
+  checkProtocolVersion,
+  declaredVersion,
+  type CapabilityMatrix,
+  type ClaimedStub,
+  type SignedGrant,
+} from "@byollm/protocol";
 import { DaemonPlane, type PlaneResult } from "./daemon-plane.js";
 import { debugPage } from "./debug.js";
 import { Projection, type RelayFixture } from "./fixture.js";
@@ -40,15 +46,44 @@ export interface RelayOptions {
    * One, in the skeleton. Multi-tenant routing is the closed piece
    * (cloud_004 §9), and it replaces this field rather than extending it.
    */
-  /** Consent and rosters, projected from the control plane. */
+  /** Consent and routing, projected from the control plane. */
   readonly fixture?: RelayFixture;
   /**
-   * The control plane's roster-signing public key — Amendment G.
+   * The control plane's grant-signing public key — Amendment J.
    *
-   * Handed to daemons at pairing. Public half only: this relay cannot sign a
-   * roster, which is what makes carrying one safe.
+   * Handed to daemons at pairing, and the thing every grant is checked
+   * against. Configuring it without {@link RelayOptions.authorGrant} is
+   * refused at construction: a device told to expect signed grants and then
+   * sent none refuses every job, and it would do so with no signal here.
    */
   readonly controlPlanePublic?: string | undefined;
+  /**
+   * Author a grant for one claimed job — Amendment J.
+   *
+   * **The relay asks; it does not decide.** Everything a grant asserts —
+   * whose job this is, whether they are still a member, which of the owner's
+   * services their mapping resolves to — is the control plane's knowledge,
+   * and this callback is the seam between the two. A relay wired to a
+   * deployment that has no control plane simply has no callback, and its
+   * devices serve their owners alone.
+   *
+   * Returning `undefined` refuses the job at the device, which is the correct
+   * shape for "this person is no longer a member": removal takes effect at
+   * the next claim, including for work already queued, because the grant is
+   * authored here and not at enqueue.
+   *
+   * The capability matrix is passed because resolution needs it — the control
+   * plane chooses from what this device actually advertised, never from a
+   * name it invented. Until byollm_016 Amendment L lands, "resolution" is the
+   * job's own selection or the device's default; after it, the user's
+   * per-purpose mapping. The seam does not change.
+   */
+  readonly authorGrant?: (input: {
+    readonly job: ClaimedStub;
+    readonly owner: string;
+    readonly runnerId: string;
+    readonly capabilities: CapabilityMatrix;
+  }) => Promise<SignedGrant | undefined> | SignedGrant | undefined;
   /** How long a claim is good for. */
   readonly leaseMs?: number;
   /** Injectable clock, so tests move time instead of sleeping. */
@@ -141,7 +176,31 @@ export class Relay {
       ...(options.controlPlanePublic === undefined
         ? {}
         : { controlPlanePublic: options.controlPlanePublic }),
+      ...(options.authorGrant === undefined
+        ? {}
+        : { authorGrant: options.authorGrant }),
     });
+    /**
+     * A relay that promises grants and cannot author them is refused here.
+     *
+     * `controlPlanePublic` is what tells a device to expect a signed grant
+     * with every job. Without an author, every claim would arrive without
+     * one, every job would be refused at the device, and the only symptom
+     * would be a fleet that had quietly stopped working — with this process
+     * reporting itself healthy throughout. It is a deployment mistake that
+     * cannot be caught downstream, so it is caught at construction.
+     */
+    if (
+      options.controlPlanePublic !== undefined &&
+      options.authorGrant === undefined
+    ) {
+      throw new Error(
+        "controlPlanePublic is set but authorGrant is not: devices would be " +
+          "told to expect signed grants that nothing here can produce, and " +
+          "would refuse every job",
+      );
+    }
+
     this.#site = new SitePlane({
       state: this.state,
       projection: this.projection,

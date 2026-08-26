@@ -10,7 +10,6 @@
 
 import { PROTOCOL_VERSION } from "@byollm/protocol";
 
-export { Allowlist, type AllowEntry } from "./allowlist.js";
 export { normalizeOrigin, UnusableOrigin } from "./origins.js";
 
 export { main, runCli, type CliIo, type ExitCode } from "./cli.js";

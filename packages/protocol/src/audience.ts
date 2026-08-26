@@ -60,7 +60,13 @@ export const MatchRefusal = z.enum([
   "no-capability",
   /** Job is `private` but this daemon belongs to a different user. */
   "audience-self-other-owner",
-  /** Job is `team` but this device does not admit the job's owner. */
+  /**
+   * Job is `team` and nothing this device verified admits the job's owner.
+   *
+   * The id predates the grant and is kept, because ids are public and cited
+   * by conformance output. What it means has not moved: this device was not
+   * shown anything it could check.
+   */
   "not-locally-allowed",
   /** Job is `team` but the server's own allowlist excludes this runner. */
   "not-in-server-allowlist",
@@ -144,13 +150,24 @@ export interface MatchDaemon {
   /** What the owner agreed to spend on others, for a `metered` backend. */
   readonly spend?: SpendConsent | undefined;
   /**
-   * Does this daemon's *local* allowlist admit the given owner for the server
-   * origin the job came from? Supplied as a predicate so the protocol package
-   * stays free of file I/O; the daemon passes its allowlist, the server
-   * passes a conservative `() => true` because it cannot know a remote
-   * daemon's local list and must not pretend to.
+   * Has something **this device verified** admitted the job's owner?
+   *
+   * A predicate rather than a value so the protocol package stays free of
+   * both file I/O and signature state. What supplies it has changed twice and
+   * will change again — a local allowlist, then a held roster, and now a
+   * claim-time signed grant (Amendment J) — and the law it feeds has not
+   * changed at all: a `team` service runs a stranger's work only when
+   * somebody this device can check said so.
+   *
+   * The server passes a conservative `() => true`: it cannot know what a
+   * remote device verified and must not pretend to. The device is the
+   * enforcing side, which is the whole point of asking here.
+   *
+   * Named for the question, not for where the answer lives. This was called
+   * `locallyAllows`, and "locally" stopped being true the moment the answer
+   * came from a document somebody else signed.
    */
-  readonly locallyAllows: (owner: string) => boolean;
+  readonly admits: (owner: string) => boolean;
 }
 
 /**
@@ -173,7 +190,7 @@ export interface MatchDaemon {
  *     owner: "bob",
  *     offerScope: "team",
  *     cost: "free",
- *     locallyAllows: (o) => o === "alice",
+ *     admits: (o) => o === "alice",
  *   },
  * );
  * // result.ok === true
@@ -230,12 +247,10 @@ export function matchAudience(job: MatchJob, daemon: MatchDaemon): MatchResult {
       // The device decides, always. There is deliberately no branch here that
       // returns ALLOWED without asking it — `public` was that branch, and its
       // removal is what makes this switch a verification rather than a
-      // lookup. Whatever supplies `locallyAllows` may change (byollm_016
+      // lookup. Whatever supplies `admits` may change (byollm_016
       // Amendment J replaces a local list with a signed claim-time grant);
       // that it is *consulted* may not.
-      return daemon.locallyAllows(job.owner)
-        ? ALLOWED
-        : refuse("not-locally-allowed");
+      return daemon.admits(job.owner) ? ALLOWED : refuse("not-locally-allowed");
   }
 }
 
@@ -251,11 +266,11 @@ export const REFUSAL_MESSAGES: Readonly<Record<MatchRefusal, string>> =
     "audience-self-other-owner":
       "the job is private to its owner and this device is paired to someone else",
     "not-locally-allowed":
-      "the job's owner is not on this device's allowlist (byollm allow <server> <user>)",
+      "nothing this device can verify says the job's owner may use it",
     "not-in-server-allowlist":
       "the app restricted this job to named runners and this device is not one of them",
     "offer-scope-too-narrow":
-      "this backend is offered to its owner only (byollm offer <backend> named|public to widen)",
+      "this service is offered to its owner only (`byollm offer <service> team` to widen)",
     "subscription-self-lock":
       "subscription-backed models run their owner's work only — this is a protocol rule, not a setting",
     "metered-no-spend-consent":

@@ -139,6 +139,29 @@ describe("every command a message names", () => {
   });
 
   it("works, when `status` explains a narrowed offer", async () => {
+    // A relay, because otherwise there are *two* narrowings and this test is
+    // about one of them. With nothing paired, `team` narrows for want of a
+    // relay to admit anybody — a second, differently-remedied problem, and
+    // following the spend instruction would correctly land on it. Pairing one
+    // leaves the spend narrowing as the only thing in the way, which is what
+    // the loop was about.
+    await writeFile(
+      paths.pairings,
+      JSON.stringify({
+        version: 1,
+        pairings: [
+          {
+            origin: "https://relay.test",
+            runnerId: "runner_1",
+            owner: "me",
+            sites: {},
+            controlPlanePublic: "a-pinned-control-plane-key",
+            pairedAt: Date.now(),
+          },
+        ],
+      }),
+      "utf8",
+    );
     // The exact loop. A config that says `team` with no consent — which is
     // what the broken `offer` used to write, and what a hand edit writes.
     await writeFile(
@@ -164,6 +187,6 @@ describe("every command a message names", () => {
     out = "";
     await run("status");
     expect(out).not.toContain("was narrowed");
-    expect(out).toContain("team (you and people you allow)");
+    expect(out).toContain("team (you and the people your relay admits)");
   });
 });

@@ -175,7 +175,7 @@ export class MemoryStore implements ByollmStore {
         // not pretend to (protocol §4.2). It admits the job here; the daemon
         // is the enforcing side and releases with `refused` if its own list
         // says no.
-        locallyAllows: () => true,
+        admits: () => true,
       },
     );
     return match.ok;

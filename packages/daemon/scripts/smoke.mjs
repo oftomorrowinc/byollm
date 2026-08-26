@@ -64,10 +64,14 @@ try {
   await check("status runs against an empty home", ["status"], (r) =>
     r.stdout.includes("paired apps"),
   );
+  // The tombstone is a shipped surface, so the binary smoke test covers it:
+  // `byollm allow` was real until 2026-08-26 and somebody's fingers still
+  // know it. A refusal that did not say where membership went would be a dead
+  // end wearing a helpful tone.
   await check(
-    "allow --list says nobody, rather than nothing",
+    "allow points at where membership lives now",
     ["allow", "--list"],
-    (r) => r.stdout.includes("Nobody but you"),
+    (r) => r.code === 2 && r.stderr.includes("team page"),
   );
   await check("log says nothing has run, rather than nothing", ["log"], (r) =>
     r.stdout.includes("nothing has run"),

@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { Audience } from "./audience.js";
+import { SignedGrant } from "./grant.js";
 import { BackendClass } from "./backends.js";
 import { ChatPayload, GeneratePayload, JobKind } from "./kinds.js";
 
@@ -576,6 +577,25 @@ export const JobStub = z
   .strict();
 export type JobStub = z.infer<typeof JobStub>;
 
-/** A stub, plus the lease the claiming runner now holds for it. */
-export const ClaimedStub = JobStub.extend({ lease: Lease }).strict();
+/**
+ * A stub, plus the lease the claiming runner now holds for it — and, on a
+ * relayed route, the grant that says it may run at all.
+ *
+ * The grant lives here rather than on {@link JobStub} because of *when* it is
+ * authored. A stub exists from enqueue; a grant is written at claim, against
+ * the membership and mapping true at that moment. That timing is the whole of
+ * Amendment J: a job queued yesterday for somebody removed this morning gets
+ * no grant when it is finally claimed, and a roster held on the device could
+ * never have known.
+ *
+ * Optional, and the absence is meaningful rather than lenient. A device that
+ * pinned a control-plane key at pairing **requires** one — a claimed job
+ * arriving without it is refused, not admitted by default. A device that
+ * pinned none is in direct mode, where there is no control plane to author
+ * anything and the owner's own work is the only work that runs.
+ */
+export const ClaimedStub = JobStub.extend({
+  lease: Lease,
+  grant: SignedGrant.optional(),
+}).strict();
 export type ClaimedStub = z.infer<typeof ClaimedStub>;

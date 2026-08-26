@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
-import { PublicIdentity, SignedRoster } from "@byollm/protocol";
+import { PublicIdentity } from "@byollm/protocol";
 import { z } from "zod";
 import { normalizeOrigin, UnusableOrigin } from "./origins.js";
 
@@ -66,27 +66,16 @@ export const Pairing = z
      */
     pending: z.record(z.string().min(1), PublicIdentity).optional(),
     /**
-     * The control plane's roster-signing key, pinned at pairing —
-     * Amendment G.
+     * The control plane's grant-signing key, pinned at pairing —
+     * Amendment J.
      *
-     * Optional because a direct-mode server has no control plane and signs no
-     * rosters, and because every pairing written before this existed has none.
-     * A pairing without one holds no roster and admits no `team` work through
-     * it, which is the correct amount of function for a relationship whose
-     * membership authority was never established.
+     * Optional because a direct-mode server has no control plane and signs
+     * nothing, and because every pairing written before this existed has
+     * none. A pairing without one serves its owner alone, which is the
+     * correct amount of function for a relationship whose admission authority
+     * was never established.
      */
     controlPlanePublic: z.string().min(1).optional(),
-    /**
-     * The roster this device is currently holding, as it arrived.
-     *
-     * Stored signed, not as a parsed member list. The signature is the whole
-     * reason the document is worth anything, and a list saved without it
-     * would be a set of names this file could not tell from names somebody
-     * typed into it.
-     */
-    roster: SignedRoster.optional(),
-    /** Why the last roster was refused — for `byollm status` to explain. */
-    rosterRefusal: z.string().optional(),
     pairedAt: z.number().int().positive(),
   })
   .strict();
@@ -143,6 +132,24 @@ const PairingFile = z
   .object({ version: z.literal(1), pairings: z.array(z.unknown()) })
   .strict();
 
+/**
+ * Fields written by a version that had machinery this one does not.
+ *
+ * `Pairing` is `.strict()`, so leaving these in place would quarantine every
+ * pairing written by alpha.53–.57 — a device that appears to have forgotten
+ * every site it serves, over a field nobody needs. Stripping them silently
+ * would be the other failure: state from deleted machinery is cleaned up or
+ * refused loudly, never half-read.
+ *
+ * So they are stripped *and* announced. What the announcement is for: a
+ * roster held on disk was this device's answer to "who may use me", and its
+ * removal is a real change in how the machine behaves, not housekeeping.
+ */
+const RETIRED_PAIRING_FIELDS = Object.freeze([
+  "roster",
+  "rosterRefusal",
+] as const);
+
 /** A row that would not parse, for the caller to report. */
 export interface SkippedPairing {
   /** Whatever the row called its origin, when it had a usable one. */
@@ -156,6 +163,7 @@ export class Pairings {
   readonly #path: string;
   #pairings: Pairing[] = [];
   #skipped: SkippedPairing[] = [];
+  #retired: string[] = [];
   #loaded = false;
 
   constructor(path: string) {
@@ -165,6 +173,7 @@ export class Pairings {
   async load(): Promise<void> {
     this.#pairings = [];
     this.#skipped = [];
+    this.#retired = [];
     let file: unknown;
     try {
       file = JSON.parse(await readFile(this.#path, "utf8"));
@@ -208,7 +217,38 @@ export class Pairings {
       // sites lost all four because one of them was written by a version that
       // spells a key differently.
       const dropped = siftEntries(row);
-      const pairing = Pairing.safeParse(row);
+      // Retired machinery, off the row before it is parsed — see
+      // {@link RETIRED_PAIRING_FIELDS}.
+      const record = row as Record<string, unknown>;
+      const carried = RETIRED_PAIRING_FIELDS.filter(
+        (field) => record[field] !== undefined,
+      );
+      if (carried.length > 0) {
+        const origin =
+          typeof record["origin"] === "string" ? record["origin"] : "a pairing";
+        this.#retired.push(
+          `${origin} carried a held roster; this version admits per job ` +
+            `from a signed grant instead, so the roster was dropped`,
+        );
+      }
+      /**
+       * Rebuilt without the retired keys, rather than deleted from.
+       *
+       * Assigning `undefined` was the first attempt and it does not work:
+       * `.strict()` rejects a **key it does not declare**, and a key holding
+       * `undefined` is still a key. The test above caught it, which is the
+       * only reason this comment is not still claiming otherwise.
+       */
+      const cleaned =
+        carried.length === 0
+          ? row
+          : Object.fromEntries(
+              Object.entries(record).filter(
+                ([key]) =>
+                  !(RETIRED_PAIRING_FIELDS as readonly string[]).includes(key),
+              ),
+            );
+      const pairing = Pairing.safeParse(cleaned);
       if (pairing.success) {
         // Normalized once, here, so every comparison below is `===` on a key
         // this class produced rather than a function call on whatever a
@@ -261,6 +301,20 @@ export class Pairings {
   get skipped(): readonly SkippedPairing[] {
     this.#assertLoaded();
     return [...this.#skipped];
+  }
+
+  /**
+   * Machinery this version removed, found in the file and taken out of it.
+   *
+   * Separate from {@link skipped} because they are different events with
+   * different remedies: a skipped row is something wrong that somebody may
+   * need to fix, and a retirement is something we changed and owe them a
+   * sentence about. One list for both would have a device reporting our
+   * decisions as its own problems.
+   */
+  get retired(): readonly string[] {
+    this.#assertLoaded();
+    return [...this.#retired];
   }
 
   list(): readonly Pairing[] {
@@ -360,25 +414,6 @@ export async function recordSites(
   extra: {
     readonly known?: ReadonlyMap<string, PublicIdentity>;
     readonly pending?: ReadonlyMap<string, PublicIdentity>;
-    /**
-     * The roster this device is holding — Amendment G.
-     *
-     * On disk because `byollm status` is a different process from the run
-     * loop, and a roster only the loop knows about is one nobody can be
-     * shown. Absent leaves whatever is already there: a heartbeat that
-     * carried none is the upstream saying nothing this tick, not saying the
-     * roster is gone.
-     */
-    readonly roster?: SignedRoster;
-    /**
-     * Why the last roster was refused, when one was.
-     *
-     * Written so `byollm status` — a different process — can say what is
-     * wrong. `no-pinned-key` is the one worth carrying: it means an upstream
-     * is sending rosters this device cannot check, which nothing else on any
-     * screen would reveal.
-     */
-    readonly rosterRefusal?: string;
   } = {},
 ): Promise<"unpaired" | "unchanged" | "written"> {
   const pairing = pairings.get(origin);
@@ -387,10 +422,6 @@ export async function recordSites(
     ...pairing,
     sites: Object.fromEntries(sites),
     ...(extra.known ? { known: Object.fromEntries(extra.known) } : {}),
-    ...(extra.roster ? { roster: extra.roster } : {}),
-    ...(extra.rosterRefusal
-      ? { rosterRefusal: extra.rosterRefusal }
-      : { rosterRefusal: undefined }),
     // Written even when empty, and deleted rather than left behind: a
     // `pending` map that outlived the offer would have `byollm sites` showing
     // somebody a question the upstream stopped asking.

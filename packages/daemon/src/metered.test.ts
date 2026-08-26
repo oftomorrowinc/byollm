@@ -8,7 +8,6 @@ import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { Allowlist } from "./allowlist.js";
 import type {
   Backend,
   BackendRequest,
@@ -22,7 +21,7 @@ import { IngressLog } from "./ingress.js";
 import { daemonPaths, type DaemonPaths } from "./paths.js";
 import { Runner } from "./runner.js";
 import { SpendLedger } from "./spend.js";
-import { noSupervisor, removeTemp } from "./test-support.js";
+import { noSupervisor, removeTemp, testControlPlane } from "./test-support.js";
 
 /** A daemon identity for tests: real keys, signing the real canonical form. */
 const TEST_KEYS = generateKeys(1_800_000_000_000);
@@ -96,8 +95,6 @@ async function makeRunner(options: {
   );
   expect(loaded.problems, JSON.stringify(loaded.problems)).toEqual([]);
 
-  const allowlist = new Allowlist(join(dir, "allow.json"));
-  await allowlist.load();
   /**
    * `stranger` is admitted, explicitly, because this file is about money.
    *
@@ -107,10 +104,6 @@ async function makeRunner(options: {
    * door that answered before the question. With `public` gone, admission is
    * a fact each test states, and the cost laws are measured on their own.
    */
-  await allowlist.add(
-    { origin: "https://app.test", owner: "stranger" },
-    Date.now(),
-  );
   const budgets = new Budgets(join(dir, "b.json"), loaded.config.community);
   await budgets.load(Date.now());
   const spend = new SpendLedger(join(dir, "spend.json"));
@@ -129,8 +122,8 @@ async function makeRunner(options: {
     runnerId: "runner_1",
     owner: "me",
     daemonVersion: "0.0.0",
+    controlPlanePublic: plane.controlPlanePublic,
     loaded,
-    allowlist,
     budgets,
     spend,
     ingress,
@@ -138,6 +131,16 @@ async function makeRunner(options: {
   });
   return { runner, spend, loaded };
 }
+
+/**
+ * The control plane behind every runner in this file.
+ *
+ * One for the whole file because these tests are about money, not about
+ * admission: each job carries a genuine grant so the spend rules are the only
+ * thing left that can refuse it. A test that wants the *grant* refused says
+ * so by bending a field — see runner.test.ts, which owns that job.
+ */
+const plane = testControlPlane();
 
 const job = (
   overrides: Partial<ClaimedStub & { payload: JobPayload }> = {},
@@ -156,6 +159,11 @@ const job = (
     runnerId: "runner_1",
     expiresAt: Date.now() + 60_000,
   },
+  grant: plane.sign({
+    jobId: overrides.id ?? "job_1",
+    user: overrides.owner ?? "stranger",
+    service: overrides.service ?? "paid",
+  }),
   ...overrides,
 });
 
@@ -244,14 +252,6 @@ describe("the ledger is written by the work, not by hand", () => {
         },
       }),
     );
-    const allowlist = new Allowlist(join(dir, "a2.json"));
-    await allowlist.load();
-    // Admitted here too: the claim is about the *ledger*, so everything else
-    // has to be a yes or the test passes for the wrong reason.
-    await allowlist.add(
-      { origin: "https://app.test", owner: "stranger" },
-      Date.now(),
-    );
     const budgets = new Budgets(join(dir, "b2.json"), loaded.config.community);
     await budgets.load(Date.now());
     // Deliberately never loaded: touching it would throw, which is the
@@ -265,8 +265,8 @@ describe("the ledger is written by the work, not by hand", () => {
       runnerId: "runner_1",
       owner: "me",
       daemonVersion: "0.0.0",
+      controlPlanePublic: plane.controlPlanePublic,
       loaded,
-      allowlist,
       budgets,
       spend,
       ingress: new IngressLog({
@@ -277,7 +277,9 @@ describe("the ledger is written by the work, not by hand", () => {
       backendFactory: () => new EchoBackend(),
     });
 
-    expect(runner.admit(job()).ok).toBe(true);
+    // Named, because this runner's one service is `local` — the grant has to
+    // resolve to something this device actually offers, which is check three.
+    expect(runner.admit(job({ service: "local" })).ok).toBe(true);
   });
 });
 

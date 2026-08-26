@@ -138,16 +138,6 @@ export {
 } from "./grant.js";
 
 export {
-  ROSTER_CONTEXT,
-  ROSTER_MAX_AGE_MS,
-  SignedRoster,
-  rosterStatement,
-  signRoster,
-  verifyRoster,
-  type RosterRefusal,
-} from "./roster.js";
-
-export {
   MAX_SUCCESSION_CHAIN,
   RETIREMENT_WINDOW_MS,
   SUCCESSION_CONTEXT,

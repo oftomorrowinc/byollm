@@ -414,3 +414,61 @@ describe("a row whose origin is not an origin", () => {
     ]);
   });
 });
+
+/**
+ * Machinery this version removed, taken out of the file and announced.
+ *
+ * `Pairing` is `.strict()`, so a row written by alpha.53–.57 carries `roster`
+ * and `rosterRefusal` fields this version does not declare. Left alone they
+ * would quarantine every pairing on the machine — a device that appears to
+ * have forgotten every site it serves, over a field nobody needs. Stripped
+ * silently they would be the other failure: a held roster *was* this device's
+ * answer to "who may use me", and its removal is a real change in behaviour.
+ *
+ * So: cleaned up **and** reported, which is the rule for state left by
+ * deleted machinery.
+ */
+describe("a pairing written before grants existed", () => {
+  it("loads, keeps its sites, and says what was dropped", async () => {
+    const row = {
+      ...good("https://relay.test"),
+      controlPlanePublic: "a-pinned-key",
+      roster: {
+        owner: "alice",
+        members: ["bob"],
+        issuedAt: 1_800_000_000_000,
+        signature: "sig",
+      },
+      rosterRefusal: "stale",
+    };
+    await writeFile(path, JSON.stringify({ version: 1, pairings: [row] }));
+
+    const pairings = new Pairings(path);
+    await pairings.load();
+
+    // Not quarantined — the pairing survives, which is the whole point.
+    expect(pairings.skipped).toEqual([]);
+    const [pairing] = pairings.list();
+    expect(pairing?.origin).toBe("https://relay.test");
+    expect(pairing?.controlPlanePublic).toBe("a-pinned-key");
+    // And the retired fields are gone rather than carried.
+    expect(pairing).not.toHaveProperty("roster");
+
+    // Announced, naming the origin and what changed about it.
+    expect(pairings.retired).toHaveLength(1);
+    expect(pairings.retired[0]).toContain("https://relay.test");
+    expect(pairings.retired[0]).toContain("signed grant");
+  });
+
+  it("says nothing when there is nothing to retire", async () => {
+    // The half of the pair that is easy not to write: a healthy file must not
+    // produce a notice, or the notice stops meaning anything.
+    await writeFile(
+      path,
+      JSON.stringify({ version: 1, pairings: [good("https://relay.test")] }),
+    );
+    const pairings = new Pairings(path);
+    await pairings.load();
+    expect(pairings.retired).toEqual([]);
+  });
+});

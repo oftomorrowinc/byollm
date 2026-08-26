@@ -12,6 +12,7 @@ import { Relay } from "../src/index.js";
 import {
   SITE_ID,
   SiteConnector,
+  controlPlane,
   fixtureFor,
   makeDaemon,
   route,
@@ -266,10 +267,31 @@ describe("the freeze gate — cloud_004 §14", () => {
       devices: [],
       // Bob's machine runs work for his team, of which alice is a member.
       rosters: [{ id: "team_1", owner: "bob", members: ["alice"] }],
-      signedRosters: [],
       revoked: [],
     };
-    const relay = new Relay({ fixture });
+    /**
+     * A control plane that will author grants for alice — and that line is
+     * load-bearing, which for a week it was not.
+     *
+     * Its ancestor was `daemon.allowlist.add(...)`, under a comment claiming
+     * bob's daemon "would refuse without this". It would not: the harness
+     * offered its service `public`, and `matchAudience` returned ALLOWED for
+     * a public service without consulting the device at all. A mutation
+     * deleting the call left all nine tests here green — dead setup under a
+     * false claim, which is worse than either, because it made this look like
+     * the place device-side admission was covered and so nothing covered it.
+     *
+     * Now the offer is `team` and admission is a signed grant, so removing
+     * `plane.members.add` fails this test. That is the only reason it is
+     * allowed to stay.
+     *
+     * What this gate proves is still a *relay* property — that a foreign
+     * owner's job routes and the relay learns nothing doing it. The
+     * device-side law is admission.test.ts.
+     */
+    const plane = controlPlane();
+    plane.members.add("alice");
+    const relay = new Relay({ fixture, ...plane });
     const connector = new SiteConnector(relay, siteKeys);
     const daemon = await makeDaemon(relay, fixture, {
       owner: "bob",
@@ -280,30 +302,6 @@ describe("the freeze gate — cloud_004 §14", () => {
       offer: "team",
     });
     disposers.push(daemon.dispose);
-    /**
-     * Now load-bearing — and worth the paragraph, because for a week it was
-     * not.
-     *
-     * This line used to sit under a comment claiming bob's daemon "would
-     * refuse without this". It would not: the harness offered its service
-     * `public`, and `matchAudience` returned ALLOWED for a public service
-     * without consulting the device at all. A mutation deleting the call left
-     * all nine tests here green — dead setup under a false claim, which is
-     * worse than either, because it made this look like the place device-side
-     * admission was covered and so nothing covered it.
-     *
-     * `public` is gone (byollm_016, 2026-08-26) and the offer above is
-     * `team`, so the device now genuinely refuses without this. Removing it
-     * fails this test, which is the only reason it is allowed to stay.
-     *
-     * What this gate proves is still a *relay* property — that a foreign
-     * owner's job routes and the relay learns nothing doing it. The
-     * device-side law is admission.test.ts.
-     */
-    await daemon.allowlist.add(
-      { origin: "http://relay.test", owner: "alice" },
-      Date.now(),
-    );
 
     const { jobId } = await connector.enqueue({
       prompt: "alice's work on bob's machine",

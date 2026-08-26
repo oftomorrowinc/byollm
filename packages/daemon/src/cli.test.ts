@@ -143,75 +143,98 @@ describe("byollm status — what it says about sharing", () => {
     expect(await run("status")).toBe(0);
     expect(out).toContain("private (only you)");
     expect(out).toContain("narrowed from team");
-    expect(out).not.toContain("team (you and people you allow)");
+    expect(out).not.toContain("team (you and the people your relay admits)");
   });
 });
 
-describe("byollm allow — widening access", () => {
-  it("says nobody can use the machine when the list is empty", async () => {
-    expect(await run("allow", "--list")).toBe(0);
-    // Zero must not look like unknown: an empty list says so in words.
-    expect(out).toContain("Nobody but you");
-  });
+describe("the allowlist file, retired out loud", () => {
+  /**
+   * A file full of names this device used to honour and now ignores is the
+   * worst state to leave quietly: the entries sit on disk reading like
+   * grants, and whoever wrote them has no way to learn they stopped meaning
+   * anything. Pre-1.0 gives us the liberty to delete the machinery; it does
+   * not give us the liberty to delete it silently.
+   */
+  const withAllowlist = async () =>
+    writeFile(
+      paths.allowlist,
+      JSON.stringify({
+        version: 1,
+        entries: [
+          { origin: "https://app.test", owner: "alice", addedAt: 1 },
+          { origin: "https://app.test", owner: "carol", addedAt: 2 },
+        ],
+      }),
+    );
 
-  it("names what widening means before doing it", async () => {
-    expect(await run("allow", "https://app.test", "alice")).toBe(0);
-    expect(confirmQuestions).toHaveLength(1);
-    const question = confirmQuestions[0] ?? "";
-    expect(question).toContain("your hardware");
-    expect(question).toContain("subscription-backed models are never included");
-  });
-
-  it("changes nothing when the answer is no", async () => {
-    confirmAnswer = false;
-    expect(await run("allow", "https://app.test", "alice")).toBe(0);
-    expect(out).toContain("nothing changed");
-
-    out = "";
-    await run("allow", "--list");
-    expect(out).toContain("Nobody but you");
-  });
-
-  it("adds, lists and removes an entry", async () => {
-    await run("allow", "https://app.test", "alice", "a", "friend");
-    out = "";
-    await run("allow", "--list");
+  it("names the people whose access ended, and where to restore it", async () => {
+    // Names, not a count. "2 entries were retired" is a number; the point of
+    // the notice is that somebody recognises a name and knows where to go.
+    await withAllowlist();
+    expect(await run("status")).toBe(0);
     expect(out).toContain("alice");
-    expect(out).toContain("https://app.test");
-    expect(out).toContain("a friend");
-
-    out = "";
-    expect(await run("disallow", "https://app.test", "alice")).toBe(0);
-    expect(out).toContain("can no longer use this device");
-
-    out = "";
-    await run("allow", "--list");
-    expect(out).toContain("Nobody but you");
+    expect(out).toContain("carol");
+    expect(out).toContain("team page");
   });
 
-  it("refuses someone who was never allowed, rather than doing nothing", async () => {
-    /**
-     * `disallow` used to remove an allow entry and report "nothing changed"
-     * when there was none. Under Amendment G it also records a veto, and a
-     * veto needs no entry to exist first — the case it is *for* is a roster
-     * member this device has no local row for at all.
-     *
-     * Reporting "nothing changed" about a veto it had just written would be
-     * the flattering-copy bug in the sentence about who may use somebody's
-     * computer.
-     */
-    await run("disallow", "https://app.test", "nobody");
-    expect(out).toContain("is now refused");
+  it("removes the file, and says nothing the second time", async () => {
+    await withAllowlist();
+    await run("status");
+    await expect(readFile(paths.allowlist, "utf8")).rejects.toThrow();
 
     out = "";
-    await run("disallow", "https://app.test", "nobody");
-    expect(out).toContain("nothing changed");
+    await run("status");
+    expect(out).not.toContain("no longer allowed here");
   });
 
-  it("refuses malformed arguments with exit 2", async () => {
-    expect(await run("allow", "https://app.test")).toBe(2);
-    expect(err).toContain("usage:");
-    expect(await run("disallow", "https://app.test")).toBe(2);
+  it("retires an unreadable file too, rather than skipping it", async () => {
+    // The file goes either way. Saying so without a list is better than
+    // saying nothing because a parse failed — the machinery is gone whether
+    // or not we can read what was in it.
+    await writeFile(paths.allowlist, "{ not json");
+    await run("status");
+    expect(out).toContain("used to keep its own list");
+    await expect(readFile(paths.allowlist, "utf8")).rejects.toThrow();
+  });
+
+  it("says nothing at all when there was never a list", async () => {
+    // The half of the pair that is easy not to write. A device that never
+    // had an allowlist must not be told about one.
+    expect(await run("status")).toBe(0);
+    expect(out).not.toContain("used to keep its own list");
+  });
+});
+
+describe("byollm allow / disallow — the tombstones", () => {
+  /**
+   * Both commands were deleted (byollm_016 Amendments I and J). Their tests
+   * went with them — a test for machinery that no longer exists is a
+   * `.skip` graveyard with extra steps.
+   *
+   * What replaces them is a test of the *refusal*, because a tombstone is a
+   * product surface: somebody's fingers still know these commands, and an
+   * "unknown command" would send them looking for a typo instead of telling
+   * them where the capability went.
+   */
+  it.each(["allow", "disallow"] as const)(
+    "%s refuses with exit 2 and names where membership lives now",
+    async (command) => {
+      expect(await run(command, "https://app.test", "alice")).toBe(2);
+      expect(err).toContain("is gone");
+      expect(err).toContain("team page");
+      // Never a bare rejection. A refusal that does not say what to do
+      // instead is a dead end wearing a helpful tone.
+      expect(err).not.toContain("unknown command");
+    },
+  );
+
+  it("says why the list could not have worked, not just that it is gone", async () => {
+    // The reason is the whole point. A device cannot verify a foreign site's
+    // user identities, so the list only ever agreed with whoever was asking —
+    // and somebody who does not know that will go looking for the setting
+    // that replaced it.
+    await run("allow", "https://app.test", "alice");
+    expect(err).toContain("could never check the names");
   });
 });
 
@@ -397,8 +420,55 @@ describe("byollm services", () => {
 
     await run("services");
 
-    expect(out).toContain("offered to: you only");
-    expect(out).toContain("offered to: you and the people you allow");
+    // Both narrow to "only you" here, and for different reasons — which is
+    // the point of printing the reason. `mine` asked for private; `shared`
+    // asked for team and got narrowed, because this device is paired with
+    // nothing and so has no relay that could admit anybody.
+    expect(out).toContain("offered to only you");
+    expect(out).toContain("no relay paired");
+    expect(out).not.toContain(
+      "offered to you and the people your relay admits",
+    );
+  });
+
+  it("says a team service is shared once a relay is paired to admit for it", async () => {
+    // The other half. The narrowing above is not a permanent property of a
+    // `team` offer — it is what `team` means with nobody to ask.
+    await writeFile(
+      paths.pairings,
+      JSON.stringify({
+        version: 1,
+        pairings: [
+          {
+            origin: "https://relay.test",
+            runnerId: "runner_1",
+            owner: "me",
+            sites: {},
+            controlPlanePublic: "a-pinned-control-plane-key",
+            pairedAt: Date.now(),
+          },
+        ],
+      }),
+    );
+    await writeFile(
+      paths.config,
+      JSON.stringify({
+        services: {
+          shared: {
+            model: "llama3.2",
+            kinds: ["llm.chat"],
+            type: "openai-http",
+            baseUrl: "http://127.0.0.1:2/v1",
+            offer: "team",
+          },
+        },
+      }),
+    );
+
+    await run("services");
+
+    expect(out).toContain("offered to you and the people your relay admits");
+    expect(out).not.toContain("no relay paired");
   });
 
   it("says the offer that took effect, not the one that was asked for", async () => {
@@ -422,10 +492,12 @@ describe("byollm services", () => {
 
     await run("services");
 
-    expect(out).toContain("offered to: you only");
+    expect(out).toContain("offered to only you");
     expect(out).toContain("narrowed from team");
     // Never the un-narrowed claim on its own.
-    expect(out).not.toContain("offered to: you and the people you allow");
+    expect(out).not.toContain(
+      "offered to you and the people your relay admits",
+    );
   });
 
   it("shows a withheld kind by name, never merely omits it", async () => {
@@ -655,10 +727,16 @@ describe("status shows services and defaults, not only routes", () => {
     // "offered to private" asks the reader to already know. The config's word
     // stays, because the card and the file should read alike, and the
     // consequence sits next to it.
+    //
+    // This machine is paired with nothing, so the `team` service narrows to
+    // `private` and says why — which is the direct-mode ruling on screen
+    // (2026-08-26). A device with no relay has nothing that could tell it who
+    // a stranger is, and printing "team" would be printing the request.
     await write(CONFIG);
     await run("status");
     expect(out).toContain("private (only you)");
-    expect(out).toContain("team (you and people you allow)");
+    expect(out).toContain("no relay paired");
+    expect(out).not.toContain("team (you and the people your relay admits)");
   });
 
   it("says the default once, on the service that is it", async () => {
@@ -1046,7 +1124,11 @@ describe("offering a cloud-tagged service to a team", () => {
     await run("offer", "glm-5.2", "team", "--cap", "2500");
     out = "";
     await run("status");
-    expect(out).toContain("team (you and people you allow)");
+    // Written as `team` and reported as narrowed, because this machine is
+    // paired with nothing — the config round trip is what this test is about,
+    // and it survived.
+    expect(await readFile(paths.config, "utf8")).toContain('"offer": "team"');
+    expect(out).toContain("no relay paired");
     expect(out).not.toContain("was narrowed to");
   });
 

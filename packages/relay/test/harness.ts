@@ -17,9 +17,13 @@ import {
   type PublicIdentity,
   type SealedEnvelope,
   type StoredKeys,
+  type CapabilityMatrix,
+  type GrantClaims,
+  type SignedGrant,
+  generateKeys,
+  signGrant,
 } from "@byollm/protocol";
 import {
-  Allowlist,
   Budgets,
   DaemonConfig,
   DeviceIdentity,
@@ -33,7 +37,11 @@ import {
   type BackendResult,
 } from "byollm";
 import { expect } from "vitest";
-import { type Relay, type RelayFixture } from "../src/index.js";
+import {
+  type Relay,
+  type RelayFixture,
+  type RelayOptions,
+} from "../src/index.js";
 
 export const SITE_ID = "site_demo";
 
@@ -204,7 +212,21 @@ export class SiteConnector {
 
   /** Collect results and verify each against the device that claimed it. */
   async collect(): Promise<
-    { jobId: string; outcome: JobOutcome | null; disposition: string }[]
+    {
+      jobId: string;
+      outcome: JobOutcome | null;
+      disposition: string;
+      /**
+       * The device that sealed the result.
+       *
+       * Returned so a test can assert *which* machine ran the work.
+       * `PROVENANCE_NAMES_DEVICE` is a claim about this value, and until now
+       * it was only ever checked implicitly — `open` below verifies against
+       * it, so a wrong device produced a decrypt failure rather than a
+       * legible assertion about attribution.
+       */
+      device: PublicIdentity;
+    }[]
   > {
     const res = await this.#get("results");
     const { jobs } = res as {
@@ -234,6 +256,7 @@ export class SiteConnector {
           ? SealedOutcome.parse(JSON.parse(opened.plaintext)).outcome
           : null,
         disposition: job.disposition,
+        device: job.device,
       });
     }
     return out;
@@ -277,6 +300,75 @@ export class SiteConnector {
   }
 }
 
+/**
+ * A control plane for a test relay — Amendment J.
+ *
+ * Holds the signing key, decides who is a member, and authors one grant per
+ * claimed job. Everything a real control plane does, minus the database.
+ *
+ * `members` is a mutable set rather than a constructor argument on purpose:
+ * removal has to be observable *between* two claims of the same test, because
+ * that is the property Amendment J is for. Add somebody and their next job
+ * runs; remove them and their next claim fails, including work already
+ * queued. A fixture that fixed membership at construction could not express
+ * either half.
+ */
+export function controlPlane(): {
+  readonly controlPlanePublic: string;
+  readonly authorGrant: NonNullable<RelayOptions["authorGrant"]>;
+  /** Who this control plane will author grants for. */
+  readonly members: Set<string>;
+  /** Sign a grant this test wrote by hand, to forge with. */
+  readonly sign: (claims: GrantClaims) => SignedGrant;
+  /** Tamper with what it authors, for tests about the device's checks. */
+  bend: ((grant: SignedGrant) => SignedGrant) | undefined;
+} {
+  const keys = generateKeys(Date.now());
+  const members = new Set<string>();
+  const plane = {
+    controlPlanePublic: keys.identityPublic,
+    members,
+    sign: (claims: GrantClaims) => signGrant(keys, claims),
+    bend: undefined as ((grant: SignedGrant) => SignedGrant) | undefined,
+    authorGrant: ({
+      job,
+      owner,
+      capabilities,
+    }: {
+      job: JobStub & { lease: { id: string } };
+      owner: string;
+      runnerId: string;
+      capabilities: CapabilityMatrix;
+    }): SignedGrant | undefined => {
+      // The owner's own work needs no membership; anybody else's does.
+      if (job.owner !== owner && !members.has(job.owner)) return undefined;
+      // Resolution, as it is until Amendment L: what the job named, or this
+      // device's default for the kind. The control plane chooses from what
+      // the device advertised and never invents a name.
+      const service =
+        job.service ??
+        capabilities.find((c) => c.kind === job.kind && c.isDefault)?.service;
+      if (service === undefined) return undefined;
+      const grant = signGrant(keys, {
+        grantId: `grant_${job.id}_${String(grantSerial++)}`,
+        jobId: job.id,
+        siteId: SITE_ID,
+        user: job.owner,
+        owner,
+        purpose: "testing",
+        kind: job.kind,
+        service,
+        issuedAt: Date.now(),
+      });
+      return plane.bend ? plane.bend(grant) : grant;
+    },
+  };
+  return plane;
+}
+
+/** Distinct grant ids without a clock that tests move. */
+let grantSerial = 0;
+
 /** Pair and build a real daemon against the relay. */
 export async function makeDaemon(
   relay: Relay,
@@ -308,7 +400,6 @@ export async function makeDaemon(
   home: string;
   keys: StoredKeys;
   runnerId: string;
-  allowlist: Allowlist;
   signedFetch: (
     endpoint: string,
     body: Record<string, unknown>,
@@ -361,6 +452,7 @@ export async function makeDaemon(
   const approval = (await paired.json()) as {
     sites: Record<string, PublicIdentity>;
     runnerId: string;
+    controlPlanePublic?: string;
   };
   // The set this pairing covers — cloud_009 §5. One entry here, because this
   // harness pairs against one site; the assertion is that it is *that* site's
@@ -370,8 +462,6 @@ export async function makeDaemon(
     input.site.identity,
   ]);
 
-  const allowlist = new Allowlist(join(home, "allow.json"));
-  await allowlist.load();
   const budgets = new Budgets(
     join(home, "budgets.json"),
     loaded.config.community,
@@ -442,8 +532,13 @@ export async function makeDaemon(
       sites: new Map(Object.entries(approval.sites)),
     },
     daemonVersion: "relay-gate",
+    // Pinned from the pair response, which is the only moment it is offered.
+    // A relay with no control plane sends none, and the device is then in
+    // direct mode — owner-only, which is what most of this suite exercises.
+    ...(approval.controlPlanePublic === undefined
+      ? {}
+      : { controlPlanePublic: approval.controlPlanePublic }),
     loaded,
-    allowlist,
     budgets,
     spend,
     ingress,
@@ -454,7 +549,6 @@ export async function makeDaemon(
     runner,
     backend,
     runnerId: approval.runnerId,
-    allowlist,
     signedFetch,
     home,
     keys: await identity.load(Date.now()),
@@ -496,7 +590,6 @@ export function fixtureFor(
     consents: [{ owner: "alice", siteId: SITE_ID, paused: false }],
     devices: [],
     rosters: [],
-    signedRosters: [],
     revoked: [],
     ...extra,
   } satisfies RelayFixture;

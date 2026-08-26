@@ -1,6 +1,5 @@
 import { z } from "zod";
 import { PublicIdentity } from "./keys.js";
-import { SignedRoster } from "./roster.js";
 import { MAX_SUCCESSION_CHAIN, Succession } from "./succession.js";
 import { OfferScope } from "./audience.js";
 import { BackendClass, BackendIdSchema } from "./backends.js";
@@ -344,23 +343,23 @@ export const PairPollResponse = z.discriminatedUnion("status", [
        */
       sites: z.record(z.string().min(1), PublicIdentity),
       /**
-       * The control plane's roster-signing key, pinned here — Amendment G.
+       * The control plane's grant-signing key, pinned here — Amendment J.
        *
        * **Pairing is when, and that is the whole question.** Pairing is
        * already the ceremony where an owner proves out of band that this
        * device is theirs, so a key learned here rides trust that has already
-       * happened. The rejected alternative is trust-on-first-roster, and it
-       * is rejected because it hands the decision back to the relay: a daemon
-       * that learns whose signature to trust from the first roster to arrive
-       * has its membership authority chosen by whoever controls delivery.
+       * happened. The rejected alternative is trust-on-first-grant, and it is
+       * rejected because it hands the decision back to the relay: a daemon
+       * that learns whose signature to trust from the first grant to arrive
+       * has its admission authority chosen by whoever controls delivery.
        *
        * Optional on the wire, and only on the wire: a direct-mode server has
-       * no control plane and signs no rosters, and a daemon that never
-       * receives one simply serves no `team` job through it. It is not
-       * optional for a hub — a hub that omitted it would be asking devices to
-       * accept rosters from nobody in particular.
+       * no control plane and signs nothing, and a daemon that receives no key
+       * serves its owner alone. It is not optional for a relay with a control
+       * plane — one that omitted it would be asking devices to accept grants
+       * from nobody in particular, and would find every job refused.
        *
-       * Rotation is Amendment C's, with no path where a roster teaches a
+       * Rotation is Amendment C's, with no path where a grant teaches a
        * daemon a new key.
        */
       controlPlanePublic: z.string().min(1).optional(),
@@ -559,21 +558,6 @@ export const HeartbeatResponse = z
      * exchange is a confusion nobody untangles from a log.
      */
     awaitingConsent: z.array(z.string().min(1)),
-    /**
-     * Who this owner's devices may serve `team` work for — Amendment G.
-     *
-     * Carried by the relay and authored by nobody it can reach. The daemon
-     * verifies it against the key pinned at pairing and admits from its own
-     * held copy, so this field is delivery and not instruction: withholding
-     * it narrows a device, and editing it is caught.
-     *
-     * Optional because a roster is a cloud-mode fact — direct mode has no
-     * control plane to author one — and because a daemon that has never
-     * received one must narrow rather than fail. Absent is not "admit
-     * nobody"; {@link ROSTER_MAX_AGE_MS} is what makes absence bite, and it
-     * bites the same way for a roster withheld as for one never sent.
-     */
-    roster: SignedRoster.optional(),
   })
   .strict();
 export type HeartbeatResponse = z.infer<typeof HeartbeatResponse>;

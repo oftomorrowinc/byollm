@@ -5,7 +5,7 @@ import { createInterface } from "node:readline/promises";
 import { FAILURES_BEFORE_ALARM, readHealth } from "./health.js";
 import { runSetup, terminalIo } from "./setup.js";
 import { backendDescriptor, backendName, classifyCost } from "@byollm/protocol";
-import { Allowlist } from "./allowlist.js";
+import { fingerprint } from "@byollm/protocol";
 import { normalizeOrigin, UnusableOrigin } from "./origins.js";
 import { Budgets } from "./budgets.js";
 import { ClientError, ProtocolClient } from "./client.js";
@@ -13,7 +13,6 @@ import { diagnoseRoute } from "./diagnose.js";
 import { DaemonConfig, loadConfig } from "./config.js";
 import { connect } from "./connect.js";
 import { IngressLog, stripControlChars } from "./ingress.js";
-import { ROSTER_MAX_AGE_MS, fingerprint } from "@byollm/protocol";
 import { DeviceIdentity } from "./identity.js";
 import { Pairings, recordSites } from "./pairings.js";
 import { SpendLedger } from "./spend.js";
@@ -44,10 +43,7 @@ const USAGE = `byollm — run an app's LLM jobs on your own models.
   byollm log [--full] [-n N]  every prompt that has run on this device
   byollm pause                stop claiming new work
   byollm resume               start claiming again
-  byollm allow <url> <user>   let someone else's jobs run here (named audience)
-  byollm allow --list         who can currently use this device
   byollm offer <service> <scope>  who a service is offered to (private|team)
-  byollm disallow <url> <user>
   byollm sites                which sites this device serves, and which are waiting
   byollm approve <site>       serve a site that asked (or --all)
   byollm forget <url>         drop a pairing
@@ -143,9 +139,9 @@ export async function runCli(
     case "resume":
       return commandPause(paths, false, io);
     case "allow":
-      return commandAllow(paths, rest, io);
+      return commandRetiredAdmission("allow", io);
     case "disallow":
-      return commandDisallow(paths, rest, io);
+      return commandRetiredAdmission("disallow", io);
     case "offer":
       return commandOffer(paths, rest, io);
     case "sites":
@@ -461,7 +457,7 @@ async function commandConnect(
     }
   }
 
-  const { loaded, ingress, allowlist, budgets, spend } = await context(paths);
+  const { loaded, ingress, budgets, spend } = await context(paths);
 
   for (const problem of loaded.problems) {
     io.err(`config: ${problem.where}: ${problem.message}\n`);
@@ -474,7 +470,6 @@ async function commandConnect(
     owner: "pending",
     daemonVersion: DAEMON_VERSION,
     loaded,
-    allowlist,
     budgets,
     spend,
     ingress,
@@ -665,6 +660,78 @@ function reportSkipped(pairings: Pairings, io: CliIo): void {
         "it was skipped; re-pair with `byollm connect` to restore it\n",
     );
   }
+  // Ours to explain, not theirs to fix — so `out`, not `err`.
+  for (const notice of pairings.retired) {
+    io.out(`note: ${notice}\n`);
+  }
+}
+
+/**
+ * The allowlist file, retired out loud — Amendment I.
+ *
+ * A file full of names this device used to honour, that it now ignores, is
+ * the worst possible state to leave silently: the entries stay on disk
+ * reading like grants, and the person who wrote them has no way to learn they
+ * stopped meaning anything. Pre-1.0 gives us the liberty to delete the
+ * machinery; it does not give us the liberty to delete it quietly.
+ *
+ * So this reads what is there, says whose access ended and where that
+ * decision lives now, and removes the file — once. Reported at `status` and
+ * at the start of a run, which are the two places somebody is looking.
+ *
+ * It names the people. "3 entries were retired" is a count; the point of the
+ * notice is that somebody can recognise a name and go re-add them in the one
+ * place that can now authorise it.
+ */
+async function retireAllowlist(paths: DaemonPaths, io: CliIo): Promise<void> {
+  let raw: string;
+  try {
+    raw = await readFile(paths.allowlist, "utf8");
+  } catch {
+    return;
+  }
+
+  const names = new Set<string>();
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    const entries = (parsed as { entries?: unknown }).entries;
+    if (Array.isArray(entries)) {
+      for (const entry of entries as { owner?: unknown; origin?: unknown }[]) {
+        if (
+          typeof entry.owner === "string" &&
+          typeof entry.origin === "string"
+        ) {
+          names.add(
+            `${stripControlChars(entry.owner)} on ${stripControlChars(entry.origin)}`,
+          );
+        }
+      }
+    }
+  } catch {
+    // Unreadable is still retired. The file goes either way, and saying so
+    // without a list is better than saying nothing because a parse failed.
+  }
+
+  io.out(
+    `\n${wrap(
+      "note: this device used to keep its own list of people allowed to use " +
+        "it. That list is gone — it could never check the names on it, so it " +
+        "only ever agreed with whoever was asking.",
+    )}\n`,
+  );
+  for (const name of [...names].sort()) {
+    io.out(`  no longer allowed here: ${name}\n`);
+  }
+  io.out(
+    `${wrap(
+      names.size > 0
+        ? "Add them again from your team page, where a relay can actually " +
+            "verify who they are."
+        : "Membership lives with your relay now, and arrives one signed grant " +
+            "at a time.",
+    )}\n`,
+  );
+  await rm(paths.allowlist, { force: true });
 }
 
 async function runLoop(
@@ -673,11 +740,12 @@ async function runLoop(
   io: CliIo,
   signal?: AbortSignal,
 ): Promise<ExitCode> {
-  const { loaded, ingress, allowlist, budgets, spend } = await context(paths);
+  const { loaded, ingress, budgets, spend } = await context(paths);
   const identity = new DeviceIdentity(paths.keys);
   const pairings = new Pairings(paths.pairings);
   await pairings.load();
   reportSkipped(pairings, io);
+  await retireAllowlist(paths, io);
 
   const controller = new AbortController();
   signal?.addEventListener(
@@ -727,7 +795,6 @@ async function runLoop(
       },
       daemonVersion: DAEMON_VERSION,
       loaded,
-      allowlist,
       budgets,
       spend,
       ingress,
@@ -738,18 +805,9 @@ async function runLoop(
         // an event handler that throws takes the runner with it, and a file
         // that cannot be written is worth a message rather than a crash.
         if (event.type === "heartbeat") {
-          // Read once: two calls could straddle a verification and write a
-          // roster the check above did not look at.
-          const held = runner.heldRoster();
-          const refusal = runner.rosterRefusal();
           void recordSites(pairings, origin, runner.sites, {
             known: runner.known,
             pending: runner.pending,
-            // Held on disk so a second process can see it. `byollm status` is
-            // a different process from the run loop, and a roster only the
-            // loop knows about is one nobody can be shown.
-            ...(held === undefined ? {} : { roster: held }),
-            ...(refusal === undefined ? {} : { rosterRefusal: refusal }),
           })
             .then(async () => {
               // Then read the file back, because somebody may have answered
@@ -982,10 +1040,18 @@ async function commandStatus(
   io: CliIo,
   service: ServiceIo,
 ): Promise<ExitCode> {
-  const { loaded, ingress, allowlist, budgets, spend } = await context(paths);
+  const { loaded, ingress, budgets, spend } = await context(paths);
   const pairings = new Pairings(paths.pairings);
   await pairings.load();
   reportSkipped(pairings, io);
+  await retireAllowlist(paths, io);
+
+  // Whether anything here could admit a stranger at all. A `team` offer on a
+  // device paired with nothing serves one person, and both surfaces say so
+  // rather than printing the request.
+  const hasRelay = pairings
+    .list()
+    .some((pairing) => pairing.controlPlanePublic !== undefined);
 
   const paused = await isPaused(paths);
   const now = Date.now();
@@ -1100,13 +1166,14 @@ async function commandStatus(
     // pending spend consent printed "team (you and people you allow)" while
     // refusing every one of them. The config is a request; `route.offerScope`
     // is what happened to it.
-    const effective = route?.offerScope ?? service.offer;
-    const narrowed = effective !== service.offer;
+    const summary = offerSummary({
+      effective: route?.offerScope ?? service.offer,
+      configured: service.offer,
+      hasRelay,
+    });
     const scope =
-      (effective === "private"
-        ? "private (only you)"
-        : "team (you and people you allow)") +
-      (narrowed ? ` — narrowed from ${service.offer}` : "");
+      `${summary.scope} (${summary.audience})` +
+      (summary.narrowedBy === undefined ? "" : ` — ${summary.narrowedBy}`);
     // Three short lines rather than one long one. `openai-http:` prefixed
     // onto `mlx-community/Qwen2.5-14B-Instruct-4bit` with a scope after it
     // wrapped at any sane terminal width, and a wrapped line in a column
@@ -1151,77 +1218,42 @@ async function commandStatus(
     io.out(`  ! ${problem.where}: ${problem.message}\n`);
   }
 
-  const allowed = allowlist.list();
-  const refused = allowlist.vetoed();
-  io.out("\nwho can use this device\n");
-  io.out(`  you, always\n`);
-  if (allowed.length === 0 && refused.length === 0) {
-    io.out("  nobody else\n");
-  }
-  // Refusals first: a name this device will not serve is the one thing here
-  // an owner may have forgotten, and burying it under a roster count is how
-  // a veto quietly outlives the reason for it.
-  for (const entry of refused) {
-    io.out(`  refusing ${entry.owner} on ${entry.origin}\n`);
-  }
-  for (const entry of allowed) {
-    io.out(
-      `  ${entry.owner} on ${entry.origin}` +
-        `${entry.note === undefined ? "" : ` (${stripControlChars(entry.note)})`}\n`,
-    );
-  }
-
   /**
-   * What this device is holding, and what it is not yet doing with it —
-   * Amendment G, Phase B1.
+   * Who can use this device — and the honest admission that this device does
+   * not know.
    *
-   * Said out loud because the failure it prevents is silent in both
-   * directions. A device holding a stale roster narrows without explaining
-   * itself; a device that never pinned a key refuses every roster it is sent
-   * and looks identical to one nobody addressed. Neither state names itself
-   * anywhere else.
+   * It used to print a list, because it held one: first a per-person
+   * allowlist, then a signed roster. Amendment J removed both. Membership now
+   * arrives one grant at a time, at claim, so there is no moment at which
+   * this device is told the set — and a status surface declares whose
+   * knowledge it shows.
    *
-   * The wording is careful about the transition. B1 holds and verifies; the
-   * local allowlist still decides, and it will until B2 flips admission. A
-   * line here that read "2 people may use this device" would be the
-   * flattering-copy bug again, in the sentence about who may use somebody's
-   * computer.
+   * Saying so is the point rather than an apology. A screen that quietly
+   * stopped listing people would read as "nobody", which is the flattering
+   * lie in the sentence about who may use somebody's computer.
    */
-  for (const pairing of pairings.list()) {
-    /**
-     * A pairing made before roster sync existed — ruled 2026-08-25, option 1.
-     *
-     * Said only when it is actionable, and on evidence rather than a guess.
-     * The daemon cannot know whether an upstream has a control plane; what it
-     * knows is that this one **sent a roster** and this pairing has no key to
-     * check it with, which can only mean the pairing predates the key. A
-     * direct-mode server sends none and this line never appears for it.
-     *
-     * The remedy is the whole point of saying it. Without this the device is
-     * permanently unable to hold a roster and nothing on any screen says so —
-     * it would simply never be part of a team, quietly, forever.
-     */
-    if (pairing.rosterRefusal === "no-pinned-key") {
+  io.out("\nwho can use this device\n");
+  io.out("  you, always\n");
+  const paired = pairings.list();
+  if (paired.length === 0) {
+    io.out("  nobody else — this device is not paired with anything\n");
+  }
+  for (const pairing of paired) {
+    if (pairing.controlPlanePublic === undefined) {
+      // Direct mode, and the reason is worth one line: there is no control
+      // plane here, so nothing could ever sign a statement that a stranger
+      // may use this machine. Owner-only is not a setting somebody forgot to
+      // change (ruled 2026-08-26).
       io.out(
-        `  (${pairing.origin} is sending rosters this device cannot check —\n` +
-          `   this pairing predates roster sync. \`byollm connect\` to re-pair\n` +
-          `   and enable team routing.)\n`,
+        `  nobody else, through ${pairing.origin} — it has no control plane, ` +
+          `so nothing\n   can tell this device who anybody else is\n`,
       );
       continue;
     }
-    if (pairing.controlPlanePublic === undefined) continue;
-    const roster = pairing.roster;
-    if (roster === undefined) {
-      io.out(`  (no roster held yet for ${pairing.origin})\n`);
-      continue;
-    }
-    const age = now - roster.issuedAt;
     io.out(
-      age > ROSTER_MAX_AGE_MS
-        ? `  (roster stale — ${describeAge(age)} old, serving you only ` +
-            `until it refreshes)\n`
-        : `  (${String(roster.members.length)} more, from a roster your ` +
-            `control plane signed ${describeAge(age)} ago)\n`,
+      `  whoever ${pairing.origin} admits, one job at a time\n` +
+        `   (this device is not told the list — it checks a signature per ` +
+        `job.\n    Manage who is on it from your team page.)\n`,
     );
   }
 
@@ -1363,93 +1395,107 @@ async function isPaused(paths: DaemonPaths): Promise<boolean> {
   }
 }
 
-// -- allow / disallow ---------------------------------------------------------
+// -- allow / disallow (tombstones) --------------------------------------------
 
-async function commandAllow(
-  paths: DaemonPaths,
-  args: readonly string[],
-  io: CliIo,
-): Promise<ExitCode> {
-  const allowlist = new Allowlist(paths.allowlist);
-  await allowlist.load();
-
-  if (args[0] === "--list" || args.length === 0) {
-    const entries = allowlist.list();
-    if (entries.length === 0) {
-      io.out(
-        "Nobody but you can run work on this device.\n" +
-          "`byollm allow <app-url> <user-id>` to change that.\n",
-      );
-      return 0;
-    }
-    for (const entry of entries) {
-      io.out(
-        `${entry.owner}  on ${entry.origin}` +
-          `${entry.note === undefined ? "" : `  (${stripControlChars(entry.note)})`}\n`,
-      );
-    }
-    return 0;
-  }
-
-  const [rawOrigin, owner, ...noteParts] = args;
-  if (rawOrigin === undefined || owner === undefined) {
-    io.err("usage: byollm allow <app-url> <user-id> [note]\n");
-    return 2;
-  }
-  const origin = normalizeOrigin(rawOrigin);
-
-  /**
-   * Refused where a roster decides — Amendment G, property 3.
-   *
-   * "Nothing local adds." On an upstream that authors rosters, an entry here
-   * would sit in a file and change nothing, which is worse than a refusal: it
-   * would look like the owner had granted access and read as a grant on
-   * `byollm allow --list` forever.
-   *
-   * The remedy is where membership actually lives, so the message names it
-   * rather than describing a rule.
-   */
-  const pairings = new Pairings(paths.pairings);
-  await pairings.load();
-  if (pairings.get(origin)?.controlPlanePublic !== undefined) {
-    io.err(
+/**
+ * Two commands that no longer exist, and why they will not be coming back.
+ *
+ * `byollm allow <site> <user>` kept a device-local list of people permitted
+ * to run work here; `byollm disallow` removed one. Both were deleted on
+ * 2026-08-26 (byollm_016 Amendments I and J).
+ *
+ * The reason is not simplification. **The user-granularity was illusory.** A
+ * daemon cannot verify a foreign site's user identities, so an entry admitted
+ * whatever that site asserted per job about who its user was — which is
+ * precisely the unsigned per-job assertion Amendment G property 1 outlawed
+ * for the cloud route, wearing an allowlist costume. Against a dishonest site
+ * it gated nothing; against an honest one it second-guessed the only party
+ * that owns the namespace.
+ *
+ * The git analogy that settled it: no git client keeps a local list of
+ * permitted GitHub users. Who may push is GitHub's decision, made in
+ * GitHub's namespace, enforced where the namespace lives. Blocking exists —
+ * and you do it at GitHub.
+ *
+ * A tombstone rather than "unknown command", because somebody's fingers still
+ * know these and an unknown-command error would send them to look for a typo.
+ * It names where the capability went, which is the whole obligation of a
+ * refusal.
+ */
+function commandRetiredAdmission(name: "allow" | "disallow", io: CliIo): 2 {
+  io.err(
+    `${wrap(
+      `\`byollm ${name}\` is gone. This device no longer keeps its own list ` +
+        `of who may use it — it could never check the names on that list, ` +
+        `so the list only ever agreed with whoever was asking.`,
+    )}\n\n` +
       `${wrap(
-        `${origin} decides who may use this device from a roster its control ` +
-          `plane signs, so an entry here would change nothing. Add ${owner} ` +
-          `to your team where that roster is managed.`,
-      )}\n` +
-        `\n\`byollm disallow ${origin} ${owner}\` still works, and always ` +
-        `will: this device may refuse somebody a roster admits.\n`,
-    );
-    return 2;
-  }
-
-  // byollm_002: widening scope requires an explicit confirmation that names
-  // what it means. Not a y/N on an ambiguous question — the actual sentence.
-  const confirmed = await io.confirm(
-    `\nThis lets jobs belonging to "${owner}" on ${origin} run on this device,\n` +
-      `using your hardware and electricity, whenever your daemon is online.\n` +
-      `Your subscription-backed models are never included — those stay yours alone.\n\n` +
-      `Allow ${owner} to use this device?`,
+        `Membership lives with your relay now, and reaches this device one ` +
+          `signed grant at a time. Add or remove people from your team page.`,
+      )}\n\n` +
+      `${wrap(
+        `A device with no relay serves its owner and nobody else, which is ` +
+          `what \`byollm status\` will tell you.`,
+      )}\n`,
   );
-  if (!confirmed) {
-    io.out("nothing changed\n");
-    return 0;
-  }
-
-  await allowlist.add(
-    {
-      origin,
-      owner,
-      ...(noteParts.length > 0 ? { note: noteParts.join(" ") } : {}),
-    },
-    Date.now(),
-  );
-  io.out(`allowed ${owner} on ${origin}\n`);
-  return 0;
+  return 2;
 }
 
 // -- offer -------------------------------------------------------------------
+
+/**
+ * What a service's offer scope actually amounts to on this machine.
+ *
+ * **A request is not a state** (ruled 2026-08-26). Three things can narrow an
+ * owner's request and each of them used to be invisible on the screen built
+ * to show it: a subscription's terms, an unacknowledged spend, and — new with
+ * Amendment J — having no relay to admit anybody.
+ *
+ * The third is the one worth spelling out. `team` means "whoever my relay
+ * admits", and a device paired with nothing has no relay and therefore admits
+ * nobody. That is not a bug to be fixed by widening; it is what direct mode
+ * *is*, since nothing there could sign a statement about who a stranger is.
+ * But a device printing "team" while serving one person is lying, so it says
+ * both: what took effect, and what was asked for.
+ */
+function offerSummary(input: {
+  readonly effective: "private" | "team";
+  readonly configured: "private" | "team" | undefined;
+  readonly hasRelay: boolean;
+}): {
+  /** The config's own word, so the two surfaces agree with the file. */
+  readonly scope: "private" | "team";
+  /** What that word means for a reader who does not know the vocabulary. */
+  readonly audience: string;
+  /** Why it is not what was asked for, when it is not. */
+  readonly narrowedBy: string | undefined;
+} {
+  const { effective, configured, hasRelay } = input;
+  if (effective === "team" && !hasRelay) {
+    return {
+      scope: "private",
+      audience: "only you",
+      narrowedBy:
+        "no relay paired, so nothing here can admit anybody — " +
+        "`byollm connect <relay>` to share it",
+    };
+  }
+  if (effective === "private") {
+    return {
+      scope: "private",
+      audience: "only you",
+      narrowedBy:
+        configured !== undefined && configured !== "private"
+          ? `narrowed from ${configured} — see ! below`
+          : undefined,
+    };
+  }
+  return {
+    scope: "team",
+    audience: "you and the people your relay admits",
+    narrowedBy: undefined,
+  };
+}
 
 /**
  * Change who a backend is offered to.
@@ -1708,52 +1754,6 @@ async function commandOffer(
   return 0;
 }
 
-async function commandDisallow(
-  paths: DaemonPaths,
-  args: readonly string[],
-  io: CliIo,
-): Promise<ExitCode> {
-  const [rawOrigin, owner] = args;
-  if (rawOrigin === undefined || owner === undefined) {
-    io.err("usage: byollm disallow <app-url> <user-id>\n");
-    return 2;
-  }
-  const origin = normalizeOrigin(rawOrigin);
-  const allowlist = new Allowlist(paths.allowlist);
-  await allowlist.load();
-
-  /**
-   * Both halves, always — Amendment G, property 3.
-   *
-   * `disallow` removed an allow entry, which is the whole of refusing
-   * somebody when a per-person list decides. Where a roster decides there is
-   * no entry to remove, and removing nothing would have reported success
-   * while the person went on being served.
-   *
-   * So it records a veto as well. The veto subtracts from whatever the roster
-   * says and needs no roster to exist first: an owner who wants somebody
-   * stopped needs it to work on this machine, now, rather than waiting on a
-   * sync that may never arrive — which is the case the whole asymmetry is
-   * for.
-   */
-  const removed = await allowlist.remove(origin, owner);
-  const already = allowlist.vetoes(origin, owner);
-  await allowlist.veto({ origin, owner }, Date.now());
-
-  // Three outcomes, three sentences. One message covering all of them would
-  // have to be vague about which thing happened, and "nothing changed" was
-  // reported for a veto that had just been recorded.
-  io.out(
-    already
-      ? `${owner} was already refused — nothing changed\n`
-      : removed
-        ? `${owner} can no longer use this device\n`
-        : `${owner} was not on the list, and is now refused — this device\n` +
-          `will not serve them even if a roster admits them\n`,
-  );
-  return 0;
-}
-
 // -- forget -------------------------------------------------------------------
 
 async function commandForget(
@@ -1922,14 +1922,18 @@ async function commandServices(
   io: CliIo,
   service: ServiceIo,
 ): Promise<ExitCode> {
-  const { loaded, ingress, allowlist, budgets, spend } = await context(paths);
+  const { loaded, ingress, budgets, spend } = await context(paths);
+  const pairings = new Pairings(paths.pairings);
+  await pairings.load();
+  const hasRelay = pairings
+    .list()
+    .some((pairing) => pairing.controlPlanePublic !== undefined);
   const runner = new Runner({
     client: new ProtocolClient({ origin: "https://unused.invalid" }),
     runnerId: "local",
     owner: "local",
     daemonVersion: DAEMON_VERSION,
     loaded,
-    allowlist,
     budgets,
     spend,
     ingress,
@@ -1964,14 +1968,14 @@ async function commandServices(
      * `private` is a service shared with nobody, and printing the request
      * would be reporting an intention as a state.
      */
-    const configured = loaded.config.services[route.service]?.offer;
-    const narrowed =
-      configured !== undefined && configured !== route.offerScope;
+    const summary = offerSummary({
+      effective: route.offerScope,
+      configured: loaded.config.services[route.service]?.offer,
+      hasRelay,
+    });
     const offered =
-      (route.offerScope === "private"
-        ? "offered to: you only"
-        : "offered to: you and the people you allow") +
-      (narrowed ? ` (narrowed from ${configured} — see ! below)` : "");
+      `offered to ${summary.audience}` +
+      (summary.narrowedBy === undefined ? "" : ` (${summary.narrowedBy})`);
     io.out(
       `  ${ok ? "✓" : "✗"} ${route.kind.padEnd(14)} ` +
         `${route.service} — ${route.backendId}:${route.model}` +
@@ -2057,7 +2061,6 @@ async function commandServices(
 async function context(paths: DaemonPaths): Promise<{
   loaded: Awaited<ReturnType<typeof loadConfig>>;
   ingress: IngressLog;
-  allowlist: Allowlist;
   budgets: Budgets;
   spend: SpendLedger;
 }> {
@@ -2067,13 +2070,11 @@ async function context(paths: DaemonPaths): Promise<{
     communityPromptDays: loaded.config.ingress.communityPromptDays,
     keepSelfPrompts: loaded.config.ingress.keepSelfPrompts,
   });
-  const allowlist = new Allowlist(paths.allowlist);
-  await allowlist.load();
   const budgets = new Budgets(paths.budgets, loaded.config.community);
   await budgets.load(Date.now());
   const spend = new SpendLedger(paths.spend);
   await spend.load(Date.now());
-  return { loaded, ingress, allowlist, budgets, spend };
+  return { loaded, ingress, budgets, spend };
 }
 
 /**
@@ -2104,21 +2105,6 @@ async function confirmInteractively(question: string): Promise<boolean> {
  * `BYOLLM_LABEL` overrides it, because "todd@Todds-MacBook-Pro" is more than
  * some people want to hand an app they are only trying out.
  */
-/**
- * A duration a person can read, at the resolution that matters here.
- *
- * Rosters are bounded in hours and refreshed in minutes, so seconds are noise
- * and days cannot happen — past an hour a roster is stale and the line says
- * that instead.
- */
-function describeAge(ms: number): string {
-  const minutes = Math.floor(ms / 60_000);
-  if (minutes < 1) return "under a minute";
-  if (minutes === 1) return "1 minute";
-  if (minutes < 60) return `${String(minutes)} minutes`;
-  const hours = Math.floor(minutes / 60);
-  return hours === 1 ? "1 hour" : `${String(hours)} hours`;
-}
 
 /**
  * Wrap prose to a width a terminal will not re-wrap for us.

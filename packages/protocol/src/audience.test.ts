@@ -34,7 +34,7 @@ function daemon(
       acknowledged: opts.spendAcknowledged ?? false,
       ceilingReached: opts.ceilingReached ?? false,
     },
-    locallyAllows: (o: string) => allows.includes(o),
+    admits: (o: string) => allows.includes(o),
   };
 }
 

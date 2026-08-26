@@ -1584,3 +1584,33 @@ remedy (action). A mutation proved the split worth its own test.
 
 Todd's sequence on publish: latest → byollm install → one byollm
 connect → status shows a signed roster of 2 held. Then B2.
+
+## Roster held on a real device (2026-08-26); the fourth link; a composition question before B2
+
+.56 verified from the published tarball (all five B1 pieces in the
+artifact installed, not the commit). Todd's status shows the chain
+live: "a signed roster of 2 is held, under a minute old — it does not
+decide yet; this device's own list still does" — the
+claims-with-proof discipline living in a parenthesis.
+
+**The ordering bug, found by Todd running connect→install against
+instructions:** a daemon started before connect wrote the key kept
+refusing rosters it had the key for, and overwrote the file's good
+state with its stale refusal every heartbeat — "a re-pair that
+worked, undone once a second by the process it was for." Fixed
+(1afce6f): the key reaches the running loop through the shared file,
+like approvals — **adopted only when none is held**, because a key
+replaceable from disk is a downgrade path (anything writing the file
+could swap the authority this device checks rosters against). The
+file is transport; first-write is the pin; the ceremony stays the
+only door. Both directions mutation-checked. Fourth one-line unwired
+link, all four the same shape — two correct processes, nothing
+carrying a fact between them; three found by walk, one by instinct;
+the source-level check now covers all four.
+
+**Composition question raised before B2 flips:** the roster counts 2
+("you and Kevin") and the team's story has 3 — Lis accepted by email
+(A2's wild proof) and rode the resubscribe. Verify who the signed
+document NAMES, not the count, while it's advisory: a member
+silently absent becomes a refusal the moment B2 makes the document
+decide. Todd ruled: B2 now, then .57 with everything folded.

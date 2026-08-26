@@ -2515,3 +2515,40 @@ it never took; possibly the display defect, possibly a real bug. Retry
 post-patch; if it still doesn't take, CCC diagnoses from evidence. Added to the
 acceptance probe: the offer ceremony visibly takes — services and status both
 show team with the cap, and the dashboard follows.
+
+### Asymmetry overturned: offers are managed from the web, with a step-up (2026-08-26)
+
+Todd, on the widen-only-at-the-machine rule, two corrections:
+- My motivating example was wrong: "claude can't be team ever." Subscription-class
+  services are locked to the owner by CLASS LAW, device-enforced, regardless of
+  any authored offer — no surface, local or remote, can share them. The
+  catastrophic case I argued from cannot occur.
+- The trip test: "If someone on my team needs the spend increased for CI/CD on
+  github, I can't imagine telling them to wait until I'm back from the trip to
+  have access to my machine for a service that lives on the internet." GitHub
+  doesn't require your machine for dangerous settings — it requires sudo-mode
+  re-auth. That is the analogy completed, and it's right.
+
+Ruled, replacing the asymmetric rule: **all offer management — narrowing,
+widening, and spend caps — is available from the dashboard as well as the CLI,**
+with these guards:
+- Widening and spend consent from the web require step-up re-authentication
+  (GitHub sudo-mode pattern; 2FA where enabled). Narrowing and pause never do —
+  reducing exposure stays one tap.
+- Class locks are absolute and device-enforced: subscription-class services are
+  never shareable from any surface. The device refuses the state, not the button.
+- Metered widening always requires an explicit cap typed at the moment of consent
+  — no default, no carry-over — whichever door it comes through.
+- Every widening is loud on both channels: a notice at the device ("qwen is now
+  offered to your team — changed from your dashboard") and an email. Narrowings
+  appear in the notices feed without the alarm.
+- The device remains holder and enforcer: the web door sends an owner-
+  authenticated instruction; the device applies it to its own config and reports
+  back. Two doors, one law, one enforcement point.
+
+Posture updated honestly: what survives an account compromise is no longer
+"widening requires the machine" but class locks (subscription services
+unshareable ever), the platform ceiling on cloud-routed metered spend (v1.2 —
+this scenario is exactly what it was corrected to cover), explicit-cap consent,
+and loudness on every widening. My asymmetric rule is withdrawn with attribution
+— it defended most strongly the case class law already made impossible.

@@ -1270,3 +1270,33 @@ true, reads as a stutter.
 ## Roster-sync survey finding + phasing instruction (2026-08-25 evening)
 
 CCC's survey found the load-bearing fact: rosters flow control-plane → hub → relay, but the hub assembles them from rows — the routing party authoring them in bulk, exactly G.1.2's forbidden shape. Implementation is therefore a three-repo lockstep wire change: dashboard signs roster documents at authorship, hub projects, daemon pins (at pairing), holds, verifies, ages, admits. Instruction: **write the phasing against G's four properties first** (draft-then-rule; the artifact everything hangs off), sequenced protocol → daemon → control plane + hub as CCC proposed. Design steer carried into it: **the property is non-authorship, not opacity** — the hub may read rosters (it holds the rows; its filter was always advisory under the both-sides rule); what G requires is that the daemon's admission list arrive signed at authorship so a tampering hub is caught at the device. RELAY_BLIND covers payloads; roster opacity buys nothing the signature doesn't.
+
+## Daemon pass landed; alpha.54 ruled (2026-08-25 night)
+
+isDefault fixed (83ab6cc): hard-coded true on every row, under a
+comment whose last sentence predicted the break — Phase B shipped the
+menu and left the line. The check asserts both halves (one default
+per kind AND the menu intact), because a "fix" advertising only the
+default would satisfy the first while deleting selection. Second
+self-predicting comment of the week (the USER allowlist's was the
+first) — noted: comments that predict breaks should graduate to
+checks at writing time. Approve stutter covered by rule, not memory.
+
+Health work (f9d7afc) built to the ruled shape, improved: the paid
+canary probes with the CONFIGURED model, so it also catches
+account-lacks-access — a second failure class for the same bounded
+call. Free leg withdraws after one auth-shaped job failure. Rules
+kept from the build: **withdrawal patterns are word-anchored — a
+false positive withdraws a working service, worse than the silence
+replaced** (includes("not logged in") matched prose a model can
+write; caught by CCC's own negative test); and **test call sites,
+not just mechanisms** — three surviving mutations shared the shape
+(predicate had a corpus, branch had no test; canary flag deletable;
+polling loop free to spend), closed by lint because a unit test of
+the runner can never see its caller. Incidental logged: missing
+timeoutMs renders "within undefinedms" — same genre, minor.
+
+alpha.54: cut — stutters, USER, isDefault, health all reach installed
+daemons only by release; gate decides the hub question; Todd
+reinstalls after promotion (the plist PATH capture already landed
+in .50, so `byollm install` alone suffices).

@@ -1337,3 +1337,33 @@ pairing, rotated by the existing ceremony, no bespoke treatment.
 
 Phase A builds on this word; lockstep applies; C006 rename and the
 in-product notice ride Phase B as phased.
+
+## G Phase A built (fc18631); the unsigned-field attack (2026-08-25, late)
+
+Shipped: ROSTER_MAX_AGE_MS, SignedRoster, sign/verify with their own
+domain separator, both wire fields; all three riders in G.5.
+
+**Rule minted from the fifth self-catch — the first live hole:**
+dropping `owner` from the signed statement passed every test, because
+the explicit owner check read the very field it protects — unsigned,
+relay-rewritable. Alice's roster, owner rewritten to dave, delivered
+to Dave's devices: comparison matches, signature verifies, Dave's
+machines serve Alice's teammates — the bulk-authorship attack alive
+inside G's first implementation. Fixed (owner inside the signature)
+with the catching test. Law, generally: **everything a verifier
+trusts lives inside the signature — the statement signs what the
+check reads, completely.** "Signature valid" without "valid over
+what" is the flattering half of cryptography.
+
+Deploy-order constraint, recorded as progress: strict response
+schemas make roster safe-to-add, unsafe-to-send-early — a .54 daemon
+receiving it fails the whole parse and stops heartbeating for reasons
+naming nothing. Phase C deploys one way: publish → daemons update →
+hub sends. Third appearance of the schema-window class — .44 and .51
+as incidents, this one as a constraint with tests in both directions
+before anything shipped. The class moved from suffered to pre-empted.
+
+Phase B (daemon pins, holds, verifies, ages) proceeds on G + riders,
+no ruling needed. Reconcile summary-log fix with CCC (Todd can't
+copy the cron secret; the report stays unread until the log line
+lands — the right fix anyway).

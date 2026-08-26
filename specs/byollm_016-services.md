@@ -2049,3 +2049,35 @@ with zero marginal inference cost. The second seed: Todd wouldn't push his local
 apps to the web because they were powered by his Max subscription and the web would
 orphan it — byollm lets a subscription follow its owner onto the web. Both sentences
 are the pitch; refinement into a video script is queued work Todd wants help with.
+
+### Amendment L, rider: mapping notifications, pulldown defaults, direct-mode answer (2026-08-26)
+
+Three rulings from Todd closing the mapping design:
+
+**Value-add notifications are a product category.** When a site's manifest update
+leaves a slot that no longer auto-maps, the control plane notifies the user to come
+update their mapping — "another value add notification just like letting them know
+if their daemon goes." Ruled as a category: control-plane-to-user notifications
+(daemon offline per the health canary, mapping needed, and future kin) are product
+surface, delivered by the hub, never the device's job on the cloud route.
+
+**Pulldown preselection.** A slot's pulldown preselects your own private
+llm.<kind> service if you have one; otherwise team services sorted by team name
+alphabetically, top item preselected (within a group, service id alphabetical as
+tie-break). Reconciled with choice-is-authored: preselection is visible on the
+consent screen and the act of consenting authors it — a default the user confirms,
+never a choice made behind them.
+
+**Direct mode.** Todd: "assume the user just sets their llm.generate/chat/whatever
+to match what their site needs for one site running server w/o a relay/hub.
+Otherwise they map in the relay." Ruled yes, with the consequence stated: direct
+mode is kind-only — the site asks for kinds, the owner's config and defaults
+answer, the ambiguity law applies as shipped; manifest purposes collapse to their
+kinds. Per-purpose mapping is what a relay is FOR, and the relay being open source
+means "use a relay" is an architecture step, not a paywall. Consequence accepted
+plainly: site-selects-by-name retires on BOTH routes — one story everywhere, sites
+speak needs, never names. Phase B's selection machinery (REFUSED_SELECTION, capability
+rows, isDefault) retires with it; Amendment D's key-vs-value law is not weakened but
+completed — the name vocabulary no longer crosses any boundary at all.
+
+Paying device owners: parked, captured, confirmed ("1000% park paying").

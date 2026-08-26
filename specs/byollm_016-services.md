@@ -2630,3 +2630,35 @@ should finish while the net is hot and verify is green; manifests are new
 surface and will be better shaped against the daemon's final four-verb form; and
 the conformance restoration that manifests unlock serves a certification nobody
 runs this week. Commit 4: go.
+
+### Ruling: grant authorship is OSS core, consumed by the hub — and never the transport (2026-08-26)
+
+Todd asked whether grant authorship should move "to the relay and out of our hub
+— so we just consume it there." Ruled yes to the substance, with one word
+corrected because it is load-bearing:
+
+- **Yes:** the authoring machinery — building the statement from the schema,
+  signing, the claim-time assembly (resolve mapping → check membership → check
+  ceiling → sign) — belongs in the open-source packages, and byollm.cloud
+  consumes exactly that code. This is Todd's own audited-core principle ("as
+  long as we use those under the hood we should be solid") applied to the most
+  security-critical path we have, and it is the same work item as restoring the
+  conformance kit's admitting-half coverage: a self-hoster running the OSS
+  server IS the target that can legitimately author grants. The grant's
+  protocol half (commit 2) already lives in @byollm/protocol, which is OSS —
+  this ruling extends that to the authoring engine in @byollm/server.
+- **The corrected word:** authorship must never live in the relay-as-transport.
+  "Relay delivers, never authors" is the law that makes a compromised transport
+  harmless — the transport moves bytes it cannot forge. What a self-hoster
+  deploys may co-locate transport and control plane in one process (their
+  topology, their shared fate); the CODE keeps the roles distinct, and the
+  device's law is unchanged either way: a grant is valid because the pinned
+  control-plane key signed it, not because of where it traveled.
+- What stays hub-proprietary is what should: the policy STORE (accounts,
+  consents, memberships, mappings, billing) and custody of byollm.cloud's own
+  signing key. The hub becomes a deployment of the OSS engine against its own
+  store — which is the deepest form of the open-source promise: the hosted
+  product runs the same admission code anyone can read.
+
+Sequencing unchanged: this is Amendment L / @byollm/server work, after the rip,
+exactly where the conformance-restoration flag already put it.

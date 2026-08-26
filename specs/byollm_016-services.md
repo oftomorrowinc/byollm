@@ -1492,3 +1492,65 @@ no live daemon below .55 anywhere** (the .strict() hazard protects
 every paired daemon; Kevin's test machines included; a message
 closes it). After deploy: B2 (admission flip + deny-list veto)
 unblocks, then Amendment H on the same channel.
+
+## ROSTER SYNC LIVE END TO END; the migration ruling (2026-08-26)
+
+The chain works: control plane signs on read → hub fetches with its
+bearer → carries untouched → daemons verify against the key pinned at
+pairing. Three failures on the way, each recorded with its lesson:
+
+1. **The roll smoke assertion** (offered.length !== 1) — a fixture
+   fact encoded as a wire property; Todd's press consent legitimately
+   gives the smoke device two keys. Fix: membership-not-count.
+2. **The real bug:** /api/hub/rosters (bearer, no session) redirected
+   to /login by the dashboard guard — the hub handed HTML, logging
+   Unexpected token '<'; every device would have narrowed in an hour
+   naming nothing. The redirect-vs-refusal comment sat directly above
+   the line. **Third comment-predicted bug in two days — conform now
+   checks the property: a route comparing a secret in constant time
+   expects no session, therefore its path must be public.**
+   Mutation-checked. The prediction graduated at last.
+3. **B1 was three unwired links** — connect never wrote the key, the
+   run loop never read it, the held roster never landed where status
+   (a separate process) could see it. A correct, well-tested
+   implementation doing nothing on a real device: "mechanism covered,
+   every caller not — the rule I minted yesterday, broken by me
+   today" (CCC). Fixed ec056b6; status now speaks the stale-narrowing
+   sentence the one-hour bound exists for. Found by Todd's real walk,
+   again.
+
+Also from the configuration leg: the mint script rebuilt on
+node:crypto per the documented convention one file over (CCC:
+"I violated a documented convention sitting next to me");
+--check shipped and passed first; the format contract moved to a
+cross-repo test, which caught a FALSE negative — a flaky assertion
+(base64 vs base64url differ only when bytes contain + or /) claiming
+a failure mode Node doesn't have. **Two rules kept: a negative needs
+verifying before it's written down, exactly like a positive; an
+intermittent test is a wrong test until proven otherwise.** And the
+Pulumi mapping gap (config accepted, mapped to nothing — healthy hub
+carrying no rosters, diagnosed four layers away) caught before the
+mint: the only-fails-when-real class, now wired, public key
+deliberately NOT a Secret ("hiding it would say it's something it
+isn't").
+
+**Migration ruling (Todd's find: install didn't set the roster):**
+every pre-G pairing lacks the control-plane key — the key is offered
+only in the pair response, so existing devices are silently unable to
+hold rosters. Ruled: **option 1 now** — install and status say
+"this pairing predates roster sync; byollm connect to enable team
+routing" (a notice, within the loudness laws, no amendment needed);
+**option 2 later with its boundary drawn today** — byollm repair
+re-runs the FULL ceremony including dashboard approval (fresh code,
+human fingerprint moment); keeping pins means continuity, never
+bypassing approval — a repair that fetches the key without a human
+is option 3 in a trench coat; **option 3's rejection ratified**
+(G's own rejected alternative). install stays install: folding a
+pairing ceremony into upgrades would be hostile, per CCC.
+
+Operational note for open-door: the rollout recreated the Valkey pod
+(~2min ECONNREFUSED, self-healed) — a deploy briefly drops
+routing-state connectivity; examine before real traffic.
+
+Todd's next walk step: re-pair the Studio (byollm connect) to pin
+the key — which also walks option 1's notice the moment it exists.

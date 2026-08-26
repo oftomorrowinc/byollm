@@ -1,6 +1,7 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import { z } from "zod";
+import { normalizeOrigin } from "./origins.js";
 
 /**
  * One person, on one server, allowed to run work on this machine.
@@ -215,20 +216,5 @@ export class Allowlist {
       )}\n`,
       { mode: 0o600 },
     );
-  }
-}
-
-/**
- * Compare origins by scheme, host and port only.
- *
- * `https://app.test/` and `https://app.test` must be the same entry — a
- * trailing slash is not a different server, and treating it as one would let
- * an allowlist silently fail to match.
- */
-export function normalizeOrigin(input: string): string {
-  try {
-    return new URL(input).origin;
-  } catch {
-    return input.replace(/\/+$/, "");
   }
 }

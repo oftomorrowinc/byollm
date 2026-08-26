@@ -346,3 +346,71 @@ describe("one bad site entry is one site's problem — V1-9", () => {
     expect(reread.list()).toHaveLength(1);
   });
 });
+
+/**
+ * A row whose origin will not normalize is one pairing's problem too.
+ *
+ * The stop-ship's other half. `normalizeOrigin` used to hand back whatever it
+ * could not parse, so a row saying `origin: "not a url"` loaded fine and took
+ * a key that matched nothing anybody could type — a pairing present in the
+ * file, absent from every lookup, and reported nowhere. It now quarantines
+ * like any other unreadable row, and the good rows beside it still load.
+ */
+describe("a row whose origin is not an origin", () => {
+  it("is quarantined and named, and its neighbours survive", async () => {
+    await writeFile(
+      path,
+      JSON.stringify({
+        version: 1,
+        pairings: [good("https://fine.test"), good("not a url")],
+      }),
+    );
+    const pairings = new Pairings(path);
+    await pairings.load();
+
+    expect(pairings.list().map((p) => p.origin)).toEqual(["https://fine.test"]);
+    expect(pairings.skipped).toEqual([
+      {
+        origin: "not a url",
+        problem: "the origin is unusable — it does not name a host and port",
+      },
+    ]);
+  });
+
+  it("keys a stored row by the same name a person would type", async () => {
+    // The lookup that missed. A pairing written down as `https://hub.test` is
+    // found by `hub.test`, and one written down scheme-less is found by the
+    // schemed spelling — in both directions, because both normalize on the
+    // way in and the comparison is `===` on one canonical key.
+    await writeFile(
+      path,
+      JSON.stringify({ version: 1, pairings: [good("hub.test")] }),
+    );
+    const pairings = new Pairings(path);
+    await pairings.load();
+
+    expect(pairings.list()[0]?.origin).toBe("https://hub.test");
+    expect(pairings.get("hub.test")).toBeDefined();
+    expect(pairings.get("https://hub.test")).toBeDefined();
+    expect(pairings.get("https://hub.test/")).toBeDefined();
+    expect(pairings.get("HUB.TEST")).toBeDefined();
+  });
+
+  it("does not let a scheme-less row shadow a different server", async () => {
+    // Two rows, two servers, two keys — the collision half of the law.
+    await writeFile(
+      path,
+      JSON.stringify({
+        version: 1,
+        pairings: [good("hub.test"), good("http://hub.test")],
+      }),
+    );
+    const pairings = new Pairings(path);
+    await pairings.load();
+
+    expect(pairings.list().map((p) => p.origin)).toEqual([
+      "https://hub.test",
+      "http://hub.test",
+    ]);
+  });
+});

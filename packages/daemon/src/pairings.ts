@@ -3,7 +3,7 @@ import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import { PublicIdentity, SignedRoster } from "@byollm/protocol";
 import { z } from "zod";
-import { normalizeOrigin } from "./allowlist.js";
+import { normalizeOrigin, UnusableOrigin } from "./origins.js";
 
 /**
  * One paired server.
@@ -210,7 +210,26 @@ export class Pairings {
       const dropped = siftEntries(row);
       const pairing = Pairing.safeParse(row);
       if (pairing.success) {
-        this.#pairings.push(pairing.data);
+        // Normalized once, here, so every comparison below is `===` on a key
+        // this class produced rather than a function call on whatever a
+        // previous version happened to write down. A row whose origin will
+        // not normalize is quarantined like any other unreadable row: it is
+        // one pairing's problem, it is reported, and it is never silently
+        // given a key that could collide with a real one.
+        let origin: string;
+        try {
+          origin = normalizeOrigin(pairing.data.origin);
+        } catch (error) {
+          this.#skipped.push({
+            origin: pairing.data.origin,
+            problem:
+              error instanceof UnusableOrigin
+                ? `the origin is unusable — ${error.reason}`
+                : "the origin could not be read",
+          });
+          continue;
+        }
+        this.#pairings.push({ ...pairing.data, origin });
         for (const name of dropped) {
           this.#skipped.push({
             origin: pairing.data.origin,
@@ -252,9 +271,7 @@ export class Pairings {
   get(origin: string): Pairing | undefined {
     this.#assertLoaded();
     const normalized = normalizeOrigin(origin);
-    return this.#pairings.find(
-      (pairing) => normalizeOrigin(pairing.origin) === normalized,
-    );
+    return this.#pairings.find((pairing) => pairing.origin === normalized);
   }
 
   /** Add or replace the pairing for an origin. Re-pairing supersedes. */
@@ -262,7 +279,7 @@ export class Pairings {
     this.#assertLoaded();
     const normalized = normalizeOrigin(pairing.origin);
     this.#pairings = this.#pairings.filter(
-      (existing) => normalizeOrigin(existing.origin) !== normalized,
+      (existing) => existing.origin !== normalized,
     );
     this.#pairings.push({ ...pairing, origin: normalized });
     await this.#save();
@@ -274,7 +291,7 @@ export class Pairings {
     const normalized = normalizeOrigin(origin);
     const before = this.#pairings.length;
     this.#pairings = this.#pairings.filter(
-      (pairing) => normalizeOrigin(pairing.origin) !== normalized,
+      (pairing) => pairing.origin !== normalized,
     );
     if (this.#pairings.length === before) return false;
     await this.#save();

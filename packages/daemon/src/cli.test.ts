@@ -722,6 +722,66 @@ describe("a device that is running and invisible", () => {
   });
 });
 
+describe("connect when already paired", () => {
+  /**
+   * `connect` mints a code, prints it and polls for ten minutes. Todd ran it
+   * while already paired, read the docs, and typed the code after it had
+   * expired — a failure that was entirely avoidable, because he did not need
+   * to pair at all.
+   *
+   * It informs rather than refuses: re-pairing is sometimes exactly right,
+   * and it is how a device that predates roster sync gets the control-plane
+   * key. So it answers the question somebody is actually asking.
+   */
+  const alreadyPaired = async (extra: Record<string, unknown> = {}) => {
+    await mkdir(home, { recursive: true });
+    await writeFile(
+      paths.pairings,
+      JSON.stringify({
+        version: 1,
+        pairings: [
+          {
+            origin: "https://hub.test",
+            runnerId: "r1",
+            owner: "alice",
+            sites: {},
+            pairedAt: 1_800_000_000_000,
+            ...extra,
+          },
+        ],
+      }),
+      "utf8",
+    );
+  };
+
+  it("says so, and does nothing when the answer is no", async () => {
+    await alreadyPaired();
+    confirmAnswer = false;
+    expect(await run("connect", "https://hub.test")).toBe(0);
+    expect(out).toContain("already paired with https://hub.test");
+    expect(out).toContain("Nothing changed");
+    // No code was minted, which is the point — the ceremony never started.
+    expect(out).not.toMatch(/[A-Z0-9]{4}-[A-Z0-9]{4}/);
+  });
+
+  it("says re-pairing is how a keyless pairing gets a key", async () => {
+    // The one reason to say yes, named where the decision is made.
+    await alreadyPaired();
+    confirmAnswer = false;
+    await run("connect", "https://hub.test");
+    expect(out).toContain("holds no control-plane key");
+    expect(out).toContain("Re-pairing is how it gets one");
+  });
+
+  it("says re-pairing changes nothing when a key is already held", async () => {
+    await alreadyPaired({ controlPlanePublic: "some-key" });
+    confirmAnswer = false;
+    await run("connect", "https://hub.test");
+    expect(out).toContain("already holds a control-plane key");
+    expect(out).toContain("will not change that");
+  });
+});
+
 describe("refusing to offer, and in what order", () => {
   /**
    * `byollm offer my-claude team --cap 2500` used to answer:

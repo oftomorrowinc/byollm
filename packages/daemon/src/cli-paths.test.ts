@@ -3,8 +3,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { payloadTextLength, keyId } from "@byollm/protocol";
 import { generateKeys, publicIdentityOf } from "@byollm/protocol";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { normalizeOrigin } from "./allowlist.js";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { normalizeOrigin, UnusableOrigin } from "./origins.js";
 import { composePrompt } from "./compose.js";
 import {
   DEFAULT_ORIGIN,
@@ -145,12 +145,43 @@ describe("main", () => {
   it("returns an exit code rather than throwing", async () => {
     expect(await main(["--help"])).toBe(0);
   });
+
+  it("answers a mistyped address with a remedy, not a stack trace", async () => {
+    // Handled centrally in `main` rather than at each command that takes an
+    // address, so a command written next year gets it without anybody
+    // remembering to add it — the failure mode of the check that missed the
+    // stop-ship was a hand-maintained list that did not grow with the code.
+    const written: string[] = [];
+    const stderr = vi
+      .spyOn(process.stderr, "write")
+      .mockImplementation((chunk: unknown) => {
+        written.push(String(chunk));
+        return true;
+      });
+    try {
+      // Exit 2: a bad argument is a usage error, the same as an unknown
+      // command, and not the 1 that means "this ran and went wrong".
+      expect(await main(["forget", "ftp://x.test"])).toBe(2);
+    } finally {
+      stderr.mockRestore();
+    }
+    const said = written.join("");
+    expect(said).toContain("ftp://x.test");
+    expect(said).toContain("not a usable address");
+    expect(said).toContain("https://app.example.com");
+    expect(said).not.toContain("UnusableOrigin");
+  });
 });
 
 describe("small edges elsewhere", () => {
-  it("normalises an origin that is not a URL at all", () => {
-    // A malformed origin should compare consistently rather than throw.
-    expect(normalizeOrigin("not a url///")).toBe("not a url");
+  it("refuses an origin that is not a URL at all", () => {
+    // This test used to assert the opposite, and its reason was written down:
+    // "a malformed origin should compare consistently rather than throw."
+    // Consistently *with what* was never asked. It compared consistently with
+    // itself and with nothing else, so `hub.byollm.cloud` never matched the
+    // pairing stored as `https://hub.byollm.cloud` — the 2026-08-26 stop-ship.
+    // Unparseable input now refuses. See origins.test.ts for the law.
+    expect(() => normalizeOrigin("not a url///")).toThrow(UnusableOrigin);
   });
 
   it("labels a system-role message in a conversation", () => {

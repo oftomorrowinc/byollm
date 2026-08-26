@@ -5,7 +5,8 @@ import { createInterface } from "node:readline/promises";
 import { FAILURES_BEFORE_ALARM, readHealth } from "./health.js";
 import { runSetup, terminalIo } from "./setup.js";
 import { backendDescriptor, backendName, classifyCost } from "@byollm/protocol";
-import { Allowlist, normalizeOrigin } from "./allowlist.js";
+import { Allowlist } from "./allowlist.js";
+import { normalizeOrigin, UnusableOrigin } from "./origins.js";
 import { Budgets } from "./budgets.js";
 import { ClientError, ProtocolClient } from "./client.js";
 import { diagnoseRoute } from "./diagnose.js";
@@ -419,6 +420,47 @@ async function commandConnect(
   // is what caught it, by connecting to the hub when it had been told
   // otherwise.
   const origin = normalizeOrigin(connectTarget(args));
+
+  /**
+   * Already paired? Say so before starting a ceremony — 2026-08-26.
+   *
+   * `connect` mints a code, prints it, and polls for ten minutes. Todd ran it
+   * while already paired, read the docs, and typed the code after it had
+   * expired — a failure that was entirely avoidable, because he did not need
+   * to pair at all.
+   *
+   * The check has to *inform* rather than refuse: re-pairing is sometimes
+   * exactly right, and it is how a device that predates roster sync gets the
+   * control-plane key. So it says what this pairing already has, which is the
+   * question somebody is actually asking when they run this.
+   */
+  const existing = await (async () => {
+    const pairings = new Pairings(paths.pairings);
+    await pairings.load();
+    return pairings.get(origin);
+  })();
+  if (existing !== undefined) {
+    io.out(
+      `${wrap(
+        `This device is already paired with ${origin} as ` +
+          `${existing.ownerLabel ?? existing.owner}, serving ` +
+          `${String(Object.keys(existing.sites).length)} site(s).`,
+      )}\n\n` +
+        `${wrap(
+          existing.controlPlanePublic === undefined
+            ? "It holds no control-plane key, so it cannot take part in team " +
+                "routing. Re-pairing is how it gets one."
+            : "It already holds a control-plane key, so team routing works. " +
+                "Re-pairing will not change that.",
+        )}\n\n`,
+    );
+    const again = await io.confirm(`Pair with ${origin} again?`);
+    if (!again) {
+      io.out("Nothing changed.\n");
+      return 0;
+    }
+  }
+
   const { loaded, ingress, allowlist, budgets, spend } = await context(paths);
 
   for (const problem of loaded.problems) {
@@ -2065,6 +2107,28 @@ export async function main(argv: readonly string[]): Promise<ExitCode> {
   try {
     return await runCli(argv);
   } catch (error) {
+    /**
+     * A mistyped address is a usage error, and it is answered here rather
+     * than at each command that takes one.
+     *
+     * Centrally on purpose. The per-command version of this is a list that
+     * has to be extended every time a command learns to take an address, and
+     * a list like that does not grow when the code does — which is the exact
+     * shape of the check that failed to catch the stop-ship this refusal
+     * exists because of. Every caller of `normalizeOrigin` lands here for
+     * free, including ones written after this comment.
+     */
+    if (error instanceof UnusableOrigin) {
+      process.stderr.write(
+        `${
+          error.input.trim() === ""
+            ? "That is not a usable address"
+            : `"${stripControlChars(error.input)}" is not a usable address`
+        }: ${error.reason}.\n` +
+          `Addresses look like https://app.example.com or localhost:8080.\n`,
+      );
+      return 2;
+    }
     process.stderr.write(
       `${error instanceof ClientError || error instanceof Error ? error.message : String(error)}\n`,
     );

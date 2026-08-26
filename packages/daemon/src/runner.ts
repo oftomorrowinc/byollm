@@ -293,6 +293,13 @@ export class Runner {
    * this device, and can forge nothing.
    */
   #roster: SignedRoster | undefined;
+  /**
+   * The key rosters are checked against — from the pairing, or adopted later.
+   *
+   * Mutable because a re-pair happens in another process and must reach this
+   * loop without a restart; see {@link Runner.adoptControlPlaneKey}.
+   */
+  #controlPlanePublic: string | undefined;
   /** Why the last roster was refused, if it was. For status, not for callers. */
   #rosterRefusal: RosterRefusal | undefined;
   #lastUpstreamError: string | undefined;
@@ -303,6 +310,9 @@ export class Runner {
   constructor(options: RunnerOptions) {
     this.#options = options;
     this.#now = options.now ?? Date.now;
+    // Seeded from the pairing this loop started with; a re-pair in another
+    // process reaches it later through `adoptControlPlaneKey`.
+    this.#controlPlanePublic = options.controlPlanePublic;
     // Copied, not aliased: the pairing's map is what was on disk, and this
     // one is what the upstream last said. Sharing them would let a heartbeat
     // rewrite a file nobody wrote.
@@ -1349,7 +1359,7 @@ export class Runner {
 
   #applyRoster(roster: SignedRoster | undefined): void {
     if (roster === undefined) return;
-    const key = this.#options.controlPlanePublic;
+    const key = this.#controlPlanePublic;
     if (key === undefined) {
       // Evidence, not a failure: this upstream sends rosters, so it has a
       // control plane — and this pairing holds no key from it, which can only
@@ -1403,6 +1413,34 @@ export class Runner {
     return this.#now() - roster.issuedAt > ROSTER_MAX_AGE_MS
       ? undefined
       : roster.members;
+  }
+
+  /**
+   * Take a control-plane key that arrived after this loop started.
+   *
+   * `byollm connect` is a different process: it writes a new pairing and the
+   * running daemon goes on holding the one it was constructed with. Without
+   * this, a re-pair looks like it worked, the file gains the key, and the
+   * loop keeps refusing every roster — while overwriting the file's good
+   * state with its own stale refusal. Which is exactly what happened to
+   * Todd's device the first time anybody re-paired for real.
+   *
+   * Approvals already reach this loop through the file for the same reason.
+   * This is that mechanism, for the other thing pairing produces.
+   *
+   * **Adopted only when there is none.** A key that could be *replaced* from
+   * disk would be a downgrade path: anything that could write the file could
+   * swap the authority this device checks rosters against. Rotation is
+   * Amendment C's ceremony, not a file edit.
+   */
+  adoptControlPlaneKey(key: string): void {
+    if (this.#controlPlanePublic !== undefined) return;
+    this.#controlPlanePublic = key;
+    // The refusal it caused is no longer true. Cleared so the next heartbeat
+    // writes a file that describes the device as it now is.
+    if (this.#rosterRefusal === "no-pinned-key") {
+      this.#rosterRefusal = undefined;
+    }
   }
 
   /** Why the last roster was refused, for the file. */

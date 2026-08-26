@@ -41,6 +41,14 @@ describe("the roster's wiring", () => {
     );
   });
 
+  it("adopts a key that a re-pair wrote after the loop started", () => {
+    // The fourth link, found the first time anybody re-paired for real:
+    // `connect` is a different process, so without this the loop keeps
+    // refusing rosters it now has the key for — and overwrites the file's
+    // good state with its own stale refusal. Same door approvals use.
+    expect(src("./cli.ts")).toContain("adoptControlPlaneKey");
+  });
+
   it("writes the held roster where another process can read it", () => {
     // `byollm status` is a different process from the run loop. A roster only
     // the loop knows about is one nobody can be shown, which is how B1

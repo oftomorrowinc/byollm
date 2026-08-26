@@ -716,9 +716,17 @@ async function runLoop(
               // can hand something to another here — through the file both
               // of them already share.
               await pairings.load();
-              const answered = pairings.get(origin)?.known;
+              const fresh = pairings.get(origin);
+              const answered = fresh?.known;
               if (answered) {
                 runner.applyApprovals(new Map(Object.entries(answered)));
+              }
+              // A re-pair happened in another terminal. Same door as an
+              // approval, for the other thing pairing produces — without this
+              // the loop keeps refusing rosters it now has the key for, and
+              // overwrites the file's good state with its own stale refusal.
+              if (fresh?.controlPlanePublic !== undefined) {
+                runner.adoptControlPlaneKey(fresh.controlPlanePublic);
               }
             })
             .catch((error: unknown) => {

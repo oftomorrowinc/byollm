@@ -154,6 +154,40 @@ describe("holding a roster", () => {
     expect(runner.rosterMembers()).toEqual(["bob"]);
   });
 
+  it("adopts a key that arrives after the loop started", async () => {
+    /**
+     * `byollm connect` runs in a different process. The running daemon holds
+     * the pairing it was constructed with, so a re-pair wrote the key to disk
+     * and the loop went on refusing every roster — while overwriting the
+     * file's good state with its own stale refusal.
+     *
+     * Found on the first real re-pair: the daemon had started ten seconds
+     * before `connect` wrote the file.
+     */
+    const runner = await makeRunner();
+    runner.applyRosterForTest(roster());
+    expect(runner.rosterMembers()).toBeUndefined();
+    expect(runner.rosterRefusal()).toBe("no-pinned-key");
+
+    runner.adoptControlPlaneKey(plane.identityPublic);
+    // The refusal it caused is no longer true.
+    expect(runner.rosterRefusal()).toBeUndefined();
+
+    runner.applyRosterForTest(roster());
+    expect(runner.rosterMembers()).toEqual(["bob", "carol"]);
+  });
+
+  it("never replaces a key it already has", async () => {
+    // A key replaceable from disk would be a downgrade path: anything that
+    // could write the file could swap the authority this device checks
+    // rosters against. Rotation is Amendment C's ceremony, not a file edit.
+    const runner = await makeRunner(plane.identityPublic);
+    runner.adoptControlPlaneKey(other.identityPublic);
+    runner.applyRosterForTest(roster());
+    // Still verifying against the key it pinned, not the one offered later.
+    expect(runner.rosterMembers()).toEqual(["bob", "carol"]);
+  });
+
   it("stops counting a roster once it ages out", async () => {
     // Staleness is revocation latency. A membership this device can no longer
     // confirm is not one it may act on.

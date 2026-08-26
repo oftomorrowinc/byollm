@@ -1705,3 +1705,25 @@ because the bug let a forbidden state be authored. The probe entry
 stays in place as diagnostic state until CCC has read the specimen;
 cleanup after the fix. Incidentally confirmed live in the same
 screenshot: Connections and Docs shipped into the nav.*
+
+### Ruling clarification: local allow vs the seat limit (2026-08-26)
+
+Todd asked what `byollm allow` does on the cloud route, and whether it could admit
+users beyond the subscription's seat limit. Recording the answer because it sharpens
+what the stop-shipped bug actually is.
+
+`byollm allow <site> <user>` is direct-mode law: the device-local allowlist, the whole
+admission mechanism for OSS sites that never touch the hub. On a hub-keyed site it must
+refuse (B2), because Amendment G property 3 — "veto subtracts, nothing local adds" — is
+the billing boundary as much as the trust boundary. The roster is authored by the
+control plane, and the control plane authors it from the subscription; the seat limit
+is enforced at roster authorship, nowhere else. If a local allow can admit on the cloud
+route, it admits a user the subscription never counted — an unmetered side door around
+the team size limit.
+
+So the unengaged flip is not just a ceremony error. On alpha.57 as it stands, a device
+owner can admit arbitrary users on hub sites past any seat cap, with no billing
+counterpart. This upgrades the stop-ship's severity framing: the probe entry
+(toddsampson2008@gmail.com) is a live demonstration of a seat-limit bypass, not merely
+a wrong prompt. The fix restores both boundaries at once, because they are the same
+boundary.

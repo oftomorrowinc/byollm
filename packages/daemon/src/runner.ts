@@ -1401,6 +1401,11 @@ export class Runner {
       : roster.members;
   }
 
+  /** The roster as it arrived, for the file. Verified, or absent. */
+  heldRoster(): SignedRoster | undefined {
+    return this.#roster;
+  }
+
   /** What `byollm status` says about the roster. */
   rosterStatus(): {
     readonly held: boolean;

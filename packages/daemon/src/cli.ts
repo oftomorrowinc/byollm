@@ -12,7 +12,7 @@ import { diagnoseRoute } from "./diagnose.js";
 import { DaemonConfig, loadConfig } from "./config.js";
 import { connect } from "./connect.js";
 import { IngressLog, stripControlChars } from "./ingress.js";
-import { fingerprint } from "@byollm/protocol";
+import { ROSTER_MAX_AGE_MS, fingerprint } from "@byollm/protocol";
 import { DeviceIdentity } from "./identity.js";
 import { Pairings, recordSites } from "./pairings.js";
 import { SpendLedger } from "./spend.js";
@@ -663,6 +663,12 @@ async function runLoop(
       }),
       runnerId: pairing.runnerId,
       owner: pairing.owner,
+      // What this pairing pinned, if it pinned one — Amendment G. A pairing
+      // made before roster sync existed has none, so it holds no roster and
+      // says so; re-pairing is what installs it.
+      ...(pairing.controlPlanePublic === undefined
+        ? {}
+        : { controlPlanePublic: pairing.controlPlanePublic }),
       // Only the long-running daemon records health. The short-lived commands
       // that also build a Runner — `connect`, `services` — would otherwise
       // write a count from one attempt, which says nothing about how the
@@ -690,9 +696,16 @@ async function runLoop(
         // an event handler that throws takes the runner with it, and a file
         // that cannot be written is worth a message rather than a crash.
         if (event.type === "heartbeat") {
+          // Read once: two calls could straddle a verification and write a
+          // roster the check above did not look at.
+          const held = runner.heldRoster();
           void recordSites(pairings, origin, runner.sites, {
             known: runner.known,
             pending: runner.pending,
+            // Held on disk so a second process can see it. `byollm status` is
+            // a different process from the run loop, and a roster only the
+            // loop knows about is one nobody can be shown.
+            ...(held === undefined ? {} : { roster: held }),
           })
             .then(async () => {
               // Then read the file back, because somebody may have answered
@@ -1088,6 +1101,40 @@ async function commandStatus(
     io.out(
       `  ${entry.owner} on ${entry.origin}` +
         `${entry.note === undefined ? "" : ` (${stripControlChars(entry.note)})`}\n`,
+    );
+  }
+
+  /**
+   * What this device is holding, and what it is not yet doing with it —
+   * Amendment G, Phase B1.
+   *
+   * Said out loud because the failure it prevents is silent in both
+   * directions. A device holding a stale roster narrows without explaining
+   * itself; a device that never pinned a key refuses every roster it is sent
+   * and looks identical to one nobody addressed. Neither state names itself
+   * anywhere else.
+   *
+   * The wording is careful about the transition. B1 holds and verifies; the
+   * local allowlist still decides, and it will until B2 flips admission. A
+   * line here that read "2 people may use this device" would be the
+   * flattering-copy bug again, in the sentence about who may use somebody's
+   * computer.
+   */
+  for (const pairing of pairings.list()) {
+    if (pairing.controlPlanePublic === undefined) continue;
+    const roster = pairing.roster;
+    if (roster === undefined) {
+      io.out(`  (no roster held yet for ${pairing.origin})\n`);
+      continue;
+    }
+    const age = now - roster.issuedAt;
+    io.out(
+      age > ROSTER_MAX_AGE_MS
+        ? `  (roster stale — ${describeAge(age)} old, serving you only ` +
+            `until it refreshes)\n`
+        : `  (a signed roster of ${String(roster.members.length)} is held, ` +
+            `${describeAge(age)} old — it does not decide yet; this device's ` +
+            `own list still does)\n`,
     );
   }
 
@@ -1876,6 +1923,22 @@ async function confirmInteractively(question: string): Promise<boolean> {
  * `BYOLLM_LABEL` overrides it, because "todd@Todds-MacBook-Pro" is more than
  * some people want to hand an app they are only trying out.
  */
+/**
+ * A duration a person can read, at the resolution that matters here.
+ *
+ * Rosters are bounded in hours and refreshed in minutes, so seconds are noise
+ * and days cannot happen — past an hour a roster is stale and the line says
+ * that instead.
+ */
+function describeAge(ms: number): string {
+  const minutes = Math.floor(ms / 60_000);
+  if (minutes < 1) return "under a minute";
+  if (minutes === 1) return "1 minute";
+  if (minutes < 60) return `${String(minutes)} minutes`;
+  const hours = Math.floor(minutes / 60);
+  return hours === 1 ? "1 hour" : `${String(hours)} hours`;
+}
+
 /**
  * Wrap prose to a width a terminal will not re-wrap for us.
  *

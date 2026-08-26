@@ -341,6 +341,16 @@ export async function recordSites(
   extra: {
     readonly known?: ReadonlyMap<string, PublicIdentity>;
     readonly pending?: ReadonlyMap<string, PublicIdentity>;
+    /**
+     * The roster this device is holding — Amendment G.
+     *
+     * On disk because `byollm status` is a different process from the run
+     * loop, and a roster only the loop knows about is one nobody can be
+     * shown. Absent leaves whatever is already there: a heartbeat that
+     * carried none is the upstream saying nothing this tick, not saying the
+     * roster is gone.
+     */
+    readonly roster?: SignedRoster;
   } = {},
 ): Promise<"unpaired" | "unchanged" | "written"> {
   const pairing = pairings.get(origin);
@@ -349,6 +359,7 @@ export async function recordSites(
     ...pairing,
     sites: Object.fromEntries(sites),
     ...(extra.known ? { known: Object.fromEntries(extra.known) } : {}),
+    ...(extra.roster ? { roster: extra.roster } : {}),
     // Written even when empty, and deleted rather than left behind: a
     // `pending` map that outlived the offer would have `byollm sites` showing
     // somebody a question the upstream stopped asking.

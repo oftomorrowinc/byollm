@@ -157,6 +157,13 @@ export async function connect(options: ConnectOptions): Promise<ConnectResult> {
             // so that a key which moves under one of these ids is refused
             // rather than read as somebody new (V1-1).
             known: polled.sites,
+            // The key every later roster is checked against — Amendment G.
+            // Written down here because pairing is the only moment it is
+            // offered: a daemon that does not record it now can never verify
+            // a roster, and would refuse every one it is later sent.
+            ...(polled.controlPlanePublic === undefined
+              ? {}
+              : { controlPlanePublic: polled.controlPlanePublic }),
             pairedAt: now(),
           },
         };

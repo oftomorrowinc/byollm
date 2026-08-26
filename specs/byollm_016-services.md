@@ -1691,3 +1691,17 @@ before any consequence text either way. If an entry recorded for the
 probe address, cleanup once fixed. The gate worked exactly as
 designed: ten seconds of probe spared a promoted release whose
 headline feature wasn't reachable.
+
+*Stop-ship evidence completed (Todd, minutes later): the allow ran to
+completion — y/N prompt, confirmation, "allowed … on
+hub.byollm.cloud" — and status now lists the new entry as operative
+("toddsampson2008@… on hub.byollm.cloud") with the roster still
+parenthetical. The allowlist governs; the roster decorates; the flip
+is dark, confirmed by two surfaces and a state change B2's design
+forbids. Clarified for the record: the team page not showing the
+entry is CORRECT — the roster and a device allowlist are different
+lists and were never meant to sync; the confusion could only arise
+because the bug let a forbidden state be authored. The probe entry
+stays in place as diagnostic state until CCC has read the specimen;
+cleanup after the fix. Incidentally confirmed live in the same
+screenshot: Connections and Docs shipped into the nav.*

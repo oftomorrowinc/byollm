@@ -2583,3 +2583,50 @@ wording gates the merge):**
 3. The consent ceremony speaks dollars ("$25.00 a day"); the services row speaks
    cents ("2500c/day"). Surfaces sharing a value share its unit — print dollars
    where the consent did.
+
+### Commit 3 recorded; fifth check ratified; conformance gap accepted-as-flagged; commit 4 next (2026-08-26)
+
+The rip landed: −1,017 net. allow, disallow, Allowlist, the veto list, all roster
+machinery, signedRosters gone with their tests (no .skip graveyard; surviving
+tests relocated with before/after counts). Six of six mutations caught, including
+both fail-open shapes. Wording rulings in.
+
+Ratified from the report:
+- **Check 4's structural form is the standard.** matchAudience consults admission
+  only in its team branch, so a private service refuses a stranger before any
+  grant is read — proven by handing the device a perfectly valid signed grant
+  and watching it refused because the carrying code path is unreachable.
+  Private-is-absolute now rests on structure, not on a check that could be
+  weakened.
+- **CCC's fifth check, ratified into the four (now five): the grant's user and
+  the stub's owner are never reconciled, only refused.** The stub owner is an
+  unsigned routing claim; a grant for bob on a job stubbed as alice's would have
+  served alice and charged bob. Same family as the unsigned-field law: the
+  signature's word is the only word, and disagreement is refusal.
+- **The construction throw** (relay configured with controlPlanePublic but no
+  authorGrant throws immediately) — load-time loud refusal family; a deployment
+  mistake nothing downstream can catch must die at construction.
+- allow.json retirement behaves as ruled: read once, names the people whose
+  access ended and where to restore them, removes itself.
+- Two wrong comments caught by tests (.strict() rejects a key holding undefined;
+  C014's provenance promise made true rather than reworded — collect() exposes
+  the sealing device, the test asserts the unforgeable part). Second and third
+  instances today of comments-are-claims; the minted law is earning its keep.
+
+**The honest loss, accepted as flagged, not quietly:** conformance targets are
+direct servers, which cannot author grants, so the admitting half of C006, C014,
+C018 is uncertifiable there — each check certifies the half a direct server can
+show (in every case the fail-open half) and names in prose where the other half
+went; C014's lost coverage lives in admission.test.ts so no MUST lost its
+end-to-end home. The metered-ceiling-with-sharing path is unit-tested only.
+Restoration requires @byollm/server gaining grant authorship — Amendment L work.
+Interim mitigation is this record plus the flag in the kit's prose; third-party
+certification is not being exercised this week.
+
+**Sequencing ruled: commit 4 before manifests.** Rip-then-build beats
+interleaving — leaving approve and the offered-sites queue alive while manifests
+grow beside them is the dual-state hazard the bandaid directive bans. Deletions
+should finish while the net is hot and verify is green; manifests are new
+surface and will be better shaped against the daemon's final four-verb form; and
+the conformance restoration that manifests unlock serves a certification nobody
+runs this week. Commit 4: go.

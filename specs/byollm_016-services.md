@@ -2081,3 +2081,47 @@ rows, isDefault) retires with it; Amendment D's key-vs-value law is not weakened
 completed — the name vocabulary no longer crosses any boundary at all.
 
 Paying device owners: parked, captured, confirmed ("1000% park paying").
+
+### Holes pass, ruled (2026-08-26)
+
+Seven holes were put to Todd with proposed answers. Rulings:
+
+1. RATIFIED: removal stops future claims (queued included); in-flight jobs finish;
+   pause is the kill switch for running work.
+2. RATIFIED: a mapping that loses its referent (team removal, service rename or
+   deletion, consent revocation) degrades to unmapped, never silently remaps; the
+   value-add notification fires; the slot's purpose goes unavailable and the site
+   falls back. A service id is contract-ish once mapped; renaming is
+   deletion-plus-creation. Revoking consent deletes the mapping — the mapping is
+   the consent, so un-consenting unmaps.
+3. RATIFIED (Todd: "love that"): same (owner, id) on multiple devices = replicas of
+   one service; hub routes to whichever is online; keeping them identical is the
+   owner's responsibility.
+4. RATIFIED as security posture: private is device-enforced absolutely (grant user
+   must equal paired owner — no control-plane compromise can grant a private
+   service to anyone else); team scope rests on the control plane's word; damage
+   bounded by offer scopes, spend caps, pause. Todd's reasoning recorded: server,
+   relay, daemon, protocol, and conformance are all going open source for community
+   audit, and the hosted product uses the same audited pieces under the hood.
+   ADDED for v1.2 (Todd proposed, agreed): a platform-side progressive daily spend
+   ceiling per account — e.g. $100, rising with account age/history to $500, $1000,
+   the Anthropic/OpenAI pattern — bounding blast radius when an owner lazily acks an
+   absurd spend authorization. Scope: it caps spend incurred by OTHERS' jobs on
+   your metered services via the cloud route; what an owner spends on their own
+   machine for their own jobs is not the platform's to cap. Refusals must say which
+   cap fired (owner-authored --cap vs platform ceiling), split by remedy.
+5. RULED (not delegated): clock skew is checked against the authority whose
+   timestamps we verify — each relay's control plane — because grant verification
+   needs agreement with the signer, not true time. Checked at startup as Todd asked,
+   and opportunistically on every poll since responses are free carriers of server
+   time. Beyond threshold: warning in status/health and the problems channel; any
+   grant refusal caused by skew names the clock and the remedy, never masquerading
+   as denial. This is the pin-check law again: the clock is a layer that drifts
+   independently, so it gets watched.
+6. DEFERRED to v1.1, "really soon" (Todd): per-user spend attribution in the spend
+   log and dashboard — whose jobs spent what on your metered services.
+7. STRENGTHENED: no public services in the hub at all — not unsupported, absent.
+   On the cloud route, public-offered services are simply never advertised to a
+   relay; cloud surfaces speak private|team only. Public remains fully valid in
+   OSS direct mode. `byollm services` says so plainly ("public: direct mode only").
+   Revisited only if the parked paying-owners marketplace gets its session.

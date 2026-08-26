@@ -1367,3 +1367,39 @@ Phase B (daemon pins, holds, verifies, ages) proceeds on G + riders,
 no ruling needed. Reconcile summary-log fix with CCC (Todd can't
 copy the cron secret; the report stays unread until the log line
 lands — the right fix anyway).
+
+## Morning after B1 (2026-08-26): two ratifications and a contradiction to resolve
+
+B1 shipped (32fbfef) as the safe half: pin at pairing, hold, verify,
+age, all visible; admission flips in B2 when Phase C makes the
+sentence true (C006 rename and notice retirement moved there —
+correct, claims ship with their proof). The veto finding recorded:
+today's allowlist is purely additive and disallow removes an allow,
+so "the veto subtracts, nothing local adds" requires a deny list
+that isn't that list — built as such.
+
+**Ratified into Amendment G, with their mutations:** (1) a refused
+roster does not replace the held one — else a relay narrows a device
+on demand, the accepted denial sharpened into targeted membership
+removal; (2) an older document is not an update — else a relay
+replays yesterday's membership over today's inside the age window
+with a perfectly verifying signature; issuedAt is monotonic per
+holder. Siblings of the unsigned-field law: the signature proves
+authorship; these prove sequence and survival.
+
+**Contradiction flagged as the first act of the onboarding day:**
+CCC's overnight observation ("a new cloud user compares a fingerprint
+twice… the second — site to device via byollm approve — is what
+refused Kevin's first job") contradicts CCC's own conclusive
+investigation of that refusal (no route because no consent — the RLS
+bug; approve had nothing waiting; no per-site device ceremony on the
+cloud route; one consent click made pong flow with no approve ever
+run). Both accounts cannot stand. To resolve from evidence before
+any simplification design: show the refusal that stopped Kevin's
+first job, and show whether an awaiting-consent state can occur for
+a cloud-routed site. The answer decides whether the withdrawn
+device-follows-consent ruling stays withdrawn or revives as real
+work. Docs fixes from the night recorded: the reference page carried
+the owner bug on the page meant to be pasted into a coding assistant
+verbatim — fixed; Phase B selection documented at last; glossary
+gained the own-id entry.

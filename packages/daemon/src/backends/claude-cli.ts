@@ -337,6 +337,32 @@ export class ClaudeCliBackend implements Backend {
     this.#binary = binary;
   }
 
+  /**
+   * One real, tiny call — the only way to learn whether credentials work.
+   *
+   * `--version` answers "is the binary here", which was never the question.
+   * This asks the question, and pays for it: a handful of tokens against the
+   * owner's own subscription, at daemon start rather than on every heartbeat.
+   *
+   * A failure here is reported rather than thrown, and the runner treats an
+   * `unauthorized` exactly as it treats one from a real job — the service is
+   * withdrawn and the owner is told once.
+   */
+  async canary(model: string): Promise<BackendHealth> {
+    const result = await this.execute({
+      model,
+      prompt: "Reply with the single word: ok",
+      timeoutMs: 30_000,
+      // Enough for a word and a newline, and small enough that a chatty
+      // model's answer cannot make this expensive.
+      maxOutputBytes: 256,
+      signal: new AbortController().signal,
+    });
+    return result.ok
+      ? { healthy: true, models: [] }
+      : { healthy: false, models: [], detail: result.message };
+  }
+
   async health(): Promise<BackendHealth> {
     const version = await new Promise<string | null>((resolve) => {
       // execFile, never exec: no shell is involved even for our own fixed

@@ -77,6 +77,21 @@ export interface Backend {
    */
   health(): Promise<BackendHealth>;
 
+  /**
+   * Can it actually *do* the work — credentials and all?
+   *
+   * Optional, and implemented only where {@link Backend.health} cannot answer
+   * the question. A subscription CLI passes `--version` without credentials,
+   * so its health check reports healthy while every job fails "not signed in".
+   * That gap cost a live cross-user test on 2026-08-25.
+   *
+   * A canary spends a real call, so **it never runs on the polling loop.**
+   * Daemon start and enablement only: bounded, human-adjacent, cents on a
+   * subscription. The runner enforces where it is called from; a backend just
+   * answers honestly when asked.
+   */
+  canary?(model: string): Promise<BackendHealth>;
+
   /** Run one model call. The only thing a job is permitted to cause. */
   execute(request: BackendRequest): Promise<BackendResult>;
 }

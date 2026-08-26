@@ -185,11 +185,16 @@ function spawnIn(job: ProcessJob, scratch: string): Promise<BackendResult> {
         return;
       }
       if (code !== 0) {
+        // An agentic CLI that cannot authenticate exits non-zero and says so
+        // in prose. Recognising that turns a generic `backend-error` into the
+        // one typed failure the runner can act on — see {@link isAuthFailure}.
+        const authFailed = isAuthFailure(`${stdout}\n${stderr}`);
         finish({
           ok: false,
-          code: "backend-error",
-          message:
-            stderr.trim() === ""
+          code: authFailed ? "unauthorized" : "backend-error",
+          message: authFailed
+            ? `${displayName} is not signed in`
+            : stderr.trim() === ""
               ? `${displayName} exited with status ${String(code)}`
               : `${displayName} failed: ${firstLine(stderr)}`,
           retryable: false,
@@ -212,4 +217,45 @@ function spawnIn(job: ProcessJob, scratch: string): Promise<BackendResult> {
 /** First line of stderr, for a one-line diagnostic. */
 function firstLine(text: string): string {
   return text.trim().split("\n")[0] ?? "";
+}
+
+/**
+ * Does this output say "you are not signed in"?
+ *
+ * A CLI backend that has lost its credentials exits non-zero with prose and
+ * no machine-readable code, so this is text matching, which rots. It is worth
+ * having anyway because of what it is *for*: the runner withdraws a service on
+ * `unauthorized` and does nothing on `backend-error`, so a phrase this misses
+ * leaves today's behaviour exactly as it was. The failure mode of the match is
+ * silence, not a wrong action — which is the only shape a heuristic like this
+ * may take.
+ *
+ * The corpus is what real CLIs print. Claude says "Not logged in · Please run
+ * /login" on stdout and exits 1; that line is why this exists, found when the
+ * first cross-user job reached Todd's Mac and the backend reported healthy
+ * throughout.
+ *
+ * Deliberately narrow, and only consulted on a **non-zero exit** — a job that
+ * succeeded never reaches it. That bounds the risk without removing it: a run
+ * can produce output and then fail for another reason, and the output is a
+ * model's answer. So the patterns are word-anchored rather than substrings,
+ * and the tests carry the sentences a model might plausibly write.
+ */
+const AUTH_FAILURE = [
+  // Word-anchored, not substrings. `includes("not logged in")` also matches
+  // "was not logged into the system", which is a sentence a model can write —
+  // and a false positive here withdraws a service that works, which is worse
+  // than the silence this replaces.
+  /\bnot logged in\b/,
+  /\bplease run \/login\b/,
+  /\bplease log in\b/,
+  /\bnot authenticated\b/,
+  /\bauthentication failed\b/,
+  /\binvalid api key\b/,
+  /\b401 unauthorized\b/,
+];
+
+export function isAuthFailure(output: string): boolean {
+  const text = output.toLowerCase();
+  return AUTH_FAILURE.some((pattern) => pattern.test(text));
 }

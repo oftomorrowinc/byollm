@@ -438,7 +438,9 @@ async function commandConnect(
     ingress,
   });
 
-  const capabilities = await runner.detectCapabilities();
+  // Daemon start: the one place a canary runs. `#tick()` calls this with no
+  // options, so the polling loop never spends a call.
+  const capabilities = await runner.detectCapabilities({ canary: true });
 
   /**
    * Zero healthy backends is a warning, not a refusal — cloud_002, ruled
@@ -855,6 +857,17 @@ function report(origin: string, event: RunnerEvent, io: CliIo): void {
             ? `    Through ${String(event.path.length - 1)} rotations since ` +
               `the key this device approved.\n`
             : ""),
+      );
+      break;
+    case "service-not-signed-in":
+      // Says what to do, because a notice about a credential that names no
+      // command is a notice somebody has to go and research.
+      io.err(
+        `${at} ${host} ${event.service} is not signed in — it has stopped ` +
+          `taking work.\n` +
+          `    ${event.detail}\n` +
+          `    Sign in with that tool, then restart: ` +
+          `\`byollm run\` re-checks on start.\n`,
       );
       break;
     case "site-awaiting-approval":

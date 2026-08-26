@@ -20,7 +20,7 @@ import { composePrompt } from "./compose.js";
 import { DaemonConfig, resolveConfig, type ResolvedRoute } from "./config.js";
 import { IngressLog } from "./ingress.js";
 import { SpendLedger } from "./spend.js";
-import { Runner } from "./runner.js";
+import { Runner, type RunnerEvent } from "./runner.js";
 import { removeTemp } from "./test-support.js";
 
 /** A daemon identity for tests: real keys, signing the real canonical form. */
@@ -107,6 +107,8 @@ async function makeRunner(
      * because that is the whole question there.
      */
     backendFactory?: (route: ResolvedRoute) => Backend;
+    /** Events the runner emits, for the cases that are about a notice. */
+    onEvent?: (event: RunnerEvent) => void;
   } = {},
 ) {
   const loaded = resolveConfig(
@@ -156,6 +158,7 @@ async function makeRunner(
     spend,
     ingress,
     backendFactory: options.backendFactory ?? (() => backend),
+    ...(options.onEvent === undefined ? {} : { onEvent: options.onEvent }),
   });
   return { runner, ingress, budgets };
 }
@@ -474,6 +477,105 @@ describe("status", () => {
     expect(
       caps.find((c) => c.kind === "llm.generate" && c.isDefault)?.service,
     ).toBe("beta");
+  });
+
+  it("withdraws a service that says it is not signed in, after one job", async () => {
+    /**
+     * The free half of closing healthy-but-every-job-fails, ruled 2026-08-25.
+     *
+     * A signed-out CLI passes its own health check — `--version` needs no
+     * credentials — so the service stays advertised and every job dies. One
+     * job is enough to know: "not signed in" is not flaky, it is a fact that
+     * holds until somebody logs in, and each further job spent confirming it
+     * is somebody's work refused for a reason already known.
+     */
+    const events: RunnerEvent[] = [];
+    const { runner } = await makeRunner({
+      backendFactory: () => ({
+        id: "claude-cli" as const,
+        class: "process" as const,
+        health: () =>
+          // Healthy, which is the whole point: the probe cannot see this.
+          Promise.resolve({ healthy: true, models: [] }),
+        execute: () =>
+          Promise.resolve({
+            ok: false as const,
+            code: "unauthorized" as const,
+            message: "the claude CLI is not signed in",
+            retryable: false,
+            durationMs: 1,
+          }),
+      }),
+      onEvent: (e) => events.push(e),
+    });
+
+    expect(await runner.detectCapabilities()).toHaveLength(1);
+    await runner.runJob(job());
+
+    expect(events.map((e) => e.type)).toContain("service-not-signed-in");
+    // Withdrawn, while its own health check still says healthy.
+    expect(await runner.detectCapabilities()).toHaveLength(0);
+  });
+
+  it("runs a canary only when asked, never on the polling loop", async () => {
+    /**
+     * The rule that keeps this from becoming a standing cost — ruled
+     * 2026-08-25. A canary spends a real subscription call, so it belongs at
+     * daemon start and enablement and nowhere else. The polling loop asks the
+     * same method for capabilities every heartbeat.
+     *
+     * Asserted as a count of calls rather than by reading the call site,
+     * because the call site is one word and the bill is not.
+     */
+    let canaries = 0;
+    const backend = {
+      id: "claude-cli" as const,
+      class: "process" as const,
+      health: () => Promise.resolve({ healthy: true, models: [] }),
+      canary: () => {
+        canaries += 1;
+        return Promise.resolve({ healthy: true, models: [] });
+      },
+      execute: () =>
+        Promise.resolve({ ok: true as const, text: "ok", durationMs: 1 }),
+    };
+    const { runner } = await makeRunner({ backendFactory: () => backend });
+
+    await runner.detectCapabilities();
+    await runner.detectCapabilities();
+    expect(canaries, "the default must not spend anything").toBe(0);
+
+    await runner.detectCapabilities({ canary: true });
+    expect(canaries).toBe(1);
+  });
+
+  it("withdraws a service whose canary cannot sign in, before any job", async () => {
+    // The paid leg's whole point: the failure is found before somebody else's
+    // work is refused, rather than by refusing it.
+    const events: RunnerEvent[] = [];
+    const { runner } = await makeRunner({
+      backendFactory: () => ({
+        id: "claude-cli" as const,
+        class: "process" as const,
+        // Healthy — `--version` needs no credentials.
+        health: () => Promise.resolve({ healthy: true, models: [] }),
+        canary: () =>
+          Promise.resolve({
+            healthy: false,
+            models: [],
+            detail: "the claude CLI is not signed in",
+          }),
+        execute: () =>
+          Promise.resolve({ ok: true as const, text: "ok", durationMs: 1 }),
+      }),
+      onEvent: (e) => events.push(e),
+    });
+
+    expect(await runner.detectCapabilities({ canary: true })).toHaveLength(0);
+    expect(events.map((e) => e.type)).toContain("service-not-signed-in");
+    // And it stays withdrawn on the polling loop, which runs no canary and
+    // would otherwise re-advertise it on the next heartbeat.
+    expect(await runner.detectCapabilities()).toHaveLength(0);
   });
 
   it("reflects pause and resume", async () => {

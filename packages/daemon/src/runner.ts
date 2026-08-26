@@ -123,6 +123,18 @@ export type RunnerEvent =
    * A site this machine has never approved arrived on the heartbeat. Nothing
    * is served for it until somebody at this keyboard says so — V1-1.
    */
+  /**
+   * A service said it is not signed in, so it is no longer advertised.
+   *
+   * Loud because the failure it replaces was silent: the health check runs
+   * `--version`, which needs no credentials, so a signed-out CLI reported
+   * healthy and every job failed. One notice, on the first job that proves it.
+   */
+  | {
+      readonly type: "service-not-signed-in";
+      readonly service: string;
+      readonly detail: string;
+    }
   | {
       readonly type: "site-awaiting-approval";
       readonly site: string;
@@ -237,6 +249,15 @@ export class Runner {
   #servingNothing = false;
   #stopped = false;
   #consecutiveFailures = 0;
+  /**
+   * Services that answered "not signed in" — withdrawn until proven otherwise.
+   *
+   * In memory rather than on disk: a restart re-runs the start-up canary,
+   * which is a better answer than a remembered verdict about credentials that
+   * may since have been fixed. Nothing here should outlive the process that
+   * observed it.
+   */
+  readonly #unauthenticated = new Set<string>();
   #lastUpstreamError: string | undefined;
   #lastError: string | undefined;
   #completed = 0;
@@ -348,7 +369,24 @@ export class Runner {
    * daemon then receives no work for it, which is the correct outcome and one
    * the owner can see in `byollm status`.
    */
-  async detectCapabilities(): Promise<Capability[]> {
+  async detectCapabilities(
+    options: {
+      /**
+       * Also spend one real call per credentialed backend — ruled 2026-08-25.
+       *
+       * **Start and enablement only.** `#tick()` never passes this: a canary
+       * on the polling loop would spend a subscription call every heartbeat,
+       * which is a standing cost to answer a question whose answer changes
+       * about once a month.
+       *
+       * The pairing is deliberate. This catches a signed-out backend before
+       * any of somebody's work is refused; the `unauthorized` path catches
+       * credentials that expire while the daemon runs, and costs nothing. Two
+       * legs, and neither is a poll.
+       */
+      canary?: boolean;
+    } = {},
+  ): Promise<Capability[]> {
     const capabilities: Capability[] = [];
 
     /**
@@ -367,6 +405,10 @@ export class Runner {
     const probed = new Map<string, boolean>();
 
     for (const route of this.#options.loaded.routes) {
+      // Withdrawn on an auth failure, before the backend is asked anything.
+      // The probe would say healthy — `--version` needs no credentials — which
+      // is the whole reason this set exists.
+      if (this.#unauthenticated.has(route.service)) continue;
       let usable = probed.get(route.service);
       if (usable === undefined) {
         const backend = this.#backendFor(route);
@@ -377,6 +419,22 @@ export class Runner {
           health.healthy &&
           (health.models.length === 0 ||
             modelPresent(health.models, route.model));
+
+        // The credentialed check, when asked for and when the backend has one.
+        // Only after `health` passed — there is no sense spending a call on a
+        // binary that is not there.
+        if (usable && options.canary === true && backend.canary !== undefined) {
+          const proof = await backend.canary(route.model);
+          if (!proof.healthy) {
+            usable = false;
+            this.#unauthenticated.add(route.service);
+            this.#options.onEvent?.({
+              type: "service-not-signed-in",
+              service: route.service,
+              detail: proof.detail ?? "the check call did not succeed",
+            });
+          }
+        }
         probed.set(route.service, usable);
       }
       if (!usable) continue;
@@ -609,6 +667,28 @@ export class Runner {
           : limits.limits.maxOutputBytes,
         signal: controller.signal,
       });
+
+      /**
+       * A service that cannot authenticate stops being advertised, after one
+       * job — ruled 2026-08-25.
+       *
+       * The free half of closing healthy-but-every-job-fails. The paid half is
+       * a canary at start; this costs nothing and catches the case the canary
+       * cannot: credentials that expire while the daemon is running.
+       *
+       * One failure, not a streak. A backend that says "not signed in" is not
+       * flaky — it is telling us a fact that will hold until somebody logs in,
+       * and every further job spent confirming it is somebody's work refused
+       * for a reason we already knew.
+       */
+      if (!result.ok && result.code === "unauthorized") {
+        this.#unauthenticated.add(route.service);
+        this.#options.onEvent?.({
+          type: "service-not-signed-in",
+          service: route.service,
+          detail: result.message,
+        });
+      }
 
       const outcome: JobOutcome = result.ok
         ? { outcome: "ok", text: result.text }

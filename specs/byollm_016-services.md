@@ -2143,3 +2143,21 @@ What stays outside is machine-local and direct-mode spend, and for the correct
 reason: the platform never sees those jobs, and a cap on what you cannot see is
 either surveillance or fiction. The Anthropic/OpenAI analogy lands exactly because
 their caps govern spend flowing through their platform — same here.
+
+### Build directive: pull the bandaid off (2026-08-26)
+
+Todd, handing I–L to CCC: no backwards compatibility. The architecture was wrong or
+overly complex in places now known; nothing keeps two versions of the same thing
+alive, no unused code survives, no compat shims or feature flags bridge old and new.
+Rip and simplify; keep still-valid tests green; keep everything ultra secure.
+Riders recorded with it: tests for deleted machinery are deleted with it, never
+skipped — no .skip graveyards — and every surviving law keeps its test; re-pairing
+is an acceptable ask (silent state migration is not required), but leftover state
+files from deleted machinery are cleaned up or refused loudly, never half-read;
+deploy/publish ordering for breaking wire changes is stated in the plan (the
+.strict() lesson); the ready-for-latest gate updates in the same change that changes
+what /healthz advertises — the promotion gate must never go stale. Code gets ripped;
+laws do not: the fence, RELAY_BLIND, pin-at-pairing, the unsigned-field law,
+private-is-device-enforced, refusal indistinguishability, and consent wording as
+product law all survive by name. Kevin gets a press migration note before he starts
+tomorrow — the rip lands while he's offline, which is the timing, not an accident.

@@ -2366,3 +2366,36 @@ since the surface changes anyway: every service row states its offer scope in so
 many words ("offered: private" / "offered: team"). A surface whose name is
 services answers "offered to whom" — the same law as a status surface declaring
 whose knowledge it shows.
+
+### Ruling: public is dead everywhere — offer is private | team (2026-08-26)
+
+Todd asked whether to formally kill public; ruled yes, everywhere — OSS direct
+mode included. This supersedes holes-ruling 7, which kept public as a direct-mode
+feature; the "public: direct mode only" services line dies before it was ever
+written.
+
+The argument is Phase 0's own finding: public was never a scope, it was the off
+switch for admission — matchAudience returns ALLOWED for a public service without
+consulting anything, and that branch is what made the entire cross-user suite
+blind under the harness default. The enum is now two values, both of which
+consult something: private → owner check, team → grant check. There is no path
+through the daemon where the answer is "yes, whoever." The public branch is
+deleted as a class, with its tests, and the Audience wire literal goes with it
+(breaking wire change, riding the rip).
+
+Consequence, stated as the design's true shape: **sharing requires an authority
+that can name people, and direct wiring has none — so it shares with no one.**
+Direct mode is owner-only: your daemon powering your own apps with your own
+subscriptions, which is the product's origin story verbatim. Cross-user always
+goes through a relay, and the relay is open source precisely so that is an
+architecture step, not a paywall. A `team` offer on a daemon with no relay paired
+narrows loudly to private with a remedy — the same narrowing machinery the
+metered rule already uses, observed working on Todd's machine today.
+
+Vocabulary confirmed once more: `team`, not `shared` — scope values name the
+audience, not the act. Private answers "who" (you); team answers "who" (your
+team); "shared" answers "what happened" and leaves "with whom" dangling.
+
+Revival path recorded: if the parked paying-owners marketplace gets its session,
+public returns deliberately, designed with payment and abuse handling attached —
+never as a loaded chamber kept around unused.

@@ -379,13 +379,27 @@ That has a consequence worth ruling on rather than discovering: a
 signed roster must be re-issued far more often than hourly, or every
 device narrows to owner-only once an hour. Two shapes:
 
-**(a) Sign on read — recommended.** The dashboard exposes a hub-only
-endpoint returning freshly-signed roster documents; the hub polls it
-the way it already polls the database, and relays what it gets. The
-signature is minted on demand, so freshness is automatic and no
-schedule can fall behind. Costs a hub→dashboard runtime dependency:
-if the dashboard is down for an hour, team routing narrows — which is
-fail-narrow working, and worth stating out loud rather than meeting.
+**(a) Sign on read — RULED 2026-08-25.** The dashboard exposes a
+hub-only endpoint returning freshly-signed roster documents; the hub
+polls it the way it already polls the database, and relays what it
+gets. The signature is minted on demand, so freshness is automatic and
+no schedule can fall behind.
+
+**The fence blesses this endpoint.** cloud_001 forbids the cluster a
+control-plane *writing* credential; hub-reads-control-plane is the
+sanctioned direction and always was. This is the same reader with a
+new transport — read-only, hub-authenticated, and carrying a document
+the hub could already assemble from rows it is granted. Nothing about
+the fence moves.
+
+**The bad hour is a stated hour.** The dependency is real and it is
+bounded on both sides. The hub keeps delivering the last valid
+document through a sub-hour dashboard outage — a roster that is still
+inside its age is still true, and withholding it would invent an
+outage the control plane did not have. And a device that does narrow
+says so: *"roster stale — serving owner only until refreshed."* A
+silent shrink is the failure this whole amendment exists to stop
+having, and it would be perverse to introduce one at the end of it.
 
 **(b) Re-sign on a schedule.** A cron re-signs every few minutes into
 a table the hub already reads. No new dependency, no new endpoint —
@@ -404,6 +418,12 @@ Vercel environment variable and whose public half the hub holds
 the same shape with a different audience: the daemon holds the public
 half, pinned at pairing.
 
+**And it rotates under Amendment C, not a scheme of its own.** Pinned
+at pairing, superseded by the existing succession ceremony, with the
+same retirement window during which both keys verify. A second
+rotation mechanism would be a second answer to "which key is live",
+which is this project's most repeated bug.
+
 ### Phase A — protocol
 
 - `ROSTER_MAX_AGE_MS = 60 * 60_000`, exported and used by both sides.
@@ -417,6 +437,19 @@ half, pinned at pairing.
 
 **This is a wire change**, so protocol lockstep applies: publish,
 bump, deploy, and the gate before promotion.
+
+**And the order is not interchangeable.** These response schemas are
+`.strict()` — a relay's answer is checked before it is believed —
+which makes a new field safe to *add* and unsafe to *send early*. A
+daemon on the previous release that receives a response carrying
+`roster` fails the whole parse, not the field: its heartbeat stops,
+for reasons that have nothing to do with rosters and name nothing
+that would lead anybody to this change.
+
+So Phase C deploys in exactly one order: publish the protocol, let
+daemons update, *then* let the hub begin sending. `roster.test.ts`
+pins both directions so the constraint is something a reader trips
+over rather than rediscovers in production.
 
 ### Phase B — daemon
 

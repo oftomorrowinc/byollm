@@ -168,23 +168,26 @@ export const MUSTS = Object.freeze({
   SITES_LOCALLY_APPROVED: must({
     id: "SITES_LOCALLY_APPROVED",
     statement:
-      "A daemon MUST NOT run work for a site it has not approved on the " +
-      "machine itself. An upstream may propose a site set; a site the daemon " +
-      "has never approved MUST be offered to its owner and served nothing " +
-      "until they approve it. A key that has changed for an already-approved " +
-      "id MUST be refused for the life of the pairing, including after that " +
-      "id has left the set and returned. A **verified succession** is not a " +
-      "changed key: a new key id carrying a signature, by a key this daemon " +
-      "has already approved, over a statement naming both key ids MUST be " +
-      "accepted without a new local approval — provided the control plane " +
-      "projects the same successor — and MUST be announced rather than " +
-      "applied silently.",
+      "A daemon MUST NOT run work for a site on an upstream's word alone. " +
+      "An upstream may propose a site set; work for any site in it MUST " +
+      "additionally carry a grant signed by the control-plane key this " +
+      "daemon pinned at pairing. A key that has changed for an id this " +
+      "daemon already pinned MUST be refused for the life of the pairing, " +
+      "including after that id has left the set and returned. A **verified " +
+      "succession** is not a changed key: a new key id carrying a signature, " +
+      "by a key this daemon has already pinned, over a statement naming both " +
+      "key ids MUST be accepted — provided the control plane projects the " +
+      "same successor — and MUST be announced rather than applied silently. " +
+      "The first job from a site this daemon has never served MUST be " +
+      "announced at the machine.",
     enforcedBy: "daemon",
     // Two kinds, and the second is the one that matters — V1-1.
     //
     // `construction`: the daemon cannot serve a site that is not in its
-    // pinned map, and admission refuses before a payload is fetched, so the
-    // ordinary path cannot reach a site nobody approved.
+    // pinned map, and admission refuses before a payload is fetched — and
+    // since byollm_016 Amendment K, being in the map is no longer sufficient
+    // either: a signed grant is, and the relay proposing the set cannot
+    // produce one.
     //
     // `adversarial`: the property that survives is about a *sequence* —
     // remove the id, re-offer it under a different key — which no honest

@@ -175,10 +175,11 @@ describe("a site proving it is still itself", () => {
 
     // Served, and pinned to the new key.
     expect(runner.sites.get(id(K2))).toEqual(publicIdentityOf(K2));
-    // Not queued for a human. Requiring a second ceremony here is what trains
-    // people to approve keys they cannot check — C.3.
-    expect(runner.pending.has(id(K2))).toBe(false);
-    expect(events.some((e) => e.type === "site-awaiting-approval")).toBe(false);
+    // The old key keeps its pin for the retirement window, and the new one
+    // arrives as a rotation rather than as a stranger — which is what stops
+    // the succession path from quietly becoming a way to introduce keys.
+    expect(runner.known.has(id(K1))).toBe(true);
+    expect(events.some((e) => e.type === "site-rotated")).toBe(true);
   });
 
   it("says so, with both fingerprints", async () => {
@@ -271,9 +272,8 @@ describe("a rotation that is somebody else's", () => {
     await runner.tick();
 
     expect(runner.sites.has(id(K2))).toBe(false);
-    expect(runner.pending.has(id(K2))).toBe(false);
     expect(runner.sites.has(id(K1))).toBe(false); // K1 left the announced set
-    expect(runner.known.has(id(K1))).toBe(true); // but is still approved here
+    expect(runner.known.has(id(K1))).toBe(true); // but is still pinned here
     expect(events.some((e) => e.type === "site-refused")).toBe(true);
   });
 
@@ -344,9 +344,24 @@ describe("a rotation that is somebody else's", () => {
     );
     await runner.tick();
 
-    expect(runner.pending.has(id(K3))).toBe(true);
-    expect(runner.sites.has(id(K3))).toBe(false);
-    expect(events.some((e) => e.type === "site-awaiting-approval")).toBe(true);
+    /**
+     * A stranger, and treated as one — which since Amendment K means pinned
+     * and served, not queued.
+     *
+     * The distinction this test is named for still holds and still matters:
+     * an unverifiable succession claim is **ignored**, not treated as an
+     * attack on the id it names. Refusing here would let anyone silence a
+     * site by asserting a bad chain about it.
+     *
+     * What changed is what "stranger" leads to. It used to be a question for
+     * a human; it is now an ordinary new pin — and the fence moved with it,
+     * because work for that id still needs a grant signed by the key this
+     * device pinned at pairing, which an impostor does not have.
+     */
+    expect(runner.sites.has(id(K3))).toBe(true);
+    expect(runner.known.get(id(K3))).toEqual(publicIdentityOf(K3));
+    // Not a rotation: it never proved continuity from anything pinned here.
+    expect(events.some((e) => e.type === "site-rotated")).toBe(false);
     expect(events.some((e) => e.type === "site-refused")).toBe(false);
   });
 

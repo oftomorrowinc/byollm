@@ -140,6 +140,20 @@ export type RunnerEvent =
   /** A pinned site's encryption key moved under its identity — refused. */
   | { readonly type: "site-key-changed"; readonly site: string }
   /**
+   * The first job from a site this machine has never served — Amendment K.
+   *
+   * Loud because site policy moved to the control plane, and a change made
+   * in an account should still be visible at the hardware that acts on it.
+   * Fired at admission rather than after the run: a notice that followed the
+   * first job would be a receipt, and the first job is the one worth warning
+   * about.
+   */
+  | {
+      readonly type: "now-serving";
+      readonly site: string;
+      readonly fingerprint: string;
+    }
+  /**
    * A site this machine has never approved arrived on the heartbeat. Nothing
    * is served for it until somebody at this keyboard says so — V1-1.
    */
@@ -167,11 +181,6 @@ export type RunnerEvent =
       readonly type: "grant-refused";
       readonly refusal: GrantRefusal | "replayed" | "absent" | "wrong-user";
       readonly jobId: string;
-    }
-  | {
-      readonly type: "site-awaiting-approval";
-      readonly site: string;
-      readonly fingerprint: string;
     }
   /**
    * A site proved continuity from a key this machine already approved, and the
@@ -333,14 +342,34 @@ export class Runner {
     // one is what the upstream last said. Sharing them would let a heartbeat
     // rewrite a file nobody wrote.
     this.#sites = new Map(options.identity?.sites ?? []);
-    // Everything on disk was approved once: the sites in a pairing came
-    // through `connect`'s fingerprint compare, and the `known` map holds the
-    // ones whose consent has since ended. Seeded from both so a daemon that
-    // restarts asks nobody to re-approve what they already did.
-    this.#known = new Map([
-      ...(options.identity?.known ?? []),
-      ...(options.identity?.sites ?? []),
-    ]);
+    /**
+     * The pins this device already holds, checked on the way in.
+     *
+     * Seeded from both maps because `sites` follows what the upstream is
+     * currently offering and `known` holds the ids whose consent has ended —
+     * together they are every id this machine has ever pinned, which is what
+     * the substitution check compares against.
+     *
+     * **Verified, not trusted**, and that is a check this constructor did not
+     * used to make. `applyApprovals` made it, because approvals arrived
+     * through the pairings file and "a file is not a smaller thing to verify
+     * than a heartbeat". Amendment K deleted approvals; the file is still a
+     * file, and the entries still arrive from it. Deleting the caller without
+     * moving its check would have quietly removed the check with it.
+     *
+     * A row that fails is dropped rather than repaired: an id whose key does
+     * not belong to it is a pin that would make every later comparison
+     * compare against the wrong thing.
+     */
+    this.#known = new Map(
+      [
+        ...(options.identity?.known ?? []),
+        ...(options.identity?.sites ?? []),
+      ].filter(
+        ([id, site]) =>
+          verifyPublicIdentity(site) && keyId(site.identity) === id,
+      ),
+    );
   }
 
   /** The sites this daemon holds pins for, so the CLI can persist changes. */
@@ -362,42 +391,6 @@ export class Runner {
    */
   get retiring(): ReadonlyMap<string, number> {
     return this.#retiring;
-  }
-
-  /**
-   * Sites the upstream offered that nobody here has approved yet.
-   *
-   * Persisted by the CLI so `byollm sites` can show their fingerprints and
-   * `byollm approve` can pin the key the person was shown — an approval that
-   * re-fetched the key from the upstream would be approving a different
-   * question than the one on screen.
-   */
-  get pending(): ReadonlyMap<string, PublicIdentity> {
-    return this.#pending;
-  }
-
-  /**
-   * Take approvals recorded on disk by a `byollm approve` run.
-   *
-   * `byollm approve` is a different process — the daemon is in the middle of
-   * a run loop — so approval arrives through the pairings file rather than a
-   * call. Re-checked here rather than trusted: this reads a file, and a file
-   * on a shared machine is not a smaller thing to verify than a heartbeat.
-   */
-  applyApprovals(known: ReadonlyMap<string, PublicIdentity>): void {
-    for (const [id, site] of known) {
-      if (this.#known.has(id)) continue;
-      if (!verifyPublicIdentity(site) || keyId(site.identity) !== id) continue;
-      this.#known.set(id, site);
-      const offered = this.#pending.get(id);
-      // Serve it now only if the key that was approved is the key the
-      // upstream is currently offering. If they differ, nothing is served and
-      // the next heartbeat says `site-key-changed` — which is the true
-      // sentence about a key that moved between approval and use.
-      if (offered && sameKey(offered, site)) this.#sites.set(id, site);
-      this.#pending.delete(id);
-      this.#announced.delete(id);
-    }
   }
 
   status(): RunnerStatus {
@@ -752,11 +745,6 @@ export class Runner {
           "the grant for this job is not signed by the control plane this " +
           "device paired with"
         );
-      case "no-pinned-key":
-        return (
-          "this device pinned no control-plane key when it paired, so it " +
-          "cannot check grants — run `byollm connect` again"
-        );
     }
   }
 
@@ -808,11 +796,9 @@ export class Runner {
     if (this.#options.identity && !this.#sites.has(job.site)) {
       return {
         ok: false,
-        reason: this.#pending.has(job.site)
-          ? `this device has not approved site ${job.site} yet — ` +
-            "run `byollm sites` to see it and `byollm approve` to allow it"
-          : `this device does not serve site ${job.site} ` +
-            `(serving ${[...this.#sites.keys()].sort().join(", ") || "nothing"})`,
+        reason:
+          `this device does not serve site ${job.site} ` +
+          `(serving ${[...this.#sites.keys()].sort().join(", ") || "nothing"})`,
       };
     }
 
@@ -896,6 +882,25 @@ export class Runner {
         sizeClassCeiling(job.sizeClass),
       );
       if (!decision.ok) return { ok: false, reason: decision.detail };
+    }
+
+    /**
+     * The first job from a site this machine has never served — Amendment K.
+     *
+     * Here, on the admitted path and before {@link runJob} touches a backend,
+     * because the mitigation for "site policy moved to the account" is that
+     * the machine says so *first*. Fired after the grant verified, so it is
+     * evidence rather than a guess: a site the relay merely mentioned has not
+     * asked this device for anything yet.
+     */
+    if (!this.#served.has(job.site)) {
+      this.#served.add(job.site);
+      const site = this.#sites.get(job.site);
+      this.#options.onEvent?.({
+        type: "now-serving",
+        site: job.site,
+        fingerprint: site ? fingerprint(site.identity) : job.site,
+      });
     }
 
     // Spent only now, on the way out. A grant burned by a refusal would make
@@ -1584,14 +1589,26 @@ export class Runner {
    */
   readonly #retiring = new Map<string, number>();
 
-  /** Offered, never approved: shown to the user, served to nobody. */
-  readonly #pending = new Map<string, PublicIdentity>();
-
   /**
-   * Pending ids already reported, so a five-second heartbeat does not repeat
-   * itself — the same rule `awaitingConsent` follows.
+   * Sites this device has actually run work for, so the first one is loud.
+   *
+   * Amendment K moved site policy to the control plane: there is no longer a
+   * ceremony on this machine where somebody says yes to a site, which is a
+   * real reduction in what a device owner controls and is recorded as an
+   * accepted trade. **This set is the mitigation.** The first job from a site
+   * this machine has never served announces itself, so a change made in an
+   * account is still loud at the hardware.
+   *
+   * Fired at admission, before the backend is touched. A notice that arrived
+   * after the first job had run would be a receipt rather than a warning, and
+   * the thing worth warning about is the first one.
+   *
+   * Distinct from {@link #known}, which is the *pinning* record and must be
+   * written the moment a key is first seen. This is about work, and the two
+   * answer different questions: "which key is this site's" and "has this
+   * machine ever done anything for it".
    */
-  readonly #announced = new Set<string>();
+  readonly #served = new Set<string>();
 
   /**
    * Take a control-plane key that arrived after this loop started.
@@ -1666,23 +1683,30 @@ export class Runner {
         continue;
       }
       if (approved === undefined) {
-        // Never approved on this machine. **Not pinned, and nothing runs for
-        // it** — this is the fence V1-1 found missing. Consent to serve a
-        // site lives on the site's side of the relay, where the relay itself
-        // could write it; the machine that will do the work says yes here.
-        const offered = this.#pending.get(id);
-        if (!offered || !sameKey(offered, site)) {
-          this.#pending.set(id, site);
-          this.#announced.delete(id);
-        }
-        if (!this.#announced.has(id)) {
-          this.#announced.add(id);
-          this.#options.onEvent?.({
-            type: "site-awaiting-approval",
-            site: id,
-            fingerprint: fingerprint(site.identity),
-          });
-        }
+        /**
+         * First sighting: pinned here, and served — Amendment K.
+         *
+         * There used to be a queue and a ceremony at this line. A site the
+         * upstream offered sat unpinned and unserved until somebody ran
+         * `byollm approve`, because "consent to serve a site lives on the
+         * site's side of the relay, where the relay itself could write it;
+         * the machine that will do the work says yes here."
+         *
+         * That fence moved rather than fell. Site policy is the control
+         * plane's now, and what the device kept is the part a relay still
+         * cannot forge: the **pairing** ceremony, where a human compared a
+         * fingerprint, plus the pinning below. This machine still refuses a
+         * key that moves under an id it has already pinned, and still runs
+         * nothing without a grant signed by the key it pinned at pairing.
+         *
+         * What it no longer does is ask. The trade is recorded plainly: a
+         * compromised control plane can point this device at a site its owner
+         * never chose. Spend caps and `pause` bound the damage; {@link
+         * #served} makes it loud. It is the largest single reduction in
+         * device-side control in this design, and it is deliberate.
+         */
+        this.#known.set(id, site);
+        this.#sites.set(id, site);
         continue;
       }
 
@@ -1729,14 +1753,6 @@ export class Runner {
           reason: `site ${id} withdrew consent while this job was running`,
         });
       }
-    }
-    // A pending site the upstream stopped offering is no longer a question
-    // waiting for an answer. It stays out of `#known`, so if it comes back it
-    // is asked again rather than assumed.
-    for (const id of [...this.#pending.keys()]) {
-      if (id in sites) continue;
-      this.#pending.delete(id);
-      this.#announced.delete(id);
     }
   }
 
@@ -1826,15 +1842,12 @@ export class Runner {
     /* c8 ignore next */
     if (!previous) return false;
 
-    // The approval moves. Both ids stay in `#known`: the old one because
-    // tombstones are how `SITES_LOCALLY_APPROVED` refuses remove-then-re-add,
-    // and the new one because it is now a key this machine has approved — by
-    // the only ceremony that was ever available for it, which is the previous
-    // key's signature.
+    // The pin moves. Both ids stay in `#known`: the old one because
+    // tombstones are how remove-then-re-add is refused, and the new one
+    // because it is now a key this machine has pinned — by the only ceremony
+    // available for it, which is the previous key's signature.
     this.#known.set(id, site);
     this.#sites.set(id, site);
-    this.#pending.delete(id);
-    this.#announced.delete(id);
 
     // The predecessor keeps its pin for the length of the window, so work
     // already signed under it still verifies. Clamped to the protocol's
@@ -1859,7 +1872,6 @@ export class Runner {
   }
 
   #refuseSite(id: string, reason: string): void {
-    if (!this.#known.has(id)) this.#pending.delete(id);
     this.#options.onEvent?.({ type: "site-refused", site: id, reason });
   }
 

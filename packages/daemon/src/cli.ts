@@ -44,8 +44,7 @@ const USAGE = `byollm — run an app's LLM jobs on your own models.
   byollm pause                stop claiming new work
   byollm resume               start claiming again
   byollm offer <service> <scope>  who a service is offered to (private|team)
-  byollm sites                which sites this device serves, and which are waiting
-  byollm approve <site>       serve a site that asked (or --all)
+  byollm sites                which sites this device serves
   byollm forget <url>         drop a pairing
   byollm services             what is installed, healthy, advertised, withheld
   byollm install              keep running in the background, across restarts
@@ -147,7 +146,7 @@ export async function runCli(
     case "sites":
       return commandSites(paths, io);
     case "approve":
-      return commandApprove(paths, rest, io);
+      return commandRetiredApprove(io);
     case "forget":
       return commandForget(paths, rest, io);
     case "services":
@@ -807,24 +806,18 @@ async function runLoop(
         if (event.type === "heartbeat") {
           void recordSites(pairings, origin, runner.sites, {
             known: runner.known,
-            pending: runner.pending,
           })
             .then(async () => {
-              // Then read the file back, because somebody may have answered
-              // in another terminal: `byollm approve` cannot call into a
-              // running loop, so approval arrives the only way one process
-              // can hand something to another here — through the file both
-              // of them already share.
+              // Then read the file back, because a re-pair may have happened
+              // in another terminal. `byollm connect` cannot call into a
+              // running loop, so it arrives the only way one process can hand
+              // something to another here — through the file both share.
+              //
+              // This used to carry approvals through the same door. There are
+              // no approvals any more (Amendment K); the door stays for the
+              // one thing pairing still produces.
               await pairings.load();
               const fresh = pairings.get(origin);
-              const answered = fresh?.known;
-              if (answered) {
-                runner.applyApprovals(new Map(Object.entries(answered)));
-              }
-              // A re-pair happened in another terminal. Same door as an
-              // approval, for the other thing pairing produces — without this
-              // the loop keeps refusing rosters it now has the key for, and
-              // overwrites the file's good state with its own stale refusal.
               if (fresh?.controlPlanePublic !== undefined) {
                 runner.adoptControlPlaneKey(fresh.controlPlanePublic);
               }
@@ -993,17 +986,22 @@ function report(origin: string, event: RunnerEvent, io: CliIo): void {
           `\`byollm run\` re-checks on start.\n`,
       );
       break;
-    case "site-awaiting-approval":
-      // The one sentence in this log that asks for something. A site nobody
-      // here approved is offered no work at all, so the failure it prevents
-      // is silent — which is exactly why it has to be said out loud, with the
-      // fingerprint the site displays next to it.
+    case "now-serving":
+      /**
+       * The mitigation for site policy moving to the account — Amendment K.
+       *
+       * This line used to ask a question ("run `byollm approve`"); it now
+       * reports a fact, and that difference is the trade. A device owner no
+       * longer decides which sites this machine serves. What they keep is
+       * knowing, at the machine, the first time each one asks for anything —
+       * and the levers that bound it, which the message names because a
+       * notice with nothing to do about it is just noise.
+       */
       io.out(
-        `${at} ${host} site ${event.site} is asking this device to serve ` +
-          `it.\n    fingerprint: ${event.fingerprint}\n` +
-          `    Compare that against what the site shows you, then run ` +
-          `\`byollm approve ${event.site}\`.\n` +
-          `    Nothing runs for it until you do.\n`,
+        `${at} ${host} now serving ${event.site}, enabled from your ` +
+          `dashboard.\n    fingerprint: ${event.fingerprint}\n` +
+          `    Not expected? \`byollm pause\` stops all work, and ` +
+          `\`byollm forget\` drops the pairing.\n`,
       );
       break;
     case "site-refused":
@@ -1813,118 +1811,63 @@ async function commandSites(paths: DaemonPaths, io: CliIo): Promise<ExitCode> {
     return 0;
   }
 
-  let waiting = 0;
+  /**
+   * What this device serves, and what it still holds a key for.
+   *
+   * The waiting queue is gone with `byollm approve` (Amendment K) — there is
+   * nothing here to answer any more, so this reports rather than asks.
+   *
+   * The pinned-but-not-offered rows stay, and they matter more now than they
+   * did. A key kept for a site nobody is mentioning is exactly what somebody
+   * should be able to see they are still holding, and with site policy moved
+   * to the account it is the only place that list is visible on the machine.
+   */
   for (const pairing of list) {
     io.out(`${pairing.origin}\n`);
     const served = Object.entries(pairing.sites);
     if (served.length === 0) io.out("  (serving nothing right now)\n");
-    // The same stutter, twice more: id and fingerprint are one string.
     for (const [, site] of served) {
       io.out(`  serving  ${fingerprint(site.identity)}\n`);
     }
-    for (const [id, site] of Object.entries(pairing.pending ?? {})) {
-      waiting += 1;
-      io.out(
-        `  WAITING  ${fingerprint(site.identity)}\n` +
-          `           compare that with the site, then ` +
-          `\`byollm approve ${id}\`\n`,
-      );
-    }
-    // Approved once, not being offered now — consent ended, or the site is
-    // quiet. Shown because a key kept for a site nobody mentions is exactly
-    // what somebody should be able to see they are still holding.
     for (const id of Object.keys(pairing.known ?? {})) {
       if (id in pairing.sites) continue;
-      if (id in (pairing.pending ?? {})) continue;
-      io.out(`  approved ${id} (not offered right now)\n`);
+      io.out(`  pinned   ${id} (not offered right now)\n`);
     }
-  }
-  if (waiting > 0) {
-    io.out(
-      `\n${String(waiting)} site${waiting === 1 ? "" : "s"} waiting. ` +
-        "Nothing runs for them until you approve them.\n",
-    );
   }
   return 0;
 }
 
 /**
- * Say yes to a site that asked — the local half of the trust model.
+ * `byollm approve`, retired — byollm_016 Amendment K.
  *
- * The key that gets pinned is the one this file was shown, not one re-fetched
- * from the upstream: approving is answering the question that was on screen,
- * and a re-fetch would let the answer land on a different question.
+ * The device no longer decides which sites it serves. That is the largest
+ * single reduction in device-side control in this design and it is
+ * deliberate: site policy moves at account speed, where the person changing
+ * it is signed in and can see what they are changing.
  *
- * `--all` exists because a person connecting three sites in a dashboard
- * should not have to type three ids — but it approves what is *currently*
- * waiting and nothing else, so it can never mean "and anything that turns up
- * later".
+ * What the machine kept is the pairing ceremony — where a human compares a
+ * fingerprint — the pinning that refuses a key moving under an id, and the
+ * grant check that refuses work no control plane signed for. What it gave up
+ * is the per-site yes.
+ *
+ * The tombstone says so plainly rather than pointing at a replacement
+ * command, because there is no replacement on this machine. It names the
+ * levers that remain, since a refusal with nothing to do about it is noise.
  */
-async function commandApprove(
-  paths: DaemonPaths,
-  args: readonly string[],
-  io: CliIo,
-): Promise<ExitCode> {
-  const which = args[0];
-  if (which === undefined) {
-    io.err("usage: byollm approve <site-id> | --all\n");
-    return 2;
-  }
-
-  const pairings = new Pairings(paths.pairings);
-  await pairings.load();
-  reportSkipped(pairings, io);
-
-  let approved = 0;
-  for (const pairing of pairings.list()) {
-    const pending = Object.entries(pairing.pending ?? {});
-    const taking = pending.filter(
-      ([id, site]) =>
-        which === "--all" ||
-        id === which ||
-        fingerprint(site.identity) === which,
-    );
-    if (taking.length === 0) continue;
-
-    const known = { ...(pairing.known ?? {}) };
-    const takenIds = new Set(taking.map(([id]) => id));
-    const rest = Object.fromEntries(
-      Object.entries(pairing.pending ?? {}).filter(([id]) => !takenIds.has(id)),
-    );
-    for (const [id, site] of taking) {
-      known[id] = site;
-      approved += 1;
-      // One line. The id is the fingerprint here, as everywhere else in this
-      // file — the same stutter `sites` and `connect` had, missed on the first
-      // pass and found when Todd approved his first real site and read it back
-      // twice.
-      io.out(`approved ${fingerprint(site.identity)} for ${pairing.origin}\n`);
-    }
-    // Built without `pending` and then given one back only if anything is
-    // still waiting. Spreading the old row and overwriting would leave the
-    // approved site listed as waiting forever — the whole row is replaced, so
-    // what is not written is what is gone.
-    const { pending: _dropped, ...rest_of_pairing } = pairing;
-    await pairings.put({
-      ...rest_of_pairing,
-      known,
-      ...(Object.keys(rest).length === 0 ? {} : { pending: rest }),
-    });
-  }
-
-  if (approved === 0) {
-    io.err(
-      which === "--all"
-        ? "nothing is waiting for approval\n"
-        : `nothing waiting matches ${which} — run \`byollm sites\`\n`,
-    );
-    return 1;
-  }
-  io.out(
-    "A running `byollm run` picks this up on its next heartbeat.\n" +
-      "Work for these sites starts then.\n",
+function commandRetiredApprove(io: CliIo): 2 {
+  io.err(
+    `${wrap(
+      "`byollm approve` is gone. Which sites this device serves is decided " +
+        "in your dashboard now, not here — and the first job from a new one " +
+        "says so in `byollm run`, with its fingerprint.",
+    )}\n\n` +
+      `${wrap(
+        "This device still refuses work no grant was signed for, still " +
+          "refuses a site key that changes under an id it pinned, and still " +
+          "stops entirely on `byollm pause`.",
+      )}\n`,
   );
-  return 0;
+  return 2;
 }
 
 // -- backends ------------------------------------------------------------------

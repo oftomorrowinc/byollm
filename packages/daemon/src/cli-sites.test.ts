@@ -14,19 +14,22 @@ import { Pairings } from "./pairings.js";
 import { removeTemp } from "./test-support.js";
 
 /**
- * The screen where somebody answers, and the command that answers — V1-1.
+ * The screen that reports what this device serves — byollm_016 Amendment K.
  *
- * A site the upstream adds is a question now, not an instruction, and a
- * question with no screen is a question nobody answers. These two commands
- * are that screen: `byollm sites` shows the fingerprint to compare against
- * what the site displays, and `byollm approve` pins the key that was on
- * screen — not one re-fetched from the party being checked.
+ * `byollm sites` used to be half of a ceremony: it showed a fingerprint to
+ * compare, and `byollm approve` pinned the key that had been on screen. The
+ * ceremony is gone — site policy is the control plane's now — so this command
+ * reports rather than asks, and `approve` leaves a tombstone.
+ *
+ * The pinned-but-not-offered rows matter more than they did, not less: with
+ * the decision moved to an account, this is the only place on the machine
+ * where the keys it is still holding are visible.
  */
 
 const SITE = publicIdentityOf(generateKeys(1_800_000_000_000));
 const SITE_ID = keyId(SITE.identity);
-const WAITING = publicIdentityOf(generateKeys(1_800_000_000_777));
-const WAITING_ID = keyId(WAITING.identity);
+const OTHER = publicIdentityOf(generateKeys(1_800_000_000_777));
+const OTHER_ID = keyId(OTHER.identity);
 
 let home: string;
 let paths: DaemonPaths;
@@ -56,7 +59,6 @@ afterEach(async () => {
 
 async function pairWith(options: {
   sites?: Record<string, typeof SITE>;
-  pending?: Record<string, typeof SITE>;
   known?: Record<string, typeof SITE>;
 }): Promise<Pairings> {
   const pairings = new Pairings(paths.pairings);
@@ -67,7 +69,6 @@ async function pairWith(options: {
     owner: "me",
     sites: options.sites ?? {},
     ...(options.known ? { known: options.known } : {}),
-    ...(options.pending ? { pending: options.pending } : {}),
     pairedAt: Date.now(),
   });
   return pairings;
@@ -79,174 +80,55 @@ describe("byollm sites", () => {
     expect(out).toContain("byollm connect");
   });
 
-  it("shows what is served, what is waiting, and the fingerprint to compare", async () => {
-    await pairWith({
-      sites: { [SITE_ID]: SITE },
-      pending: { [WAITING_ID]: WAITING },
-    });
-
+  it("shows what is served, with the fingerprint", async () => {
+    await pairWith({ sites: { [SITE_ID]: SITE } });
     expect(await runCli(["sites"], { paths, io: io() })).toBe(0);
-    expect(out).toContain(`serving  ${fingerprint(SITE.identity)}`);
+    expect(out).toContain("https://hub.test");
+    expect(out).toContain("serving");
     expect(out).toContain(fingerprint(SITE.identity));
-    expect(out).toContain(`WAITING  ${fingerprint(WAITING.identity)}`);
-    // The fingerprint of the *waiting* site is the one thing this screen
-    // exists for: approving an id without it is agreeing to a name.
-    expect(out).toContain(fingerprint(WAITING.identity));
-    expect(out).toContain(`byollm approve ${WAITING_ID}`);
-    expect(out).toContain("1 site waiting");
-  });
-
-  it("says the fingerprint once in `approve` too", async () => {
-    // The third instance of one defect, and the one the first fix missed:
-    // `sites` and `connect` were fixed together and `approve` was not, so
-    // Todd approved his first real site and read the key back twice. Checked
-    // here rather than trusted to the same care next time.
-    await pairWith({ sites: {}, pending: { [WAITING_ID]: WAITING } });
-    await runCli(["approve", WAITING_ID], { paths, io: io() });
-
-    const values = out
-      .split("\n")
-      .filter((line) => !line.includes("`"))
-      .flatMap((line) => line.match(/BYOLLM-[A-Z0-9-]+/g) ?? []);
-    expect(values.length, out).toBe(new Set(values).size);
-    expect(values).toContain(fingerprint(WAITING.identity));
   });
 
   it("says the fingerprint once, not twice", async () => {
-    /**
-     * A site's id in this file *is* its fingerprint — `keyId` and
-     * `fingerprint` are the same function, and `runner.ts` refuses any entry
-     * where they disagree. So printing both put the same string on two lines
-     * under two labels, which reads as two facts to check against each other
-     * and is one.
-     *
-     * Asserted as "no value repeats" rather than as an exact layout: the
-     * defect is a duplicated value, and a test pinned to the current spacing
-     * would fail on a redesign that is fine and pass on a repeat that is not.
-     */
-    await pairWith({
-      sites: { [SITE_ID]: SITE },
-      pending: { [WAITING_ID]: WAITING },
-    });
+    // The id *is* the fingerprint's source, so printing both is one fact
+    // wearing two hats — and the longer one is the one nobody can compare.
+    await pairWith({ sites: { [SITE_ID]: SITE } });
     await runCli(["sites"], { paths, io: io() });
-
-    // The approve line legitimately names the waiting id a second time — it
-    // is a command to run, not a value to compare — so it is excluded by
-    // being a line that contains a backtick.
-    const values = out
-      .split("\n")
-      .filter((line) => !line.includes("`"))
-      .flatMap((line) => line.match(/BYOLLM-[A-Z0-9-]+/g) ?? []);
-
-    expect(values.length, out).toBe(new Set(values).size);
-    // And the positive control: both fingerprints are still on screen, which
-    // is what this command is for.
-    expect(values).toContain(fingerprint(SITE.identity));
-    expect(values).toContain(fingerprint(WAITING.identity));
+    const print = fingerprint(SITE.identity);
+    expect(out.split(print).length - 1).toBe(1);
   });
 
   it("shows a site it still holds a key for but nobody is offering", async () => {
-    // Approved once, consent since ended. Worth showing: a key kept for a
-    // relationship that is not currently live is exactly the thing somebody
-    // should be able to see they are still holding.
-    await pairWith({ sites: {}, known: { [SITE_ID]: SITE } });
+    // A pin outlives consent, so that remove-then-re-add is refused rather
+    // than read as a new site. This row is how somebody can see what they are
+    // still holding — and with site policy in an account, it is the only
+    // place on the machine that shows it.
+    await pairWith({ sites: {}, known: { [OTHER_ID]: OTHER } });
+    expect(await runCli(["sites"], { paths, io: io() })).toBe(0);
+    expect(out).toContain("pinned");
+    expect(out).toContain("not offered right now");
+  });
+
+  it("does not ask for anything, because there is nothing to answer", async () => {
+    // The ceremony is gone. A screen that still said "WAITING" would be
+    // asking a question no command can answer any more.
+    await pairWith({ sites: { [SITE_ID]: SITE } });
     await runCli(["sites"], { paths, io: io() });
-    expect(out).toContain(`approved ${SITE_ID} (not offered right now)`);
+    expect(out).not.toContain("WAITING");
+    expect(out).not.toContain("approve");
   });
 });
 
-describe("byollm approve", () => {
-  it("pins the waiting site and stops it waiting", async () => {
-    await pairWith({ pending: { [WAITING_ID]: WAITING } });
-
-    expect(await runCli(["approve", WAITING_ID], { paths, io: io() })).toBe(0);
-    expect(out).toContain(`approved ${WAITING_ID}`);
-
-    const pairings = new Pairings(paths.pairings);
-    await pairings.load();
-    const pairing = pairings.get("https://hub.test");
-    // Into `known`, which is what the running loop reads back and what a
-    // re-offered id is compared against for the life of the pairing.
-    expect(pairing?.known?.[WAITING_ID]).toEqual(WAITING);
-    // And out of `pending` entirely — a file that says "waiting on nothing"
-    // and a file that says nothing should not be two different files.
-    expect(pairing?.pending).toBeUndefined();
+describe("byollm approve — the tombstone", () => {
+  it("refuses with exit 2 and says where sites are decided now", async () => {
+    expect(await runCli(["approve", SITE_ID], { paths, io: io() })).toBe(2);
+    expect(err).toContain("is gone");
+    expect(err).toContain("dashboard");
   });
 
-  it("takes the fingerprint as the name, because that is what was compared", async () => {
-    await pairWith({ pending: { [WAITING_ID]: WAITING } });
-    expect(
-      await runCli(["approve", fingerprint(WAITING.identity)], {
-        paths,
-        io: io(),
-      }),
-    ).toBe(0);
-    const pairings = new Pairings(paths.pairings);
-    await pairings.load();
-    expect(pairings.get("https://hub.test")?.known?.[WAITING_ID]).toEqual(
-      WAITING,
-    );
-  });
-
-  it("approves only what is waiting now, even with --all", async () => {
-    // `--all` is a convenience for somebody who just connected three sites on
-    // a dashboard. It must never mean "and anything that turns up later" —
-    // that would be the standing permission this whole fence exists to
-    // withhold.
-    await pairWith({ pending: { [WAITING_ID]: WAITING } });
-    expect(await runCli(["approve", "--all"], { paths, io: io() })).toBe(0);
-
-    const pairings = new Pairings(paths.pairings);
-    await pairings.load();
-    expect(Object.keys(pairings.get("https://hub.test")?.known ?? {})).toEqual([
-      WAITING_ID,
-    ]);
-
-    out = "";
-    err = "";
-    expect(await runCli(["approve", "--all"], { paths, io: io() })).toBe(1);
-    expect(err).toContain("nothing is waiting");
-  });
-
-  it("refuses a name nothing is waiting under, and says where to look", async () => {
-    await pairWith({ pending: { [WAITING_ID]: WAITING } });
-    expect(await runCli(["approve", SITE_ID], { paths, io: io() })).toBe(1);
-    expect(err).toContain("byollm sites");
-  });
-
-  it("refuses to approve nothing in particular", async () => {
-    expect(await runCli(["approve"], { paths, io: io() })).toBe(2);
-    expect(err).toContain("usage:");
-  });
-
-  it("approves one of several and leaves the rest waiting", async () => {
-    const third = publicIdentityOf(generateKeys(1_800_000_000_555));
-    const thirdId = keyId(third.identity);
-    await pairWith({
-      sites: {},
-      pending: { [WAITING_ID]: WAITING, [thirdId]: third },
-    });
-
-    expect(await runCli(["approve", WAITING_ID], { paths, io: io() })).toBe(0);
-
-    const pairings = new Pairings(paths.pairings);
-    await pairings.load();
-    const pairing = pairings.get("https://hub.test");
-    expect(Object.keys(pairing?.known ?? {})).toEqual([WAITING_ID]);
-    // The other question is still open. An approval that cleared the queue
-    // would be `--all` with extra steps.
-    expect(Object.keys(pairing?.pending ?? {})).toEqual([thirdId]);
-  });
-
-  it("counts the waiting sites in words a person can act on", async () => {
-    const third = publicIdentityOf(generateKeys(1_800_000_000_555));
-    await pairWith({
-      sites: {},
-      pending: { [WAITING_ID]: WAITING, [keyId(third.identity)]: third },
-    });
-    await runCli(["sites"], { paths, io: io() });
-    expect(out).toContain("2 sites waiting");
-    // And a pairing serving nobody says so rather than showing an empty gap.
-    expect(out).toContain("(serving nothing right now)");
+  it("names the levers the device still has", async () => {
+    // A refusal with nothing to do about it is noise. The device gave up the
+    // per-site yes; it kept `pause` and `forget`, and the message says so.
+    await runCli(["approve", "--all"], { paths, io: io() });
+    expect(err).toContain("byollm pause");
   });
 });

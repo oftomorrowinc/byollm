@@ -415,11 +415,17 @@ Test id: `RESULT_PROVENANCE`.
 - Owner ids are **server-namespace-local**. `alice` on one app is not `alice`
   on another, which is why the daemon's admission is keyed by
   **(server origin, user id)**.
-- A `team` job is admitted only by the daemon's **own local allowlist**. A
-  server's assertion that a runner is allowed is never sufficient — honouring
-  it would mean obeying the server rather than enforcing against it.
-- The allowlist is **empty by default**, so a fresh daemon is effectively
-  self-only until its owner deliberately widens it.
+- A `team` job is admitted only by a **grant the device verified itself**,
+  signed by the control-plane key it pinned at pairing and naming this site,
+  this person, this job and the service to run. A routing party's assertion
+  that a runner is allowed is never sufficient — honouring it would mean
+  obeying the server rather than enforcing against it.
+- A grant is **single-use** and short-lived, so a captured one replays
+  nothing and a person removed from a team stops running at their next claim,
+  including for work already queued.
+- A device paired with **no relay** serves its owner and nobody else. There is
+  no control plane to sign a statement about anybody, so there is nothing it
+  could verify — and a `team` offer narrows to `private`, loudly.
 - Tokens are stored as SHA-256 on the server and in a `0600` file on the
   daemon. The daemon's whole state directory is readable and deletable by its
   owner, by design.

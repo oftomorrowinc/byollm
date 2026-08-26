@@ -228,12 +228,13 @@
 >   they were*, which made it an off switch for admission rather than a wider
 >   setting. Every scope that remains asks a question.
 >
-> **One gap this build describes about itself, out loud.** `offer: "team"` is
-> enforced by the daemon's **local allowlist**, not by a central roster — the
-> daemon prints a notice saying so every time it loads a config that offers to a
-> team. Add a teammate to your team and their jobs still do not run until that
-> device also allows them. Roster sync lands next; until it does, `team` is an upper bound
-> on who *may* be served, not a statement that they *will* be. Do not read this
+> **That gap is closed.** `offer: "team"` used to be enforced by a device-local
+> allowlist, so adding a teammate on your team page did nothing until you also
+> enrolled them on each machine. Admission is now a **signed grant, authored at
+> claim**: add somebody and their next job runs; remove them and their next
+> claim fails, including work already queued. The device verifies that grant
+> against a key it pinned at pairing, so the party routing the job still cannot
+> author one. Do not read this
 > release as "team sharing works."
 >
 > **If you use the cloud lane, the hub has to move with you.** The hub speaks
@@ -288,8 +289,8 @@
 > - **Runner tokens are gone.** A daemon proves who it is by signing, so old
 >   tokens authenticate nothing and every paired device re-pairs.
 > - **`claim` answers with a stub, not the work.** A daemon that declines a job
->   on its own allowlist never receives the prompt at all; it fetches the
->   payload only after deciding to run it.
+>   never receives the prompt at all; it fetches the payload only after
+>   deciding to run it.
 > - **Next.js users:** `createHandler` now takes a *function*. See
 >   [`@byollm/server`](packages/server) — an object is constructed during
 >   `next build` and fails on credentials it cannot have.
@@ -420,11 +421,9 @@ Point it at your models:
 
 ```bash
 byollm services       # what's installed, healthy, advertised — and who each is offered to
-byollm sites          # which sites this device serves — and which are waiting on you
-byollm approve <site> # say yes to one that asked (nothing runs for it until you do)
+byollm sites          # which sites this device serves, and which keys it holds
 byollm log            # every prompt that ran here, ever
-byollm pause          # stop claiming work
-byollm allow --list   # everyone who can use this device (empty by default)
+byollm pause          # stop claiming work — the off switch, always yours
 byollm offer <service> team --cap 250     # share a paid service, deliberately
 ```
 
@@ -461,7 +460,7 @@ Offer openai to anyone? [y/N]
 
 Sharing a metered backend without a ceiling is refused outright — an unlimited one is not something anyone means on purpose. Narrowing back to `self` withdraws the consent too, so widening again has to be agreed to again.
 
-`team` is enforced by **your** daemon, not by the app: it keeps a local allowlist of `(app, user)` pairs — `byollm allow <app-url> <user-id>` — and refuses anything not on it, whatever the server claims. The list starts empty, so a fresh daemon runs your work and nobody else's until you say otherwise.
+`team` is enforced by **your** daemon, not by the app. Every job arrives with a grant signed by the control plane your device pinned when it paired, naming the site, the person, the job and the service — and your device verifies that signature, checks the grant has not been used before, checks the service is one it actually offers to that person, and refuses outright if the service is `private`. A device with no relay paired serves its owner and nobody else, because nothing there could tell it who anybody else is.
 
 ## Security
 
@@ -491,7 +490,7 @@ A server is **byollm-compatible** when the conformance kit passes against it. Th
 
 **Alpha, built in the open.** All four packages are published — `byollm`, `@byollm/protocol`, `@byollm/server` and `@byollm/conformance` — and you should ask for `@alpha` explicitly. npm assigns `latest` on a first publish and refuses to let it be removed, so a bare `npm install byollm` resolves here too; the warning at the top of this file is the guard, deliberately rather than an npm deprecation, which would say *abandoned* when the truth is *early*.
 
-The protocol is at v0 and the audience model is settled, but v0 means what it says: it will change without a deprecation path. The daemon ships the full audience matrix with an **empty allowlist by default**, so it behaves as `self`-only until you widen it deliberately. Backends at v1: `openai-http` (Ollama, MLX, llama.cpp, vLLM) and `claude-cli`.
+The protocol is at v0 and the audience model is settled, but v0 means what it says: it will change without a deprecation path. A device serves its owner alone until it is paired with a relay and its owner shares a service deliberately. Backends at v1: `openai-http` (Ollama, MLX, llama.cpp, vLLM) and `claude-cli`.
 
 What exists: 421 tests, an adversarial corpus wired as a blocking CI gate, and a conformance kit green against both the in-memory reference and real Postgres. What does not exist: a single production mile. Wait for `latest`.
 

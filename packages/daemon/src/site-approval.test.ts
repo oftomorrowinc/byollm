@@ -180,51 +180,63 @@ function rotated(keys: StoredKeys, encryption: string): PublicIdentity {
 }
 
 describe("a site the upstream adds", () => {
-  it("is offered, never pinned, and runs nothing until somebody says yes [SITES_LOCALLY_APPROVED]", async () => {
-    // The attack, exactly as the review wrote it: the relay generates a
-    // keypair and announces it as a site. Everything downstream would then
-    // check out — the stub names a site in the map, the payload is sealed by
-    // the key in the map — because the map is what was compromised.
+  /**
+   * The fence moved; it did not fall — byollm_016 Amendment K.
+   *
+   * The attack this block was written for is the relay minting a keypair and
+   * announcing it as a site. Approval used to be what stopped it: the id sat
+   * unpinned and unserved until a human compared a fingerprint.
+   *
+   * A device no longer asks. What stops the same attack now is one layer
+   * down and stronger against this particular attacker: work for that site
+   * needs a **grant signed by the control-plane key pinned at pairing**, and
+   * a relay holds no such key. So the relay can get an id pinned here and
+   * still cannot get a single job run under it.
+   *
+   * What the trade actually costs is worth naming precisely, because it is
+   * not nothing: a compromised *control plane* — which can sign — can now
+   * point this device at a site its owner never chose. That is the accepted
+   * posture, bounded by spend caps and `pause`, and made loud by the
+   * first-serve notice below.
+   */
+  it("is pinned and served, and its first job announces itself", async () => {
     const runner = await runnerWith(
       upstream(() => ({ [M]: publicIdentityOf(RELAY_MINTED) })),
       { sites: new Map() },
     );
     await runner.tick();
 
-    expect(runner.sites.has(M)).toBe(false);
-    expect(runner.pending.has(M)).toBe(true);
-    const asked = events.find((e) => e.type === "site-awaiting-approval");
-    expect(asked?.site).toBe(M);
-    expect(asked?.fingerprint).toBe(
+    expect(runner.sites.has(M)).toBe(true);
+    // Nothing announced yet: a site the upstream merely mentioned has not
+    // asked this device for anything, and a notice on a mention would fire
+    // for sites that never send a job.
+    expect(events.some((e) => e.type === "now-serving")).toBe(false);
+
+    expect(runner.admit(stub(M)).ok).toBe(true);
+    const said = events.find((e) => e.type === "now-serving");
+    expect(said?.site).toBe(M);
+    expect(said?.fingerprint).toBe(
       fingerprint(publicIdentityOf(RELAY_MINTED).identity),
     );
-
-    // And the work it would send is refused at admission — before a payload
-    // is fetched, before a backend is paid.
-    const admitted = runner.admit(stub(M));
-    expect(admitted.ok).toBe(false);
-    if (admitted.ok) throw new Error("unreachable: the admission was refused");
-    expect(admitted.reason).toContain("has not approved");
   });
 
-  it("asks once, not every five seconds", async () => {
+  it("announces once, not on every job it ever sends", async () => {
+    // A daemon that repeats itself is a daemon nobody reads — the same rule
+    // `awaiting-consent` follows, and the reason a person would ever notice
+    // the one line that matters.
     const runner = await runnerWith(
       upstream(() => ({ [M]: publicIdentityOf(RELAY_MINTED) })),
       { sites: new Map() },
     );
     await runner.tick();
-    await runner.tick();
-    await runner.tick();
+    runner.admit(stub(M));
+    runner.admit({ ...stub(M), id: "job_2" });
+    runner.admit({ ...stub(M), id: "job_3" });
 
-    // A daemon that repeats itself on every heartbeat is a daemon nobody
-    // reads — the same rule `awaiting-consent` follows, and the reason a
-    // person would ever notice the one line that matters.
-    expect(
-      events.filter((e) => e.type === "site-awaiting-approval"),
-    ).toHaveLength(1);
+    expect(events.filter((e) => e.type === "now-serving")).toHaveLength(1);
   });
 
-  it("is served once approved, and the key served is the one approved", async () => {
+  it("keeps the key it pinned when the upstream offers a different one", async () => {
     let announced: Record<string, PublicIdentity> = {
       [M]: publicIdentityOf(RELAY_MINTED),
     };
@@ -233,13 +245,11 @@ describe("a site the upstream adds", () => {
       { sites: new Map() },
     );
     await runner.tick();
-    runner.applyApprovals(new Map([[M, publicIdentityOf(RELAY_MINTED)]]));
 
     expect(runner.sites.has(M)).toBe(true);
-    expect(runner.pending.has(M)).toBe(false);
     expect(runner.admit(stub(M)).ok).toBe(true);
 
-    // The upstream now offers a different key for the same id. The approved
+    // The upstream now offers a different key for the same id. The pinned
     // one stays — this is `site-key-changed`, and it is the *whole* reason
     // the approved map is kept rather than the offered one.
     const moved = rotated(RELAY_MINTED, publicIdentityOf(SITE_A).encryption);
@@ -252,7 +262,7 @@ describe("a site the upstream adds", () => {
   });
 });
 
-describe("an id that was approved once", () => {
+describe("an id this device has pinned once", () => {
   it("cannot come back under a different key by leaving the set first [SITES_LOCALLY_APPROVED]", async () => {
     // The bypass the review found: heartbeat N drops the id, which used to
     // delete the pin, and heartbeat N+1 re-adds it with a key of the
@@ -279,10 +289,10 @@ describe("an id that was approved once", () => {
 
     expect(events.some((e) => e.type === "site-key-changed")).toBe(true);
     expect(runner.sites.has(A)).toBe(false);
-    // And it is *not* a new site: asking for approval here would turn the
-    // refusal into a prompt, and a prompt is something a person can say yes
-    // to by reflex.
-    expect(events.some((e) => e.type === "site-awaiting-approval")).toBe(false);
+    // And it is *not* treated as a new site. This is the branch `#known`
+    // exists for: it outlives consent precisely so that remove-then-re-add
+    // is not a way around the comparison.
+    expect(runner.sites.has(A)).toBe(false);
   });
 
   it("resumes without asking again when it comes back unchanged", async () => {
@@ -302,7 +312,6 @@ describe("an id that was approved once", () => {
     await runner.tick();
 
     expect(runner.sites.has(A)).toBe(true);
-    expect(events.some((e) => e.type === "site-awaiting-approval")).toBe(false);
     expect(events.some((e) => e.type === "site-key-changed")).toBe(false);
   });
 });
@@ -319,7 +328,6 @@ describe("an offer whose paperwork does not add up", () => {
     );
     await runner.tick();
 
-    expect(runner.pending.has(A)).toBe(false);
     expect(runner.sites.has(A)).toBe(false);
     expect(events.find((e) => e.type === "site-refused")?.reason).toContain(
       "not signed by the identity",
@@ -336,7 +344,7 @@ describe("an offer whose paperwork does not add up", () => {
     );
     await runner.tick();
 
-    expect(runner.pending.has(M)).toBe(false);
+    expect(runner.sites.has(M)).toBe(false);
     expect(events.find((e) => e.type === "site-refused")?.reason).toContain(
       "not its key id",
     );
@@ -372,71 +380,64 @@ describe("an offer whose paperwork does not add up", () => {
   });
 });
 
-describe("approvals read back from disk", () => {
+describe("pins read back from disk", () => {
   it("are checked, not trusted, because a file is not a smaller thing", async () => {
-    // `byollm approve` writes the pairings file and the running loop reads it
-    // back. That file sits on a machine other software runs on, so an
-    // approval arriving through it gets the same two checks a heartbeat gets.
+    /**
+     * This check used to live in `applyApprovals`, which Amendment K deleted
+     * along with `byollm approve`. The entries still come from the pairings
+     * file, and that file sits on a machine other software runs on — so the
+     * check moved to the constructor rather than leaving with its caller.
+     *
+     * A pin whose key does not belong to its id is worse than a missing one:
+     * every later substitution comparison would compare against the wrong
+     * thing, so the row is dropped rather than repaired.
+     */
     const runner = await runnerWith(
-      upstream(() => ({ [M]: publicIdentityOf(RELAY_MINTED) })),
-      { sites: new Map() },
-    );
-    await runner.tick();
-
-    runner.applyApprovals(
-      new Map([
+      upstream(() => ({})),
+      {
+        sites: new Map(),
         // Filed under the wrong id.
-        [M, publicIdentityOf(SITE_A)],
-      ]),
+        known: new Map([[M, publicIdentityOf(SITE_A)]]),
+      },
     );
-    expect(runner.sites.has(M)).toBe(false);
-    expect(runner.known.has(M)).toBe(false);
-
-    runner.applyApprovals(
-      new Map([
-        [
-          M,
-          {
-            ...publicIdentityOf(RELAY_MINTED),
-            encryption: publicIdentityOf(SITE_A).encryption,
-          },
-        ],
-      ]),
-    );
-    expect(runner.sites.has(M)).toBe(false);
     expect(runner.known.has(M)).toBe(false);
   });
 
-  it("do not serve a key the upstream is no longer offering", async () => {
-    // Approved at 10:00 from what was on screen; by 10:01 the upstream is
-    // offering something else. Serving the approved key would be right, and
-    // serving *anything* here would be premature — the next heartbeat is the
-    // one that says which of the two the upstream stands behind.
+  it("drops a pin whose encryption key is not signed by its identity", async () => {
+    const spliced = {
+      ...publicIdentityOf(RELAY_MINTED),
+      encryption: publicIdentityOf(SITE_A).encryption,
+    };
     const runner = await runnerWith(
-      upstream(() => ({
-        [M]: rotated(RELAY_MINTED, publicIdentityOf(SITE_A).encryption),
-      })),
-      { sites: new Map() },
+      upstream(() => ({})),
+      {
+        sites: new Map(),
+        known: new Map([[M, spliced]]),
+      },
     );
-    await runner.tick();
+    expect(runner.known.has(M)).toBe(false);
+  });
 
-    runner.applyApprovals(new Map([[M, publicIdentityOf(RELAY_MINTED)]]));
-    expect(runner.known.has(M)).toBe(true);
-    expect(runner.sites.has(M)).toBe(false);
-
-    await runner.tick();
-    expect(events.some((e) => e.type === "site-key-changed")).toBe(true);
-    expect(runner.sites.has(M)).toBe(false);
+  it("keeps a pin that checks out", async () => {
+    // The control: verification must not be a quiet way to lose every pin.
+    const runner = await runnerWith(
+      upstream(() => ({})),
+      {
+        sites: new Map(),
+        known: new Map([[A, publicIdentityOf(SITE_A)]]),
+      },
+    );
+    expect(runner.known.has(A)).toBe(true);
   });
 });
 
 describe("what the CLI is handed to persist", () => {
-  it("records the site set, the approvals and the open questions", async () => {
+  it("records the site set and the pins, and writes only on a change", async () => {
     // `recordSites` is what the run loop calls on every heartbeat, and its
     // four outcomes are the reason it is a function rather than a branch
-    // inside the loop. Two of them are new: `known` grows and `pending`
-    // appears, and a `pending` that outlived its offer would leave somebody
-    // being asked a question the upstream stopped asking.
+    // inside the loop. The `pending` map it used to carry went with
+    // `byollm approve` (Amendment K); `known` stays, because it is the pin
+    // record the substitution check compares against.
     const { mkdtemp } = await import("node:fs/promises");
     const { tmpdir } = await import("node:os");
     const { join } = await import("node:path");
@@ -459,38 +460,32 @@ describe("what the CLI is handed to persist", () => {
       pairedAt: Date.now(),
     });
 
+    const served = new Map([[M, publicIdentityOf(RELAY_MINTED)]]);
     expect(
-      await recordSites(pairings, "https://hub.test", new Map(), {
-        known: new Map(),
-        pending: new Map([[M, publicIdentityOf(RELAY_MINTED)]]),
+      await recordSites(pairings, "https://hub.test", served, {
+        known: served,
       }),
     ).toBe("written");
-    expect(pairings.get("https://hub.test")?.pending?.[M]).toEqual(
+    expect(pairings.get("https://hub.test")?.known?.[M]).toEqual(
       publicIdentityOf(RELAY_MINTED),
     );
 
     // Nothing moved, so nothing is written — a file rewritten every five
     // seconds is a file somebody's backup notices.
     expect(
-      await recordSites(pairings, "https://hub.test", new Map(), {
-        known: new Map(),
-        pending: new Map([[M, publicIdentityOf(RELAY_MINTED)]]),
+      await recordSites(pairings, "https://hub.test", served, {
+        known: served,
       }),
     ).toBe("unchanged");
 
-    // The question was answered: the offer leaves and the approval stays.
+    // Consent ends: the site leaves the served set and the pin stays, which
+    // is what makes remove-then-re-add a refusal rather than a new site.
     expect(
-      await recordSites(
-        pairings,
-        "https://hub.test",
-        new Map([[M, publicIdentityOf(RELAY_MINTED)]]),
-        {
-          known: new Map([[M, publicIdentityOf(RELAY_MINTED)]]),
-          pending: new Map(),
-        },
-      ),
+      await recordSites(pairings, "https://hub.test", new Map(), {
+        known: served,
+      }),
     ).toBe("written");
-    expect(pairings.get("https://hub.test")?.pending).toBeUndefined();
+    expect(pairings.get("https://hub.test")?.sites).toEqual({});
     expect(pairings.get("https://hub.test")?.known?.[M]).toBeDefined();
 
     await removeTemp(home);

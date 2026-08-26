@@ -25,9 +25,10 @@ push. There is nothing to open on the user's network.
 
 A daemon is paired to **exactly one user** in exactly one server's namespace
 `[PAIR_ONE_USER]`. A daemon MAY be paired to several servers; each pairing is
-a separate identity with its own token, its own owner, and its own allowlist
-entries. Nothing is pooled across pairings, and there is no daemon-to-daemon
-channel.
+a separate identity with its own owner and its own pinned control-plane key.
+Nothing is pooled across pairings — a grant signed by one relay's control
+plane is not a document another pairing can even read — and there is no
+daemon-to-daemon channel.
 
 ### 1.1 Owner ids are server-namespace-local
 
@@ -174,13 +175,20 @@ Note that account class is independent of backend class (§6): `claude-cli` is
 both process-class and subscription-class; a future local `mlx_lm.lora`
 backend would be process-class and open.
 
-### 4.2 `team` is enforced locally
+### 4.2 `team` is enforced at the device
 
-A `team` job is admitted only when the **daemon's own** allowlist contains
-`(server origin, job owner)` `[NAMED_LOCAL_ALLOWLIST]`. A server's assertion
-that a runner is allowed is never sufficient — user ids are
-server-namespace-local, so honouring a server's list would mean obeying the
-server rather than enforcing against it.
+A `team` job is admitted only when the job carries a grant the **daemon
+itself verified** against the control-plane key it pinned at pairing
+`[NAMED_LOCAL_ALLOWLIST]`. A routing party's assertion that a runner is
+allowed is never sufficient — user ids are server-namespace-local, so
+honouring such a claim would mean obeying the server rather than enforcing
+against it.
+
+The grant is authored at **claim**, not at enqueue, which is what makes
+membership changes take effect immediately in both directions: a person added
+runs on their next job, and a person removed fails at their next claim even
+for work already queued. It is single-use and short-lived, so it cannot be
+replayed after either.
 
 A server MUST NOT put the list on the wire. It may hold one and filter its
 own candidates with it — the party holding the list authored it — but a stub

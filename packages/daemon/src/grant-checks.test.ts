@@ -6,7 +6,7 @@ import { DaemonConfig, resolveConfig } from "./config.js";
 import { Budgets } from "./budgets.js";
 import { IngressLog } from "./ingress.js";
 import { ProtocolClient } from "./client.js";
-import { Runner } from "./runner.js";
+import { Runner, type RunnerEvent } from "./runner.js";
 import { SpendLedger } from "./spend.js";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { removeTemp, testControlPlane } from "./test-support.js";
@@ -59,7 +59,9 @@ afterEach(async () => {
 });
 
 /** Bob's device, offering `shared` to his team and `mine` to himself. */
-async function device(): Promise<Runner> {
+async function device(
+  over: { onEvent?: (event: RunnerEvent) => void; now?: () => number } = {},
+): Promise<Runner> {
   const loaded = resolveConfig(
     DaemonConfig.parse({
       services: {
@@ -99,7 +101,8 @@ async function device(): Promise<Runner> {
       keepSelfPrompts: true,
     }),
     backendFactory: () => new Echo(),
-    now: () => NOW,
+    now: over.now ?? (() => NOW),
+    ...(over.onEvent === undefined ? {} : { onEvent: over.onEvent }),
   });
 }
 
@@ -265,6 +268,65 @@ describe("check 3 — offer-consistency", () => {
     const result = (await device()).admit(job({ service: "mine" }));
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.reason).toContain("different service");
+  });
+});
+
+describe("what the run log is told", () => {
+  it("names which check refused, not just that one did", async () => {
+    /**
+     * A refusal that says only "the job did not run" leaves somebody
+     * comparing four possibilities by hand. These are the events `byollm run`
+     * prints, and each names the check — a forged grant and a slow clock are
+     * the same outcome and completely different problems.
+     */
+    const seen: string[] = [];
+    const runner = await device({
+      onEvent: (event) => {
+        if (event.type === "grant-refused") seen.push(event.refusal);
+      },
+    });
+
+    runner.admit(job({ grant: undefined }));
+    runner.admit(job({}, { jobId: "elsewhere" }));
+    runner.admit(job({}, { user: "somebody-else" }));
+    runner.admit(job({}, { issuedAt: NOW - GRANT_MAX_AGE_MS - 1_000 }));
+    const spent = job();
+    runner.admit(spent);
+    runner.admit(spent);
+
+    expect(seen).toEqual([
+      "absent",
+      "wrong-job",
+      "wrong-user",
+      "expired",
+      "replayed",
+    ]);
+  });
+});
+
+describe("the replay set does not grow forever", () => {
+  it("forgets a grant once no fresh one could carry its id", async () => {
+    /**
+     * An entry only has to outlive the grant naming it: past
+     * {@link GRANT_MAX_AGE_MS} the freshness check refuses that grant anyway,
+     * so keeping the id would be guarding a door already shut. Without this a
+     * long-running daemon accumulates one entry per job it has ever admitted.
+     *
+     * Observed through behaviour rather than by reading the map: the same id
+     * becomes usable again once its window has passed, which is exactly what
+     * "forgotten" means and is also proof it is not a leak.
+     */
+    let now = NOW;
+    const runner = await device({ now: () => now });
+
+    expect(runner.admit(job()).ok).toBe(true);
+    expect(runner.admit(job()).ok).toBe(true);
+
+    // Far enough on that nothing signed at NOW is fresh any more, and a grant
+    // signed now reuses the id the swept entry held.
+    now = NOW + GRANT_MAX_AGE_MS + 1;
+    const reissued = job({}, { issuedAt: now });
+    expect(runner.admit(reissued).ok).toBe(true);
   });
 });
 

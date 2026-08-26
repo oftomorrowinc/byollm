@@ -440,35 +440,35 @@ describe("a daemon paired with two sites", () => {
       "does not serve site",
     );
 
-    // The upstream adds C — and that is a *request*, not an instruction
-    // (V1-1). The site is offered, its fingerprint is shown, and nothing runs
-    // for it: an upstream that could add a site by saying so could mint one,
-    // sign its own stubs, and have this device run work nobody consented to.
+    /**
+     * The upstream adds C, and this device serves it — Amendment K.
+     *
+     * This used to be a *request*: the site was offered, its fingerprint
+     * shown, and nothing ran until somebody approved it, because "an upstream
+     * that could add a site by saying so could mint one, sign its own stubs,
+     * and have this device run work nobody consented to."
+     *
+     * That sentence is still true of an upstream that can only *say* things.
+     * What changed is that saying so is no longer enough to get work run: the
+     * job below carries a grant signed by the control-plane key pinned at
+     * pairing, and a relay cannot produce one. The site set moved from being
+     * the fence to being routing information.
+     *
+     * The announcement moved with it — fired at the first job rather than at
+     * the mention, and carrying the same fingerprint, because a change made
+     * in an account should still be loud at the machine.
+     */
     announced = { ...announced, [C]: publicIdentityOf(SITE_C) };
-    claimed = false;
-    await runner.tick();
-    await settles(
-      () => events.some((e) => e.type === "site-awaiting-approval"),
-      "the approval request",
-    );
-    const asked = events.find((e) => e.type === "site-awaiting-approval");
-    expect(asked?.site).toBe(C);
-    // The fingerprint is the whole ceremony: it is what the person compares
-    // against the site's own screen, so an event without one asks somebody to
-    // approve a string of hex they cannot check.
-    expect(asked?.fingerprint).toBe(
-      fingerprint(publicIdentityOf(SITE_C).identity),
-    );
-    expect(runner.sites.has(C)).toBe(false);
-    expect(results).toEqual([]);
-
-    // Somebody says yes — `byollm approve`, which reaches a running loop
-    // through the pairings file.
-    runner.applyApprovals(new Map([[C, publicIdentityOf(SITE_C)]]));
     claimed = false;
     await runner.tick();
     await settles(() => results.length === 1, "site C's result");
     expect(runner.sites.has(C)).toBe(true);
+
+    const said = events.find((e) => e.type === "now-serving");
+    expect(said?.site).toBe(C);
+    expect(said?.fingerprint).toBe(
+      fingerprint(publicIdentityOf(SITE_C).identity),
+    );
 
     // And removing A takes its pin with it.
     announced = {

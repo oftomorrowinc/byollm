@@ -215,9 +215,14 @@ export function signGrant(
 /**
  * Why a grant was refused.
  *
- * Split by remedy, because these send somebody to four different places: fix
- * your clock, re-pair, take it up with the relay, or nothing — you are being
+ * Split by remedy, because these send somebody to different places: fix your
+ * clock, take it up with the relay, or nothing at all — you are being
  * attacked and the refusal worked.
+ *
+ * There is deliberately no `no-pinned-key` here. A device that pinned no
+ * control-plane key never reaches this function: it is in direct mode, and
+ * the question "is this grant good" does not arise. A value nothing can
+ * return is a branch every caller has to handle and no test can reach.
  */
 export type GrantRefusal =
   /** The signature does not verify against the pinned key. */
@@ -234,17 +239,7 @@ export type GrantRefusal =
    * Checked, and not as pedantry: an `issuedAt` ahead of now extends a
    * grant's life past the bound, which is the whole thing being enforced.
    */
-  | "from-the-future"
-  /**
-   * A grant arrived and this device pinned no key to check it against.
-   *
-   * Not a bad signature — nothing was checked. It is the one refusal here
-   * that is evidence about the *pairing* rather than the document: an
-   * upstream that sends grants has a control plane, so a device holding no
-   * key from it paired before grants existed and can never verify one. The
-   * remedy is re-pairing, and it is the only refusal here that has one.
-   */
-  | "no-pinned-key";
+  | "from-the-future";
 
 /**
  * Is this grant one this device may act on, right now?

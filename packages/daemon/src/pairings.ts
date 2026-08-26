@@ -57,15 +57,6 @@ export const Pairing = z
      */
     known: z.record(z.string().min(1), PublicIdentity).optional(),
     /**
-     * Offered by the upstream, approved by nobody — shown, never served.
-     *
-     * Kept in the file because the person who answers is at a *different*
-     * process: the daemon is in its run loop, and `byollm approve` needs the
-     * key to pin the one that was on screen rather than re-asking the
-     * upstream for it.
-     */
-    pending: z.record(z.string().min(1), PublicIdentity).optional(),
-    /**
      * The control plane's grant-signing key, pinned at pairing —
      * Amendment J.
      *
@@ -92,7 +83,7 @@ export type Pairing = z.infer<typeof Pairing>;
 function siftEntries(row: unknown): string[] {
   const dropped: string[] = [];
   if (typeof row !== "object" || row === null) return dropped;
-  for (const field of ["sites", "known", "pending"] as const) {
+  for (const field of ["sites", "known"] as const) {
     const map = (row as Record<string, unknown>)[field];
     if (typeof map !== "object" || map === null) continue;
     const kept: Record<string, unknown> = {};
@@ -148,6 +139,7 @@ const PairingFile = z
 const RETIRED_PAIRING_FIELDS = Object.freeze([
   "roster",
   "rosterRefusal",
+  "pending",
 ] as const);
 
 /** A row that would not parse, for the caller to report. */
@@ -410,11 +402,16 @@ export async function recordSites(
   pairings: Pairings,
   origin: string,
   sites: ReadonlyMap<string, PublicIdentity>,
-  /** Ever approved, and offered-but-unapproved — V1-1. */
-  extra: {
-    readonly known?: ReadonlyMap<string, PublicIdentity>;
-    readonly pending?: ReadonlyMap<string, PublicIdentity>;
-  } = {},
+  /**
+   * Every site id this device has ever pinned, with the key it pinned.
+   *
+   * Outlives `sites` deliberately: `sites` follows what the upstream is
+   * currently offering, so a site that leaves it is gone — and if that were
+   * the only record, an upstream could drop an id and re-offer it under a key
+   * of its own choosing. This map only grows, so the second offer is compared
+   * against the first.
+   */
+  extra: { readonly known?: ReadonlyMap<string, PublicIdentity> } = {},
 ): Promise<"unpaired" | "unchanged" | "written"> {
   const pairing = pairings.get(origin);
   if (!pairing) return "unpaired";
@@ -422,17 +419,7 @@ export async function recordSites(
     ...pairing,
     sites: Object.fromEntries(sites),
     ...(extra.known ? { known: Object.fromEntries(extra.known) } : {}),
-    // Written even when empty, and deleted rather than left behind: a
-    // `pending` map that outlived the offer would have `byollm sites` showing
-    // somebody a question the upstream stopped asking.
-    ...(extra.pending
-      ? extra.pending.size === 0
-        ? { pending: undefined }
-        : { pending: Object.fromEntries(extra.pending) }
-      : {}),
   };
-  if (next.pending === undefined)
-    delete (next as { pending?: unknown }).pending;
   // Compared as text, deliberately: the values are small, flat and
   // JSON-shaped, and a deep-equality helper here would be a second
   // implementation of a comparison the file format already defines.

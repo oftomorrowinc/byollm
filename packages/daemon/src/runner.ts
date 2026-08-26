@@ -1351,7 +1351,11 @@ export class Runner {
     if (roster === undefined) return;
     const key = this.#options.controlPlanePublic;
     if (key === undefined) {
-      this.#noteRosterRefusal("bad-signature", roster);
+      // Evidence, not a failure: this upstream sends rosters, so it has a
+      // control plane — and this pairing holds no key from it, which can only
+      // mean it was made before roster sync existed. The remedy is a re-pair,
+      // and this is the one refusal that has one.
+      this.#noteRosterRefusal("no-pinned-key", roster);
       return;
     }
     const refusal = verifyRoster({
@@ -1399,6 +1403,11 @@ export class Runner {
     return this.#now() - roster.issuedAt > ROSTER_MAX_AGE_MS
       ? undefined
       : roster.members;
+  }
+
+  /** Why the last roster was refused, for the file. */
+  rosterRefusal(): RosterRefusal | undefined {
+    return this.#rosterRefusal;
   }
 
   /** The roster as it arrived, for the file. Verified, or absent. */

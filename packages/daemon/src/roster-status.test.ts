@@ -258,3 +258,30 @@ describe("what pairing writes down", () => {
     expect(result.ok && result.pairing.controlPlanePublic).toBeUndefined();
   });
 });
+
+describe("a pairing that predates roster sync", () => {
+  it("says so, and names the remedy", async () => {
+    /**
+     * Option 1, ruled 2026-08-25. An already-paired device can never receive
+     * the control-plane key — it is offered only in the pair response — so
+     * without this it is permanently unable to hold a roster and nothing on
+     * any screen says why. It would simply never be part of a team.
+     *
+     * Said on evidence, not a guess: the upstream sent a roster this device
+     * could not check. A direct-mode server sends none and this never fires.
+     */
+    await pairedWith({ rosterRefusal: "no-pinned-key" });
+    await status();
+    expect(out).toContain("sending rosters this device cannot check");
+    expect(out).toContain("`byollm connect` to re-pair");
+  });
+
+  it("stays quiet for a pairing nobody is sending rosters to", async () => {
+    // Direct mode, and every pairing that predates this on an upstream with
+    // no control plane. A standing line about rosters there would be noise
+    // forever, and noise is how a real notice stops being read.
+    await pairedWith({});
+    await status();
+    expect(out).not.toContain("predates roster sync");
+  });
+});

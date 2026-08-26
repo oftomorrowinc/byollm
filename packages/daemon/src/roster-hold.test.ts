@@ -92,6 +92,23 @@ describe("holding a roster", () => {
     expect(runner.rosterStatus()).toMatchObject({ held: true, members: 2 });
   });
 
+  it("names an unpinned pairing as such, not as a bad signature", async () => {
+    /**
+     * The distinction the whole notice rests on. Nothing was checked here —
+     * there was no key to check with — so calling it `bad-signature` would
+     * describe a verification that never happened and send somebody looking
+     * for a forgery.
+     *
+     * It is also the only refusal with a remedy: re-pair. Collapsing it into
+     * the generic one loses the sentence a person can act on, which a
+     * mutation proved was worth its own test.
+     */
+    const runner = await makeRunner();
+    runner.applyRosterForTest(roster());
+    expect(runner.rosterRefusal()).toBe("no-pinned-key");
+    expect(runner.rosterStatus()).toMatchObject({ refusal: "no-pinned-key" });
+  });
+
   it("holds nothing when no key was pinned", async () => {
     // A pairing with no control-plane key has nothing to check a signature
     // against. Accepting the roster anyway would be trusting whoever handed

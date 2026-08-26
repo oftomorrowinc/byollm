@@ -699,6 +699,7 @@ async function runLoop(
           // Read once: two calls could straddle a verification and write a
           // roster the check above did not look at.
           const held = runner.heldRoster();
+          const refusal = runner.rosterRefusal();
           void recordSites(pairings, origin, runner.sites, {
             known: runner.known,
             pending: runner.pending,
@@ -706,6 +707,7 @@ async function runLoop(
             // a different process from the run loop, and a roster only the
             // loop knows about is one nobody can be shown.
             ...(held === undefined ? {} : { roster: held }),
+            ...(refusal === undefined ? {} : { rosterRefusal: refusal }),
           })
             .then(async () => {
               // Then read the file back, because somebody may have answered
@@ -1121,6 +1123,27 @@ async function commandStatus(
    * computer.
    */
   for (const pairing of pairings.list()) {
+    /**
+     * A pairing made before roster sync existed — ruled 2026-08-25, option 1.
+     *
+     * Said only when it is actionable, and on evidence rather than a guess.
+     * The daemon cannot know whether an upstream has a control plane; what it
+     * knows is that this one **sent a roster** and this pairing has no key to
+     * check it with, which can only mean the pairing predates the key. A
+     * direct-mode server sends none and this line never appears for it.
+     *
+     * The remedy is the whole point of saying it. Without this the device is
+     * permanently unable to hold a roster and nothing on any screen says so —
+     * it would simply never be part of a team, quietly, forever.
+     */
+    if (pairing.rosterRefusal === "no-pinned-key") {
+      io.out(
+        `  (${pairing.origin} is sending rosters this device cannot check —\n` +
+          `   this pairing predates roster sync. \`byollm connect\` to re-pair\n` +
+          `   and enable team routing.)\n`,
+      );
+      continue;
+    }
     if (pairing.controlPlanePublic === undefined) continue;
     const roster = pairing.roster;
     if (roster === undefined) {

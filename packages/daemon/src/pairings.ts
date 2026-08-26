@@ -85,6 +85,8 @@ export const Pairing = z
      * typed into it.
      */
     roster: SignedRoster.optional(),
+    /** Why the last roster was refused — for `byollm status` to explain. */
+    rosterRefusal: z.string().optional(),
     pairedAt: z.number().int().positive(),
   })
   .strict();
@@ -351,6 +353,15 @@ export async function recordSites(
      * roster is gone.
      */
     readonly roster?: SignedRoster;
+    /**
+     * Why the last roster was refused, when one was.
+     *
+     * Written so `byollm status` — a different process — can say what is
+     * wrong. `no-pinned-key` is the one worth carrying: it means an upstream
+     * is sending rosters this device cannot check, which nothing else on any
+     * screen would reveal.
+     */
+    readonly rosterRefusal?: string;
   } = {},
 ): Promise<"unpaired" | "unchanged" | "written"> {
   const pairing = pairings.get(origin);
@@ -360,6 +371,9 @@ export async function recordSites(
     sites: Object.fromEntries(sites),
     ...(extra.known ? { known: Object.fromEntries(extra.known) } : {}),
     ...(extra.roster ? { roster: extra.roster } : {}),
+    ...(extra.rosterRefusal
+      ? { rosterRefusal: extra.rosterRefusal }
+      : { rosterRefusal: undefined }),
     // Written even when empty, and deleted rather than left behind: a
     // `pending` map that outlived the offer would have `byollm sites` showing
     // somebody a question the upstream stopped asking.

@@ -115,7 +115,20 @@ export function signRoster(
 
 /** Why a roster was refused. Typed for logs; never returned to a caller. */
 export type RosterRefusal =
-  "bad-signature" | "wrong-owner" | "stale" | "from-the-future";
+  | "bad-signature"
+  | "wrong-owner"
+  | "stale"
+  | "from-the-future"
+  /**
+   * A roster arrived and this device pinned no key to check it against.
+   *
+   * Not a bad signature — nothing was checked. It is the one refusal that is
+   * evidence *about the pairing* rather than about the document: an upstream
+   * that sends rosters has a control plane, so a device holding no key from
+   * it paired before roster sync existed and can never verify one. The remedy
+   * is re-pairing, and this is the only refusal here that has one.
+   */
+  | "no-pinned-key";
 
 /**
  * Is this roster one this device may admit people from, right now?

@@ -2252,3 +2252,21 @@ surface: usage by site and by user, spend where metered. Detection now has two
 layers: the first-serve notice (immediate, before the first job runs) and the
 usage digest (trend). Disclosure check: this is the owner's view of the owner's
 own services — sites never see it.
+
+### Usage graph shows ALL usage (2026-08-26)
+
+Todd: "I think we show all usage in the graph. If someone was using a local model
+or a site was using my claude excessively even for me I would want to know for
+sure." Ruled: the attribution surface covers everything a device runs — cloud-
+granted jobs, direct-mode jobs, and the owner's own local use alike, by service,
+by site, by user where teams apply. Mechanism split by who knows what: the hub
+already knows what it granted; local and direct usage is device-reported — the
+daemon sends usage aggregates (counts, kinds, site, spend estimates — metadata,
+never content) to its owner's own account. Disclosure is clean: the subject and
+the recipient are the same person; sites see none of it. A pure-OSS daemon with no
+cloud account has no graph — status and the ingress log remain its surfaces.
+
+Boundary kept explicit so earlier rulings stay coherent: **seeing is not capping.**
+The platform ceiling still governs only what the hub grants; device-reported local
+usage appears on the owner's graph but is never the platform's to limit. The graph
+is the owner knowing; the ceiling is the platform protecting.

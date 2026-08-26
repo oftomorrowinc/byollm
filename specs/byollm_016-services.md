@@ -1312,3 +1312,28 @@ directly above their bug), and test the call site, not only the
 mechanism. Next artifact: the roster-sync phasing doc against
 Amendment G's four properties, non-authorship-not-opacity carried
 through, doc before code as ruled.
+
+## Ruled: sign-on-read (2026-08-25, closing the day)
+
+G.5's one open decision: **sign-on-read** — the dashboard exposes a
+hub-only, read-only, hub-authenticated endpoint; signatures minted on
+demand; the hub polls as it already polls. Reasoning ratified from
+CCC's own doc: issuedAt is the only honest age anchor (receipt-anchored
+age hands a withholding relay the forever-member attack), and once the
+anchor is issuance, freshness must be structural — a re-signing cron
+is a silent metronome whose slipping narrows and recovers devices in
+a rhythm nothing names, and a cron floor equal to the max age leaves
+zero margin by arithmetic.
+
+Riders: (1) the fence blesses this explicitly — hub-reads-control-
+plane is the sanctioned direction; same reader, new transport, not a
+new crossing; read-only and hub-authenticated keeps the ledger clean.
+(2) The bad hour is a STATED hour — hub keeps delivering the last
+valid document through sub-hour dashboard outages; the daemon holds
+and ages as designed; and a device that narrows says so ("roster
+stale — serving owner only until refreshed"), never a silent shrink.
+(3) The roster key inherits Amendment C's succession law — pinned at
+pairing, rotated by the existing ceremony, no bespoke treatment.
+
+Phase A builds on this word; lockstep applies; C006 rename and the
+in-product notice ride Phase B as phased.

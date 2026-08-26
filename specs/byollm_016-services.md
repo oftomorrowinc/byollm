@@ -1676,3 +1676,18 @@ start) rejected because it breaks the deliberate recovery path to
 fix a messaging problem. Riders still open in the same output: the
 pinned rows remain unlabeled; the run-summary denominator (4 vs
 3+1+1) remains unfixed — both queued.
+
+**STOP-SHIP (2026-08-26): the promotion probe failed.** On Todd's
+.57 install — key pinned, roster of 2 held — `byollm allow` did not
+refuse; it began the old consent flow, and status renders "nobody
+else" as the operative answer. Evidence: the flip is not engaged on
+a real machine. Latest holds at .56. Hypothesis for CCC to verify,
+not assert: the fifth unwired-caller of the week — flip and
+allow-guard correct as mechanisms, CLI and loop not wired to reach
+them — with the added question of why the source-level check built
+for this class didn't fire. Precision kept: the paste doesn't show
+whether allow completed or awaited confirmation; refusal was due
+before any consequence text either way. If an entry recorded for the
+probe address, cleanup once fixed. The gate worked exactly as
+designed: ten seconds of probe spared a promoted release whose
+headline feature wasn't reachable.

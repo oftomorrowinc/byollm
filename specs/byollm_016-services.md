@@ -1988,3 +1988,64 @@ BYO-compute per user (free: one site; pro: many), and sharing is an overlay for 
 Lis/family/team case — consistent with demoting the Teams branding to "sharing."
 Open question, not ruled: what plan gates sharing your devices with N other people,
 now that per-user pro, not team seats, is the primary meter.
+
+### Amendment L — site need manifests and user-authored mappings: the mapping is the consent (2026-08-26)
+
+Todd, on learning K's resolution model assumed few candidates ("I'm actually
+advertising qwen and soon glm. I plan to offer a bunch more"), proposed the missing
+piece: sites declare what they NEED; users map needs to services at signup.
+
+The manifest: a site declares its needs as purposes, each listing kinds —
+`{ "writing_assistant": ["llm.chat","llm.generate"], "revenue": ["llm.generate"],
+"advertising": ["llm.generate","llm.image"] }`. A site with no purposes declares a
+flat kind list, which is sugar for one site-wide purpose. Declared at site
+registration, so the consent page can render it.
+
+The mapping: at signup, the user fills each (purpose, kind) slot from a pulldown of
+the services available to them — their own and team-shared, e.g. "Your llm.generate
+(Claude)" or "Team toddsampson/qwen-14-4b". A slot with exactly one candidate
+auto-maps and shows no control ("and only 1-to-1" — Todd's rule, and it is the
+existing ambiguity law wearing its consent clothes: choice is authored, never
+inferred, but a set of one is not a choice). The mapping lives at the control plane,
+per (user, site); grants carry the resolved service exactly as in K; the device
+verifies offer-consistency and runs. K's global account preference is superseded —
+preference was always per-site and per-purpose, and now it is authored where it is
+scoped.
+
+**The disclosure win, larger than the problem it solves.** The site's vocabulary is
+now its own purposes; the user's vocabulary is their services; the control plane
+joins them. Sites never see service names at all — the capability-row surface that
+exposed advertised names to sites retires on the cloud route, and with it the
+site-selects-by-name path (Phase B's cloud surface, superseded a week after
+shipping; pre-1.0 liberty, noted plainly). Key-vs-value law reaches its strongest
+form: the site cannot describe OR name; it can only ask for what it declared.
+Refusal indistinguishability improves too — a site learns "slot satisfiable or
+not," never why. Direct mode is untouched: no control plane to hold a mapping, so
+OSS keeps Phase B selection and device defaults as shipped.
+
+Ratified laws riding with this:
+- The mapping is the consent. Authorizing a site and wiring it are one act on one
+  screen; the consent page shows exactly which of your services each site purpose
+  will drive. Consent wording remains product law; it gains structure, not less
+  scrutiny.
+- A manifest change never silently remaps. New purposes/kinds start unmapped
+  (auto-map only at exactly one candidate); an unmapped slot makes that purpose
+  unavailable, never the site broken; the site learns "unmapped," sends the user to
+  their mapping page. Existing slots keep their author's choice until the author
+  changes it.
+- Services stay under the device (Todd's phrasing, ratified): config.json remains
+  the owner-authored definition of what exists; offers choose what is shared; the
+  control plane holds only needs, mappings, and grants — never service definitions.
+
+**Parked, not ruled** (Todd thinking out loud): reversing the money — device owners
+offering compute and getting PAID for it, public offer as the paid tier where team
+is the free guest list. Marketplace scope (payments out, metering, pricing) parks it
+on the open-door deferred list; noted that it would reframe the pro meter again.
+
+**Origin, for the record and the future video.** Todd, watching Satya Nadella note
+that AI gives software real marginal cost for the first time: the inversion is users
+bringing their own secured compute — including team-shared — so each new site ships
+with zero marginal inference cost. The second seed: Todd wouldn't push his local
+apps to the web because they were powered by his Max subscription and the web would
+orphan it — byollm lets a subscription follow its owner onto the web. Both sentences
+are the pitch; refinement into a video script is queued work Todd wants help with.

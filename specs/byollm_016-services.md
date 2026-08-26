@@ -1434,3 +1434,38 @@ real time; the overnight observation already reflected that
 corrected view. The refusal did what refusals were taught to do this
 week: name the truth loudly. Phase C proceeds, starting where the
 wire meets the relay.*
+
+## Phase C: two of three halves (2026-08-26 morning)
+
+alpha.55 published — A + B1 + the relay half; no behavior change,
+nothing sends rosters, the daemon still states the allowlist truth at
+load. Latest is safe to set NOW (the hard rule binds the hub's later
+roster-sending deploy, pinned as tests both ways, not this
+promotion).
+
+**The relay half's design is the amendment made structural:** two
+lists — the advisory copy the relay routes on, and the control
+plane's signed statement carried untouched — with a carriage test
+that makes them disagree on purpose (the routing copy names someone
+the signed document doesn't). Non-authorship as a test fixture.
+
+**The control-plane half's best refusal:** an unconfigured signer
+answering {rosters: []} would tell every device every team is empty,
+and they would narrow within the hour BELIEVING it — fail-narrow
+poisoned by an honest-looking answer. It refuses loudly instead.
+Empty and unconfigured are different truths; only one may route.
+
+**Rule minted: a mutation must be deterministic or it measures
+nothing** — CCC's third mutation was flaky enough to pass by luck,
+and "a flaky mutation reports covered exactly like a real one." The
+harness-asserts-execution rule's sibling: the instrument's own
+variance is part of the measurement. Also: the call-site class
+recurred twice more (heartbeat roster lookup → undefined, 162 green;
+pair response key removed, 163 green — every roster test started
+already-paired); both now drive real exchanges. The lint from last
+night plus real-exchange tests is the standing answer.
+
+Todd's two actions: latest → .55; mint the roster keypair (his
+secret ritual; script single-use by design). Hub half proceeds
+unconfigured meanwhile — remainder of the current build, not a
+second workstream.

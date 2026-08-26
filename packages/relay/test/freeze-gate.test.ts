@@ -271,12 +271,21 @@ describe("the freeze gate — cloud_004 §14", () => {
       site,
     });
     disposers.push(daemon.dispose);
-    // AUDIENCE_BOTH_SIDES: the relay's roster is not enough — bob's daemon
-    // keeps its own list and would refuse without this.
-    await daemon.allowlist.add(
-      { origin: "http://relay.test", owner: "alice" },
-      Date.now(),
-    );
+    // No device-side admission is set up here, and none is needed: this
+    // harness offers its service `public`, and a publicly offered service
+    // admits everyone without consulting the daemon's own list.
+    //
+    // There used to be an `allowlist.add` on this line under a comment saying
+    // bob's daemon "would refuse without this". It would not — a mutation
+    // deleting the call left all nine tests here green. Dead setup under a
+    // false claim, and worse than clutter: it made this look like the place
+    // device-side admission was covered, so nothing covered it. Every
+    // cross-user test in this suite ran against the same permissive default.
+    //
+    // What this gate actually proves is that the *relay* routes a foreign
+    // owner's job correctly and learns nothing doing it. Who a device will
+    // serve is admission.test.ts, which narrows the offer scope so the
+    // question is live.
 
     const { jobId } = await connector.enqueue({
       prompt: "alice's work on bob's machine",

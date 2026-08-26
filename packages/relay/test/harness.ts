@@ -281,7 +281,25 @@ export class SiteConnector {
 export async function makeDaemon(
   relay: Relay,
   fixture: RelayFixture,
-  input: { owner: string; site: PublicIdentity },
+  input: {
+    owner: string;
+    site: PublicIdentity;
+    /**
+     * Who this device's service is offered to. Defaults to `public`.
+     *
+     * An option rather than a constant because the default makes device-side
+     * admission a no-op: `matchAudience` returns ALLOWED for a publicly
+     * offered service without consulting the daemon's own list at all. Every
+     * cross-user test in this suite ran against that default, so none of them
+     * ever exercised the device's admission decision — freeze gate §6 even
+     * carried a comment claiming its `allowlist.add` was load-bearing, and a
+     * mutation showed the test passes without it.
+     *
+     * Anything asserting who a device will and will not serve has to narrow
+     * this, or it is asserting nothing.
+     */
+    offer?: "private" | "team" | "public";
+  },
 ): Promise<{
   runner: Runner;
   backend: EchoBackend;
@@ -305,7 +323,7 @@ export async function makeDaemon(
           kinds: ["llm.generate"],
           type: "openai-http",
           baseUrl: "http://127.0.0.1:11434/v1",
-          offer: "public",
+          offer: input.offer ?? "public",
         },
       },
       concurrency: 2,

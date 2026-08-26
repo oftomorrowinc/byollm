@@ -1665,8 +1665,11 @@ async function commandApprove(
     for (const [id, site] of taking) {
       known[id] = site;
       approved += 1;
-      io.out(`approved ${id} for ${pairing.origin}\n`);
-      io.out(`  ${fingerprint(site.identity)}\n`);
+      // One line. The id is the fingerprint here, as everywhere else in this
+      // file — the same stutter `sites` and `connect` had, missed on the first
+      // pass and found when Todd approved his first real site and read it back
+      // twice.
+      io.out(`approved ${fingerprint(site.identity)} for ${pairing.origin}\n`);
     }
     // Built without `pending` and then given one back only if anything is
     // still waiting. Spreading the old row and overwriting would leave the

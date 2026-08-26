@@ -384,12 +384,23 @@ export class Runner {
       capabilities.push({
         kind: route.kind,
         service: route.service,
-        // Phase A advertises exactly one service per kind — the one that
-        // resolved — so every advertised row is its kind's default. Stated
-        // rather than left for a consumer to infer from being alone, because
-        // Phase B advertises the whole menu and that inference would silently
-        // stop being true.
-        isDefault: true,
+        // Which row an unselected job takes, from the route rather than
+        // asserted — byollm_016 Phase B.
+        //
+        // This read `isDefault: true` for every row, under a comment saying
+        // Phase A advertises exactly one service per kind so every advertised
+        // row is its kind's default — and warning, in its last sentence, that
+        // Phase B would advertise the whole menu and make that untrue. Phase B
+        // shipped the menu and left the line alone, so a device offering four
+        // services for `llm.generate` advertised four defaults.
+        //
+        // Nothing mis-routed: the daemon picks the default from its own config
+        // and always did. What was wrong is the **advertisement** — and this
+        // is the field byollm_016 added expressly so Phase B could grow the
+        // menu without any consumer re-deriving what "default" means. A guard
+        // field that lies is worse than none, because the inference it
+        // replaced at least matched the data.
+        isDefault: route.isDefault,
         backendId: route.backendId,
         backendClass: route.backendClass,
         model: route.model,

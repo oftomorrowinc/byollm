@@ -96,6 +96,22 @@ describe("byollm sites", () => {
     expect(out).toContain("1 site waiting");
   });
 
+  it("says the fingerprint once in `approve` too", async () => {
+    // The third instance of one defect, and the one the first fix missed:
+    // `sites` and `connect` were fixed together and `approve` was not, so
+    // Todd approved his first real site and read the key back twice. Checked
+    // here rather than trusted to the same care next time.
+    await pairWith({ sites: {}, pending: { [WAITING_ID]: WAITING } });
+    await runCli(["approve", WAITING_ID], { paths, io: io() });
+
+    const values = out
+      .split("\n")
+      .filter((line) => !line.includes("`"))
+      .flatMap((line) => line.match(/BYOLLM-[A-Z0-9-]+/g) ?? []);
+    expect(values.length, out).toBe(new Set(values).size);
+    expect(values).toContain(fingerprint(WAITING.identity));
+  });
+
   it("says the fingerprint once, not twice", async () => {
     /**
      * A site's id in this file *is* its fingerprint — `keyId` and

@@ -415,6 +415,67 @@ describe("status", () => {
     expect(status.capabilities).toHaveLength(1);
   });
 
+  it("advertises one default per kind, not one per row", async () => {
+    /**
+     * byollm_016 Phase B, found in production on 2026-08-25.
+     *
+     * Todd's device offered four services for `llm.generate` and told the hub
+     * all four were the default. Nothing mis-routed — the daemon picks the
+     * default from its own config, and it did — but `isDefault` is the field
+     * Phase B added *expressly* so a consumer would never have to re-derive
+     * which row an unselected job takes. A guard field that lies is worse
+     * than no field, because the inference it replaced at least matched the
+     * data.
+     *
+     * The line read `isDefault: true` under a comment whose last sentence
+     * predicted this exact break: Phase A advertised one row per kind, "and
+     * Phase B advertises the whole menu, and that inference would silently
+     * stop being true."
+     */
+    const { runner } = await makeRunner({
+      services: {
+        alpha: {
+          model: "m",
+          kinds: ["llm.generate", "llm.chat"],
+          type: "openai-http",
+          baseUrl: "http://127.0.0.1:11434/v1",
+        },
+        beta: {
+          model: "m",
+          kinds: ["llm.generate"],
+          type: "openai-http",
+          baseUrl: "http://127.0.0.1:11434/v1",
+        },
+        gamma: {
+          model: "m",
+          kinds: ["llm.generate"],
+          type: "openai-http",
+          baseUrl: "http://127.0.0.1:11434/v1",
+        },
+      },
+      defaults: { "llm.generate": "beta" },
+    });
+
+    await runner.detectCapabilities();
+    const caps = runner.status().capabilities;
+    // The menu still travels in full — that is the point of Phase B, and a
+    // "fix" that advertised only the default would pass the count below while
+    // removing selection entirely.
+    expect(caps.filter((c) => c.kind === "llm.generate")).toHaveLength(3);
+
+    for (const kind of ["llm.generate", "llm.chat"]) {
+      const defaults = caps.filter((c) => c.kind === kind && c.isDefault);
+      expect(
+        defaults.map((c) => c.service),
+        kind,
+      ).toHaveLength(1);
+    }
+    // And it is the one the config names, not merely the first row.
+    expect(
+      caps.find((c) => c.kind === "llm.generate" && c.isDefault)?.service,
+    ).toBe("beta");
+  });
+
   it("reflects pause and resume", async () => {
     const { runner } = await makeRunner();
     runner.pause();

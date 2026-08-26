@@ -124,3 +124,33 @@ not-supported-with-reason. Codex lists exactly like Claude Code —
 sixth question: "supported" presumes the codex tool-escape probe row
 exists and passes in the adversarial corpus — CCC to confirm; if the
 row is missing, it lands before the table does.
+
+---
+
+## The keychain finding + the health-canary question (2026-08-25 night)
+
+First cross-user job's claude failure, root-caused and fixed
+(40662bf): on macOS the Claude CLI keeps credentials in the login
+Keychain, reached via USER — absent from the env allowlist, so the
+child found its config and not its credentials. Bisected against the
+real binary: allowlist fails, +USER succeeds, +LOGNAME fails (same
+name, different variable, unread — stays out; the allowlist admits
+what is proven needed, nothing shaped like it). The allowlist's own
+comment predicted this failure shape for Windows; it arrived on macOS
+first. Codex unaffected (~/.codex under HOME).
+
+**Principle recorded: a health check that can't fail the way the
+thing fails is reporting on something else.** `--version` needs no
+credentials; every job does. Cowork's recommended ruling (Todd's
+call): a credentialed canary at *enablement* and *daemon start* —
+bounded, human-adjacent moments — never on the polling loop (paid
+calls to reassure nobody); plus the free leg: auth-shaped real-job
+failures flip the service unhealthy with a notice after the first,
+closing the gap within one job with zero standing spend.
+
+Also clarified (Todd's correction): routing honored the config
+default throughout — claude-as-default routed claude, the switch
+routed qwen. The four-isDefault bug is the *advertisement* lying
+about a decision the daemon makes correctly — a wire flag
+disagreeing with the behavior it describes, the flattering-copy bug
+in a protocol field, and the Phase B guard field at that. Fix soon.

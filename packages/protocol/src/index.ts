@@ -124,6 +124,20 @@ export {
 } from "./keys.js";
 
 export {
+  CLOCK_ATTRIBUTION_MS,
+  CLOCK_SKEW_WARN_MS,
+  GRANT_CONTEXT,
+  GRANT_MAX_AGE_MS,
+  GRANT_SIGNED_FIELDS,
+  SignedGrant,
+  grantStatement,
+  signGrant,
+  verifyGrant,
+  type GrantClaims,
+  type GrantRefusal,
+} from "./grant.js";
+
+export {
   ROSTER_CONTEXT,
   ROSTER_MAX_AGE_MS,
   SignedRoster,

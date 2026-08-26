@@ -451,16 +451,48 @@ daemons update, *then* let the hub begin sending. `roster.test.ts`
 pins both directions so the constraint is something a reader trips
 over rather than rediscovers in production.
 
-### Phase B — daemon
+### Phase B — daemon, and why it is two halves
 
-- Pin the control-plane key at pairing, beside the site pins.
-- Hold the roster; verify signature and age on receipt and on use.
-- `team` admission becomes: the held roster admits the asker, minus
-  local veto. `byollm allow` stops adding for `team`; `disallow`
-  keeps subtracting.
-- Past `ROSTER_MAX_AGE_MS`, admit the owner and nobody else, and say
-  so — a device that has narrowed must be able to tell somebody why,
-  or this is another silent state.
+Written as one phase, and it cannot be. Building it exposed a
+regression the plan did not see, so the split is recorded here rather
+than discovered by whoever ships it.
+
+**B1 — hold and verify (built 2026-08-25).** Pin the control-plane
+key at pairing, beside the site pins. Hold the roster, verified
+against that key; refuse a forged one, an older one than the one held,
+and one that arrives with no key pinned. Stop counting a held roster
+once it ages out. Surface all of it, because a device that has
+narrowed must be able to say why.
+
+Two refusals here are not in the amendment and are needed to honour
+it. **A refused roster does not replace the one already held** — a
+relay that could swap a good roster for a broken one would narrow this
+device on demand, turning the denial the design accepts into something
+sharper. And **an older document is not an update**: without that, a
+relay replays yesterday's membership over today's, inside the age
+window, with a signature that verifies perfectly.
+
+**B2 — flip admission (blocked, and deliberately).** `team` admission
+becomes the held roster minus local veto. Not shipped with B1, for
+two reasons that are both about not breaking something:
+
+1. **No roster exists until Phase C.** A daemon that admitted only
+   from a roster, before any hub sends one, would stop serving every
+   `team` job on every device — the correct behaviour under property
+   4, arriving a release early and looking exactly like an outage.
+   Daemon and hub deploy independently, so this is not a matter of
+   ordering one release.
+2. **The local veto does not exist yet.** Today's allowlist is purely
+   additive and `byollm disallow` removes an `allow` entry. "The veto
+   subtracts; nothing local adds" needs a deny list that is not the
+   same list, and that is a config-shape change with its own
+   migration.
+
+Until B2, a device with a roster and a device without are both served
+by the local allowlist, and the in-product notice keeps saying so —
+which is the honest description of the transitional state rather than
+a second authority. **The C006 rename and the notice retirement move
+to B2**, where the sentence they make becomes true.
 
 ### Phase C — control plane + hub
 

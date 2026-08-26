@@ -22,6 +22,10 @@ import {
   type RunMetadata,
   type SealedOutcome,
   type JobOutcome,
+  ROSTER_MAX_AGE_MS,
+  type RosterRefusal,
+  type SignedRoster,
+  verifyRoster,
 } from "@byollm/protocol";
 import type { Allowlist } from "./allowlist.js";
 import { createBackend, type Backend } from "./backends/index.js";
@@ -55,6 +59,15 @@ export interface RunnerOptions {
   readonly daemonVersion: string;
   readonly loaded: LoadedConfig;
   readonly allowlist: Allowlist;
+  /**
+   * The control plane's roster-signing key, pinned at pairing — Amendment G.
+   *
+   * Absent for a direct-mode server, which has no control plane, and for any
+   * pairing made before this existed. Absent means no roster is honoured:
+   * there is nothing to check a signature against, and accepting one anyway
+   * would trust whoever delivered it.
+   */
+  readonly controlPlanePublic?: string | undefined;
   readonly budgets: Budgets;
   /** Tracks money spent on other people's work, for metered backends. */
   readonly spend: SpendLedger;
@@ -134,6 +147,19 @@ export type RunnerEvent =
       readonly type: "service-not-signed-in";
       readonly service: string;
       readonly detail: string;
+    }
+  /**
+   * A roster arrived and was not honoured.
+   *
+   * Loud, because the consequence is a narrower device and the cause is
+   * invisible from the outside: somebody whose teammate's jobs stopped
+   * routing has no other way to learn that the document saying they may was
+   * refused, and why.
+   */
+  | {
+      readonly type: "roster-refused";
+      readonly refusal: RosterRefusal;
+      readonly issuedAt: number;
     }
   | {
       readonly type: "site-awaiting-approval";
@@ -258,6 +284,17 @@ export class Runner {
    * observed it.
    */
   readonly #unauthenticated = new Set<string>();
+
+  /**
+   * The roster this device holds — Amendment G.
+   *
+   * Held verified: nothing reaches this field that did not carry a signature
+   * from the key pinned at pairing. A relay can withhold it, which narrows
+   * this device, and can forge nothing.
+   */
+  #roster: SignedRoster | undefined;
+  /** Why the last roster was refused, if it was. For status, not for callers. */
+  #rosterRefusal: RosterRefusal | undefined;
   #lastUpstreamError: string | undefined;
   #lastError: string | undefined;
   #completed = 0;
@@ -894,6 +931,8 @@ export class Runner {
     // exists to refuse. Amendment A.3.1's rotation is an explicit path, not
     // a silent swap.
     this.#applySites(heartbeat.sites, heartbeat.successions);
+    // Verified before it is held, and held only if it verifies — Amendment G.
+    this.#applyRoster(heartbeat.roster);
 
     // Announced *after* the set is applied — V1-17. The CLI persists
     // `runner.sites` when it sees this event, so firing it first wrote the
@@ -1282,6 +1321,115 @@ export class Runner {
    * itself — the same rule `awaitingConsent` follows.
    */
   readonly #announced = new Set<string>();
+
+  /**
+   * Take a roster the upstream delivered — Amendment G.
+   *
+   * Verified against the key pinned at pairing, and **held only if it
+   * verifies**. A refused roster leaves the previous one in place rather than
+   * clearing it: a relay that could replace a good roster with a broken one
+   * would otherwise narrow this device on demand, which is the denial this
+   * design accepts turned into something sharper.
+   *
+   * A device with no pinned control-plane key holds no roster at all. There is
+   * nothing to check a signature against, and accepting one on that basis
+   * would be trusting whoever delivered it — the exact substitution pinning
+   * exists to refuse.
+   */
+  /**
+   * The heartbeat path, reachable from a test.
+   *
+   * Named for what it is rather than hidden behind a fake heartbeat: driving
+   * a whole exchange to reach one branch tests the exchange, and the branch
+   * is what Amendment G rests on.
+   */
+  applyRosterForTest(roster: SignedRoster | undefined): void {
+    this.#applyRoster(roster);
+  }
+
+  #applyRoster(roster: SignedRoster | undefined): void {
+    if (roster === undefined) return;
+    const key = this.#options.controlPlanePublic;
+    if (key === undefined) {
+      this.#noteRosterRefusal("bad-signature", roster);
+      return;
+    }
+    const refusal = verifyRoster({
+      roster,
+      owner: this.#options.owner,
+      controlPlanePublic: key,
+      now: this.#now(),
+    });
+    if (refusal !== null) {
+      this.#noteRosterRefusal(refusal, roster);
+      return;
+    }
+    // An older document than the one already held is not an update. Without
+    // this a relay could replay yesterday's membership over today's, inside
+    // the age window, and every signature check would pass.
+    if (this.#roster !== undefined && roster.issuedAt < this.#roster.issuedAt) {
+      this.#noteRosterRefusal("stale", roster);
+      return;
+    }
+    this.#roster = roster;
+    this.#rosterRefusal = undefined;
+  }
+
+  #noteRosterRefusal(refusal: RosterRefusal, roster: SignedRoster): void {
+    if (this.#rosterRefusal === refusal) return;
+    this.#rosterRefusal = refusal;
+    this.#options.onEvent?.({
+      type: "roster-refused",
+      refusal,
+      issuedAt: roster.issuedAt,
+    });
+  }
+
+  /**
+   * Who this device's roster admits, right now.
+   *
+   * `undefined` when there is no usable roster — which is a different answer
+   * from "admits nobody", and the caller has to say which it means. A stale
+   * roster is not consulted at all: staleness is revocation latency, and a
+   * membership this device can no longer confirm is not one it may act on.
+   */
+  rosterMembers(): readonly string[] | undefined {
+    const roster = this.#roster;
+    if (roster === undefined) return undefined;
+    return this.#now() - roster.issuedAt > ROSTER_MAX_AGE_MS
+      ? undefined
+      : roster.members;
+  }
+
+  /** What `byollm status` says about the roster. */
+  rosterStatus(): {
+    readonly held: boolean;
+    readonly members: number;
+    readonly stale: boolean;
+    readonly issuedAt?: number;
+    readonly refusal?: RosterRefusal;
+  } {
+    const roster = this.#roster;
+    if (roster === undefined) {
+      return {
+        held: false,
+        members: 0,
+        stale: false,
+        ...(this.#rosterRefusal === undefined
+          ? {}
+          : { refusal: this.#rosterRefusal }),
+      };
+    }
+    return {
+      held: true,
+      members: roster.members.length,
+      stale: this.#now() - roster.issuedAt > ROSTER_MAX_AGE_MS,
+      issuedAt: roster.issuedAt,
+      ...(this.#rosterRefusal === undefined
+        ? {}
+        : { refusal: this.#rosterRefusal }),
+    };
+  }
 
   /**
    * Take the upstream's site set, refusing a key that moved under an id.

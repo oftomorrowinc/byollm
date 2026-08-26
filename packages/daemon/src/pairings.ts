@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
-import { PublicIdentity } from "@byollm/protocol";
+import { PublicIdentity, SignedRoster } from "@byollm/protocol";
 import { z } from "zod";
 import { normalizeOrigin } from "./allowlist.js";
 
@@ -65,6 +65,26 @@ export const Pairing = z
      * upstream for it.
      */
     pending: z.record(z.string().min(1), PublicIdentity).optional(),
+    /**
+     * The control plane's roster-signing key, pinned at pairing —
+     * Amendment G.
+     *
+     * Optional because a direct-mode server has no control plane and signs no
+     * rosters, and because every pairing written before this existed has none.
+     * A pairing without one holds no roster and admits no `team` work through
+     * it, which is the correct amount of function for a relationship whose
+     * membership authority was never established.
+     */
+    controlPlanePublic: z.string().min(1).optional(),
+    /**
+     * The roster this device is currently holding, as it arrived.
+     *
+     * Stored signed, not as a parsed member list. The signature is the whole
+     * reason the document is worth anything, and a list saved without it
+     * would be a set of names this file could not tell from names somebody
+     * typed into it.
+     */
+    roster: SignedRoster.optional(),
     pairedAt: z.number().int().positive(),
   })
   .strict();

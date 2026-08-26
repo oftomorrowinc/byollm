@@ -189,13 +189,13 @@ describe("what pairing writes down", () => {
     const result = await connect({
       client: new ProtocolClient({
         origin: "https://hub.test",
-        fetch: (() =>
+        fetch: () =>
           Promise.resolve(
             new Response(JSON.stringify(answers.shift()), {
               status: 200,
               headers: { "content-type": "application/json" },
             }),
-          )) as unknown as typeof fetch,
+          ),
       }),
       daemonVersion: "0.0.0",
       label: "test",
@@ -238,13 +238,13 @@ describe("what pairing writes down", () => {
     const result = await connect({
       client: new ProtocolClient({
         origin: "https://hub.test",
-        fetch: (() =>
+        fetch: () =>
           Promise.resolve(
             new Response(JSON.stringify(answers.shift()), {
               status: 200,
               headers: { "content-type": "application/json" },
             }),
-          )) as unknown as typeof fetch,
+          ),
       }),
       daemonVersion: "0.0.0",
       label: "test",

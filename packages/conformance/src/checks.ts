@@ -354,7 +354,23 @@ export const CHECKS: readonly Check[] = [
 
   {
     id: "C006_NAMED_LOCAL_ALLOWLIST",
-    title: "a named job runs only once the daemon's own allowlist admits it",
+    /**
+     * Renamed with the release that made the sentence true — Amendment G, B2.
+     *
+     * The old title read "a named job runs only once the daemon's own
+     * allowlist admits it", which was true only under a generous reading of
+     * "own": the list was per-person and local, and a team member had to be
+     * enrolled on every machine by hand.
+     *
+     * The id does not change, per the id-stability law. What changes is the
+     * sentence, and it now names all three of the things a reader would
+     * otherwise take on faith — that the list is local, that its authority was
+     * established out of band, and that admission is a property of the asker
+     * rather than of the request.
+     */
+    title:
+      "a team job runs only once a roster this daemon holds, signed by a " +
+      "key it pinned at pairing, admits the asker",
     musts: ["NAMED_LOCAL_ALLOWLIST", "REFUSAL_NOT_REOFFERED"],
     async run(target: ConformanceTarget): Promise<void> {
       const bob = await pairDaemon(target, { owner: "bob", offer: "team" });

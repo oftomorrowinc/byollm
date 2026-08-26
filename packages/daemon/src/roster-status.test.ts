@@ -110,21 +110,20 @@ describe("what status says about a roster", () => {
     expect(out).toContain("no roster held yet");
   });
 
-  it("names how many it holds, and that it does not decide yet", async () => {
+  it("names how many the roster admits, and whose word it is", async () => {
     /**
-     * The wording B1's state requires. The roster is held and verified; the
-     * local allowlist still decides. Saying "2 people may use this device"
-     * would be the flattering-copy bug in the sentence about who may use
-     * somebody's computer.
+     * B2 flipped admission, so the wording changes with it: the roster now
+     * decides, and the line says whose word it is. Under B1 this read "it
+     * does not decide yet" — true then, and the kind of sentence that has to
+     * move in the same release as the behaviour it describes.
      */
     await pairedWith({
       controlPlanePublic: plane.identityPublic,
       roster: roster(Date.now() - 120_000),
     });
     await status();
-    expect(out).toContain("a signed roster of 2 is held");
-    expect(out).toContain("does not decide yet");
-    expect(out).toContain("2 minutes");
+    expect(out).toContain("2 more, from a roster your control plane signed");
+    expect(out).toContain("2 minutes ago");
   });
 
   it("says it has gone stale, and what that means", async () => {

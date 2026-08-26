@@ -508,24 +508,23 @@ export function resolveConfig(config: DaemonConfig): LoadedConfig {
   }
 
   /**
-   * The build says what `team` currently means — byollm_016, 2026-08-24.
+   * Retired with the release that made its opposite true — Amendment G, B2.
    *
-   * `team` is named for central membership: the device follows the owner's
-   * roster, synced down the projection path, with a local `disallow` surviving
-   * as a veto. That sync is not built. Until it is, `team` enforces through the
-   * same local allowlist `named` did.
+   * This said "team enforcement is local-allowlist in this build; roster sync
+   * lands next", and it was correct for every build that carried it: `team`
+   * was named for central membership and enforced through the same per-person
+   * list `named` used, so the name ran ahead of its behaviour and had to say
+   * so where the name is used.
    *
-   * Announced here rather than in release notes, because release notes are not
-   * where an owner is looking when they write `"offer": "team"` and reasonably
-   * conclude their roster is now in force. A name that runs ahead of its
-   * behaviour has to say so in the place the name is used.
+   * It is gone rather than reworded because the fact it reported is no longer
+   * a fact about *the build*. Which authority decides is now a fact about
+   * each **pairing** — a roster where one is held, the local list where no
+   * control-plane key was ever pinned — and `resolveConfig` cannot see
+   * pairings. `byollm status` can, and says which is in force for each one.
+   *
+   * Retired here and not one release earlier: a build whose `team` was still
+   * local had to keep saying so.
    */
-  if (Object.values(config.services).some((s) => s.offer === "team")) {
-    notices.push(
-      "team enforcement is local-allowlist in this build; roster sync lands " +
-        "next. `byollm allow` still decides who may run work here.",
-    );
-  }
 
   return { config, routes, withheld, notices, problems };
 }

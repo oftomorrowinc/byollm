@@ -1102,10 +1102,17 @@ async function commandStatus(
   }
 
   const allowed = allowlist.list();
+  const refused = allowlist.vetoed();
   io.out("\nwho can use this device\n");
   io.out(`  you, always\n`);
-  if (allowed.length === 0) {
+  if (allowed.length === 0 && refused.length === 0) {
     io.out("  nobody else\n");
+  }
+  // Refusals first: a name this device will not serve is the one thing here
+  // an owner may have forgotten, and burying it under a roster count is how
+  // a veto quietly outlives the reason for it.
+  for (const entry of refused) {
+    io.out(`  refusing ${entry.owner} on ${entry.origin}\n`);
   }
   for (const entry of allowed) {
     io.out(
@@ -1163,9 +1170,8 @@ async function commandStatus(
       age > ROSTER_MAX_AGE_MS
         ? `  (roster stale — ${describeAge(age)} old, serving you only ` +
             `until it refreshes)\n`
-        : `  (a signed roster of ${String(roster.members.length)} is held, ` +
-            `${describeAge(age)} old — it does not decide yet; this device's ` +
-            `own list still does)\n`,
+        : `  (${String(roster.members.length)} more, from a roster your ` +
+            `control plane signed ${describeAge(age)} ago)\n`,
     );
   }
 
@@ -1341,6 +1347,32 @@ async function commandAllow(
     return 2;
   }
   const origin = normalizeOrigin(rawOrigin);
+
+  /**
+   * Refused where a roster decides — Amendment G, property 3.
+   *
+   * "Nothing local adds." On an upstream that authors rosters, an entry here
+   * would sit in a file and change nothing, which is worse than a refusal: it
+   * would look like the owner had granted access and read as a grant on
+   * `byollm allow --list` forever.
+   *
+   * The remedy is where membership actually lives, so the message names it
+   * rather than describing a rule.
+   */
+  const pairings = new Pairings(paths.pairings);
+  await pairings.load();
+  if (pairings.get(origin)?.controlPlanePublic !== undefined) {
+    io.err(
+      `${wrap(
+        `${origin} decides who may use this device from a roster its control ` +
+          `plane signs, so an entry here would change nothing. Add ${owner} ` +
+          `to your team where that roster is managed.`,
+      )}\n` +
+        `\n\`byollm disallow ${origin} ${owner}\` still works, and always ` +
+        `will: this device may refuse somebody a roster admits.\n`,
+    );
+    return 2;
+  }
 
   // byollm_002: widening scope requires an explicit confirmation that names
   // what it means. Not a y/N on an ambiguous question — the actual sentence.
@@ -1617,13 +1649,38 @@ async function commandDisallow(
     io.err("usage: byollm disallow <app-url> <user-id>\n");
     return 2;
   }
+  const origin = normalizeOrigin(rawOrigin);
   const allowlist = new Allowlist(paths.allowlist);
   await allowlist.load();
-  const removed = await allowlist.remove(normalizeOrigin(rawOrigin), owner);
+
+  /**
+   * Both halves, always — Amendment G, property 3.
+   *
+   * `disallow` removed an allow entry, which is the whole of refusing
+   * somebody when a per-person list decides. Where a roster decides there is
+   * no entry to remove, and removing nothing would have reported success
+   * while the person went on being served.
+   *
+   * So it records a veto as well. The veto subtracts from whatever the roster
+   * says and needs no roster to exist first: an owner who wants somebody
+   * stopped needs it to work on this machine, now, rather than waiting on a
+   * sync that may never arrive — which is the case the whole asymmetry is
+   * for.
+   */
+  const removed = await allowlist.remove(origin, owner);
+  const already = allowlist.vetoes(origin, owner);
+  await allowlist.veto({ origin, owner }, Date.now());
+
+  // Three outcomes, three sentences. One message covering all of them would
+  // have to be vague about which thing happened, and "nothing changed" was
+  // reported for a veto that had just been recorded.
   io.out(
-    removed
-      ? `${owner} can no longer use this device\n`
-      : `${owner} was not on the list — nothing changed\n`,
+    already
+      ? `${owner} was already refused — nothing changed\n`
+      : removed
+        ? `${owner} can no longer use this device\n`
+        : `${owner} was not on the list, and is now refused — this device\n` +
+          `will not serve them even if a roster admits them\n`,
   );
   return 0;
 }

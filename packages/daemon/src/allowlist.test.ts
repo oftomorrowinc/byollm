@@ -347,3 +347,66 @@ describe("IngressLog [INGRESS_LOGGED_BEFORE_EXECUTION]", () => {
     expect(await log.read()).toHaveLength(1);
   });
 });
+
+describe("the local veto — Amendment G, property 3", () => {
+  it("refuses somebody who was never on the allowlist", async () => {
+    // The case it exists for: a roster member this device has no local row
+    // for at all. A veto that needed an entry to remove would be useless
+    // exactly where it matters.
+    const list = new Allowlist(join(dir, "veto.json"));
+    await list.load();
+    expect(list.vetoes("https://app.test", "carol")).toBe(false);
+    await list.veto({ origin: "https://app.test", owner: "carol" }, 1);
+    expect(list.vetoes("https://app.test", "carol")).toBe(true);
+  });
+
+  it("is keyed by origin as well as owner", async () => {
+    // Owner ids are server-namespace-local: `carol` on one app is not `carol`
+    // on another, and a veto keyed by id alone would refuse a stranger.
+    const list = new Allowlist(join(dir, "veto2.json"));
+    await list.load();
+    await list.veto({ origin: "https://a.test", owner: "carol" }, 1);
+    expect(list.vetoes("https://b.test", "carol")).toBe(false);
+  });
+
+  it("is idempotent — refusing twice is refusing once", async () => {
+    const list = new Allowlist(join(dir, "veto3.json"));
+    await list.load();
+    await list.veto({ origin: "https://app.test", owner: "carol" }, 1);
+    await list.veto({ origin: "https://app.test", owner: "carol" }, 2);
+    expect(list.vetoed()).toHaveLength(1);
+  });
+
+  it("lifts, which restores the roster's answer rather than granting one", async () => {
+    const list = new Allowlist(join(dir, "veto4.json"));
+    await list.load();
+    await list.veto({ origin: "https://app.test", owner: "carol" }, 1);
+    expect(await list.unveto("https://app.test", "carol")).toBe(true);
+    expect(list.vetoes("https://app.test", "carol")).toBe(false);
+    // Lifting a veto nobody set changes nothing and says so.
+    expect(await list.unveto("https://app.test", "nobody")).toBe(false);
+  });
+
+  it("survives a reload, and an old file reads as no vetoes", async () => {
+    const path = join(dir, "veto5.json");
+    const first = new Allowlist(path);
+    await first.load();
+    await first.veto({ origin: "https://app.test", owner: "carol" }, 1);
+
+    const second = new Allowlist(path);
+    await second.load();
+    expect(second.vetoes("https://app.test", "carol")).toBe(true);
+
+    // A file written before vetoes existed has none — which is the truthful
+    // reading of its absence: this device has refused nobody.
+    const legacy = join(dir, "legacy.json");
+    await writeFile(
+      legacy,
+      JSON.stringify({ version: 1, entries: [] }),
+      "utf8",
+    );
+    const third = new Allowlist(legacy);
+    await third.load();
+    expect(third.vetoed()).toEqual([]);
+  });
+});

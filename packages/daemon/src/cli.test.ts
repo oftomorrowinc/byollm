@@ -159,7 +159,21 @@ describe("byollm allow — widening access", () => {
     expect(out).toContain("Nobody but you");
   });
 
-  it("says so plainly when removing someone who was never allowed", async () => {
+  it("refuses someone who was never allowed, rather than doing nothing", async () => {
+    /**
+     * `disallow` used to remove an allow entry and report "nothing changed"
+     * when there was none. Under Amendment G it also records a veto, and a
+     * veto needs no entry to exist first — the case it is *for* is a roster
+     * member this device has no local row for at all.
+     *
+     * Reporting "nothing changed" about a veto it had just written would be
+     * the flattering-copy bug in the sentence about who may use somebody's
+     * computer.
+     */
+    await run("disallow", "https://app.test", "nobody");
+    expect(out).toContain("is now refused");
+
+    out = "";
     await run("disallow", "https://app.test", "nobody");
     expect(out).toContain("nothing changed");
   });
@@ -366,12 +380,24 @@ describe("byollm services", () => {
     expect(out).not.toContain("not offered to anyone");
   });
 
-  it("says team enforcement is still the local allowlist in this build", async () => {
-    // The build describes its own limitation where the owner is looking. A
-    // value named for central membership, enforced by a local list, has to say
-    // so in the place the name is written — release notes are not where
-    // somebody is standing when they type `"offer": "team"` and conclude their
-    // roster is now in force.
+  it("no longer claims team is local-allowlist, because it is not", async () => {
+    /**
+     * Retired with the release that made its opposite true — Amendment G, B2.
+     *
+     * This notice was correct for every build that carried it: `team` was
+     * named for central membership and enforced through the same per-person
+     * list `named` used, so the name ran ahead of its behaviour and said so
+     * where the name is written.
+     *
+     * It is gone rather than reworded because the fact it reported stopped
+     * being a fact about the build. Which authority decides is now a property
+     * of each *pairing* — a roster where one is held, the local list where no
+     * control-plane key was ever pinned — and this code cannot see pairings.
+     * `byollm status` can, and says so per pairing.
+     *
+     * Asserted as an absence, which is the only way to check that a sentence
+     * stopped being told.
+     */
     await writeFile(
       paths.config,
       JSON.stringify({
@@ -388,8 +414,8 @@ describe("byollm services", () => {
     );
 
     await run("services");
-    expect(out).toContain("team enforcement is local-allowlist in this build");
-    expect(out).toContain("roster sync lands next");
+    expect(out).not.toContain("team enforcement is local-allowlist");
+    expect(out).not.toContain("roster sync lands next");
   });
 
   it("says nothing about team when no service offers it", async () => {

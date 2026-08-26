@@ -574,6 +574,44 @@ export class Runner {
   }
 
   /**
+   * Who this device will serve, and on whose authority — Amendment G, B2.
+   *
+   * Two regimes, and never both at once. The one that applies is decided by
+   * whether this pairing has a control-plane key, which is the honest
+   * question: a key means this upstream authors rosters, and a device that
+   * pinned one has an answer to consult.
+   *
+   * **With a key**, the roster decides, minus the local veto. Nothing local
+   * adds — an owner who wants somebody served edits the roster, which is the
+   * one place membership lives, rather than enrolling them on each machine.
+   * A roster that is stale or absent admits nobody but the owner, because
+   * staleness is revocation latency and a membership this device can no
+   * longer confirm is not one it may act on.
+   *
+   * **Without one**, the per-person allowlist decides, exactly as before.
+   * Direct mode has no control plane to author a roster, so this is not a
+   * fallback or a transition — it is the other half of the design, and the
+   * daemon says which one is in force at load.
+   *
+   * The two never combine. An allowlist consulted alongside a roster would be
+   * two authorities on one question, which is the shape byollm_016 removed
+   * from `team` in the first place.
+   */
+  #admits(): (owner: string) => boolean {
+    const origin = this.#options.client.origin;
+    const allowlist = this.#options.allowlist;
+
+    if (this.#controlPlanePublic === undefined) {
+      return allowlist.predicateFor(origin);
+    }
+
+    const members = this.rosterMembers();
+    if (members === undefined) return () => false;
+    const admitted = new Set(members);
+    return (owner) => admitted.has(owner) && !allowlist.vetoes(origin, owner);
+  }
+
+  /**
    * Decide whether this machine will run a claimed job.
    *
    * The server already applied its own version of the audience rules, and
@@ -624,10 +662,8 @@ export class Runner {
           acknowledged: route.spendAcknowledged,
           ceilingReached: this.#spendCeilingReached(route),
         },
-        // The daemon's own list — the whole point of Rev 1 §B.
-        locallyAllows: this.#options.allowlist.predicateFor(
-          this.#options.client.origin,
-        ),
+        // Who this device will serve — Amendment G, Phase B2.
+        locallyAllows: this.#admits(),
       },
     );
     if (!match.ok) {

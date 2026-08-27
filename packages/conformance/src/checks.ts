@@ -952,7 +952,7 @@ export const CHECKS: readonly Check[] = [
               "content-type": "application/json",
               authorization: "Bearer definitely-not-a-real-token",
             },
-            body: JSON.stringify({ protocolVersion: "0" }),
+            body: JSON.stringify({ protocolVersion: PROTOCOL_VERSION }),
           }),
         );
         assert(

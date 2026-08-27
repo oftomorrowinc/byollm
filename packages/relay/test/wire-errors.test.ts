@@ -80,7 +80,10 @@ describe("the daemon plane's refusals", () => {
       new Request("http://relay.test/byollm/claim", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ protocolVersion: "0", runnerId: "nobody" }),
+        body: JSON.stringify({
+          protocolVersion: PROTOCOL_VERSION,
+          runnerId: "nobody",
+        }),
       }),
     );
     expect(await refusal(response)).toBe("unauthorized");
@@ -94,7 +97,7 @@ describe("the daemon plane's refusals", () => {
     const stale = Date.now() - MAX_CLOCK_SKEW_MS - 60_000;
     const response = await relay.handle(
       new Request(
-        `http://relay.test/relay/site/pending?siteId=${SITE_ID}&protocolVersion=0`,
+        `http://relay.test/relay/site/pending?siteId=${SITE_ID}&protocolVersion=${PROTOCOL_VERSION}`,
         {
           headers: siteHeaders(siteKeys, "pending", "", stale),
         },
@@ -108,7 +111,7 @@ describe("the daemon plane's refusals", () => {
     const stale = Date.now() - MAX_CLOCK_SKEW_MS - 60_000;
     const response = await relay.handle(
       new Request(
-        `http://relay.test/relay/site/pending?siteId=${SITE_ID}&protocolVersion=0`,
+        `http://relay.test/relay/site/pending?siteId=${SITE_ID}&protocolVersion=${PROTOCOL_VERSION}`,
         {
           headers: siteHeaders(siteKeys, "pending", "", stale),
         },
@@ -156,7 +159,7 @@ describe("an identified caller refused", () => {
     const { relay, siteKeys } = await relayWithDaemon();
     const response = await relay.handle(
       new Request(
-        `http://relay.test/relay/site/pending?siteId=someone_else&protocolVersion=0`,
+        `http://relay.test/relay/site/pending?siteId=someone_else&protocolVersion=${PROTOCOL_VERSION}`,
         {
           headers: siteHeaders(siteKeys, "pending", ""),
         },
@@ -182,7 +185,7 @@ describe("an identified caller refused", () => {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
-          protocolVersion: "0",
+          protocolVersion: PROTOCOL_VERSION,
           owner: "alice",
           device: publicIdentityOf(generateKeys(Date.now())),
         }),
@@ -312,7 +315,7 @@ describe("the codes an identified caller gets — V1-13", () => {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
-          protocolVersion: "0",
+          protocolVersion: PROTOCOL_VERSION,
           owner: "alice",
           device: publicIdentityOf(generateKeys(Date.now())),
         }),

@@ -97,13 +97,13 @@ describe("the site plane refuses anyone it cannot verify", () => {
     const { relay } = setup();
     const response = await relay.handle(
       new Request(
-        `http://relay.test/relay/site/pending?siteId=${SITE_ID}&protocolVersion=0`,
+        `http://relay.test/relay/site/pending?siteId=${SITE_ID}&protocolVersion=${PROTOCOL_VERSION}`,
       ),
     );
     expect(response.status).toBe(401);
     const results = await relay.handle(
       new Request(
-        `http://relay.test/relay/site/results?siteId=${SITE_ID}&protocolVersion=0`,
+        `http://relay.test/relay/site/results?siteId=${SITE_ID}&protocolVersion=${PROTOCOL_VERSION}`,
       ),
     );
     expect(results.status).toBe(401);
@@ -271,7 +271,7 @@ describe("the site plane refuses anyone it cannot verify", () => {
     const headers = siteHeaders(siteKeys, "pending", "");
     const response = await relay.handle(
       new Request(
-        `http://relay.test/relay/site/results?siteId=${SITE_ID}&protocolVersion=0`,
+        `http://relay.test/relay/site/results?siteId=${SITE_ID}&protocolVersion=${PROTOCOL_VERSION}`,
         {
           headers,
         },
@@ -302,7 +302,7 @@ describe("the site plane refuses anyone it cannot verify", () => {
     });
     const response = await relay.handle(
       new Request(
-        `http://relay.test/relay/site/pending?siteId=${SITE_ID}&protocolVersion=0`,
+        `http://relay.test/relay/site/pending?siteId=${SITE_ID}&protocolVersion=${PROTOCOL_VERSION}`,
         {
           headers: {
             "x-byollm-site": daemon.runnerId,
@@ -401,7 +401,7 @@ describe("revocation does not wait for a heartbeat", () => {
     // passed there while leaving revocation optional for any client that chose
     // not to call it.
     const body = JSON.stringify({
-      protocolVersion: "0",
+      protocolVersion: PROTOCOL_VERSION,
       runnerId: daemon.runnerId,
       max: 1,
       capabilities: [{ kind: "llm.generate", models: ["echo-model"] }],
@@ -517,7 +517,7 @@ describe("a clock too far from the relay's", () => {
     // Ten minutes ahead — well past MAX_CLOCK_SKEW_MS, and signed correctly.
     // The signature is fine; the timestamp inside it is not.
     const body = JSON.stringify({
-      protocolVersion: "0",
+      protocolVersion: PROTOCOL_VERSION,
       runnerId: daemon.runnerId,
       max: 1,
       capabilities: [{ kind: "llm.generate", models: ["echo-model"] }],
@@ -577,7 +577,7 @@ describe("a clock too far from the relay's", () => {
 
     const stranger = generateKeys(Date.now());
     const body = JSON.stringify({
-      protocolVersion: "0",
+      protocolVersion: PROTOCOL_VERSION,
       runnerId: daemon.runnerId,
       max: 1,
       capabilities: [{ kind: "llm.generate", models: ["echo-model"] }],

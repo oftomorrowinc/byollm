@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { keyId, publicIdentityOf, seal } from "@byollm/protocol";
+import {
+  PROTOCOL_VERSION,
+  keyId,
+  publicIdentityOf,
+  seal,
+} from "@byollm/protocol";
 import { generateSiteKeys } from "./keys.js";
 import { MemoryStore } from "./memory.js";
 import { createHarness, httpCapabilities } from "./testing.js";
@@ -149,7 +154,7 @@ describe("MemoryStore — edges", () => {
     await h.call(
       "claim",
       {
-        protocolVersion: "0",
+        protocolVersion: PROTOCOL_VERSION,
         runnerId: runner.runnerId,
         capabilities: httpCapabilities(),
         max: 1,
@@ -200,7 +205,11 @@ describe("handlers — malformed input", () => {
     const h = createHarness();
     const response = await h.handlers.handle(
       "pair",
-      { protocolVersion: "0", action: "poll", deviceCode: "d".repeat(32) },
+      {
+        protocolVersion: PROTOCOL_VERSION,
+        action: "poll",
+        deviceCode: "d".repeat(32),
+      },
       {
         endpoint: "pair",
         rawBody: "",

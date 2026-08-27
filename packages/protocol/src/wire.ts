@@ -7,8 +7,30 @@ import { ClaimedStub } from "./job.js";
 import { SealedEnvelope } from "./envelope.js";
 import { JobKind } from "./kinds.js";
 
-/** Protocol version carried on every request; servers refuse what they can't speak. */
-export const PROTOCOL_VERSION = "0" as const;
+/**
+ * Protocol version carried on every request; servers refuse what they can't
+ * speak.
+ *
+ * **`1` because byollm_016 changed the vocabulary** — byollm-review
+ * 2026-08-27. `OfferScope` lost `public`, `self|named` became
+ * `private|team`, `JobStub` lost `service` and gained `purpose`, and the
+ * grant's site field changed namespace. The version stayed `0` through all of
+ * it.
+ *
+ * The consequence was the failure the handshake exists to prevent, arriving
+ * around it: a pre-rip daemon declares `0`, passes the version check, and
+ * then fails whole-body schema validation with "request failed schema
+ * validation" — no field named, no vocabulary named, no upgrade command. Once
+ * every ten seconds, forever, while its owner watches a device go stale for
+ * no stated reason. The check below was written because "a mismatch surfaced
+ * as a generic bad-request" and "an error a user cannot act on is barely
+ * better than a hang"; the number not moving is how that came back.
+ *
+ * A registry is a schema and an enum value is the contract — this project's
+ * own words, from the release that silenced a fleet by adding a backend id.
+ * The same sentence applies to removing an offer scope.
+ */
+export const PROTOCOL_VERSION = "1" as const;
 
 /**
  * Every protocol version this build can serve, **oldest first**.
@@ -16,6 +38,16 @@ export const PROTOCOL_VERSION = "0" as const;
  * One entry today. It is a list rather than a constant because the shape of
  * the check is the point: a server supporting two versions through a
  * migration should not need a different code path from one supporting one.
+ */
+/**
+ * `0` is deliberately **not** here, though the list exists for exactly that.
+ *
+ * Supporting two versions through a migration is the shape this was built
+ * for, and it is the wrong tool when the vocabularies are incompatible: a `0`
+ * daemon sends `offer: "public"` and a `service` on its stubs, so accepting
+ * its version only moves the refusal one layer down — to the schema error
+ * that names nothing, which is the bug. Refusing the version is the whole
+ * point, because that refusal says what to do.
  */
 export const SUPPORTED_PROTOCOL_VERSIONS = Object.freeze([
   PROTOCOL_VERSION,

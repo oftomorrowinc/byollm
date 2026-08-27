@@ -1,3 +1,4 @@
+import { PROTOCOL_VERSION } from "@byollm/protocol";
 import type { Capability } from "@byollm/protocol";
 import { describe, expect, it } from "vitest";
 import {
@@ -17,7 +18,7 @@ async function claimAll(
   const res = await h.call(
     "claim",
     {
-      protocolVersion: "0",
+      protocolVersion: PROTOCOL_VERSION,
       runnerId: runner.runnerId,
       capabilities,
       max: 8,
@@ -298,7 +299,7 @@ describe("no-runner signal [NO_RUNNER_SIGNAL]", () => {
     await h.call(
       "heartbeat",
       {
-        protocolVersion: "0",
+        protocolVersion: PROTOCOL_VERSION,
         runnerId: runner.runnerId,
         daemonVersion: "0.1.0",
         capabilities: [httpCapabilities()[0]!],
@@ -339,7 +340,7 @@ describe("no-runner signal [NO_RUNNER_SIGNAL]", () => {
     await h.call(
       "heartbeat",
       {
-        protocolVersion: "0",
+        protocolVersion: PROTOCOL_VERSION,
         runnerId: runner.runnerId,
         daemonVersion: "0.1.0",
         capabilities: httpCapabilities(),
@@ -377,7 +378,7 @@ describe("availability, at enqueue time [byollm_016 Amendment L]", () => {
     h.call(
       "heartbeat",
       {
-        protocolVersion: "0",
+        protocolVersion: PROTOCOL_VERSION,
         runnerId: runner.runnerId,
         daemonVersion: "0.1.0",
         capabilities,

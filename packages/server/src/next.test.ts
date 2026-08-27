@@ -1,4 +1,8 @@
-import { generateKeys, publicIdentityOf } from "@byollm/protocol";
+import {
+  PROTOCOL_VERSION,
+  generateKeys,
+  publicIdentityOf,
+} from "@byollm/protocol";
 import { describe, expect, it } from "vitest";
 import { generateSiteKeys } from "./keys.js";
 import { MemoryStore } from "./memory.js";
@@ -32,7 +36,7 @@ describe("createHandler — the one-file Next mount", () => {
       new Request("https://app.test/api/byollm/pair", {
         method: "POST",
         body: JSON.stringify({
-          protocolVersion: "0",
+          protocolVersion: PROTOCOL_VERSION,
           action: "start",
           daemon: { version: "0.1.0", label: "mbp", platform: "darwin" },
           device: publicIdentityOf(generateKeys(Date.now())),
@@ -85,7 +89,7 @@ describe("a config function is not called until a request arrives", () => {
     new Request("https://app.test/api/byollm/pair", {
       method: "POST",
       body: JSON.stringify({
-        protocolVersion: "0",
+        protocolVersion: PROTOCOL_VERSION,
         action: "start",
         daemon: { version: "0.1.0", label: "mbp", platform: "darwin" },
         device: publicIdentityOf(generateKeys(Date.now())),

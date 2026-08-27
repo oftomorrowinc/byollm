@@ -43,7 +43,7 @@ describe("checkProtocolVersion", () => {
     ["null", { protocolVersion: null }],
     ["a number", { protocolVersion: 0 }],
     ["empty", { protocolVersion: "" }],
-    ["not an object", "protocolVersion=0"],
+    ["not an object", "protocolVersion=${PROTOCOL_VERSION}"],
     ["null body", null],
   ])("refuses a %s version the same way as a wrong one", (_label, body) => {
     // The important half: versionless is not a parse error, it is a version
@@ -93,5 +93,47 @@ describe("the upgrade command", () => {
     // `@alpha` after this one is fixed.
     const refusal = checkProtocolVersion({});
     expect(refusal?.message).toContain(UPGRADE_COMMAND);
+  });
+
+  it("refuses the vocabulary byollm_016 replaced, by name", () => {
+    /**
+     * byollm-review 2026-08-27, and the reason the number moved.
+     *
+     * The rip took `public` out of `OfferScope`, turned `self|named` into
+     * `private|team`, replaced `JobStub.service` with `purpose`, and changed
+     * the grant's site namespace — while `PROTOCOL_VERSION` stayed `"0"`. So
+     * a pre-rip daemon passed this check and then failed whole-body schema
+     * validation with "request failed schema validation": no field named, no
+     * vocabulary named, no upgrade command, once every ten seconds, while its
+     * owner watched a device go stale for no stated reason.
+     *
+     * That is the failure this function was written to prevent, arriving
+     * around it — a mismatch surfacing as a generic bad-request. The fix is
+     * not a better schema error; it is the version number moving when the
+     * contract moves, so the refusal that already names the remedy is the one
+     * that fires.
+     */
+    const refusal = checkProtocolVersion({ protocolVersion: "0" });
+
+    expect(refusal).not.toBeNull();
+    expect(refusal?.error).toBe("unsupported-protocol-version");
+    // Names both sides of the disagreement and what to do about it. The
+    // person reading this is usually the one who has to apply the fix.
+    expect(refusal?.message).toContain("0");
+    expect(refusal?.message).toContain(PROTOCOL_VERSION);
+    expect(refusal?.message).toContain("Upgrade the daemon");
+  });
+
+  it("does not accept the old version as a migration courtesy", () => {
+    /**
+     * The list exists to carry two versions through a migration, and this is
+     * the case where that is the wrong tool.
+     *
+     * A `0` daemon sends `offer: "public"` and a `service` on its stubs.
+     * Accepting its version would only move the refusal one layer down, to
+     * the schema error that names nothing — which is the bug. Refusing the
+     * version is the point, because that refusal says what to do.
+     */
+    expect(SUPPORTED_PROTOCOL_VERSIONS).not.toContain("0");
   });
 });

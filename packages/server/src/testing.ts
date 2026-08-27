@@ -1,6 +1,7 @@
 import type { Capability } from "@byollm/protocol";
 import { ByollmApp } from "./app.js";
 import {
+  PROTOCOL_VERSION,
   ENVELOPE_MAX_AGE_MS,
   generateKeys,
   keyId,
@@ -193,7 +194,7 @@ export function createHarness(
     const start = await handlers.handle(
       "pair",
       {
-        protocolVersion: "0",
+        protocolVersion: PROTOCOL_VERSION,
         action: "start",
         daemon: {
           version: "0.1.0",
@@ -213,7 +214,7 @@ export function createHarness(
     const poll = await handlers.handle(
       "pair",
       {
-        protocolVersion: "0",
+        protocolVersion: PROTOCOL_VERSION,
         action: "poll",
         deviceCode: started.deviceCode,
       },
@@ -293,7 +294,7 @@ export function createHarness(
       },
     });
     return {
-      protocolVersion: "0",
+      protocolVersion: PROTOCOL_VERSION,
       runnerId: input.runner.runnerId,
       jobId: input.jobId,
       leaseId:

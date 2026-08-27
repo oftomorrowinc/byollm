@@ -1,4 +1,9 @@
-import { cryptoReady, generateKeys, publicIdentityOf } from "@byollm/protocol";
+import {
+  PROTOCOL_VERSION,
+  cryptoReady,
+  generateKeys,
+  publicIdentityOf,
+} from "@byollm/protocol";
 import { afterEach, beforeAll, describe, expect, it } from "vitest";
 import { Relay, RelayState } from "../src/index.js";
 import { fixtureFor, makeDaemon } from "./harness.js";
@@ -189,7 +194,7 @@ describe("a daemon that has only ever heartbeat", () => {
           "x-byollm-signature": "forged",
         },
         body: JSON.stringify({
-          protocolVersion: "0",
+          protocolVersion: PROTOCOL_VERSION,
           runnerId: daemon.runnerId,
           capabilities: [],
           max: 1,
@@ -217,7 +222,7 @@ describe("a daemon that has only ever heartbeat", () => {
     const relay = new Relay({ fixture: fixtureFor(site), now: () => clock });
 
     const body = JSON.stringify({
-      protocolVersion: "0",
+      protocolVersion: PROTOCOL_VERSION,
       runnerId: "runner_nobody_approved",
       daemonVersion: "test",
       capabilities: [],

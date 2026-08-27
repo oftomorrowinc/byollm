@@ -1,3 +1,4 @@
+import { PROTOCOL_VERSION } from "@byollm/protocol";
 import { describe, expect, it } from "vitest";
 import { generateKeys } from "./keys.js";
 import {
@@ -17,7 +18,7 @@ const base = {
   endpoint: "claim",
   runnerId: "runner_1",
   issuedAt: NOW,
-  body: JSON.stringify({ protocolVersion: "0", max: 1 }),
+  body: JSON.stringify({ protocolVersion: PROTOCOL_VERSION, max: 1 }),
 };
 
 const verify = (over: Partial<Parameters<typeof verifyRequest>[0]> = {}) =>
@@ -53,7 +54,9 @@ describe("everything that decides what the request does is signed", () => {
 
   it("binds the body", () => {
     expect(
-      verify({ body: JSON.stringify({ protocolVersion: "0", max: 64 }) }),
+      verify({
+        body: JSON.stringify({ protocolVersion: PROTOCOL_VERSION, max: 64 }),
+      }),
     ).toBe("bad-signature");
   });
 

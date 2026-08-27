@@ -464,7 +464,7 @@ export async function makeDaemon(
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({
-      protocolVersion: "0",
+      protocolVersion: PROTOCOL_VERSION,
       owner: input.owner,
       device: await identity.publicIdentity(Date.now()),
     }),
@@ -510,7 +510,7 @@ export async function makeDaemon(
     body: Record<string, unknown>,
   ): Promise<Response> => {
     const rawBody = JSON.stringify({
-      protocolVersion: "0",
+      protocolVersion: PROTOCOL_VERSION,
       runnerId: approval.runnerId,
       ...body,
     });

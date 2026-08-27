@@ -1,4 +1,8 @@
-import { generateKeys, publicIdentityOf } from "@byollm/protocol";
+import {
+  PROTOCOL_VERSION,
+  generateKeys,
+  publicIdentityOf,
+} from "@byollm/protocol";
 import { describe, expect, it } from "vitest";
 import { createFetchHandler, routeEndpoint, signatureFrom } from "./http.js";
 import { generateSiteKeys } from "./keys.js";
@@ -131,7 +135,7 @@ describe("fetch handler", () => {
       new Request(url("pair"), {
         method: "POST",
         body: JSON.stringify({
-          protocolVersion: "0",
+          protocolVersion: PROTOCOL_VERSION,
           action: "start",
           device: publicIdentityOf(generateKeys(Date.now())),
           daemon: { version: "0.1.0", label: "mbp", platform: "darwin" },

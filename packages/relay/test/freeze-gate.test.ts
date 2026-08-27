@@ -365,7 +365,7 @@ describe("identity is the control plane's to decide", () => {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
-          protocolVersion: "0",
+          protocolVersion: PROTOCOL_VERSION,
           owner: "alice",
           device: publicIdentityOf(stranger),
         }),
@@ -406,7 +406,7 @@ describe("identity is the control plane's to decide", () => {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
-          protocolVersion: "0",
+          protocolVersion: PROTOCOL_VERSION,
           owner: "bob",
           device: approvedKeys,
         }),

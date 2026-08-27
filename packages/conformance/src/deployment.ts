@@ -276,7 +276,7 @@ export const POSTURE_CHECKS: readonly PostureCheck[] = Object.freeze([
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
-          protocolVersion: "0",
+          protocolVersion: PROTOCOL_VERSION,
           runnerId: "nobody",
           max: 1,
           capabilities: [{ kind: "llm.generate", models: ["any"] }],
@@ -323,7 +323,7 @@ export const POSTURE_CHECKS: readonly PostureCheck[] = Object.freeze([
       });
 
       const daemonBody = JSON.stringify({
-        protocolVersion: "0",
+        protocolVersion: PROTOCOL_VERSION,
         runnerId: "nobody",
         max: 1,
         capabilities: [{ kind: "llm.generate", models: ["any"] }],
@@ -464,7 +464,7 @@ export const POSTURE_CHECKS: readonly PostureCheck[] = Object.freeze([
       const response = await f(`${origin}/literally/anything/claim`, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ protocolVersion: "0", max: 1 }),
+        body: JSON.stringify({ protocolVersion: PROTOCOL_VERSION, max: 1 }),
       });
       const refusal = await refusedByByollm(response);
       return outcome(

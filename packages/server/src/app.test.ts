@@ -1,4 +1,8 @@
-import { generateKeys, publicIdentityOf } from "@byollm/protocol";
+import {
+  PROTOCOL_VERSION,
+  generateKeys,
+  publicIdentityOf,
+} from "@byollm/protocol";
 import { describe, expect, it } from "vitest";
 import { NoRunnerAvailableError } from "./delivery.js";
 import {
@@ -80,7 +84,7 @@ describe("ByollmApp — the app-facing surface", () => {
     const claimed = await h.call(
       "claim",
       {
-        protocolVersion: "0",
+        protocolVersion: PROTOCOL_VERSION,
         runnerId: runner.runnerId,
         capabilities: httpCapabilities(),
         max: 1,
@@ -156,7 +160,7 @@ describe("ByollmApp — the app-facing surface", () => {
     const start = await h.handlers.handle(
       "pair",
       {
-        protocolVersion: "0",
+        protocolVersion: PROTOCOL_VERSION,
         action: "start",
         device: publicIdentityOf(generateKeys(Date.now())),
         daemon: { version: "0.1.0", label: "todd-mbp", platform: "darwin" },
@@ -182,7 +186,7 @@ describe("ByollmApp — the app-facing surface", () => {
     const start = await h.handlers.handle(
       "pair",
       {
-        protocolVersion: "0",
+        protocolVersion: PROTOCOL_VERSION,
         action: "start",
         device: publicIdentityOf(generateKeys(Date.now())),
         daemon: { version: "0.1.0", label: "mbp", platform: "darwin" },
@@ -204,7 +208,7 @@ describe("ByollmApp — the app-facing surface", () => {
     const start = await h.handlers.handle(
       "pair",
       {
-        protocolVersion: "0",
+        protocolVersion: PROTOCOL_VERSION,
         action: "start",
         device: publicIdentityOf(generateKeys(Date.now())),
         daemon: { version: "0.1.0", label: "mbp", platform: "darwin" },
@@ -224,7 +228,7 @@ describe("ByollmApp — the app-facing surface", () => {
     await h.app.denyPairing(userCode);
     const polled = await h.handlers.handle(
       "pair",
-      { protocolVersion: "0", action: "poll", deviceCode },
+      { protocolVersion: PROTOCOL_VERSION, action: "poll", deviceCode },
       {
         endpoint: "pair",
         rawBody: "",
@@ -270,7 +274,7 @@ describe("ByollmApp — the app-facing surface", () => {
     const start = await h.handlers.handle(
       "pair",
       {
-        protocolVersion: "0",
+        protocolVersion: PROTOCOL_VERSION,
         action: "start",
         device: publicIdentityOf(generateKeys(Date.now())),
         daemon: { version: "0.1.0", label: "mbp", platform: "darwin" },
@@ -315,7 +319,7 @@ describe("naming a purpose — byollm_016 Amendment L", () => {
     const claimed = await h.call(
       "claim",
       {
-        protocolVersion: "0",
+        protocolVersion: PROTOCOL_VERSION,
         runnerId: runner.runnerId,
         capabilities: httpCapabilities(),
         max: 1,
@@ -345,7 +349,7 @@ describe("naming a purpose — byollm_016 Amendment L", () => {
     const claimed = await h.call(
       "claim",
       {
-        protocolVersion: "0",
+        protocolVersion: PROTOCOL_VERSION,
         runnerId: runner.runnerId,
         capabilities: httpCapabilities(),
         max: 1,
@@ -374,7 +378,7 @@ describe("naming a purpose — byollm_016 Amendment L", () => {
     const claimed = await h.call(
       "claim",
       {
-        protocolVersion: "0",
+        protocolVersion: PROTOCOL_VERSION,
         runnerId: runner.runnerId,
         capabilities: httpCapabilities(),
         max: 1,

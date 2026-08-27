@@ -1,4 +1,8 @@
-import { generateKeys, publicIdentityOf } from "@byollm/protocol";
+import {
+  PROTOCOL_VERSION,
+  generateKeys,
+  publicIdentityOf,
+} from "@byollm/protocol";
 import { describe, expect, it } from "vitest";
 import {
   createHarness,
@@ -16,7 +20,7 @@ const leasesFrom = (res: {
   );
 
 const claim = (runnerId: string, caps = httpCapabilities()) => ({
-  protocolVersion: "0" as const,
+  protocolVersion: PROTOCOL_VERSION,
   runnerId,
   capabilities: caps,
   max: 4,
@@ -28,7 +32,7 @@ describe("pairing [PAIR_INTERACTIVE, PAIR_ONE_USER]", () => {
     const start = await h.handlers.handle(
       "pair",
       {
-        protocolVersion: "0",
+        protocolVersion: PROTOCOL_VERSION,
         action: "start",
         device: publicIdentityOf(generateKeys(Date.now())),
         daemon: { version: "0.1.0", label: "mbp", platform: "darwin" },
@@ -48,7 +52,7 @@ describe("pairing [PAIR_INTERACTIVE, PAIR_ONE_USER]", () => {
     // Before approval the daemon gets nothing, however often it polls.
     const pending = await h.handlers.handle(
       "pair",
-      { protocolVersion: "0", action: "poll", deviceCode },
+      { protocolVersion: PROTOCOL_VERSION, action: "poll", deviceCode },
       {
         endpoint: "pair",
         rawBody: "",
@@ -61,7 +65,7 @@ describe("pairing [PAIR_INTERACTIVE, PAIR_ONE_USER]", () => {
 
     const approved = await h.handlers.handle(
       "pair",
-      { protocolVersion: "0", action: "poll", deviceCode },
+      { protocolVersion: PROTOCOL_VERSION, action: "poll", deviceCode },
       {
         endpoint: "pair",
         rawBody: "",
@@ -95,7 +99,7 @@ describe("pairing [PAIR_INTERACTIVE, PAIR_ONE_USER]", () => {
     const start = await h.handlers.handle(
       "pair",
       {
-        protocolVersion: "0",
+        protocolVersion: PROTOCOL_VERSION,
         action: "start",
         device: publicIdentityOf(generateKeys(Date.now())),
         daemon: { version: "0.1.0", label: "mbp", platform: "darwin" },
@@ -111,7 +115,7 @@ describe("pairing [PAIR_INTERACTIVE, PAIR_ONE_USER]", () => {
 
     const approved = await h.handlers.handle(
       "pair",
-      { protocolVersion: "0", action: "poll", deviceCode },
+      { protocolVersion: PROTOCOL_VERSION, action: "poll", deviceCode },
       { endpoint: "pair", rawBody: "", signature: undefined },
     );
 
@@ -128,7 +132,7 @@ describe("pairing [PAIR_INTERACTIVE, PAIR_ONE_USER]", () => {
     const start = await h.handlers.handle(
       "pair",
       {
-        protocolVersion: "0",
+        protocolVersion: PROTOCOL_VERSION,
         action: "start",
         device: publicIdentityOf(generateKeys(Date.now())),
         daemon: { version: "0.1.0", label: "mbp", platform: "darwin" },
@@ -148,7 +152,7 @@ describe("pairing [PAIR_INTERACTIVE, PAIR_ONE_USER]", () => {
 
     const first = await h.handlers.handle(
       "pair",
-      { protocolVersion: "0", action: "poll", deviceCode },
+      { protocolVersion: PROTOCOL_VERSION, action: "poll", deviceCode },
       {
         endpoint: "pair",
         rawBody: "",
@@ -160,7 +164,7 @@ describe("pairing [PAIR_INTERACTIVE, PAIR_ONE_USER]", () => {
     // A replayed device code gets nothing — the token is not re-issued.
     const replay = await h.handlers.handle(
       "pair",
-      { protocolVersion: "0", action: "poll", deviceCode },
+      { protocolVersion: PROTOCOL_VERSION, action: "poll", deviceCode },
       {
         endpoint: "pair",
         rawBody: "",
@@ -175,7 +179,7 @@ describe("pairing [PAIR_INTERACTIVE, PAIR_ONE_USER]", () => {
     const start = await h.handlers.handle(
       "pair",
       {
-        protocolVersion: "0",
+        protocolVersion: PROTOCOL_VERSION,
         action: "start",
         device: publicIdentityOf(generateKeys(Date.now())),
         daemon: { version: "0.1.0", label: "mbp", platform: "darwin" },
@@ -196,7 +200,7 @@ describe("pairing [PAIR_INTERACTIVE, PAIR_ONE_USER]", () => {
 
     const polled = await h.handlers.handle(
       "pair",
-      { protocolVersion: "0", action: "poll", deviceCode },
+      { protocolVersion: PROTOCOL_VERSION, action: "poll", deviceCode },
       {
         endpoint: "pair",
         rawBody: "",
@@ -216,7 +220,7 @@ describe("pairing [PAIR_INTERACTIVE, PAIR_ONE_USER]", () => {
     const start = await h.handlers.handle(
       "pair",
       {
-        protocolVersion: "0",
+        protocolVersion: PROTOCOL_VERSION,
         action: "start",
         device: publicIdentityOf(generateKeys(Date.now())),
         daemon: { version: "0.1.0", label: "mbp", platform: "darwin" },
@@ -279,7 +283,7 @@ describe("authentication", () => {
     const res = await h.call(
       "claim",
       {
-        protocolVersion: "0",
+        protocolVersion: PROTOCOL_VERSION,
         runnerId: "runner_someone-else",
         capabilities: httpCapabilities(),
         max: 1,
@@ -327,7 +331,7 @@ describe("claim [CLAIM_REQUIRES_CAPABILITY, CLAIM_ATOMIC]", () => {
     const res = await h.call(
       "claim",
       {
-        protocolVersion: "0",
+        protocolVersion: PROTOCOL_VERSION,
         runnerId: runner.runnerId,
         capabilities: [httpCapabilities()[0]!],
         max: 4,
@@ -399,7 +403,7 @@ describe("audience enforcement on the server [AUDIENCE_BOTH_SIDES]", () => {
     const res = await h.call(
       "claim",
       {
-        protocolVersion: "0",
+        protocolVersion: PROTOCOL_VERSION,
         runnerId: bob.runnerId,
         capabilities: subscriptionCapabilities("team"),
         max: 4,
@@ -425,7 +429,7 @@ describe("audience enforcement on the server [AUDIENCE_BOTH_SIDES]", () => {
     const res = await h.call(
       "claim",
       {
-        protocolVersion: "0",
+        protocolVersion: PROTOCOL_VERSION,
         runnerId: bob.runnerId,
         capabilities: httpCapabilities("team"),
         max: 4,
@@ -452,7 +456,7 @@ describe("audience enforcement on the server [AUDIENCE_BOTH_SIDES]", () => {
     const res = await h.call(
       "claim",
       {
-        protocolVersion: "0",
+        protocolVersion: PROTOCOL_VERSION,
         runnerId: bob.runnerId,
         capabilities: httpCapabilities("team"),
         max: 4,
@@ -480,7 +484,7 @@ describe("heartbeat", () => {
     const res = await h.call(
       "heartbeat",
       {
-        protocolVersion: "0",
+        protocolVersion: PROTOCOL_VERSION,
         runnerId: runner.runnerId,
         daemonVersion: "0.1.0",
         capabilities: httpCapabilities(),
@@ -516,7 +520,7 @@ describe("heartbeat", () => {
     const res = await h.call(
       "heartbeat",
       {
-        protocolVersion: "0",
+        protocolVersion: PROTOCOL_VERSION,
         runnerId: runner.runnerId,
         daemonVersion: "0.1.0",
         capabilities: httpCapabilities(),
@@ -554,7 +558,7 @@ describe("heartbeat", () => {
     const res = await h.call(
       "heartbeat",
       {
-        protocolVersion: "0",
+        protocolVersion: PROTOCOL_VERSION,
         runnerId: runner.runnerId,
         daemonVersion: "0.1.0",
         capabilities: httpCapabilities(),
@@ -592,7 +596,7 @@ describe("heartbeat", () => {
     const res = await h.call(
       "heartbeat",
       {
-        protocolVersion: "0",
+        protocolVersion: PROTOCOL_VERSION,
         runnerId: runner.runnerId,
         daemonVersion: "0.1.0",
         capabilities: httpCapabilities(),
@@ -694,7 +698,7 @@ describe("result [RESULT_IDEMPOTENT, PROVENANCE_NAMES_DEVICE]", () => {
     const claimed = await h.call(
       "claim",
       {
-        protocolVersion: "0",
+        protocolVersion: PROTOCOL_VERSION,
         runnerId: bob.runnerId,
         capabilities: httpCapabilities("team"),
         max: 4,
@@ -893,7 +897,7 @@ describe("release [REFUSAL_NOT_REOFFERED]", () => {
     await h.call(
       "release",
       {
-        protocolVersion: "0",
+        protocolVersion: PROTOCOL_VERSION,
         runnerId: runner.runnerId,
         leases: leasesFrom(claimed),
         reason: "shutdown",
@@ -923,7 +927,12 @@ describe("release [REFUSAL_NOT_REOFFERED]", () => {
     const capabilities = httpCapabilities("team");
     const first = await h.call(
       "claim",
-      { protocolVersion: "0", runnerId: bob.runnerId, capabilities, max: 4 },
+      {
+        protocolVersion: PROTOCOL_VERSION,
+        runnerId: bob.runnerId,
+        capabilities,
+        max: 4,
+      },
       bob,
     );
     expect((first.body as { jobs: unknown[] }).jobs).toHaveLength(1);
@@ -932,7 +941,7 @@ describe("release [REFUSAL_NOT_REOFFERED]", () => {
     await h.call(
       "release",
       {
-        protocolVersion: "0",
+        protocolVersion: PROTOCOL_VERSION,
         runnerId: bob.runnerId,
         leases: leasesFrom(first),
         reason: "refused",
@@ -943,7 +952,12 @@ describe("release [REFUSAL_NOT_REOFFERED]", () => {
     // Without refusal tracking this would loop forever.
     const second = await h.call(
       "claim",
-      { protocolVersion: "0", runnerId: bob.runnerId, capabilities, max: 4 },
+      {
+        protocolVersion: PROTOCOL_VERSION,
+        runnerId: bob.runnerId,
+        capabilities,
+        max: 4,
+      },
       bob,
     );
     expect((second.body as { jobs: unknown[] }).jobs).toHaveLength(0);
@@ -978,7 +992,7 @@ describe("a lease names the grant, not just its holder", () => {
 
     const first = await h.call("claim", claim(runner.runnerId), runner);
     const staleRelease = {
-      protocolVersion: "0" as const,
+      protocolVersion: PROTOCOL_VERSION,
       runnerId: runner.runnerId,
       leases: leasesFrom(first),
       reason: "backend-down" as const,
@@ -1008,7 +1022,7 @@ describe("a lease names the grant, not just its holder", () => {
 
     const first = await h.call("claim", claim(runner.runnerId), runner);
     const staleRefusal = {
-      protocolVersion: "0" as const,
+      protocolVersion: PROTOCOL_VERSION,
       runnerId: runner.runnerId,
       leases: leasesFrom(first),
       reason: "refused" as const,
@@ -1037,7 +1051,7 @@ describe("a lease names the grant, not just its holder", () => {
     const res = await h.call(
       "release",
       {
-        protocolVersion: "0",
+        protocolVersion: PROTOCOL_VERSION,
         runnerId: runner.runnerId,
         leases: leasesFrom(claimed),
         reason: "shutdown",

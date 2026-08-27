@@ -3687,3 +3687,13 @@ production is unused wire with a loaded barrel, and rip discipline applies. If
 something real uses it, the default inverts: local/DATABASE_URL by default,
 production only behind an explicit flag. Either way, production-by-default
 dies.
+
+Ruled (Todd's proposal, endorsed): db:push splits into `db:push` (local,
+DATABASE_URL) and `db:push:prod` (production, admin.env). The act's target
+lives in its name — a deliberate thing said out loud — and the mistake
+direction inverts to harmless: a bare db:push run on autopilot now lands on a
+local container instead of the pooler. Riders: db:push:prod prints the host it
+is about to touch before applying (a surface states its effective target), and
+the naming convention covers any script that can reach a non-local
+environment; db:migrate, if it survives its reference check, follows the same
+convention.

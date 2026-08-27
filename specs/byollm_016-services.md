@@ -4230,3 +4230,35 @@ Next: replay durability, then .60 publish + repin (the held commits go green and
 push, the Lua guard proves). AND CCC must receive the release-gate classification
 before the probe — otherwise it walks .60 -> probe and skips the five consent/
 version and six promotion-integrity items that gate sharing and promotion.
+
+### .60 version content complete (2026-08-27)
+
+engine offerScope (229f1d0) + the three ride-alongs (paused-consent c46ede8,
+releaseLeases terminal guard f0d0228, replay durability 1fb3d9f). Version content
+done; the .60 checkpoint (bump, publish, repin, prove the two held commits + Lua
+guard against real infra) is next.
+
+Two judgment calls ratified:
+- **Law refined — name-the-seam-once vs make-the-difference-visible.** The Lua
+  holder check is NOT the twice-spelled shape: RENEW and RELEASE SHOULD differ
+  (RELEASE carries a terminal guard, RENEW must not), and the bug was that they
+  looked identical so a blind replace hit both. The fix is making the legitimate
+  difference visible, not merging. CCC correctly declined Redis-has-no-include
+  concatenation because it would hide what RELEASE checks from a reader at the
+  enforcement site — for a security-critical script, visible-at-enforcement beats
+  DRY. So: name the seam once when it must stay identical (GrantAuthor, siteId);
+  make the difference visible when it legitimately diverges.
+- **Replay durability trade, with its residual named.** Synchronous write (not
+  fsync: threat is a supervised restart, survived once bytes reach the OS;
+  fsync-per-claim buys a smaller window at hot-path disk latency) and
+  sync-before-run (writing after leaves the gap). Corrupt file reads as "nothing
+  spent" — right, because a corrupt cache gives no per-grant information, so the
+  only fail-closed option is refuse-everything, a self-inflicted device DoS;
+  availability wins (failing-is-not-refusing). ACCEPTED RESIDUAL: a corrupt
+  durable file reopens the restart-replay window it was added to close — narrow
+  (malicious redelivery within 120s + corrupt file + restart), harm-bounded
+  (double spend), known and accepted, not a closed hole. A failed write does not
+  stop the job (same direction).
+
+Proceed to the .60 checkpoint as laid out; if either held commit fails to prove
+at repin, .60 stops and comes to Todd rather than a workaround.

@@ -199,12 +199,24 @@ describe("the wire vocabulary and the version that describes it", () => {
     expect(VOCABULARY).toEqual(PINNED);
   });
 
-  it("watches the vocabularies the promotion gate asks the hub about", () => {
-    // `/healthz` reports these so `ready-for-latest` can compare a deployed
-    // hub against a version about to be promoted. A vocabulary watched here
-    // and not reported there is one nobody compares across the wire.
-    for (const name of ["backendId", "jobKind", "offerScope"]) {
-      expect(Object.keys(VOCABULARY.enums)).toContain(name);
-    }
+  it("watches every vocabulary the promotion gate asks the hub about", () => {
+    /**
+     * `/healthz` reports these so `ready-for-latest` can compare a deployed
+     * hub against a version about to be promoted, and a vocabulary watched
+     * here but not reported there is one nobody compares across the wire.
+     *
+     * All six now. Three were reported and three were not, so the gate
+     * checked half the wire and said "safe to promote" — an `audience` the
+     * hub does not know fails a whole stub, a `sizeClass` fails a whole
+     * claim, and a `backendClass` fails every heartbeat carrying it.
+     */
+    expect(Object.keys(VOCABULARY.enums).sort()).toEqual([
+      "audience",
+      "backendClass",
+      "backendId",
+      "jobKind",
+      "offerScope",
+      "sizeClass",
+    ]);
   });
 });

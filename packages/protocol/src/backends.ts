@@ -14,6 +14,16 @@ import { z } from "zod";
  *   future `train.*` kind). All of byollm_004 §2 is mandatory here.
  */
 export const BackendClass = z.enum(["http", "process"]);
+
+/**
+ * Its members, for anything that has to report what it accepts.
+ *
+ * Derived from the enum for the reason `JOB_KINDS` and `OFFER_SCOPES` are: a
+ * second list of the same words is a second thing to keep in step, and this
+ * one is read by the promotion gate to compare a deployed hub against a
+ * version about to be promoted.
+ */
+export const BACKEND_CLASSES = Object.freeze(BackendClass.options);
 export type BackendClass = z.infer<typeof BackendClass>;
 
 /**

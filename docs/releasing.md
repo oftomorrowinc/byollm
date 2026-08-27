@@ -182,13 +182,33 @@ a passkey prompt each time:
 
 ```bash
 V=0.1.0-alpha.4   # whatever you just released
-for n in "@byollm/protocol" "@byollm/server" byollm "@byollm/conformance"; do
+# The package set, read from the repository rather than typed. Every
+# publishable directory under `packages/`, which is the same rule the release
+# workflow applies — so a package added tomorrow is retagged without anybody
+# remembering this paragraph.
+for n in $(node -e '
+  const { readdirSync, existsSync } = require("node:fs");
+  for (const d of readdirSync("packages")) {
+    const m = `packages/${d}/package.json`;
+    if (!existsSync(m)) continue;
+    const pkg = require(`./${m}`);
+    if (pkg.private !== true) console.log(pkg.name);
+  }
+'); do
   npm dist-tag add "$n@$V" latest
 done
 ```
 
-The run summary prints these commands with the version filled in, so you can
-copy them from there.
+**That loop used to be four names typed out**, and it was missing
+`@byollm/relay` and `@byollm/control-plane` — two of the six. An operator
+following it left the engine's `latest` pointing at an older release than the
+protocol's, which is version skew across exactly the seam the six-package
+lockstep exists to prevent, with no error anywhere. This page is the fallback
+for when the run summary is unavailable, so it was wrong precisely when it was
+load-bearing.
+
+The run summary prints the same commands with the version filled in, derived
+the same way, so you can copy them from there instead.
 
 **Expect the last package to read stale.** The registry's read path is
 eventually consistent behind a CDN, so checking tags immediately after setting

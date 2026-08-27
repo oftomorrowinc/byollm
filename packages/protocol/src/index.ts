@@ -29,6 +29,7 @@ export {
 } from "./audience.js";
 
 export {
+  BACKEND_CLASSES,
   BACKEND_IDS,
   BACKENDS,
   BackendClass,
@@ -59,6 +60,7 @@ export {
 } from "./kinds.js";
 
 export {
+  SIZE_CLASSES,
   ClaimedJob,
   DeliveredResult,
   JobOutcome,

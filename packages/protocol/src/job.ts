@@ -413,6 +413,9 @@ export type DeliveredResult = z.infer<typeof DeliveredResult>;
  * field to a published envelope is the v2 break all over again.
  */
 export const SizeClass = z.enum(["small", "medium", "large", "unbounded"]);
+
+/** Its members, derived — see {@link BACKEND_CLASSES} for why. */
+export const SIZE_CLASSES = Object.freeze(SizeClass.options);
 export type SizeClass = z.infer<typeof SizeClass>;
 
 /** Where the bucket boundaries sit, in characters of payload text. */

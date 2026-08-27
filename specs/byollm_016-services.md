@@ -4052,3 +4052,48 @@ auto-imported undefined made the comparison NaN (caught by the exact-threshold
 case); a heartbeat fixture "parsed fine" on output vitest had swallowed — it
 didn't (.strict(), extra key), and re-run as an assertion said so instantly.
 The strict-parse item still in this batch worked on its own author.
+
+### .59 assembled and GO to publish (2026-08-27)
+
+Five protocol fixes, five commits, verify green: site key-id binding (3ad8904,
+uuid gone, absence asserted), kind+purpose binding (6b1188e), clock both halves
+(109f4e2), manifest bounds + label sanitization (3e9d928), strict parse on all
+six sub-schemas (f8dd5d5).
+
+GO to publish .59 and repin. Reasoning recorded: publishing unblocks the
+web-side fixes, which validate against protocol's hardened Manifest schema;
+alphas are CI-automated so the publish is cheap; and — clarity note — **.59 is
+an intermediate, NOT the hub-deploy target.** Engine offerScope is a
+control-plane fix landing in .60; the hub deploys at the end off the alpha that
+carries the engine fix, not off .59. Pins moving .59 -> .60 before the hub ever
+deploys is expected.
+
+Two judgment calls ratified:
+- Refusing \p{Cf} (breaks emoji-family ZWJ) is the correct trade: the ZWJ is the
+  codepoint that pads two labels into looking identical, on the screen where
+  telling them apart is the security decision.
+- NOT refusing \p{Cn} (unassigned) though it looks like it belongs: unassigned-
+  ness depends on the parser's Unicode version, so refusing it makes a manifest
+  valid on one deployment and refused on another, drifting as runtimes update.
+  **Law: a rule whose answer depends on the reader isn't a rule** — sibling of
+  domain-separation-asserted and derive-don't-configure.
+- MAX_PURPOSES=32 is the batch's one chosen (not derived) number, reasoned in
+  code ("a screen asking more than ~30 questions has stopped being a consent
+  screen"; press declares five); the kinds bound is derived (JOB_KINDS.length).
+
+Two more fixture lessons, same as the morning's, from turning the rules on:
+Lease never declared identity and eight fixtures passed one (surfaced only by
+.strict() — the argument FOR .strict()); testControlPlane signed
+purpose:"testing", a value no engine produces. And the double-spelling smell
+appeared at three altitudes total — siteId (grant field), GrantAuthor (seam),
+GrantRef ({jobId,leaseId}, written twice). **Named: the twice-spelled shape —
+a structure declared in two places drifts silently the moment one copy gains a
+field the other lacks; name it once.**
+
+Sequence after publish: repin hub+web, then the commit-level items — engine
+offerScope (-> .60), critical sweep delete-only-on-membership, approveConnect
+candidate validation + email owner-relationship + authenticated RLS. A scope
+ruling on the remaining package-level majors (paused-consent-permanent,
+releaseLeases terminal guard, replay durability, payload ceiling, pending-claim
+leak) is owed after the priority set — which ride the pre-hub bump vs a later
+one — but does not block the publish.

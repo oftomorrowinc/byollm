@@ -88,6 +88,16 @@ const OWNER = "5cbc8f4c-96ab-4c1e-b5b6-9d4b2a1f0e02";
 const USER = "5cbc8f4c-96ab-4c1e-b5b6-9d4b2a1f0e03";
 /** carol — somebody else entirely, for the cases about keeping people apart. */
 const CAROL = "5cbc8f4c-96ab-4c1e-b5b6-9d4b2a1f0e05";
+/**
+ * A second site, for the twin of the case that keeps two people apart.
+ *
+ * Its id was spelled inline until a store with `uuid` columns was finally
+ * pointed at this contract and threw on it — the one id the sweep to real
+ * uuids missed, because every other case had a named constant and this one
+ * did not. The person-isolation case passed throughout, so the gap read as
+ * "isolation is covered" when only half of it was.
+ */
+const OTHER_SITE = "5cbc8f4c-96ab-4c1e-b5b6-9d4b2a1f0e06";
 const MAPPING: Mapping = {
   purpose: "writing_assistant",
   kind: "llm.generate",
@@ -306,7 +316,7 @@ export function describePolicyStoreContract(
       const s = await options.make();
       await s.consent({ siteId: SITE, user: USER, mappings: [MAPPING] });
       const other = await s.store.read({
-        siteId: "site_other",
+        siteId: OTHER_SITE,
         user: USER,
         owner: OWNER,
       });

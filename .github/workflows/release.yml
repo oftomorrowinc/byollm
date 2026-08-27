@@ -232,6 +232,46 @@ jobs:
           fi
           echo "missing=$MISSING" >> "$GITHUB_OUTPUT"
 
+          # 3a. A package this workflow has never published cannot be
+          #     published by this workflow — and it finds out mid-loop.
+          #
+          #     Trusted publishing authorizes a workflow *for a package*, so
+          #     the package has to exist before `npm trust` can name it. A
+          #     brand-new name therefore takes one manual publish first;
+          #     `docs/releasing.md` says so, and saying so is all that stood
+          #     between here and what happened at alpha.58: `@byollm/relay`
+          #     went that way at alpha.5 and nothing carried the lesson
+          #     forward, so `@byollm/control-plane` collected a 404 on `PUT`
+          #     with one sibling already published and four still to go.
+          #
+          #     The half-published state is bad enough. Worse is that the
+          #     refusal arrives from npm, in the middle of the one step that
+          #     is not idempotent across packages, for a reason nothing in the
+          #     run's own output predicts. §3b exists for exactly this class —
+          #     "the cost of learning it mid-loop is a version number nobody
+          #     can reuse" — and this is the same sentence about a different
+          #     precondition.
+          #
+          #     Checked against the registry rather than against a list in
+          #     this file: a hand-kept roster of which packages are set up is
+          #     the thing that goes stale the release after somebody writes
+          #     it. The question asked is the real one — does npm know this
+          #     name at all.
+          for pkg in $PKGS; do
+            name="$(node -p "require('./packages/$pkg/package.json').name")"
+            # `npm view <name> name` succeeds for any published version, so a
+            # package mid-partial-publish still answers. Only a name npm has
+            # never seen fails, which is precisely the first-publish case.
+            if ! npm view "$name" name >/dev/null 2>&1; then
+              echo "::error::$name has never been published, so trusted publishing cannot be configured for it and this run would fail on PUT after publishing its siblings."
+              echo "::error::Publish it once by hand, then authorise the workflow:"
+              echo "::error::  npm publish --access public   # from packages/$pkg, with 2FA"
+              echo "::error::  npm trust github \"$name\" --file release.yml --repo oftomorrowinc/byollm --allow-publish -y"
+              echo "::error::See docs/releasing.md, 'One-time setup'."
+              exit 1
+            fi
+          done
+
           # 3b. Provenance needs `repository.url` to match the repo it was
           #     built from, and npm rejects the publish with a 422 when it does
           #     not. `@byollm/relay` shipped without one: it published by hand

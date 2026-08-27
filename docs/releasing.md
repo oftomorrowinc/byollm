@@ -40,6 +40,14 @@ package without a provenance attestation. It gains one at its next
 workflow-published release, and the gap is worth knowing about rather than
 discovering while auditing the supply chain.
 
+**The workflow now refuses rather than trusting you to have read this.**
+`@byollm/control-plane` was added to `packages/` and tagged without the manual
+first publish, and the release got one sibling out before npm answered `404
+PUT` — a half-published version, from a precondition this page states and
+nothing enforced. The version step checks the registry for every package it is
+about to publish and stops the run before anything ships, printing the two
+commands above with the name filled in. A paragraph is not a guard.
+
 Add `--dry-run` to see exactly what each call would set without changing
 anything; it prints the package, workflow file, repo and permissions back to
 you. Each real call is an account write, so expect a passkey prompt per

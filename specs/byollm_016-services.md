@@ -3153,3 +3153,7 @@ the runner's failure-naming is queued as the actionable half of the anomaly.
 Todd's action items: delete the dead Vercel env vars ROSTER_SIGNING_PRIVATE_KEY
 and ROSTER_READ_SECRET (secrets are Todd's to touch). The hub WIDENING set
 still listing named/public is CCC's 2e item.
+
+ROSTER_SIGNING_PRIVATE_KEY and ROSTER_READ_SECRET deleted from Vercel by Todd
+(2026-08-26) — the roster machinery's last living remnant is gone; Amendment J's
+retirement is now total across code, wire, store, and secrets.

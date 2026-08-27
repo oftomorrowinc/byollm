@@ -18,11 +18,11 @@ import {
   type SealedEnvelope,
   type StoredKeys,
   generateKeys,
+  RESERVED_PURPOSE,
 } from "@byollm/protocol";
 import {
   ControlPlane,
   MemoryPolicyStore,
-  RESERVED_PURPOSE,
   keypairSigner,
 } from "@byollm/control-plane";
 import {

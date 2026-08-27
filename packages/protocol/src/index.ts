@@ -124,6 +124,13 @@ export {
 } from "./keys.js";
 
 export {
+  Manifest,
+  Purpose,
+  RESERVED_PURPOSE,
+  singlePurposeManifest,
+} from "./manifest.js";
+
+export {
   CLOCK_ATTRIBUTION_MS,
   CLOCK_SKEW_WARN_MS,
   GRANT_CONTEXT,

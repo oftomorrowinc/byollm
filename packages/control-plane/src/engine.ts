@@ -1,11 +1,12 @@
 import { randomUUID } from "node:crypto";
-import type {
-  CapabilityMatrix,
-  ClaimedStub,
-  SignedGrant,
+import {
+  RESERVED_PURPOSE,
+  type CapabilityMatrix,
+  type ClaimedStub,
+  type SignedGrant,
 } from "@byollm/protocol";
 import type { GrantSigner } from "./signer.js";
-import { RESERVED_PURPOSE, type PolicyStore } from "./store.js";
+import type { PolicyStore } from "./store.js";
 
 /**
  * The control plane: one signed grant per job, or a reason there is none.

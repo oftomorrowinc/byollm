@@ -1,9 +1,13 @@
-import { generateKeys, verifyGrant, type ClaimedStub } from "@byollm/protocol";
+import {
+  RESERVED_PURPOSE,
+  generateKeys,
+  verifyGrant,
+  type ClaimedStub,
+} from "@byollm/protocol";
 import { beforeEach, describe, expect, it } from "vitest";
 import {
   ControlPlane,
   MemoryPolicyStore,
-  RESERVED_PURPOSE,
   keypairSigner,
   type GrantOutcome,
   type PolicyStore,

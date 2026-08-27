@@ -28,24 +28,6 @@
  */
 
 /**
- * The purpose a site gets when it declares a flat list of kinds.
- *
- * A manifest may say `{ "writing_assistant": ["llm.chat"] }` or simply
- * `["llm.chat"]`, and the second is sugar for one site-wide purpose. That
- * purpose needs an id, mappings are keyed by it, and an id chosen from the
- * site's own vocabulary could collide the day the site declares real
- * purposes.
- *
- * So it is reserved: a manifest may not declare it, and registration refuses
- * one that tries, naming the remedy.
- *
- * **Never rendered.** "default → your Claude" tells a person nothing. The
- * consent page shows the *site's own name* for this slot, which is what a
- * flat-list site's single purpose actually is: everything that site does.
- */
-export const RESERVED_PURPOSE = "default";
-
-/**
  * One slot a user has filled: this site's purpose, for this kind, runs there.
  *
  * Keyed by (purpose, kind) because a purpose may span kinds — "writing

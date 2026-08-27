@@ -9,7 +9,7 @@ import {
   route,
 } from "./harness.js";
 import type { Runner } from "byollm";
-import { RESERVED_PURPOSE } from "@byollm/control-plane";
+import { RESERVED_PURPOSE } from "@byollm/protocol";
 
 /**
  * Who this device will run work for — the invariant, end to end.

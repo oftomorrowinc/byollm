@@ -3812,3 +3812,33 @@ included.
 Grant-key ceremony complete (2026-08-26): Todd minted, set grantSigningKey as a
 Pulumi secret (infra/, prod stack), and grant-key:check verified the configured
 value. The hub is cleared to deploy. 2f underway.
+
+### The ceremony's own check corrected; my "total" was wrong (2026-08-26)
+
+Two fixes out of the key ceremony, both recorded:
+
+**A check about a value names the value's source.** grant-key:check read
+GRANT_SIGNING_KEY from the shell and said "good" without saying about what — a
+success for a reason unrelated to the property claimed, this repo's
+most-repeated bug shape by its own env.mjs's admission. Every run now names
+its source, and pnpm grant-key:deployed reads the PROD STACK itself: same
+fingerprint as Todd's mint, "now an answer rather than an assumption." (CCC's
+en-route correction noted: grantSigningKey WAS in the stack — encrypted, last
+entry, missed by a grep pattern. The evidence-of-absence law finds one more
+instance: a grep is a read with a window.)
+
+**Correction to this record, mine:** the entry "Amendment J's retirement is
+now total across code, wire, store, and secrets" (commit 6083773) was written
+when Todd deleted the Vercel pair — and it was wrong. rosterReadSecret, a
+WORKING bearer for a deleted endpoint, plus rosterSigningPublicKey and
+rosterEndpointUrl, sat in the hub's committed Pulumi prod stack for another
+week, still decryptable. "Total" was a negative I wrote down without
+verifying across every store that holds secrets. CCC's sentence goes in the
+law book: **a credential is the one kind of dead thing that keeps working.**
+All three removed; retirement is now actually total.
+
+Mechanical form proposed for CCC (derived, not a hand-kept inventory): an
+"every config key has a reader" check — a stack key no code reads is either
+dead (remove) or a latent door (explain). It would have caught all three
+roster leftovers the week they died, and it is the dead-exemption rule
+applied to config stores.

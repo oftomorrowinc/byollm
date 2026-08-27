@@ -2949,3 +2949,26 @@ with the claim-time answer degrades to the not-here shape (re-offered, sorted
 out) and never to refusal; if that property can't be held, offer by kind and
 accept wasted claims — the honest fallback. One routes, one authorises, only
 one signs; a hint may mis-route, it may never mis-answer.
+
+### Press manifest of record — final, wording approved (2026-08-26)
+
+Field name ruled: `kinds`, uniform with the rest of the system (Todd: "If we
+are keeping kinds everywhere else, we will just keep it here"). The `needs`
+alternative was considered and declined for uniformity. Shape per the 2b
+amendment: purpose keys are wire ids; `label` declared, never derived; optional
+`description` is consent-screen context. All wording below is Todd-approved
+product law — note books and revenue are the consent-sensitive slots (full
+manuscript text and financial data respectively flow through whatever service
+the user maps there), and their descriptions say so plainly.
+
+    {
+      "books":             { "label": "Books",             "description": "Reads and parses your existing books for use across the site", "kinds": ["llm.generate"] },
+      "fact-checker":      { "label": "Fact Checker",      "description": "Reviews facts in your non-fiction work and builds the reference list", "kinds": ["llm.generate"] },
+      "revenue":           { "label": "Revenue",           "description": "Analyzes your sales, revenue, and ad spend performance", "kinds": ["llm.generate"] },
+      "writing-assistant": { "label": "Writing Assistant", "description": "Outlining and brainstorming to beat the blank page", "kinds": ["llm.chat", "llm.generate"] },
+      "style-trainer":     { "label": "Style Trainer",     "description": "Trains a model on your writing style to generate draft content in your voice", "kinds": ["llm.generate"] }
+    }
+
+This supersedes the earlier bare-shape declaration. Deferred by design:
+llm.image (advertising) and translations arrive later as NEW purposes — the
+cheap direction.

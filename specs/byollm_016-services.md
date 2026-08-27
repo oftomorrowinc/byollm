@@ -3321,3 +3321,72 @@ recoverable/not difference stated as FUTURE BEHAVIOR (resumes on its own vs
 choose again), no internals; the self-justifying closing line dropped; the
 "won't come back on its own" accuracy bug fixed by the per-item futures. One
 email per site, so the lead-in stays concrete.
+
+### 2d: the sweep wired, and the two things wiring it found (2026-08-27)
+
+Cron landed in cloud-web (1e32419): `/api/cron/sweep-mappings`, daily, per
+person — mappings read oldest-look-first, people capped at 40 because the
+expense is per person (one hub call, up to one mail per site), deferred people
+named rather than counted away. `sharers` from `dashboard_team_roster_members`,
+`devices` from `devicesForOwner`. 12 mutations, 12 caught. pgTAP: 7/7.
+
+**The sweep would have forged a review.** 0032 put `updated_at` on the mappings
+table for a stated purpose — "when did you last look at this" is the question a
+re-disclosure prompt is answered by — and `moddatetime` fires on ANY update. The
+three bookkeeping columns the sweep needs (`swept_at`, `degraded_at`,
+`notified_at`) would have moved it every run: within an hour of deploying, every
+mapping in the database would have claimed its owner had just revisited their
+choice. Law minted, and it generalises past this table: **`updated_at` is
+evidence about a human act, and a background job is not a human act.** The
+trigger is narrowed to the columns that ARE the choice (slot, service, whose);
+the rest is us taking notes. Structural rather than remembered — the alternative
+is a rule the next writer of a bookkeeping column has to have read. pgTAP holds
+both halves, because narrowing a trigger is only safe if it still fires on
+everything it was there for.
+
+**Told once, and told again only on a new fact.** A `service-gone` mapping is
+kept (ruled — the evidence is a heartbeat), so it is re-found every run and the
+only thing stopping the second email is a memory of the first. `degraded_at` is
+that memory; `notified_at` is the receipt, and it is stamped by the SENDER, not
+by the plan: a plan cannot know whether mail left, and stamping it there would
+record a provider outage as having told somebody. Recovery clears both together
+— which is what makes the mail's "this will resume on its own" true, and what
+makes a second failure a second mail rather than a duplicate. Clearing one and
+keeping the other would silence the NEXT failure forever.
+
+**The delete does not wait for mail.** invite-notify's law applied: mail is a
+notification and never a gate, so coupling a correctness action to somebody
+else's SMTP would leave stale mappings for as long as a provider was down. The
+row goes; the undelivered notice is named in a WARNING, because the loss is real
+and should be visible rather than silent.
+
+**The cron guard moved to one place** (`lib/cron-auth.ts`). The second cron
+route copied the first — the hand-maintained-list smell wearing security
+clothes: two copies of a constant-time comparison are two chances to stop being
+one, and the drift would be invisible.
+
+### Degradation copy: two deltas awaiting Todd's read (2026-08-27)
+
+Implemented and committed, NOT pushed — wording gates the merge. Both are cases
+the settled block does not cover rather than rewrites of what it does:
+
+1. **Plural.** The ruled subject and lead-in are singular ("One of your byollm
+   settings needs a look"; "One of those choices can no longer be used… carries
+   on without it") and the ruled example shows TWO items under them. Implemented
+   as: "Some of your byollm settings need a look" / "Some of those choices can
+   no longer be used, so those parts have stopped using your devices… carries on
+   without them." The subject counts within a mail, never across them.
+
+2. **A teammate's device going quiet** — the third reachable case. The settled
+   copy covers a share that ended (always somebody else's service; a mapping to
+   your own names no owner, so the roster is never asked about it) and one's own
+   device going quiet. The third can borrow neither: "check that machine" is not
+   something the reader can do to somebody else's laptop, and "you'll need to
+   choose it again" is untrue — the mapping still stands and the service may
+   come back. Implemented as: "was using Alice's qwen, which that device is no
+   longer offering. If it's offered again, this will resume on its own — if
+   that's a surprise, ask Alice."
+
+Also noted, not acted on: `conform` has twenty-four checks and none is "the
+source is formatted", which is why three files from this redesign drifted and
+went in green. Ten files repo-wide are unformatted.

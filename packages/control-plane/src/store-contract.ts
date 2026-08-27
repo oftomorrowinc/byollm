@@ -55,9 +55,24 @@ export interface PolicyStoreContractOptions {
   }>;
 }
 
-const SITE = "site_demo";
-const OWNER = "bob";
-const USER = "alice";
+/**
+ * Ids as **uuids**, so a real control plane can run this — byollm-review
+ * 2026-08-27.
+ *
+ * These were `"site_demo"`, `"bob"` and `"alice"`: fine for a store that
+ * treats an id as an opaque string, and rejected outright by the Postgres
+ * `uuid` columns of the implementation this contract exists for. A suite the
+ * hosted store could not execute is the "contract only its author can run"
+ * this file's own header calls a description rather than a contract.
+ *
+ * A uuid is an opaque string too, so nothing is lost for stores that do not
+ * care — and the names stay in the comments, where they are for people.
+ */
+const SITE = "5cbc8f4c-96ab-4c1e-b5b6-9d4b2a1f0e01";
+/** bob — the device owner. */
+const OWNER = "5cbc8f4c-96ab-4c1e-b5b6-9d4b2a1f0e02";
+/** alice — whose work it is. */
+const USER = "5cbc8f4c-96ab-4c1e-b5b6-9d4b2a1f0e03";
 const MAPPING: Mapping = {
   purpose: "writing_assistant",
   kind: "llm.generate",
@@ -85,7 +100,8 @@ const TEAMMATE_MAPPING: Mapping = {
   // Deliberately the same name as the mapper's own service above: a store
   // keyed on the name alone would pass a case that used a distinct one.
   service: "qwen",
-  owner: "carol",
+  // carol — a second teammate, whose qwen is not bob's.
+  owner: "5cbc8f4c-96ab-4c1e-b5b6-9d4b2a1f0e04",
 };
 
 /** Run the contract. Call inside a suite; it declares its own `describe`. */
@@ -152,7 +168,7 @@ export function describePolicyStoreContract(
       });
 
       expect(snapshot.mappings).toEqual([TEAMMATE_MAPPING]);
-      expect(snapshot.mappings[0]?.owner).toBe("carol");
+      expect(snapshot.mappings[0]?.owner).toBe(TEAMMATE_MAPPING.owner);
       await s.done();
     });
 
@@ -186,7 +202,7 @@ export function describePolicyStoreContract(
         snapshot.mappings.map((m) => [m.purpose, m.owner]),
       );
       expect(byPurpose.get("mine")).toBeNull();
-      expect(byPurpose.get("theirs")).toBe("carol");
+      expect(byPurpose.get("theirs")).toBe(TEAMMATE_MAPPING.owner);
       await s.done();
     });
 
@@ -297,7 +313,8 @@ export function describePolicyStoreContract(
       const theirs = await s.store.read({
         siteId: SITE,
         user: USER,
-        owner: "carol",
+        // carol — a second teammate, whose qwen is not bob's.
+        owner: "5cbc8f4c-96ab-4c1e-b5b6-9d4b2a1f0e04",
       });
       expect(mine.member).toBe(true);
       expect(theirs.member).toBe(false);

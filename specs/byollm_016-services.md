@@ -4761,3 +4761,31 @@ Not blocking the probe (Todd uses @alpha); self-corrects for THIS instance once
 
 Todd's path now: npm i -g byollm@alpha, re-pair, status -> protocol 1, roster and
 allow entry gone.
+
+### Setup confirmed on .62; "code not found" is an already-approved re-pair UX bug (2026-08-27)
+
+Todd upgraded to @alpha (.62), re-installed, re-paired. SETUP DONE AND CORRECT:
+the terminal showed "this version admits per job from a signed grant instead, so
+the roster was dropped" (Amendment J retirement announcing itself live), and the
+dashboard device card renders the FULLY REDESIGNED model — claude/codex
+llm.generate·private + llm.chat·private, glm-5.2 + qwen-2.5-14b llm.generate·team,
+under "What this device runs", with NO roster, NO allow entries, NO "selectable
+for". The rip is visible on both daemon and web. (smoke-test device correctly
+shows "never connected" with a loud finish-setup notice.)
+
+The "code not found" was a false alarm — pairing succeeded (device online +
+approved). Cause: re-pairing an ALREADY-APPROVED device completed automatically
+via the existing approval, WITHOUT a dashboard step — but the connect flow had
+printed the full new-device ceremony ("enter code 7M1E-4C9P, then approve"), so
+by the time Todd entered the code the re-pair was done and the dashboard
+correctly said "no pairing is waiting for that code." The instructions disagreed
+with the flow. **Bug for CCC (surface-declares-what-will-happen): the connect
+flow must not print the enter-code-and-approve steps for an already-approved
+device; say "already approved — re-pairing completes automatically, no code
+needed." The already-paired guard exists (it printed "re-pairing will not
+change that"); it just doesn't suppress the now-moot ceremony steps.** Non-blocking.
+
+Next: STAGE 1 (wire proof) — Todd maps a purpose to a service on one of his two
+served sites (needs a site with a declared manifest; qwen the natural target),
+confirm dashboard mappings >=1, then CCC fixes roll.sh's three bits and one real
+job goes through the deployed hub.

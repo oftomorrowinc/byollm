@@ -4580,3 +4580,55 @@ Held: three byollm-cloud commits (verify red on the one case until .62 lands).
 Convergence: repin hub+web to .62, re-run checkpoint expecting 12 green, push,
 deploy web, deploy hub. .stopship stays until Todd clears it post-probe — the
 marker doing its job.
+
+### BLOCKER: the security pass's own protections were never in production (2026-08-27)
+
+The pre-deploy schema probe — made honest after reporting 15/15 green while one
+"boundary" case was actually reading an ABSENT table — caught that two migrations
+never reached the control-plane production database:
+- 0038 (dashboard_team_memberships view): the degradation sweep reads it, so the
+  2d sweep is broken in prod (fail-safe: errors, mails nobody).
+- 0039 (dashboard_mapping_is_declared, dashboard_manifest_is_shaped, the
+  consent_mappings_own policy, the dashboard_sites manifest constraint): THIS
+  security pass's RLS/constraint half — the database backstop that stops a site
+  operator PATCHing a manifest or a JWT holder writing arbitrary mapping rows via
+  direct PostgREST. The application half (keepOffered, approveConnect) is
+  auto-deploying with the web repin; its DB backstop is ABSENT, so the
+  browser-trust hole is open in prod until 0039 lands.
+
+This is exactly the failure the review existed to prevent — "fixed in code,
+absent in production" — caught only because the probe was made to distinguish
+withheld-by-rule from absent. **Law: a withholding boundary is proven only by a
+permission denial on an object that EXISTS; an error from an absent object proves
+nothing.** A permission test asserts "denied by rule," never merely "errored,"
+or it goes green the moment the guarded thing is deleted. Third absence-of-signal
+catch this pass. Corollary from the information_schema->pg_catalog correction: a
+privilege-filtered catalog read as ground truth reports "absent" for what you
+merely cannot see — prove existence against unfiltered catalogs (pg_catalog,
+to_regclass, pg_proc).
+
+ACTION (Todd's — production write): run the prod schema push in byollm-cloud-web
+(0035/0037 applied; a clean push is exactly 0038+0039; preview before applying,
+confirm non-destructive). Then re-run the probe expecting 15 green (the team-
+membership boundary now a real permission denial). **The hub does NOT deploy
+until that probe is green** — deploying against a prod DB missing 0039 deploys
+with the hole open. Then hub deploy, then Todd's acceptance probe.
+
+Converged meanwhile: .62 published (six confirmed by npm view; the convergence
+monitor reported stale "still waiting" and was stopped rather than trusted —
+don't trust a stale signal); hub repinned, checkpoint 12 green + 1 legitimately
+skipped (separator-confusion, structurally impossible with uuid columns), SITE
+ISOLATION proven on PgPolicyStore for the first time; hub verify green and pushed
+(6842d88 + four successors on main); web repinned .62, conform 26/26, pushed
+(auto-deploying).
+
+Two non-blocking, both agreed: (1) five hub suites skip silently when infra is
+down (loud in CI via REQUIRE_*) — do NOT churn five files pre-deploy; fix with ONE
+derived check (a REQUIRE_-gated suite skipping without the flag explicitly off
+fails) — the harness-asserts-its-own-execution law. (2) apps/docs pins
+protocol@.38 (MUST_IDS identical to .62 — stale, not wrong; repin when
+convenient) and apps/dashboard carries an unused @byollm/relay@.9 (dead
+dependency — remove per rip discipline next time that manifest is touched).
+
+.stopship holds; and now the hub deploy itself is gated on the 0038/0039 push +
+green probe.

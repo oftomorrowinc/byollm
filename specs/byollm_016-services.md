@@ -3868,3 +3868,92 @@ fails verify.
 before anything can promote), then Kevin's manifest, then the acceptance
 probe. Cowork assembles Todd's manual acceptance checklist when the deploy
 sequence starts rolling.
+
+### Full multi-agent code review — 2026-08-27 (overnight, Todd asleep)
+
+Cowork ran a 10-reviewer + adversarial-verification review over all three repos
+at the mid-flight state (byollm e068ed0, byollm-cloud 16b4640, byollm-cloud-web
+6815c4f — hub NOT yet deployed, latest still .57). 35 findings confirmed after
+verification (1 critical, 34 major), 6 refuted. Full report delivered to Todd as
+byollm-review-2026-08-27.md and committed to byollm-cloud/specs/. This is the
+index; the report carries each finding's file, claim, and failure scenario.
+
+**The spine of it: signed grant fields are authored but not CHECKED on device.**
+The grant is signed over (site, user, kind, purpose, service) so nothing in
+transit can alter the control plane's resolution — but the daemon verifies only
+owner, jobId, freshness, signature, user===job.owner, replay, and
+service-offer-consistency. It never compares grant.siteId, grant.kind, or
+grant.purpose to the (relay-controlled, unsigned) stub. Three MAJOR admission
+holes fall out, each fixable in the shape of the existing user===owner refusal:
+- **grant.siteId unchecked** (runner.ts:591) — per-site jobIds collide, so a
+  grant authored for (siteA, job_1, alice) admits a malicious paired siteB's
+  job_1 for alice: siteB runs its prompt on a service alice mapped only for
+  siteA. The mapping-IS-consent boundary is bypassed cross-site.
+- **grant.kind unchecked** (runner.ts:805) — a relay rewrites stub.kind, and the
+  resolved service runs under a kind the user never mapped.
+- **engine ignores offerScope** (engine.ts:164) — the engine signs a grant
+  admitting a non-owner onto a service the owner narrowed to private; the
+  device's structural private-is-absolute catch saves admission but releases
+  PERMANENT ('refused'), burning the (job,device) pair the transient path
+  existed to protect. Second enforcement layer absent; recovery semantics invert.
+
+**CRITICAL — consent data loss on a billing event** (sweep-mappings/route.ts:243):
+the sweep's sharers set reads dashboard_team_roster_members, a view that returns
+rows only for a LIVE cloud.team entitlement. So 'sharing-ended' — the sole
+deletable verdict — fires on ENTITLEMENT EXPIRY (a payment hiccup), not only on
+membership ended. A one-night card-renewal delay permanently deletes every
+member's team mappings and emails them a false "isn't shared with you any more".
+Directly contradicts migration 0021's own ruling that a lapse "is not a refusal
+and not a pause". (Note: a sibling finding routing this through entitlements
+status=past_due was REFUTED — the live path is the roster view returning zero
+rows on expiry, not a status transition. The deletion is real; the trigger is
+expiry-of-view, not dunning-status.)
+
+**Browser-trusted mapping writes + an email PII oracle** (cluster):
+- approveConnect validates a submitted slot against the manifest but NEVER that
+  (service_owner, service) is one of the user's actual candidates; CandidateValue
+  checks only "non-empty string or null". Any profile uuid satisfies the FK.
+- The mappings table grants insert/update/delete to `authenticated` with RLS
+  checking only consent-ownership — a JWT holder writes rows directly, bypassing
+  readMappings, and can pre-stage rows under a revoked consent that spring back
+  on re-consent (trigger fires only on the revoke transition).
+- The degradation email resolves service_owner against the whole profiles table
+  and falls back to display_name/email — so a forged uuid in the hidden form
+  field returns that account's EMAIL to the forger via "ask victim@… if you still
+  want it". An account-existence + email oracle, in a system whose law is refusal
+  opacity and no existence oracle. (route.ts:366)
+
+**Other MAJORs (see report):** memory-only replay set re-admits on a sub-120s
+restart (double spend); paused consent declined as permanent, silently losing
+queued jobs on the exact join-a-team auto-pause the product treats as reversible;
+releaseLeases has no terminal guard (a release-after-complete reverts a done job,
+hides its result, re-runs it); community maxPayloadChars never enforced against
+the real payload (only the unsigned sizeClass), a 40x metered overspend; declined
+claims transiently visible to sites via /relay/site/pending (device-fleet
+enumeration for an "unsatisfiable" slot); protocol gaps — verifyGrant zero
+forward-skew tolerance (contradicts the 5s/30s clock rulings; proactive skew warn
+is unimplemented, CLOCK_SKEW_WARN_MS dead), Manifest has no aggregate/uniqueness
+bounds, label/description accept control chars + bidi + ANSI (rendered on consent
+screens), six wire sub-schemas strip unknown fields instead of throwing; consent
+screen re-connect ignores existing mappings / "none" keeps old routing / a
+duplicated kind silently voids the whole submission / two teammates' same-named
+services indistinguishable; sweep DB writes fire-and-forget (daily notification
+loop on a persistent failure); live pre-Phase-B device mislabeled service-gone;
+/usage reads the dropped `metered` column (503s forever); drain closes the policy
+pool while still serving; and a cluster of deploy/gate coverage gaps — PgPolicyStore
+never runs the shipped PolicyStore contract, the hub-vs-real-schema test in no CI,
+cloud-web's interim Manifest re-declarations don't match protocol's, old-daemon-
+vs-new-hub gives a generic unnamed 400 (no version fence/remedy — contradicts the
+loud-refusal ruling), /healthz omits audiences/sizeClass/backendClass so the gate
+greens on unchecked enums, pins-deployed.mjs and releasing.md both enumerate four
+of six packages (control-plane omitted — the hand-maintained-roster smell, twice).
+
+**Assessment for the morning:** none of this blocks the sequence as CODE-in-flight
+(hub undeployed, latest holding), but the three grant-binding holes and the
+CRITICAL sweep deletion MUST land before the hub carries real cross-user traffic
+and before the sweep runs against real teams. Recommendation: 2f pauses; a
+security pass (grant siteId/kind/purpose binding + engine offerScope + sweep
+delete-only-on-membership + approveConnect candidate validation + email
+owner-relationship check + the authenticated-role RLS tightening) lands first,
+each as its own commit with the test that proves it, THEN 2f resumes. Todd rules
+in the morning; nothing promotes regardless until he does.

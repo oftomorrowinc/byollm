@@ -3005,3 +3005,41 @@ a real test), then Manifest in protocol (keys, label, optional description,
 kinds; "default" refused at registration with remedy), then the wire flip
 (purpose replaces service; REFUSED_SELECTION, capability rows, isDefault
 retire; relay offers by kind), then the direct-mode drift test.
+
+### 2b commits 1–2 recorded; the structural standard generalized; wire flip go (2026-08-26)
+
+Backoff: the probe is now the test, asserted on the count NOT growing with ticks.
+The "offers it again" test asserts both halves — absent immediately after,
+present once 30s elapses — with CCC's reason recorded: **either alone is a bug
+that passes.** The contract states the obligation in both directions (not that
+runner before the moment; every other device immediately — the whole reason it
+is not a refusal), and uses an explicit moment rather than a moved clock,
+because a store across a network has its own. Valkey inherits the cases rather
+than being trusted to have thought of them — the shipped-contract pattern's
+first real exercise, working as adopted. Four mutations caught, including the
+per-runner not-before applied globally, which would have turned a per-device
+wait into a global stall.
+
+Manifest: press's v1 parses as written and is the test fixture — real shapes,
+not shapes invented to pass; writing-assistant's two kinds is the live proof
+that a mapping is per (purpose, kind). RESERVED_PURPOSE collapsed to its one
+home in protocol.
+
+**The structural standard, generalized (third instance ratifies the pattern):**
+prefer structure over procedure wherever the design allows —
+1. check 4: private refuses through an unreachable path, not a passing check;
+2. "default" refused by the schema's .refine, not a registration handler — a
+   handler check is a check a second path can miss; a schema cannot be routed
+   around;
+3. singlePurposeManifest normalizes the flat-list sugar at the edge, so no
+   consent screen, mapping table, or resolver downstream carries a branch for
+   the site that declared no purposes — and its label belongs to the caller,
+   because "default" renders to nobody (the label-itself-default mutation was
+   the one that mattered, and it was caught).
+The rule in one line: a guarantee should be a shape, not a discipline.
+
+**Commit 3 (the wire flip): go.** Breaking; daemon and hub move together
+thereafter. CCC's watch item is endorsed as rip discipline: with names gone,
+the claim filter's service branch collapses to kinds, and serves and isDefault
+must fall OUT of ClaimInput entirely — no unused wire fields lingering where a
+reader would infer meaning that no code gives them.

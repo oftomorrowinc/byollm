@@ -2886,3 +2886,20 @@ takes a team-offered llm.chat service (e.g. a local model advertised for chat);
 no code, one offer. Also noted with a smile: style-trainer is the slot the
 "Team gwen-demarco-lora" future was always pointing at — the mapping model was
 built for exactly that pulldown.
+
+### Lis's expected mapping — the flagship acceptance scenario (2026-08-26)
+
+Correction to the zero-candidate note, from Todd, and it's better news: Lis has
+her own Max subscription, so her own device brings claude llm.chat (private,
+hers) to the table. Her expected press mapping: writing-assistant llm.chat →
+HER Claude on HER machine; the generate slots → Todd's qwen (more likely glm
+once shared) on HIS machine — one user, one site, two owners' devices, split by
+slot between a private service and a team one. Labels confirmed correct as
+listed.
+
+This is now the flagship 2f acceptance scenario, because it exercises the
+redesign end to end in one user session: per-user candidate sets drawn from
+multiple owners' devices (the exact case that forced resolution hub-side in
+Amendment K), mapping authored at consent, grants carrying different resolved
+services to different machines for the same user, private-is-absolute on her
+box, team admission on his, and press knowing none of it.

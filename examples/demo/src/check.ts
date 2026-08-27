@@ -7,6 +7,7 @@
  * It does not pair a daemon — the conformance kit already certifies that path
  * exhaustively — it proves the example itself still works.
  */
+import { SERVED_PROTOCOL_VERSION } from "@byollm/server";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
@@ -67,14 +68,38 @@ try {
     "job.result() must reject with noRunnerAvailable, not wait forever",
   );
 
+  /**
+   * The version comes from the package, not from a literal.
+   *
+   * This sent `"0"`, and when `PROTOCOL_VERSION` became `"1"` the mount
+   * answered `400 unsupported-protocol-version` instead of `401` — a correct
+   * refusal for the wrong question. The version fence runs *before*
+   * authentication, which is the right order: a server cannot meaningfully
+   * decide who you are over a protocol it does not speak.
+   *
+   * So this asks the real question — a caller speaking the current protocol
+   * and offering no identity — and `SERVED_PROTOCOL_VERSION` is what the
+   * server itself answers with, so a future bump moves both ends at once.
+   */
   const protocolProbe = await fetch(`${ORIGIN}/byollm/claim`, {
     method: "POST",
-    body: JSON.stringify({ protocolVersion: "0" }),
+    body: JSON.stringify({ protocolVersion: SERVED_PROTOCOL_VERSION }),
   });
   check(
     "the protocol mount refuses an unauthenticated claim",
     protocolProbe.status === 401,
     `got ${String(protocolProbe.status)}`,
+  );
+
+  const staleProbe = await fetch(`${ORIGIN}/byollm/claim`, {
+    method: "POST",
+    body: JSON.stringify({ protocolVersion: "0" }),
+  });
+  check(
+    "and tells an out-of-date client to upgrade, rather than 'bad request'",
+    staleProbe.status === 400 &&
+      (await staleProbe.text()).includes("Upgrade the daemon"),
+    `got ${String(staleProbe.status)}`,
   );
 } finally {
   child.kill("SIGTERM");

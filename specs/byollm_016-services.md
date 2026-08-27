@@ -3808,3 +3808,7 @@ grantSigningKey as a Pulumi secret → pnpm grant-key:check against it.
 Migration 34651037 already applied. Then 2f: Kevin's manifest, the acceptance
 probe, /healthz and the gate updated in the same change, STOPSHIP marker
 included.
+
+Grant-key ceremony complete (2026-08-26): Todd minted, set grantSigningKey as a
+Pulumi secret (infra/, prod stack), and grant-key:check verified the configured
+value. The hub is cleared to deploy. 2f underway.

@@ -4303,3 +4303,40 @@ and one more argument for the pipeline-gate promotion (evidence, not inbox).
 Remaining tier 1: same-named teammate display (owner labels resolved from the
 hub's shared-with answer, not user input — the distinction the sweep email got
 wrong; wants a test); old-daemon-vs-new-hub loud named-version refusal.
+
+### Tier 1 complete; the version fence needs .61, which becomes the hub-deploy target (2026-08-27)
+
+Tier 1 done, all five pushed. The last one surfaced a protocol change:
+PROTOCOL_VERSION bumps to "1" because the vocabulary moved and the number did
+not — a pre-rip daemon (speaking 0) passed the handshake then failed schema
+validation every ~10s with an error naming no field, no vocabulary, no upgrade
+command (the loud-refusal law's inverse, come back because the number stayed
+still). 0 is deliberately NOT in the supported list: a 0 daemon sends
+offer:"public", so accepting its version only relocates the unactionable error
+one layer down.
+
+**Ruling: fold tier 2 in, cut ONE .61, and .61 (not .60) is the hub-deploy
+target** — a hub speaking 0 would refuse an upgraded daemon, the fence aimed
+backwards. Boundary held crisp:
+- .61 the PUBLISH carries only package-level items: PROTOCOL_VERSION="1"
+  (protocol), the store-contract non-null Mapping.owner case (control-plane),
+  and any other published-package tier-2 item.
+- Deploy-only tier-2 items (pins-deployed six-package, releasing.md, /healthz
+  enums, /usage 503, drain-pool, hub-schema CI) ride the hub/web commits that
+  deploy off .61 — in before the hub deploys, but not gating the publish.
+Sequence: finish tier 2, cut .61 once, repin, deploy web+hub off .61 with the
+deploy-only fixes, then the acceptance probe.
+
+Two lessons filed (both familiar shapes): 68 fixtures spelled the version literal
+"0", so a legitimate contract change broke 139 tests instead of the handful about
+versions — a constant duplicated 68 times; they read the source constant now, so
+the next bump is loud only in the version suite. And the same-named-teammate fix
+had a mutation escape (tested candidatesFor, which could always carry labels,
+while the bug was the caller — test-beside-the-law); fixed with a source lint in
+the connect-redirect shape, since a required param buys nothing.
+
+Candidate check offered to CCC (its judgment whether it earns its keep): a
+schema-fingerprint-vs-PROTOCOL_VERSION test that fails if the wire shape changes
+without a version bump — makes "the number stayed still while the vocabulary
+moved" impossible rather than remembered; lives next to schema-drives-statement;
+cost is a false positive on every additive change (arguably the point).

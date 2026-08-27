@@ -2903,3 +2903,49 @@ multiple owners' devices (the exact case that forced resolution hub-side in
 Amendment K), mapping authored at consent, grants carrying different resolved
 services to different machines for the same user, private-is-absolute on her
 box, team admission on his, and press knowing none of it.
+
+### 2a landed; two bugs the sequencing caught; the smell gets its name (2026-08-26)
+
+Engine shipped as planned — PolicyStore and GrantSigner injectable (the key as a
+function, so custody can sit behind a KMS), the rule in the open, the contract
+suite a subpath export. The fixture-to-real-engine swap caught two bugs on its
+first run, which is what the 2a-first sequencing was bought for:
+
+- **A paused consent still authorised.** The store didn't model pause; a relay
+  projection lagging by seconds was all that stood between a paused site and a
+  signed grant. `consented` now folds never-authorised, revoked, and paused into
+  one boolean — CCC's phrasing enters the record: **different to a person,
+  identical to a grant.** (The owner-facing surfaces still distinguish the three;
+  the grant never does — the split-by-remedy law and this are the same law seen
+  from both sides.)
+- **Two consent literals that could drift.** Projection (what a relay routes by)
+  and policy (what the engine authorises by) are one database read twice in
+  production, but were two hand-written literals in the harness — quietly
+  testing a world where a relay routes work its control plane would refuse. The
+  harness now derives the store from the relay's own fixture. **Law minted: what
+  production makes one thing, a test must not make two** — a fixture inherits
+  the invariants the deployment gets for free, or it tests a world that cannot
+  exist.
+
+Both release shapes proven, with the permanence test taken from the only vantage
+where permanence is visible: while the member is removed, refuse and not-here
+look identical at the claim endpoint — so the test re-admits her and shows the
+refused job still doesn't come back.
+
+**The named smell, at CCC's request — THE HAND-MAINTAINED ROSTER:** any list
+maintained by hand in parallel to the thing it describes — call sites (the grep
+check that missed the stop-ship), files (check-site.mjs's README list, which let
+relay ship unchecked for weeks), exceptions (the (?!-certify) pin carve-out
+written before that binary existed), and, at architecture scale, Amendment J's
+held roster itself. Four instances in one week, one bug in different hats. The
+fix is always the same: derive the membership from the code, or write the rule
+so it names no members. New checks that enumerate anything by hand are refused
+at review.
+
+**For 2b's routing question, the frame ruled in advance:** resolution is
+authored once, at claim, by the engine — anything earlier is a HINT. An
+enqueue-time resolution may exist for routing efficiency only if disagreement
+with the claim-time answer degrades to the not-here shape (re-offered, sorted
+out) and never to refusal; if that property can't be held, offer by kind and
+accept wasted claims — the honest fallback. One routes, one authorises, only
+one signs; a hint may mis-route, it may never mis-answer.

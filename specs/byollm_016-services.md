@@ -4373,3 +4373,42 @@ Lis's split session (her Claude, Todd's qwen, press blind) as the finale, plus
 this pass's live checks: version fence refusing an old daemon with a named
 remedy; re-connect + same-named-teammate consent-screen behavior; a
 paused-then-resumed consent recovering its queued job.
+
+### Deploy-only tier-2 underway; safety nets had holes where they mattered most (2026-08-27)
+
+Three hand-kept lists derived (59b6e3a): pins-deployed omitted @byollm/control-
+plane — the ADMISSION package — so a control-plane pin bumped in git and never
+shipped was invisible to the check built for exactly that (alpha.47's cause, in
+the check's own header); it also stopped shrugging (a runtime dep missing from
+the image was reported "?" and carried on — a check that greens on "unknown" is
+blind to what it exists to catch). The documented retag loop named four of six —
+wrong precisely when load-bearing (it's the fallback when the run summary is
+gone). The hosted-grants probe never learned the claim path — a hub could boot
+against a DB missing 0036 and decline every hosted job forever while the probe
+built for that reported green. /usage 503, /healthz enums also done.
+
+**Drain-pool (CCC's own morning bug): close a resource after its traffic stops,
+not beside the things that never had any.** The policy pool was closed beside the
+timers; it has traffic for the full 20s drain, and a closed pg.Pool rejects
+everything — so every roll wrote 30s not-befores into shared Valkey, stalling
+jobs on the HEALTHY pod too. A single-pod lifecycle mistake going fleet-wide
+through shared state.
+
+Two flagged:
+- A probe case asserted the hub could read dashboard_team_memberships —
+  contradicting CCC's own 0037 withholding decision from six hours earlier. A
+  test pointed the wrong direction: it asserted an access the design deliberately
+  withheld. It now pins the WITHHOLDING (the security property is the absence; a
+  test that passes when the withholding is removed tests nothing). "A negative
+  needs verifying," applied to a deliberate denial.
+- The policy contract used ids "site_demo"/"bob"/"alice" — rejected by Postgres
+  uuid columns — so the hosted store could NEVER run its own contract, even in
+  principle. "A contract only its author can run is a description" made concrete:
+  the reusable suite was inert against the one implementation that ships. Now
+  uuids. CONFIRM as the adapter lands: the full contract run now covers tri-state,
+  non-null-owner, and paused — the earlier "proved against real Postgres" was a
+  bespoke targeted test (stands), and the general guarantee is only becoming real
+  now; ensure nothing the targeted tests covered falls outside the contract.
+
+Left before .61: the PgPolicyStore contract adapter (ids unblocked it) + the
+hub-schema test into CI. Then cut .61, repin, deploy web, deploy hub, probe.

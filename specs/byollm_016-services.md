@@ -3157,3 +3157,37 @@ still listing named/public is CCC's 2e item.
 ROSTER_SIGNING_PRIVATE_KEY and ROSTER_READ_SECRET deleted from Vercel by Todd
 (2026-08-26) — the roster machinery's last living remnant is gone; Amendment J's
 retirement is now total across code, wire, store, and secrets.
+
+### 2d continues: the anomaly's defect relocated; mapping logic as testable rulings (2026-08-26)
+
+Correction, CCC's own, accepted into the record: the conform runner DID name
+failures — inline, at the failure, "✗ <check name>" — and the unidentifiable
+failure had named itself a few lines above the window a `tail -8` kept. The
+defect was misplaced in the report (and thus in this record): the runner was
+fine; the EXCERPT was blind. Two things worth keeping from the correction:
+- The law refines rather than dies: **a failure must name itself where the
+  reader actually looks.** A summary line, a CI excerpt, a pasted tail — the
+  part that survives truncation must carry the names, because that is the only
+  part a future comparison will have. The fix (summary carries names, proved by
+  breaking a check and reading six lines) survives its own corrected premise.
+- The diagnosis error was a window problem — the evidence-of-absence law's own
+  clause ("a log read used as evidence of absence must state its window"),
+  violated by the reporter who minted the phrasing, caught by the reporter. The
+  flake itself stays open; a recurrence can now be compared against something.
+
+The mapping logic landed pulled OUT of the component, for the stated reason
+that enters the record: **every line of it is a ruling** — order, preselection,
+auto-map, what stays empty — and buried in JSX the only way to check a ruling
+is to render and squint. 15 tests against press's real v1. Two cases named:
+- Replicas are one choice; a teammate's identically-named service is a second
+  choice — the same string in two namespaces is two different machines. The
+  pulldown's owner prefix is load-bearing, not decoration.
+- readMappings reads against the manifest's slots, never off the form — a form
+  is browser-editable, and a mapping for an undeclared purpose would sit in the
+  database answering a question nobody asked. Unknown-fails-closed at the
+  client boundary.
+
+Remaining in 2d: the component, approveConnect writing mappings in the same
+act as consent (the ruling made literal), the degradation notification — and
+the consent-screen copy comes to Todd for read BEFORE merge, per
+wording-gates-merge. Confirmed as the process.

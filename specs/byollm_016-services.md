@@ -4735,3 +4735,29 @@ Next: Todd tails service.log (the honest step 1 — confirm the hub returned the
 named refusal), then `npm i -g byollm@alpha` (latest is .57; the .62 daemon is on
 @alpha), re-pair, and status should show protocol 1 with roster/allow gone and
 effective offer scopes — the first visible proof of the rip.
+
+### Version fence fires correctly — but its remedy is false in the migration window (2026-08-27)
+
+service.log confirms the hub-side fence works: "hub.byollm.cloud this server
+speaks protocol 1 and the daemon asked for 0. Upgrade the daemon: `npm i -g
+byollm@latest`." Clear, named, actionable — step 1's hub half passes.
+
+**Bug Todd caught: the remedy names `@latest`, which is .57 — the version being
+REFUSED. Following it loops back to the refused daemon. The fix is on @alpha.**
+And it recurs: the normal flow is deploy-hub -> probe -> promote, so there is
+ALWAYS a window where the hub speaks a newer protocol than `latest` points at,
+and during it a refused daemon is told to reinstall the very version that was
+refused. The remedy is only correct AFTER promotion — a refusal whose remedy is
+false exactly when it's needed. Same family as "a refusal may deny, it may never
+mislead."
+
+Fix (CCC, hub-side, DEPLOY-ONLY no republish — the string is authored by the
+hub): the remedy names a target that actually speaks the hub's protocol — the
+hub's own served version (e.g. "upgrade to byollm@0.1.0-alpha.62") or a tag
+guaranteed at-or-ahead — derived from truth, not a bare @latest that may point
+anywhere. Product-law surface (user-facing refusal) — Todd blesses the wording.
+Not blocking the probe (Todd uses @alpha); self-corrects for THIS instance once
+.62 is latest, but the recurring window needs the version-specific remedy.
+
+Todd's path now: npm i -g byollm@alpha, re-pair, status -> protocol 1, roster and
+allow entry gone.

@@ -4638,3 +4638,31 @@ schema probe against production: 15 green expected, the team-membership case now
 permission denial (not absent-table). A migration that "ran" is a claim until the
 probe reads it back. If green -> hub deploys off .62 -> Todd's acceptance probe.
 If red -> stop and report before deploying.
+
+### Blocker closed; hub deploying off .62 with a canary (2026-08-27)
+
+Probe fully green (15/15): the team-membership case reads "permission denied for
+view dashboard_team_memberships" (denial, not absent), and 0039's objects
+verified directly (dashboard_mapping_is_declared, dashboard_mapping_owner_shares,
+dashboard_manifest_is_shaped, consent_mappings_own policy). The security pass's
+protections are now actually in production.
+
+CI-red caught before deploy (CCC's): policy-store-contract.test.ts registers
+cases only with a control-plane DB, so CI (none) saw an empty file and vitest
+called it broken — "green on the machine that wrote it, red on the machine that
+has to believe it," the worst shape a gate can have. Fixed to a declared skip
+(visible skip + stderr warning, not a hard error; 12 against a real DB). CI green
+(0b304fd).
+
+Residual named, non-blocking: under the no-token ruling the PgPolicyStore
+contract-BEHAVIOR proof lives on a dev machine + the production probe, not CI, so
+a behavior-breaking change would pass CI on a skip. The clean fix is NOT the token
+— the contract needs the schema DDL, not a credential — so vendoring/publishing
+the schema so byollm-cloud CI can stand up a throwaway control-plane Postgres and
+run the contract closes it with no standing secret. Follow-up.
+
+Hub deploy rolling off .62: roll.sh verified the edge list and tag CI, builds the
+image, watches the edge 300s, and runs a real job through the just-deployed hub
+(reports any request dropped during rollout). Cowork assembling Todd's acceptance
+checklist to deliver when roll.sh lands green — then the acceptance probe, then
+clear .stopship.

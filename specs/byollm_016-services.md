@@ -3639,3 +3639,42 @@ question for the build: whether dist-tag moves can ride trusted publishing's
 credentials or still need Todd's token for the final hop. Sequenced AFTER 2f —
 the first .58 promotion runs the current ceremony with the new gate checks;
 the pipeline stage is built with the lessons of having done it once.
+
+### Pin bumped; the rip arrives at the hub; two laws and one question (2026-08-26)
+
+2e item 1 closed the right way: proven by the SHIPPED contract, not the
+author's own test — both inherited retryAfter cases run against real Valkey,
+and an `if false` in the Lua check fails the Valkey case specifically.
+
+The six compile errors were the rip arriving on schedule: selection left the
+relay (ClaimInput.serves gone, CLAIM matches by kind, the denormalised service
+field deleted with no reader left); Amendment J reached the hub (rosters.ts,
+its test, the fold-in, the second polling cadence, three settings — all
+retired); and `public: false` retired itself exactly as its comment predicted,
+the compiler asking for it back when the pin moved.
+
+Two laws minted:
+- **Two settings that must agree are two a deployment can set inconsistently —
+  derive the second from the first.** GRANT_SIGNING_PRIVATE_KEY stands alone;
+  its public half is derived, never configured beside it. The failure mode it
+  forecloses is a fleet refusing every job while every process reports itself
+  healthy — the worst shape a config mistake can take.
+- **A guard gated on the same flag as its subject guards nothing.** The ledger
+  suite's `up` was assigned in beforeAll but read by describe.runIf at
+  collection time — six real-ledger cases silently skipped on every local run,
+  and the guard that should have said so was itself runIf(REQUIRE_LEDGER),
+  only running when the thing it guarded was already forced. Probed at module
+  scope now, the way valkey-store.test.ts always did; all six pass.
+
+**Question put to Todd, recorded pending his ruling:** `pnpm db:migrate`
+targets PRODUCTION by default — reads admin.env, ignores DATABASE_URL. CCC ran
+it meaning to set up a local container and it reached the Supabase pooler
+("nothing to apply"; benign only because nothing was pending). CCC recorded
+rather than changed it. Recommendation: the default inverts — local/
+DATABASE_URL by default, production only behind an explicit flag. Today's own
+laws argue it: nothing widens quietly, and a deliberate act should require
+saying so. Todd may know a reason the default is deliberate; his call.
+
+Next: PgPolicyStore against the pgTAP-pinned SQL, then ControlPlane at claim —
+controlPlanePublic and authorGrant together, which the relay's construction
+throw refuses to accept singly.

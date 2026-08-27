@@ -17,36 +17,62 @@ either direction: not to select one, not to display one.
 
 ## What press has to do
 
-**1. Declare a manifest at site registration.** Purposes to kinds:
+**1. Declare a manifest at site registration.** Todd has ruled press's v1;
+labels and descriptions are final wording:
 
 ```json
 {
-  "writing_assistant": ["llm.chat", "llm.generate"],
-  "revenue": ["llm.generate"],
-  "advertising": ["llm.generate", "llm.image"]
+  "books": {
+    "label": "Books",
+    "description": "Reads and parses your existing books for use across the site",
+    "kinds": ["llm.generate"]
+  },
+  "fact-checker": {
+    "label": "Fact Checker",
+    "description": "Reviews facts in your non-fiction work and builds the reference list",
+    "kinds": ["llm.generate"]
+  },
+  "revenue": {
+    "label": "Revenue",
+    "description": "Analyzes your sales, revenue, and ad spend performance",
+    "kinds": ["llm.generate"]
+  },
+  "writing-assistant": {
+    "label": "Writing Assistant",
+    "description": "Outlining and brainstorming to beat the blank page",
+    "kinds": ["llm.chat", "llm.generate"]
+  },
+  "style-trainer": {
+    "label": "Style Trainer",
+    "description": "Trains a model on your writing style to generate draft content in your voice",
+    "kinds": ["llm.generate"]
+  }
 }
 ```
 
-Those are illustrative — pick the purposes that match how press actually uses
-inference, in press's own vocabulary. They are the labels your users will read
-on the consent screen when they choose which of their services drives each one,
-so name them for a reader, not for the code. A site with a single undifferentiated
-use can declare a flat kind list (`["llm.generate"]`), which is sugar for one
-site-wide purpose.
+**The key is a wire id; the label is what people read.** Separate fields, and
+no surface derives one from the other. A key travels on every job press
+enqueues and is what mappings are stored against, so it has to be stable —
+renaming one is deleting a purpose and creating another. A label is prose,
+changeable whenever you like, and is the **only** thing the consent screen
+renders. `description` is optional and gives that screen a line of context.
 
-Two things about purposes worth knowing before you pick them:
+Two things about purposes worth knowing:
 
-- A purpose is the unit a user maps and revokes. Two uses that a user might
-  reasonably want pointed at different models are two purposes.
-- Changing the manifest later never silently remaps anyone. New purposes and new
-  kinds start **unmapped**, and an unmapped slot makes that purpose unavailable
-  until the user maps it — press falls back meanwhile, and the user gets a
-  notification asking them to come update it. So graduating from a flat list to
-  named purposes unmaps every existing user once. Better to name them now.
+- A purpose is the unit a user maps and revokes. Two uses somebody might
+  reasonably want pointed at different models are two purposes — which is why
+  `writing-assistant` and `style-trainer` are separate even though both
+  produce prose in the author's voice.
+- Changing the manifest later never silently remaps anyone. New purposes and
+  new kinds start **unmapped**, and an unmapped slot makes that purpose
+  unavailable until the user maps it — press falls back meanwhile, and the
+  user gets a notification asking them to come update it. Adding a purpose is
+  therefore cheap. Renaming a key is not.
 
-**2. Enqueue by purpose + kind, never by service name.** The exact SDK signature
-ships with the release; the shape is that the job names the purpose it serves and
-the kind it needs, and nothing else about *what will run it*.
+**2. Enqueue by purpose + kind, never by service name.** The exact SDK
+signature ships with the release; the shape is that the job names the purpose
+**key** it serves and the kind it needs, and nothing else about *what will run
+it*. The key, never the label — labels are for people.
 
 **3. Handle "unmapped" the same way you already handle "unavailable."** Press
 already has the fallback branch for users with no connected device. An unmapped
@@ -76,6 +102,7 @@ acceptance probe passes. Press stays on its current version and keeps falling
 back until you adopt the manifest — there is no deadline and no half-migrated
 state to sit in.
 
-Questions to Todd or to me. If a purpose vocabulary for press is the hard part,
-say so and we will work it out together — it is the one decision here that is
-genuinely press's to make and hard to change later.
+Questions to Todd or to me. The vocabulary above is ruled, so the hard part is
+already decided — but if a use of inference in press does not fit one of those
+five, say so before wiring it to the nearest one. An extra purpose is cheap to
+add; a key that means two things is not.

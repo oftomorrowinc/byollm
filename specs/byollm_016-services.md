@@ -3697,3 +3697,76 @@ is about to touch before applying (a surface states its effective target), and
 the naming convention covers any script that can reach a non-local
 environment; db:migrate, if it survives its reference check, follows the same
 convention.
+
+### 2e complete (2026-08-27)
+
+All four, plus the ceremony 2e turned out to need.
+
+**1. `releaseLeases({ retryAfter })` in Valkey — closed and proven by the
+shipped contract.** Both inherited cases run against real Valkey; mutating the
+Lua check to `if false` fails the Valkey case specifically. The method's own
+comment — "an optional field means the compiler will not notice a store that
+ignores it" — had come true a third time and now records that it did.
+
+**2. `PgPolicyStore`.** Three questions in one round trip, on the claim path.
+The predicate is not restated as a claim: it is pinned in cloud-web's
+`policy_read.test.sql`, as `hub_reader`, against the schema owning those
+columns. Nothing is cached, and `paused` is why it cannot be — a consent given
+on the private-compute sentence stops authorising the moment its author joins
+a team, and NO ROW CHANGES, so there is nothing a cache could be invalidated
+by. **Failing is not refusing:** a database that cannot answer throws, never
+returns `consented: false`; the engine makes a throw transient and a refusal
+permanent, so a blip would otherwise unpick jobs from devices for good.
+
+**3. `ControlPlane` wired at claim, both-or-neither.** A key without a store
+authorises nothing it can justify; a store without a key says nothing a device
+would believe. Both come off one object, so there is nothing to pair up wrong;
+the relay already refuses `controlPlanePublic` without `authorGrant`. A hub
+with neither says so once at boot — supported, but an unexplained supported
+state is not.
+
+**4. `WIDENING` retired**, and it earned its exhaustive type immediately: the
+pinned protocol still declared `public`, so the honest form named it `false`;
+the pin moved and the compiler asked for the line back. Self-retiring, as its
+comment predicted.
+
+**Correction to the record:** the previous entry said the grant key's public
+half would be DERIVED from the private. It cannot be — `@byollm/protocol`
+exports no public-from-private helper, only `publicIdentityOf` over a full
+`StoredKeys`. `GRANT_SIGNING_KEY` therefore carries both halves as one value,
+which reaches the same guarantee differently: there is no second setting to
+disagree with. A derive helper upstream would shrink it to the private half
+and is worth having. **derive-don't-co-configure survives with its second-best
+form named.**
+
+**The ceremony, rehearsed.** No minting script existed for the key the roster
+key is replaced by. `pnpm grant-key` mints and `pnpm grant-key:check` proves
+the configured value works, by signing a real grant with the private half and
+verifying it with the public one. That check exists for the failure with no
+symptom: mismatched halves mean every device refuses every job while every
+process reports itself healthy. Rehearsed both ways before shipping — matching
+pair exits 0 with a fingerprint, mismatched pair reports `bad-signature` and
+exits 1.
+
+**Rulings folded in this pass:** (1) `db:migrate` is not unused wire — CI runs
+it twice — so the default inverted rather than the tool being deleted.
+`credential()` now reads `~/.config/byollm/admin.env` only when asked;
+`db:migrate:prod` and `db:psql:prod` ask; a prod run says `PRODUCTION` under
+the host line. `db:test` gets no prod variant: running the suite against the
+hosted ledger is not a thing to make one flag away. One correction to CCC's
+own report — it never ignored an override; the variable is
+`LEDGER_DATABASE_URL` and CCC passed `DATABASE_URL`.
+
+**Queued, unstarted:** ruling (2), the `db:push` / `db:push:prod` split in
+cloud-web, lands next time CCC touches web scripts. Rulings (3) STOPSHIP
+marker and (4) promotion-as-final-stage are 2f and post-2f.
+
+**Todd owes before the hub deploys:** mint the grant key
+(`pnpm grant-key`), set `grantSigningKey` as a Pulumi secret, and run
+`pnpm grant-key:check` against it. Migration 34651037 is already applied.
+
+**Laws ratified this pass, from Todd:** derive-don't-co-configure, and the
+self-gated-guard law — *a guard that only runs when the thing it guards is
+already forced is not a guard*, minted from the ledger suite whose `up ||`
+branch was dead because `runIf` reads its argument at collection time and
+`beforeAll` had not run.

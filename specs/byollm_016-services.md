@@ -3514,3 +3514,52 @@ has been emailed. 28/28 pgTAP, conform 24/24.
 at claim. The hub already computes `paused = !shared_compute && shares_now`
 in `control-plane.ts`, so the snapshot's `consented` reads from that one
 expression rather than a second copy of it.
+
+### 2e half-landed; a record correction on latest; the .58 publish needs Todd (2026-08-26)
+
+**Record correction, from CCC's registry read: `latest` points at alpha.57, not
+.56.** The standing line in this record — "latest holds at .56" — was written at
+the stop-ship and repeated since without re-verification; the registry says
+otherwise. Whether .57 was promoted at some point or the .56 line was never
+verified is open (Todd asked). Assessment: not an emergency — pre-1.0, no
+strangers, and .57's known defect authored inoperative entries rather than
+admitting anyone — and .58 takes latest through the gate at 2f regardless. But
+the lesson is our own law read back to us: a negative ("nothing was promoted")
+needed verifying before being written down, and this record failed that.
+
+**The premise check that reordered 2e:** retryAfter exists in no published
+version, and @byollm/control-plane was never published at all — building 2e
+against the pins would have meant re-declaring four shapes in the hub, the
+two-definitions defect. The @alpha publish moved to the front of 2e, where the
+ratified order already put it. The .58 publish then half-landed (CCC's miss,
+owned: trusted publishing authorises a workflow for an EXISTING package, and
+docs/releasing.md said so): conformance is out at .58, control-plane 404'd,
+four siblings sit at .57. Todd's commands, on the 2FA account: manual
+first-publish of control-plane, `npm trust` for it, re-run the .58 release run
+— idempotent per package, converges on the missing four; the tag stays where
+CI passed. CCC also made the doc stop being the mechanism: the version step now
+asks the REGISTRY which names it knows and prints the exact commands — derived,
+not a hand-kept roster of which packages are set up.
+
+**Landed and ratified:**
+- Valkey releaseLeases({retryAfter}): per-runner not-before on the job hash,
+  read in CLAIM against Valkey's own clock, surviving requeue, pruned on
+  write. The optional-field hazard is now three-for-three and recorded where
+  it lives: **an optional field is a check the compiler won't run.**
+- WIDENING retired into an exhaustive Record<OfferScope, boolean>, with the
+  sentence that justified the urgency: **a dead word in a widening allowlist
+  is a door, not stale bookkeeping.** The pinned protocol still declaring
+  public makes the honest form name it false rather than let a missing key be
+  silence; the line self-retires when the pin moves. The literals' removal
+  broke no test, so the rule is asserted directly and the restoring mutation
+  is caught.
+- hub_reader gains exactly the five mapping columns plus consents.id, with the
+  separate-credential option rejected on the record (RELAY_BLIND covers
+  payloads; opacity buys nothing the signature doesn't) — and the ABSENT
+  columns are the point: swept_at/degraded_at/notified_at stay ungranted,
+  because who has been emailed is not routing's business. The human-act law,
+  applied to database grants.
+
+After the publish converges: hub pin bump (the inherited contract case proves
+the Valkey work), PolicyStore against Postgres, ControlPlane at claim — with
+paused read from control-plane.ts's one expression, never a second copy.

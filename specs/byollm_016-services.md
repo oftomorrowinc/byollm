@@ -3291,3 +3291,33 @@ Copy shipped as ruled; label table derives from JOB_KINDS (a kind added
 upstream fails the compile until someone names it); interim re-declared shapes
 and the runtime test are marked to retire when the pin moves. Notification
 copy comes to Todd before merge.
+
+### Degradation notification copy: final (2026-08-26, Todd)
+
+Subject (Todd's ruling): "One of your byollm settings needs a look".
+Lead-in rewritten to kill the spam-shape — it now references the real act the
+reader performed, in the consent screen's own approved vocabulary ("what powers
+each part"), and one email covers one site so the lead-in can name it:
+
+    When you connected Of Tomorrow Press, you chose what powers each part
+    of it. One of those choices can no longer be used, so that part has
+    stopped using your devices. Nothing is broken — the site carries on
+    without it.
+
+    Of Tomorrow Press · Revenue · Generation
+    was using Alice's qwen-14-4b, which isn't shared with you any more.
+    If it's shared with you again, you'll need to choose it again — ask
+    Alice if you still want it.
+
+    Of Tomorrow Press · Books · Generation
+    was using your qwen, which that device is no longer offering. If that
+    device offers it again, this will resume on its own — if that's a
+    surprise, check that machine.
+
+    Choose again any time on Connected sites: <link>
+
+Rulings carried: remedies inline per item (split-by-remedy); the
+recoverable/not difference stated as FUTURE BEHAVIOR (resumes on its own vs
+choose again), no internals; the self-justifying closing line dropped; the
+"won't come back on its own" accuracy bug fixed by the per-item futures. One
+email per site, so the lead-in stays concrete.

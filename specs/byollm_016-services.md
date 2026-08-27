@@ -3563,3 +3563,37 @@ not a hand-kept roster of which packages are set up.
 After the publish converges: hub pin bump (the inherited contract case proves
 the Valkey work), PolicyStore against Postgres, ControlPlane at claim — with
 paused read from control-plane.ts's one expression, never a second copy.
+
+### Publish converged; latest waits for the end; the schema defends itself (2026-08-26)
+
+All six packages at .58 on @alpha (Todd ran the birth publish, trust grant, and
+re-run). CCC's refusal to touch `latest` mid-flight is endorsed and recorded:
+moving it now would hand a bare `npm i byollm` a new-protocol daemon against an
+old-protocol hub — the exact breakage @alpha's inertness exists to prevent.
+Order standing: @alpha ✅ → web (migrations live, sweep merged, 2e grant
+pushed) → hub (2e half done) → Todd's ceremony → latest.
+
+Promotion-ceremony addition, Todd's checklist ("already added to my loop"):
+@byollm/control-plane was born straight onto alpha and has NO latest tag —
+promotion must create one or a bare install of package six won't resolve. The
+ready-for-latest gate enumerates six, including this.
+
+PolicyStore's risky half done first — the SQL validated as hub_reader against
+the real schema before any TypeScript (pgTAP 8/8, 6815c4f). Two findings
+ratified into the fixture law's family:
+- **A fixture must build state the way a person does, or it tests a state that
+  cannot exist.** Writing shared_compute = false read back TRUE — the schema
+  defending itself: dashboard_consents_branch recomputes the column on insert
+  so nobody self-certifies into the private sentence. The only way to build a
+  paused consent is the human path — consent on no roster, then join a team.
+  A column-writing fixture would have tested the trigger's override and called
+  it paused.
+- **The round trip matters more than the state**: the cases walk solo-and-live
+  → joined-and-paused → the agreed sentence not rewritten while paused →
+  re-consent making it live → revoked → revoked leaving no mapping behind.
+  States are moments; the law lives in the transitions.
+
+Open loose end, unresolved: who or what moved latest to .57 remains unknown —
+Todd did not confirm promoting it. Moot for the sequence (latest moves through
+the gate at the end regardless); npm's audit log can answer it if curiosity or
+caution ever wants the answer.

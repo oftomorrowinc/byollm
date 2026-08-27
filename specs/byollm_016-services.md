@@ -3770,3 +3770,41 @@ self-gated-guard law — *a guard that only runs when the thing it guards is
 already forced is not a guard*, minted from the ledger suite whose `up ||`
 branch was dead because `runIf` reads its argument at collection time and
 `beforeAll` had not run.
+
+### 2e complete (2026-08-26)
+
+All four items closed, three repos pushed. Recorded from the close:
+- ControlPlane at claim is both-or-neither off one object, in CCC's sentence
+  kept verbatim: "a key without a store authorises nothing it can justify; a
+  store without a key says nothing a device would believe." Nothing to pair up
+  wrong.
+- **Caching is structurally forbidden, and paused is the proof:** a consent
+  given on the private-compute sentence stops authorising the moment its
+  author joins a team — no row changes, so there exists no event a cache could
+  be invalidated by. Three questions in one round trip at claim is the design,
+  not an optimisation target.
+- **Law minted: failing is not refusing.** A database that cannot answer
+  throws; it never returns consented:false. The engine keeps throws transient
+  and refusals permanent — otherwise a blip unpicks jobs from devices for good
+  with nothing to put them back. Proven against a dead port; 4/4 mutations.
+  Sibling of "a refusal may deny, it may never assert": an outage may delay,
+  it may never decide.
+- **Correction, CCC's own:** the public half cannot be derived (protocol
+  exports no helper), so GRANT_SIGNING_KEY carries both halves as ONE value —
+  the same guarantee by a different road: no second setting to disagree with.
+  Derive-don't-co-configure survives with its second-best form named; a derive
+  helper upstream would shrink the value to the private half alone.
+- The grant-key ceremony descends from the mint-script lesson: pnpm grant-key
+  mints, pnpm grant-key:check proves a configured value by signing a real
+  grant and verifying it — built for the failure with no symptom (mismatched
+  halves = every device refuses while every process reports healthy),
+  rehearsed in both directions before shipping.
+- Ruling 1 landed on the invert branch: CI runs db:migrate twice, so it lives;
+  admin.env is opt-in; the :prod variants ask, and a prod run prints
+  PRODUCTION under the host line; db:test gets no prod variant on purpose.
+
+Todd's pre-hub-deploy ceremony (secrets are his): pnpm grant-key → set
+grantSigningKey as a Pulumi secret → pnpm grant-key:check against it.
+Migration 34651037 already applied. Then 2f: Kevin's manifest, the acceptance
+probe, /healthz and the gate updated in the same change, STOPSHIP marker
+included.

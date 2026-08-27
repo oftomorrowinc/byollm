@@ -87,24 +87,51 @@ console.log(`\nchecking ${version} across ${String(names.length)} packages\n`);
 const problems = [];
 const behind = [];
 
+/**
+ * How long a just-landed publish is given to become readable.
+ *
+ * It was six attempts five seconds apart — twenty-five seconds — and
+ * `0.1.0-alpha.59` needed longer: npm answered `+ @byollm/protocol@…` and the
+ * read-back called it missing forty-three seconds later. Every package was
+ * published; the check was impatient.
+ *
+ * That is the expensive kind of wrong. This step exists to catch a genuine
+ * partial publish, which has happened twice and leaves resolvable packages
+ * pointing at a sibling that is not there. A check that also cries wolf is a
+ * check people learn to re-run without reading, and the next real partial
+ * goes out behind a shrug.
+ *
+ * Backoff rather than a longer flat interval, so the common case still
+ * finishes in seconds and the slow case is waited out instead of failed.
+ */
+const PROPAGATION_ATTEMPTS = 8;
+const backoff = (attempt) => Math.min(2000 * 2 ** attempt, 30_000);
+
 for (const name of names) {
-  // Retried, because a publish that has just landed is not instantly visible
-  // from every registry edge. Bounded: this is propagation, not a wait for
-  // something that has not happened.
+  /**
+   * Both reads retry, together.
+   *
+   * `versions` retried and `dist-tag ls` did not, which is the same bug with
+   * a different symptom: when the version landed on the last attempt and the
+   * tag had not caught up, this reported "published, but `alpha` points at
+   * …" — a second false failure for the one real cause. They are two reads of
+   * one eventually-consistent registry and neither is meaningful before the
+   * other.
+   */
   let versions = [];
-  for (let attempt = 0; attempt < 6; attempt += 1) {
+  let tags = {};
+  for (let attempt = 0; attempt < PROPAGATION_ATTEMPTS; attempt += 1) {
     const raw = npm(["view", name, "versions", "--json"]);
     versions = raw ? JSON.parse(raw) : [];
-    if (versions.includes(version)) break;
-    if (attempt < 5) await sleep(5000);
+    tags = Object.fromEntries(
+      npm(["dist-tag", "ls", name])
+        .split("\n")
+        .filter(Boolean)
+        .map((line) => line.split(": ").map((s) => s.trim())),
+    );
+    if (versions.includes(version) && tags["alpha"] === version) break;
+    if (attempt < PROPAGATION_ATTEMPTS - 1) await sleep(backoff(attempt));
   }
-
-  const tags = Object.fromEntries(
-    npm(["dist-tag", "ls", name])
-      .split("\n")
-      .filter(Boolean)
-      .map((line) => line.split(": ").map((s) => s.trim())),
-  );
 
   const published = versions.includes(version);
   const alphaOk = tags["alpha"] === version;

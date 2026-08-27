@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
+import { JOB_KINDS } from "./kinds.js";
 import {
+  MAX_PURPOSES,
   Manifest,
   RESERVED_PURPOSE,
   singlePurposeManifest,
@@ -143,5 +145,116 @@ describe("what a manifest may not be", () => {
         books: { label: "Books", kinds: ["llm.generate"], model: "gpt-4o" },
       }).success,
     ).toBe(false);
+  });
+
+  describe("what a person will actually read", () => {
+    const withLabel = (label: string) =>
+      Manifest.safeParse({ books: { label, kinds: ["llm.generate"] } }).success;
+
+    it("refuses a label that reorders what follows it", () => {
+      /**
+       * The attack this rule exists for — byollm-review 2026-08-27.
+       *
+       * `U+202E` reverses the run after it, so a declared label renders as a
+       * different sentence with every character individually innocent. This
+       * is the one field the whole consent decision rests on: a person reads
+       * it and says yes.
+       */
+      expect(withLabel("Read your files\u202E — tnatsissa gnitirW")).toBe(
+        false,
+      );
+      for (const bidi of ["\u202A", "\u202B", "\u202D", "\u2066", "\u200F"]) {
+        expect(withLabel(`Writing${bidi}Assistant`), bidi).toBe(false);
+      }
+    });
+
+    it("refuses control characters, so one label cannot draw another row", () => {
+      // A newline spoofs the rows around it on a consent screen and in the
+      // notification mail; an ANSI escape corrupts a terminal when a CLI
+      // prints the purpose; NUL truncates in whatever reads it next.
+      expect(withLabel("Writing\nAssistant")).toBe(false);
+      expect(withLabel("Writing\u001B[31mAssistant")).toBe(false);
+      expect(withLabel("Writing\u0000Assistant")).toBe(false);
+    });
+
+    it("refuses zero-width padding, which is how two purposes look alike", () => {
+      expect(withLabel("Books\u200B")).toBe(false);
+      expect(withLabel("Bo\u200Doks")).toBe(false);
+      expect(withLabel("Books\uFEFF")).toBe(false);
+    });
+
+    it("refuses a label that is only whitespace", () => {
+      // Passes every rule above and renders as an empty row — a slot with no
+      // question on it.
+      expect(withLabel("   ")).toBe(false);
+    });
+
+    it("still accepts the prose a real site writes", () => {
+      // The rule has to leave ordinary product copy alone, accents and
+      // punctuation included, or it is a rule sites route around.
+      for (const label of [
+        "Writing Assistant",
+        "Fact Checker",
+        "Révision — français",
+        "日本語のアシスタント",
+        "Books & Revenue (beta)",
+      ]) {
+        expect(withLabel(label), label).toBe(true);
+      }
+    });
+
+    it("holds the description to the same rule", () => {
+      // It renders on the same screen, under the label it explains.
+      const bad = Manifest.safeParse({
+        books: {
+          label: "Books",
+          description: "Reads your books\u202E evil",
+          kinds: ["llm.generate"],
+        },
+      });
+      expect(bad.success).toBe(false);
+    });
+  });
+
+  describe("bounds, so a manifest cannot be a denial of service", () => {
+    it("refuses more purposes than a person could answer", () => {
+      const many: Record<string, unknown> = {};
+      for (let i = 0; i <= MAX_PURPOSES; i += 1) {
+        many[`purpose-${String(i)}`] = {
+          label: `Purpose ${String(i)}`,
+          kinds: ["llm.generate"],
+        };
+      }
+      expect(Manifest.safeParse(many).success).toBe(false);
+    });
+
+    it("accepts exactly the limit, so the bound is the number it says", () => {
+      const many: Record<string, unknown> = {};
+      for (let i = 0; i < MAX_PURPOSES; i += 1) {
+        many[`purpose-${String(i)}`] = {
+          label: `Purpose ${String(i)}`,
+          kinds: ["llm.generate"],
+        };
+      }
+      expect(Manifest.safeParse(many).success).toBe(true);
+    });
+
+    it("refuses a kind listed twice", () => {
+      // One purpose could declare the same kind a million times, every element
+      // individually valid, and the screen renders a slot per (purpose, kind).
+      const twice = Manifest.safeParse({
+        books: { label: "Books", kinds: ["llm.generate", "llm.generate"] },
+      });
+      expect(twice.success).toBe(false);
+    });
+
+    it("accepts every kind there is, because that is the honest ceiling", () => {
+      // The bound is derived from the vocabulary rather than chosen, so it
+      // grows with the protocol instead of becoming a number to remember.
+      const all = Manifest.safeParse({
+        books: { label: "Books", kinds: [...JOB_KINDS] },
+      });
+      expect(all.success).toBe(true);
+    });
   });
 });

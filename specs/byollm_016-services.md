@@ -3116,3 +3116,40 @@ Operational note: 55 commits sit unpushed on byollm main, all local to one
 machine. Recommended to Todd: push now — durability, not deploy; the repo is
 public OSS by design, npm publishes are manual so pushing source ships nothing,
 and the coordinated deploy ordering governs the cloud repos, not this push.
+
+### 2d underway: the revoke-unmaps trigger; an anomaly held open (2026-08-26)
+
+All three repos pushed and clean (the byollm-cloud pre-push hook refused until
+verify had passed at HEAD — it caught four unverified spec commits, which is
+the gate working on the record-keeper too).
+
+Schema landed: dashboard_sites.manifest and dashboard_consent_mappings, with
+the trigger that makes revoking unmap. The design reason is recorded because it
+is the mapping-is-the-consent ruling meeting the observable-events rule:
+revocation stamps revoked_at rather than deleting (an event, not an erasure),
+so no cascade fires — and kept mappings would silently restore old choices on
+re-consent, "a decision made months ago applied to a screen nobody read again."
+The trigger deletes them; the pgTAP test proves it from the permanence vantage:
+un-revoke and find nothing back.
+
+Also recorded as an instance of dead-things-die-with-their-subjects: /api/hub
+removed from the proxy's public-path LIST, not just the route — an exemption
+covering an empty path makes the next route added there public by accident
+rather than by decision, and the conform check that would catch it only fires
+for secret-comparing routes.
+
+conform caught three house-rule violations mechanically (PUBLIC-executable
+definer function; created_at without updated_at; a test writing as
+authenticated without the grant) — 24 checks, clean on re-run.
+
+**Open anomaly, held not dismissed:** one conform run failed unreproducibly;
+three consecutive clean runs since; the output did not name the failing check.
+Per the intermittent-test law this stays open until explained or given a second
+data point. And the anomaly exposes a real defect regardless: **a failure that
+does not name itself is unfalsifiable** — the conform runner must always
+identify the failing check, else no recurrence can ever become evidence. Fixing
+the runner's failure-naming is queued as the actionable half of the anomaly.
+
+Todd's action items: delete the dead Vercel env vars ROSTER_SIGNING_PRIVATE_KEY
+and ROSTER_READ_SECRET (secrets are Todd's to touch). The hub WIDENING set
+still listing named/public is CCC's 2e item.

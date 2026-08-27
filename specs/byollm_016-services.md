@@ -2972,3 +2972,36 @@ the user maps there), and their descriptions say so plainly.
 This supersedes the earlier bare-shape declaration. Deferred by design:
 llm.image (advertising) and translations arrive later as NEW purposes — the
 cheap direction.
+
+### 2b ruling: kind-offering with a bounded retry; the hint is dead (2026-08-26)
+
+CCC answered the routing question by probe rather than argument — twelve
+control-plane reads for a job that would never run on the claiming device — and
+the finding kills the enqueue hint cleanly: a stale hint points at A, A declines
+transiently, and the hint still points at A, so it loops identically while
+adding an enqueue-time resolution to keep coherent. Strictly more machinery for
+a scale-only gain. Ruled as proposed: **offer by kind; a transient decline
+records a per-(job, runner) not-before; claim skips until then.** The relay
+gains the third semantics the situation always had — "not this device, for
+now" — where it previously knew only "never" and "immediately."
+
+**Constant ruled: 30 seconds.** Negligible for a stuck job; a user who fixes a
+mapping sees queued work move within half a minute.
+
+**Law minted from CCC's own flag: a transient needs a rate — a retry without a
+not-before is a spin.** Every retryable state carries when it may be retried,
+the same way every terminal refusal lives with a deadline. Recorded with the
+honest provenance: 2a introduced the transient decline reachable-in-theory, 2b
+would have made it reachable in practice, and the probe caught it before it
+shipped — the flag was CCC's, unprompted, which is the review culture working.
+
+Deploy coupling recorded so the ordering carries it: RoutingStore's contract
+suite grows the not-before case, and byollm-cloud's Valkey store must implement
+it BEFORE the hub deploys — the shipped-contract pattern doing precisely what
+it was adopted for, in its first week.
+
+**2b order approved as proposed:** backoff first (no wire change, probe becomes
+a real test), then Manifest in protocol (keys, label, optional description,
+kinds; "default" refused at registration with remedy), then the wire flip
+(purpose replaces service; REFUSED_SELECTION, capability rows, isDefault
+retire; relay offers by kind), then the direct-mode drift test.

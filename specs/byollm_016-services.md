@@ -2732,3 +2732,46 @@ two halves of "nothing widens quietly" get different weights:
   short window (order of minutes) covering a batch of changes, and 2FA is part
   of the challenge only where the account has it enabled. Setting up a new
   teammate's access end-to-end should cost one challenge, not five.
+
+### Phase 2 plan approved; three consequences ratified; two rulings (2026-08-26)
+
+CCC's Phase 2 plan is approved as proposed, including the 2a sequencing: the
+engine is built against the memory store and proven by the EXISTING relay e2e
+suite through a real Runner before any wire shape moves — the Phase-0 order,
+reapplied. @byollm/control-plane holds all of Amendment L's law and none of
+anybody's data; PolicyStore and GrantSigner are the two injection points, and
+they are exactly the two things that should not be open (byollm.cloud's Postgres
+store and key custody). The contract suite ships as a subpath export on the
+relay/store-contract pattern — "a contract only the author can run is a
+description" enters the record as law phrasing.
+
+Three consequences ratified:
+1. **One routes, one authorises, only one signs.** The relay's consent/membership
+   pre-filter is an optimisation; the engine re-checks everything at authorship
+   and wins disagreements by refusing. Two mechanisms, never two answers.
+2. **"No grant" has two shapes.** refuse (this person may not use your devices —
+   never re-offered) vs not-here (the mapping resolved elsewhere — released for
+   the right device, re-offerable when mappings change). Commit 3 built only the
+   first; shipping that into a multi-device account would have been a
+   permanent-refusal bug. Caught on paper, fixed in 2a/2b.
+3. **The resolved service never touches the site's records.** JobStub.service
+   dies site-facing; the relay resolves internally for routing; the device
+   learns the service only from the grant. isDefault and capability rows retire
+   with it — the back door through which "sites never see service names" would
+   have leaked is bricked up, not just closed.
+
+Ruling one — **the reserved purpose id is "default".** A manifest may not
+declare it (registration refuses with the remedy: name your purposes). It never
+renders: the consent page shows the site's own name for the flat slot — "Of
+Tomorrow Press → your Claude" teaches; "default → your Claude" doesn't.
+
+Ruling two — **audienceAllow stays.** The boundary sentence that makes both laws
+true at once: a site may name its SUPPLIERS; it may never name or see its users'
+SERVICES. Amendment L's "sites speak needs, never names" governs the site↔user
+boundary — what a site may know or say about a user's resources. audienceAllow
+is the direct site's authority over its own dispatch: which runner owners it
+trusts to take its own workload, on its own server, never crossing the wire —
+GitHub's runner groups, exactly. Cutting it would strip direct sites of supplier
+trust to satisfy a law written about a different relationship. It stays
+direct-mode-only and server-side; the cloud route's equivalent is the hub's own
+consent/mapping machinery, so nothing like it ever crosses the cloud wire.

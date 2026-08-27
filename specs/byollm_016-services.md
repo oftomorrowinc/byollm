@@ -2718,3 +2718,17 @@ both-channel notices (device notice + email). Any action that narrows — disabl
 revoke, lower, remove, pause — is one tap, never gated, and logs to the notices
 feed without alarm.** One sentence for the product and the video both: nothing
 widens quietly.
+
+### Calibration: communicate always, challenge sparingly (2026-08-26)
+
+Todd, tempering the rule: "Don't want to be too much, especially for 2fa, but I
+would air on the side of communicating it for sure." Refined accordingly — the
+two halves of "nothing widens quietly" get different weights:
+- **Notices are universal and non-negotiable.** Every widening communicates, on
+  both channels, every time. This half has no friction cost to the owner and is
+  never reduced.
+- **Step-up is sudo-mode, not a toll booth.** GitHub's pattern adopted whole: a
+  widening challenges only when the session isn't fresh — one re-auth opens a
+  short window (order of minutes) covering a batch of changes, and 2FA is part
+  of the challenge only where the account has it enabled. Setting up a new
+  teammate's access end-to-end should cost one challenge, not five.

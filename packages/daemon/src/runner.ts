@@ -147,6 +147,7 @@ export type GrantRefusalCause =
   | "replayed"
   | "absent"
   | "wrong-user"
+  | "wrong-site"
   | "wrong-kind"
   | "wrong-purpose";
 
@@ -700,6 +701,24 @@ export class Runner {
      * is against the same value the engine used, not against a raw `undefined`
      * that would refuse every single-purpose site.
      */
+    /**
+     * And about this job's *site*.
+     *
+     * Job ids are chosen per site — a daemon serving two sites can hold two
+     * different jobs called `job_1` — so a grant authored for one site's
+     * `job_1` satisfied every other check against another site's. The signed
+     * field that should have caught it was in the control plane's namespace,
+     * which this device has no way to resolve; it now carries the key id
+     * pinned at approval, so the comparison is direct.
+     */
+    if (grant.site !== job.site) {
+      this.#noteGrantRefusal("wrong-site", job.id);
+      return {
+        ok: false,
+        reason: "the grant for this job names a different site than the job",
+      };
+    }
+
     if (grant.kind !== job.kind) {
       this.#noteGrantRefusal("wrong-kind", job.id);
       return {

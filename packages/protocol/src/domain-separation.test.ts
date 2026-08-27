@@ -51,7 +51,7 @@ describe("domain separators", () => {
       grantStatement({
         grantId: "g",
         jobId: "j",
-        siteId: "s",
+        site: "s",
         user: "bob",
         owner: "alice",
         purpose: "p",

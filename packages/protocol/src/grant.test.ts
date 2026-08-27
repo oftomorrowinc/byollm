@@ -26,7 +26,7 @@ const PUB = plane.identityPublic;
 const claims = (over: Partial<GrantClaims> = {}): GrantClaims => ({
   grantId: "grant_1",
   jobId: "job_1",
-  siteId: "site_demo",
+  site: "site_demo",
   user: "bob",
   owner: "alice",
   purpose: "writing_assistant",
@@ -106,14 +106,14 @@ describe("every field is inside the signature", () => {
   });
 
   it("cannot be spelled by rearranging its own values", () => {
-    // The separator attack. Joined with a newline, `siteId: "a"` +
-    // `user: "b\nc"` and `siteId: "a\nb"` + `user: "c"` produce identical
+    // The separator attack. Joined with a newline, `site: "a"` +
+    // `user: "b\nc"` and `site: "a\nb"` + `user: "c"` produce identical
     // bytes — two different grants, one signature. At least one of these
     // values comes from somebody else's namespace, so the encoding has to
     // escape its own separator rather than trust the inputs not to contain
     // it.
-    const left = claims({ siteId: "a", user: "b\nc" });
-    const right = claims({ siteId: "a\nb", user: "c" });
+    const left = claims({ site: "a", user: "b\nc" });
+    const right = claims({ site: "a\nb", user: "c" });
     expect(grantStatement(left)).not.toEqual(grantStatement(right));
   });
 });

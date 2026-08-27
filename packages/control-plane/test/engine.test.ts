@@ -23,6 +23,15 @@ import {
  */
 const NOW = 1_800_000_000_000;
 const SITE = "site_demo";
+/**
+ * The same site, as the device knows it.
+ *
+ * Two ids on purpose: the store is keyed by the control plane's own id, and
+ * the grant carries the key id the device pinned. A fixture that used one
+ * value for both would pass while proving nothing about the field the device
+ * actually compares.
+ */
+const SITE_KEY = "BYOLLM-SITE-KEY-ID";
 const OWNER = "bob";
 const USER = "alice";
 
@@ -42,7 +51,7 @@ const job = (over: Partial<ClaimedStub> = {}): ClaimedStub => ({
   id: "job_1",
   kind: "llm.generate",
   owner: USER,
-  site: "BYOLLM-SITE-KEY-ID",
+  site: SITE_KEY,
   audience: "team",
   sizeClass: "small",
   streaming: false,
@@ -70,6 +79,7 @@ const author = (over: Partial<AuthorInput> = {}) =>
   plane.authorGrant({
     job: job(),
     siteId: SITE,
+    siteKey: SITE_KEY,
     owner: OWNER,
     capabilities,
     ...over,
@@ -120,7 +130,10 @@ describe("a grant, when everything agrees", () => {
     expect(granted).toMatchObject({
       grantId: "grant_fixed",
       jobId: "job_1",
-      siteId: SITE,
+      // The key id, not the control plane's own. The device knows sites only
+      // by what it pinned, so this is the one it can compare against the
+      // stub without asking anybody.
+      site: SITE_KEY,
       user: USER,
       owner: OWNER,
       purpose: RESERVED_PURPOSE,
@@ -128,6 +141,17 @@ describe("a grant, when everything agrees", () => {
       service: "qwen",
       issuedAt: NOW,
     });
+
+    /**
+     * And the control plane's own id is **not** in the document.
+     *
+     * Ruled after the cross-site lift: never leave a signed field the device
+     * ignores. `siteId` was signed and read by nobody, which is not a weak
+     * guarantee but the appearance of one — the design said "the grant
+     * carries the site" while nothing compared it to anything. Carrying both
+     * would have recreated exactly that, one field checked and one not.
+     */
+    expect(granted).not.toHaveProperty("siteId");
   });
 
   it("uses the site's default purpose when the caller names none", async () => {
@@ -393,6 +417,7 @@ describe("a mapping names whose service, not just which", () => {
     const hers = await plane.authorGrant({
       job: job(),
       siteId: SITE,
+      siteKey: SITE_KEY,
       owner: USER,
       capabilities,
     });

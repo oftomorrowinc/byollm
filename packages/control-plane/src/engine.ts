@@ -62,8 +62,18 @@ export class ControlPlane {
    */
   async authorGrant(input: {
     readonly job: ClaimedStub;
-    /** The site's id in this control plane's namespace, not its key id. */
+    /** The site's id in this control plane's namespace, for the policy read. */
     readonly siteId: string;
+    /**
+     * The same site, as the key id the device pinned — the value that gets
+     * signed.
+     *
+     * Two ids for one site, and both are needed: the store is keyed by the
+     * control plane's own id, and the device knows sites only by what it
+     * pinned. The grant carries the one the device can check without asking
+     * anybody, which is the whole point of a signed document.
+     */
+    readonly siteKey: string;
     /** The device owner asking. */
     readonly owner: string;
     /**
@@ -91,6 +101,9 @@ export class ControlPlane {
     let snapshot;
     try {
       snapshot = await this.#store.read({
+        // The control plane's own id: the store is keyed by it, and the key
+        // id below is for the device. Two ids, two readers, neither
+        // substitutable for the other.
         siteId: input.siteId,
         user: job.owner,
         owner,
@@ -171,7 +184,7 @@ export class ControlPlane {
       granted: await this.#signer.sign({
         grantId: this.#newId(),
         jobId: job.id,
-        siteId: input.siteId,
+        site: input.siteKey,
         user: job.owner,
         owner,
         purpose,

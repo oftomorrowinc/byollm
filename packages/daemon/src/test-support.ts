@@ -78,7 +78,9 @@ export function testControlPlane(now = 1_800_000_000_000): {
       return signGrant(keys, {
         grantId: `grant_${String(serial)}`,
         jobId: "job_1",
-        siteId: "BYOLLM-TEST-SITE-KEY-ID",
+        // A key id, and it always was — it sat in a field documented as the
+        // control plane's namespace, which is the muddle the rename fixes.
+        site: "BYOLLM-TEST-SITE-KEY-ID",
         user: "stranger",
         owner: "me",
         // What a stub carrying no purpose actually resolves to. `"testing"`

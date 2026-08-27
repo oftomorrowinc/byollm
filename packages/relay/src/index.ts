@@ -1,11 +1,13 @@
 import {
   checkProtocolVersion,
   declaredVersion,
-  type CapabilityMatrix,
-  type ClaimedStub,
   type SignedGrant,
 } from "@byollm/protocol";
-import { DaemonPlane, type PlaneResult } from "./daemon-plane.js";
+import {
+  DaemonPlane,
+  type GrantAuthor,
+  type PlaneResult,
+} from "./daemon-plane.js";
 import { debugPage } from "./debug.js";
 import { Projection, type RelayFixture } from "./fixture.js";
 import { MemoryPairingCodes, type PairingCodes } from "./pairing-codes.js";
@@ -106,16 +108,7 @@ export interface RelayOptions {
    * job's own selection or the device's default; after it, the user's
    * per-purpose mapping. The seam does not change.
    */
-  readonly authorGrant?: (input: {
-    readonly job: ClaimedStub;
-    /** The site's id in the control plane's namespace, not its key id. */
-    readonly siteId: string;
-    /** The site's declared purpose this job serves, if it named one. */
-    readonly purpose?: string;
-    readonly owner: string;
-    readonly runnerId: string;
-    readonly capabilities: CapabilityMatrix;
-  }) => Promise<GrantDecision> | GrantDecision;
+  readonly authorGrant?: GrantAuthor;
   /** How long a claim is good for. */
   readonly leaseMs?: number;
   /** Injectable clock, so tests move time instead of sleeping. */

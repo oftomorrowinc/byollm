@@ -108,6 +108,32 @@ const fail = (status: number, error: string, message: string): PlaneResult => ({
   body: { error, message },
 });
 
+/**
+ * What the relay asks a control plane, as one named shape.
+ *
+ * Spelled out twice — here and on `RelayOptions` — until adding `siteKey`
+ * made one of them wrong and the build caught it. That was luck: the two are
+ * structurally compared, so a field added to the *caller's* copy alone would
+ * have been accepted silently and the grant would have carried nothing.
+ */
+export type GrantAuthor = (input: {
+  readonly job: ClaimedStub;
+  /** The site's id in the control plane's namespace, for its policy read. */
+  readonly siteId: string;
+  /**
+   * The same site as the stub names it — the key id the device pinned.
+   *
+   * Carried, never derived. This is the value that gets signed, and the one a
+   * device can compare against `stub.site` without a lookup and without
+   * trusting the party that routed it.
+   */
+  readonly siteKey: string;
+  readonly purpose?: string;
+  readonly owner: string;
+  readonly runnerId: string;
+  readonly capabilities: CapabilityMatrix;
+}) => Promise<GrantDecision> | GrantDecision;
+
 export interface DaemonPlaneDeps {
   readonly state: RoutingStore;
   readonly projection: Projection;
@@ -139,14 +165,7 @@ export interface DaemonPlaneDeps {
    * Author a grant for one claimed job — Amendment J. See
    * {@link RelayOptions.authorGrant}; this plane only calls it.
    */
-  readonly authorGrant?: (input: {
-    readonly job: ClaimedStub;
-    readonly siteId: string;
-    readonly purpose?: string;
-    readonly owner: string;
-    readonly runnerId: string;
-    readonly capabilities: CapabilityMatrix;
-  }) => Promise<GrantDecision> | GrantDecision;
+  readonly authorGrant?: GrantAuthor;
   /**
    * Where a human goes to approve a code — the control plane, always.
    *
@@ -642,6 +661,10 @@ export class DaemonPlane {
             : await author({
                 job,
                 siteId,
+                // Straight off the stub. A relay that computed this would be
+                // choosing which site a grant says it is for, which is the
+                // one thing the signature exists to take out of its hands.
+                siteKey: job.site,
                 // The site's own purpose, straight off the stub. A relay does
                 // not interpret it — it does not hold the manifest and does
                 // not hold the mapping; it carries the site's word to the one

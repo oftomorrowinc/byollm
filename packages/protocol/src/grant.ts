@@ -122,8 +122,29 @@ export const SignedGrant = z
      * attack, and this field is why it fails.
      */
     jobId: z.string().min(1),
-    /** The site the work came from. */
-    siteId: z.string().min(1),
+    /**
+     * The site the work came from, **as a key id** — byollm-review 2026-08-27.
+     *
+     * This was `siteId`, holding the site's id in the control plane's
+     * namespace, and it was signed by the engine and read by nobody. A signed
+     * field nobody checks is not a weak guarantee, it is the appearance of
+     * one: the design says "the grant carries the site", and nothing anywhere
+     * compared it to anything.
+     *
+     * It could not be compared. Job ids are chosen per site, so a grant
+     * authored for (site A, `job_1`) satisfied every device check against a
+     * stub naming (site B, `job_1`) — but the device holds sites only by the
+     * key ids it pinned, and had no way to relate a control-plane uuid to
+     * one. Checking the field would have meant a lookup through the party the
+     * grant exists to distrust.
+     *
+     * So the namespace changes to the one the device already has, and the
+     * name changes with it: this is the same value as {@link JobStub.site},
+     * compared directly, no lookup and nothing to believe. The control-plane
+     * id is not carried alongside — it had no reader, and keeping an
+     * unchecked field beside a checked one is how this hole was dug.
+     */
+    site: z.string().min(1),
     /** Whose job it is — the person the site enqueued for. */
     user: z.string().min(1),
     /**

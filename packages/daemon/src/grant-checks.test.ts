@@ -185,6 +185,29 @@ describe("check 1 — the signature, and what it is over", () => {
     if (!result.ok) expect(result.reason).toContain("different user");
   });
 
+  it("refuses a grant naming a different site than the job", async () => {
+    /**
+     * The cross-site grant lift, byollm-review 2026-08-27.
+     *
+     * Job ids are chosen per site, so a daemon serving two sites can hold two
+     * different jobs called `job_1`. A grant authored for site A's `job_1`
+     * named the right owner, the right user, the right job id and carried a
+     * valid signature — every check passed — while the stub said site B.
+     *
+     * The field meant to stop it was signed in the control plane's namespace,
+     * which a device cannot resolve; it carries the pinned key id now, so the
+     * comparison is direct and needs nobody's word for it.
+     */
+    const lifted = job(
+      { site: "BYOLLM-ANOTHER-SITE-KEY-ID" },
+      { site: "BYOLLM-TEST-SITE-KEY-ID" },
+    );
+    const refusal = (await device()).admit(lifted);
+
+    expect(refusal.ok).toBe(false);
+    if (!refusal.ok) expect(refusal.reason).toContain("different site");
+  });
+
   it("refuses a grant naming a different kind than the job", async () => {
     /**
      * The relay-rewrites-kind attack, byollm-review 2026-08-27.

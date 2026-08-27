@@ -3613,3 +3613,12 @@ ready-for-latest gate refuses on, placed by the ruling and removed only by the
 ruling that resolves it. A stop-ship that lives in memory is a hope. Queued for
 CCC alongside 2f's gate update (the gate is already being touched for six
 packages and /healthz; the marker check rides the same change).
+
+Provenance completed (Todd): the .57 promotion was autopilot — dozens of
+release emails, each followed by the same promote ritual, until the ritual ran
+without the decision. Recorded as the real lesson under the STOPSHIP marker:
+**a ceremony repeated often enough becomes a reflex, and a reflex is not a
+decision.** The deliberateness the latest-is-Todd's rule wanted was eroded by
+frequency, not carelessness. Both halves of the fix now exist: CI alphas
+removed the routine publishes (frequency), and the STOPSHIP gate refuses the
+reflex when a ruling stands (guard). Todd waits for the sequence going forward.

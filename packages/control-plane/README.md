@@ -1,6 +1,6 @@
 # @byollm/control-plane
 
-> **Alpha (`0.1.0-alpha.57`) — under active development. Don't use this yet.**
+> **Alpha (`0.1.0-alpha.58`) — under active development. Don't use this yet.**
 
 The reference control plane: it resolves a person's mapping and authors one
 signed grant per job, against a policy store it does not own and with a key it

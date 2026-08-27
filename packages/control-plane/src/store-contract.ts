@@ -81,7 +81,7 @@ export function describePolicyStoreContract(
         user: USER,
         owner: OWNER,
       });
-      expect(snapshot.consented).toBe(false);
+      expect(snapshot.consented).toBe("no");
       expect(snapshot.mappings).toEqual([]);
       await done();
     });
@@ -94,7 +94,7 @@ export function describePolicyStoreContract(
         user: USER,
         owner: OWNER,
       });
-      expect(snapshot.consented).toBe(true);
+      expect(snapshot.consented).toBe("yes");
       expect([...snapshot.mappings]).toEqual([MAPPING]);
       await s.done();
     });
@@ -110,7 +110,7 @@ export function describePolicyStoreContract(
         user: USER,
         owner: OWNER,
       });
-      expect(snapshot.consented).toBe(true);
+      expect(snapshot.consented).toBe("yes");
       expect(snapshot.mappings).toEqual([]);
       await s.done();
     });
@@ -127,7 +127,7 @@ export function describePolicyStoreContract(
         user: USER,
         owner: OWNER,
       });
-      expect(snapshot.consented).toBe(false);
+      expect(snapshot.consented).toBe("no");
       expect(snapshot.mappings).toEqual([]);
       await s.done();
     });
@@ -150,7 +150,21 @@ export function describePolicyStoreContract(
         user: USER,
         owner: OWNER,
       });
-      expect(snapshot.consented).toBe(false);
+      expect(snapshot.consented).toBe("paused");
+
+      /**
+       * `"paused"`, not `"no"` — byollm-review 2026-08-27.
+       *
+       * The distinction is the whole reason this stopped being a boolean. A
+       * store reporting a pause as "no" is not merely imprecise: the engine
+       * declines `not-consented`, which is **permanent**, and the relay never
+       * offers that job to that device again. The hosted product pauses a
+       * consent the moment its author joins a team, so this is an everyday
+       * path, and re-consenting minutes later did not bring the work back.
+       *
+       * A pause is somebody's own to lift, so the job has to still be there
+       * when they do.
+       */
       await s.done();
     });
 
@@ -162,7 +176,7 @@ export function describePolicyStoreContract(
         user: "carol",
         owner: OWNER,
       });
-      expect(other.consented).toBe(false);
+      expect(other.consented).toBe("no");
       await s.done();
     });
 
@@ -174,7 +188,7 @@ export function describePolicyStoreContract(
         user: USER,
         owner: OWNER,
       });
-      expect(other.consented).toBe(false);
+      expect(other.consented).toBe("no");
       await s.done();
     });
 
@@ -227,7 +241,7 @@ export function describePolicyStoreContract(
         owner: OWNER,
       });
       expect(noConsent.member).toBe(true);
-      expect(noConsent.consented).toBe(false);
+      expect(noConsent.consented).toBe("no");
 
       await s.consent({ siteId: SITE, user: "carol", mappings: [MAPPING] });
       const noMembership = await s.store.read({
@@ -235,7 +249,7 @@ export function describePolicyStoreContract(
         user: "carol",
         owner: OWNER,
       });
-      expect(noMembership.consented).toBe(true);
+      expect(noMembership.consented).toBe("yes");
       expect(noMembership.member).toBe(false);
       await s.done();
     });
@@ -252,7 +266,7 @@ export function describePolicyStoreContract(
         user: "c",
         owner: OWNER,
       });
-      expect(confusable.consented).toBe(false);
+      expect(confusable.consented).toBe("no");
       await s.done();
     });
   });

@@ -144,7 +144,22 @@ export class ControlPlane {
       return decline("store-unavailable");
     }
 
-    if (!snapshot.consented) return decline("not-consented");
+    /**
+     * Refused, or asked again later — and the difference is the whole point.
+     *
+     * `not-consented` is permanent: never offer this job to this device
+     * again. That is right for revoked and for never-authorised, because
+     * somebody decided it and a queued job cannot outlive the decision.
+     *
+     * A **pause** is not a decision of that kind. The hosted product pauses a
+     * consent the moment its author joins a team — no row changes — and the
+     * remedy is theirs: read the sentence they have not read. Marking those
+     * jobs permanently refused meant that by the time they re-consented,
+     * every device that had claimed during the window would never offer them
+     * again, and nothing anywhere said so.
+     */
+    if (snapshot.consented === "no") return decline("not-consented");
+    if (snapshot.consented === "paused") return decline("consent-paused");
 
     /**
      * A device always runs its own owner's work, and no store is asked.
@@ -259,6 +274,13 @@ export type DeclineReason =
   | "not-a-member"
   /** This person has not authorised this site. */
   | "not-consented"
+  /**
+   * Authorised, and temporarily not routing — byollm-review 2026-08-27.
+   *
+   * Transient by the same test every reason here is judged by: the person can
+   * lift it themselves, so the job must still be waiting when they do.
+   */
+  | "consent-paused"
   /** They authorised it and left this slot empty. */
   | "unmapped"
   /** Their mapping names a service this device does not offer. */

@@ -214,6 +214,62 @@ describe("a grant, when everything agrees", () => {
     expect(outcome.granted).toBeDefined();
   });
 
+  it("declines a paused consent transiently, so the work survives it", async () => {
+    /**
+     * byollm-review 2026-08-27, and the highest-value of the batch because it
+     * fires on an ordinary path rather than an attack.
+     *
+     * `not-consented` is permanent — the relay releases it as `refused` and
+     * never offers that job to that device again. A pause is not that kind of
+     * fact: the hosted product pauses a consent the moment its author joins a
+     * team, no row changes, and the remedy is theirs to take. Under the old
+     * boolean, ten queued jobs claimed during that window were permanently
+     * unpicked from every device that touched them, and re-consenting minutes
+     * later did not bring them back.
+     *
+     * The engine's own law, two lines above its permanence table: a permanent
+     * mark must not outlive the condition that caused it. A pause is
+     * outlivable by design.
+     */
+    mapped();
+    store.pause({ siteId: SITE, user: USER });
+
+    const outcome = await author();
+
+    expect(outcome.granted).toBeUndefined();
+    expect(outcome.declined).toEqual({
+      reason: "consent-paused",
+      permanent: false,
+    });
+  });
+
+  it("still refuses a revoked consent permanently", async () => {
+    // The control, and the reason this is a tri-state rather than a softened
+    // boolean: somebody decided to revoke, and a queued job cannot outlive
+    // that decision. Making every refusal transient would be the opposite
+    // error and just as wrong.
+    mapped();
+    store.revoke({ siteId: SITE, user: USER });
+
+    const outcome = await author();
+
+    expect(outcome.declined).toEqual({
+      reason: "not-consented",
+      permanent: true,
+    });
+  });
+
+  it("runs the work once the pause is lifted", async () => {
+    // The half that makes "transient" mean something. A person reads the
+    // sentence they had not read, and the job that was waiting runs.
+    mapped();
+    store.pause({ siteId: SITE, user: USER });
+    expect((await author()).granted).toBeUndefined();
+
+    store.resume({ siteId: SITE, user: USER });
+    expect((await author()).granted).toBeDefined();
+  });
+
   it("uses the site's default purpose when the caller names none", async () => {
     // Until purposes reach the wire every job is the site's one purpose. The
     // engine is already written for the other case; the caller catches up.

@@ -95,7 +95,11 @@ export class MemoryPolicyStore implements PolicyStore {
     const id = key(input.siteId, input.user);
     const mappings = this.#consents.get(id);
     return Promise.resolve({
-      consented: mappings !== undefined && !this.#paused.has(id),
+      // The three states the reference store can be in, told apart rather
+      // than collapsed: a pause is somebody's own to lift, and the engine
+      // needs to know that before it decides whether a refusal is forever.
+      consented:
+        mappings === undefined ? "no" : this.#paused.has(id) ? "paused" : "yes",
       member: this.#members.get(input.owner)?.has(input.user) ?? false,
       mappings: mappings ?? [],
     });

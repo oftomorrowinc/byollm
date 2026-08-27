@@ -69,21 +69,40 @@ export interface Mapping {
  */
 export interface PolicySnapshot {
   /**
-   * May this user's work move for this site **right now**?
+   * May this user's work move for this site **right now**, and if not, is
+   * that reversible?
    *
-   * Three states collapse into this one boolean, and the collapse is
-   * deliberate: never authorised, authorised then revoked, and authorised but
-   * *paused* are different things to a person and the same thing to a grant.
-   * A store must report a paused consent as `false` — a relay's projection
-   * can be a few seconds behind, and a grant authored in that window would
-   * run work its owner had just stopped.
+   * This was a boolean, and the collapse was defended: never authorised,
+   * revoked, and *paused* are different to a person and identical to a grant.
+   * True of the grant, and the engine does not only decide grant-or-not — it
+   * decides whether the refusal is **permanent**, and the three states are
+   * emphatically not identical there.
+   *
+   * byollm-review 2026-08-27. `decline("not-consented")` is in the permanent
+   * set, and the relay releases a permanent decline as `refused`: never offer
+   * this job to this device again. A pause is the hosted product's own
+   * everyday path — a consent auto-pauses the moment its author joins a team,
+   * with no row changing — so somebody's queued work was permanently unpicked
+   * from every device that claimed during the window, and re-consenting
+   * minutes later did not bring it back. The engine's own law, stated two
+   * lines above its permanence table: a permanent mark must not outlive the
+   * condition that caused it.
+   *
+   * So the states that differ in remedy are told apart:
+   *
+   * - `"yes"` — authorised, and nothing is in the way.
+   * - `"paused"` — authorised, and temporarily not routing. The person can
+   *   lift it themselves by reading the sentence they have not read; the job
+   *   must still be there when they do.
+   * - `"no"` — never authorised, or revoked. Somebody decided this, and a
+   *   queued job cannot outlive that decision.
    *
    * Distinct from having mappings, which is a different real state: a person
    * can consent and leave a slot unmapped, because it had two candidates and
    * they have not chosen. "Not authorised" and "authorised, this slot empty"
    * send them to different places, so the engine is told which.
    */
-  readonly consented: boolean;
+  readonly consented: "yes" | "paused" | "no";
   /**
    * May this user's work run on this owner's devices?
    *
@@ -106,7 +125,7 @@ export interface PolicyStore {
    * device. The engine short-circuits it; this method is only ever asked
    * about other people.
    *
-   * Returning a snapshot with `consented: false` is the ordinary answer for a
+   * Returning a snapshot with `consented: "no"` is the ordinary answer for a
    * site this user has never authorised. Throwing is for a store that could
    * not answer, which is a different thing and must not be turned into a
    * refusal — see the engine's failure handling.

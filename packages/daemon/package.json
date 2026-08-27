@@ -1,6 +1,6 @@
 {
   "name": "byollm",
-  "version": "0.1.0-alpha.58",
+  "version": "0.1.0-alpha.59",
   "description": "Bring Your Own LLM — run an app's LLM jobs on your own models. ALPHA: under active development, not for production use.",
   "license": "MIT",
   "type": "module",

@@ -4449,3 +4449,84 @@ overrule for PR-time coverage.
 .61 not tagged (CI re-running on e06e9d3); tag when green, publish, repin, run the
 checkpoint on the held commits (tri-state adapter, Lua guard contract case,
 PgPolicyStore contract adapter 6842d88). Then deploy web, deploy hub, probe.
+
+### The security pass: tiers, .60 and .61 (2026-08-27)
+
+byollm-review 2026-08-27 confirmed 35 findings (1 critical, 34 major). Todd's
+release-gate ruling put them in tiers; this records what landed and what the
+work turned up that the review did not.
+
+**.60 — engine `offerScope` and three package-level fixes.** The engine asked
+whether a capability *existed* and never read the `offerScope` on every row.
+Nothing widened (the device's private-is-absolute check is structural) but the
+failure *shape* was inverted: a device's refusal is permanent, the engine's
+decline is a thirty-second wait, so an owner flipping a service private for a
+minute permanently unpicked a teammate's queued job from the only device it
+was ever meant for. Then: the paused-consent tri-state, the `releaseLeases`
+terminal guard, and replay durability across a restart.
+
+**.61 — the version fence.** `PROTOCOL_VERSION` stayed `"0"` while byollm_016
+changed the vocabulary, so a pre-rip daemon *passed* the handshake and then
+failed schema validation with a message naming nothing, every ten seconds,
+forever. The handshake's own comment says a mismatch used to surface "as a
+generic bad-request" and that "an error a user cannot act on is barely better
+than a hang" — it came back because the number stayed still. `0` is
+deliberately excluded from the supported list: accepting it only relocates the
+unactionable error one layer down.
+
+**Laws minted or sharpened, in the order they were earned:**
+
+- **The clock's two numbers are one number.** `CLOCK_SKEW_WARN_MS` bounds both
+  "we warn" and "we tolerate", so a refusal can only ever land on somebody who
+  was already told about their clock. No silent band.
+- **A seam spelled twice drifts silently.** `siteId`, `GrantAuthor`,
+  `GrantRef` — three altitudes of one shape in one day. The `GrantAuthor` case
+  was caught by luck: the two copies are structurally compared, so a field
+  added to the *caller's* copy alone would have been accepted and the grant
+  would have carried nothing.
+- **A signed field nobody checks is not a weak guarantee but the appearance of
+  one.** Ruled with its corollary: never add a checked field beside an
+  unchecked one — if the old field has no reader, it is replaced.
+- **A rule whose answer depends on the reader is not a rule.** Refusing
+  `\p{Cn}` would make a manifest valid on one deployment and refused on
+  another as runtimes update.
+- **A lapse is not a departure.** The sweep's only deletion evidence was an
+  entitlement-filtered view, so a card renewal retrying at midnight destroyed
+  every member's consent choices at 05:38 and mailed them a false sentence.
+  The join now lives once, with the entitlement as the single visible
+  predicate over it.
+- **A guard that only runs when the thing it guards is already forced is not a
+  guard** — the ledger suite's `up ||` branch, dead because `runIf` reads its
+  argument at collection time.
+- **Derived membership, applied to privileges and to config.** Two new checks,
+  each proved by reintroducing the real bug: every config key has a reader,
+  and every write-path function is executable by the role that writes.
+
+**Mistakes of CCC's worth keeping, all one species — concluding from an absent
+signal:**
+
+- twice reported a package unpublished from a **cached 404** on a URL it had
+  itself been polling, the second time after writing the first one down;
+- declared a fixture "parses fine" from a probe whose output vitest had
+  swallowed — `.strict()` was rejecting it, which is the law advertising
+  itself on its implementer;
+- a threshold test that nearly passed because an auto-import put a constant in
+  the `vitest` import, making the comparison `NaN < -30000`;
+- restored a mutation with `git checkout` on an uncommitted file and deleted
+  the fix it had just written;
+- swept `packages/` for version literals and stopped there — CI found the one
+  in `examples/`, after the tag. A hand-drawn boundary on a search is the same
+  smell as a hand-kept list.
+
+**And three of CCC's own decisions contradicted themselves within a day**, each
+caught by running the thing rather than reasoning about it: a probe case
+asserting the hub could read a view 0037 had deliberately withheld; a
+`PORT` exception covering a case that never existed; and a permission fix
+applied to two of the three places it applied.
+
+**Still open:** the hub-schema seam test needs a cross-repo credential to reach
+CI (`byollm-cloud-web` is private) — Todd's call between minting one and
+accepting the pre-deploy probe as the guard. The pending-claim leak and the
+payload ceiling are fenced behind untrusted traffic in
+`byollm-cloud/specs/open-door-readiness.md`; three sweep-reliability items
+trail before the sweep runs against a real team.

@@ -4262,3 +4262,44 @@ Two judgment calls ratified:
 
 Proceed to the .60 checkpoint as laid out; if either held commit fails to prove
 at repin, .60 stops and comes to Todd rather than a workaround.
+
+### .60 published; repin checkpoint passed; tier-1 3 of 5 (2026-08-27)
+
+.60 tagged (cbfe144), CI green. **The repin checkpoint passed all three gates,
+retiring the tracked risk:** hub verifies green on .60; the Lua terminal guard
+proved by the inherited contract against real Valkey (removing it fails that case
+specifically); the paused-consent tri-state proved against real Postgres
+(breaking the pause predicate fails it). Both held commits proven and pushed
+(71c7371). Web repinned, green locally.
+
+Tier 1: 3 of 5 (9e174c6). The two re-connect findings + the silent write failure
+turned out to be one screen — "the mapping is the consent" held only for a first
+visit. "None" discarded: get returns null for a never-rendered field and "" for
+one left on none; the test "absent and blank must mean the same thing" was the
+bug written as a rule. Defaults overwrote choices: the page shows the answer
+back, `returning` carried separately because a withdrawal leaves no row (an empty
+slot is an answer for a returning consenter; a purpose added since renders
+unselected — residual named, not hidden). The upsert error discarded: atomic, so
+any failure left zero mappings while consent recorded. Duplicate-kind void now
+closed both ends (.59 schema uniqueness + the unchecked-error half here).
+
+**Lesson: a fix for a finding must be checked against that finding's harm on
+every path it touches — especially the hidden/auto paths.** An escaped mutation
+caught finding 2's exact harm surviving INSIDE the fix for finding 2: the
+single-candidate auto-map path (hidden input, no control) never consulted
+availability, so a vanished chosen service silently re-mapped. The pathless paths
+are the ones a fix misses.
+
+The protocol publish-lag, diagnosed and accepted: protocol lands on the registry
+~100s after npm acks, consistently, for the largest package (94KB vs relay 55KB)
+— a slower ingest path, nothing different on our side (same maintainer,
+provenance, workflow). .60 protocol verified live three ways before proceeding.
+Fix: read-back with backoff (general rule — publish-then-consume must never
+assume instant availability); npm support ticket if it persists. Connection
+recorded: a systematically dropped/delayed protocol release EMAIL means email was
+never a reliable promotion signal — the same root that enabled the .57 autopilot,
+and one more argument for the pipeline-gate promotion (evidence, not inbox).
+
+Remaining tier 1: same-named teammate display (owner labels resolved from the
+hub's shared-with answer, not user input — the distinction the sweep email got
+wrong; wants a test); old-daemon-vs-new-hub loud named-version refusal.

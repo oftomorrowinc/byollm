@@ -3226,3 +3226,30 @@ Degradation sweep: go, in parallel with the copy landing — the claim path sees
 one device and cannot tell resolved-elsewhere from referent-gone, so the sweep
 is a background pass per person over mappings against current services, feeding
 the value-add notification channel.
+
+### Kind labels' home, and the unpublished-protocol gap (2026-08-26)
+
+CCC parked the kind-label table in the web lib because the web pins a PUBLISHED
+@byollm/protocol and the rip's protocol changes are unpublished. Ruled:
+- **The web lib is the right home, not just the expedient one.** Protocol
+  carries ids; surfaces carry words. Display labels are product copy under
+  wording-gates-merge, which lives in the cloud-web repo where Todd reviews —
+  putting English strings in the OSS wire package would route every copy tweak
+  through an npm release and the six-package promotion. Each surface owns its
+  own words for the shared ids (the CLI may phrase differently than the consent
+  screen); the IDS are the one vocabulary, not the labels.
+- **With one guard:** the table's membership must be DERIVED, not hand-kept —
+  typed as an exhaustive Record over protocol's kind list, so adding a kind
+  breaks the web build until someone words it. Until web consumes the published
+  types, an interim test carries that duty. A label table that can silently
+  miss a kind is the hand-maintained roster again.
+- **The wider gap has a ratified fix already — apply it now:** npm @alpha
+  publish moves to the FRONT of the deploy sequence, not just before the hub
+  flip. @alpha is inert (nothing auto-installs it; latest holds at .56), and
+  publishing early makes protocol's real types the coordination medium so the
+  web never re-declares shapes it doesn't own. Any interim re-declared shape in
+  web (manifest schema included) is two definitions of one law and gets
+  replaced by the published types as soon as they exist. Ordering becomes:
+  npm @alpha → web → hub → Todd's upgrade, re-pair, remap — same constraints
+  honored (mappings before grants; loud old-daemon refusal), one less reason
+  for parallel definitions.

@@ -16,6 +16,7 @@ import { IngressLog, stripControlChars } from "./ingress.js";
 import { DeviceIdentity } from "./identity.js";
 import { Pairings, recordSites } from "./pairings.js";
 import { SpendLedger } from "./spend.js";
+import { SpentGrants } from "./spent-grants.js";
 import { daemonPaths, type DaemonPaths } from "./paths.js";
 import { Runner, type RunnerEvent } from "./runner.js";
 import {
@@ -456,7 +457,7 @@ async function commandConnect(
     }
   }
 
-  const { loaded, ingress, budgets, spend } = await context(paths);
+  const { loaded, ingress, budgets, spend, spentGrants } = await context(paths);
 
   for (const problem of loaded.problems) {
     io.err(`config: ${problem.where}: ${problem.message}\n`);
@@ -471,6 +472,7 @@ async function commandConnect(
     loaded,
     budgets,
     spend,
+    spentGrants,
     ingress,
   });
 
@@ -739,7 +741,7 @@ async function runLoop(
   io: CliIo,
   signal?: AbortSignal,
 ): Promise<ExitCode> {
-  const { loaded, ingress, budgets, spend } = await context(paths);
+  const { loaded, ingress, budgets, spend, spentGrants } = await context(paths);
   const identity = new DeviceIdentity(paths.keys);
   const pairings = new Pairings(paths.pairings);
   await pairings.load();
@@ -796,6 +798,7 @@ async function runLoop(
       loaded,
       budgets,
       spend,
+      spentGrants,
       ingress,
       onEvent: (event) => {
         report(origin, event, io);
@@ -1883,7 +1886,7 @@ async function commandServices(
   io: CliIo,
   service: ServiceIo,
 ): Promise<ExitCode> {
-  const { loaded, ingress, budgets, spend } = await context(paths);
+  const { loaded, ingress, budgets, spend, spentGrants } = await context(paths);
   const pairings = new Pairings(paths.pairings);
   await pairings.load();
   const hasRelay = pairings
@@ -1897,6 +1900,7 @@ async function commandServices(
     loaded,
     budgets,
     spend,
+    spentGrants,
     ingress,
   });
 
@@ -2024,6 +2028,7 @@ async function context(paths: DaemonPaths): Promise<{
   ingress: IngressLog;
   budgets: Budgets;
   spend: SpendLedger;
+  spentGrants: SpentGrants;
 }> {
   const loaded = await loadConfig(paths.config);
   const ingress = new IngressLog({
@@ -2034,8 +2039,12 @@ async function context(paths: DaemonPaths): Promise<{
   const budgets = new Budgets(paths.budgets, loaded.config.community);
   await budgets.load(Date.now());
   const spend = new SpendLedger(paths.spend);
+  // Loaded before the loop starts, so a restart inside a grant's freshness
+  // window still knows what it already ran.
+  const spentGrants = new SpentGrants(paths.spentGrants);
+  spentGrants.load(Date.now());
   await spend.load(Date.now());
-  return { loaded, ingress, budgets, spend };
+  return { loaded, ingress, budgets, spend, spentGrants };
 }
 
 /**

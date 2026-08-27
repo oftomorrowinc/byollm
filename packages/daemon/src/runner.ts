@@ -31,6 +31,7 @@ import {
   verifyGrant,
 } from "@byollm/protocol";
 import { createBackend, type Backend } from "./backends/index.js";
+import { SpentGrants } from "./spent-grants.js";
 import type { Budgets } from "./budgets.js";
 import { ClientError, type ProtocolClient } from "./client.js";
 import { composePrompt } from "./compose.js";
@@ -77,6 +78,14 @@ export interface RunnerOptions {
    * scope that admits nobody should not print as though it admits somebody.
    */
   readonly controlPlanePublic?: string | undefined;
+  /**
+   * Where already-admitted grant ids live across a restart.
+   *
+   * Optional, and memory-only without it: that is direct mode, where there is
+   * no control plane and nothing to replay, and it is what the tests that do
+   * not care about persistence get.
+   */
+  readonly spentGrants?: SpentGrants;
   readonly budgets: Budgets;
   /** Tracks money spent on other people's work, for metered backends. */
   readonly spend: SpendLedger;
@@ -357,7 +366,13 @@ export class Runner {
    * matter for as long as the grant naming it is still fresh, and a device
    * that has restarted since is past that window anyway.
    */
-  readonly #spentGrants = new Map<string, number>();
+  /**
+   * Grants already admitted — persistent when the CLI gives it a home.
+   *
+   * Was a bare `Map`, which emptied on every restart while the grants it was
+   * guarding stayed fresh for two minutes. See {@link SpentGrants}.
+   */
+  readonly #spentGrants: SpentGrants;
   /** Whether the clock is currently past the warning threshold. */
   #clockWarned = false;
   #lastUpstreamError: string | undefined;
@@ -368,6 +383,9 @@ export class Runner {
   constructor(options: RunnerOptions) {
     this.#options = options;
     this.#now = options.now ?? Date.now;
+    // Memory-only unless a caller gives it a file. A device with a control
+    // plane gets one from the CLI; direct mode has no grants to replay.
+    this.#spentGrants = options.spentGrants ?? new SpentGrants();
     // Seeded from the pairing this loop started with; a re-pair in another
     // process reaches it later through `adoptControlPlaneKey`.
     this.#controlPlanePublic = options.controlPlanePublic;
@@ -750,8 +768,7 @@ export class Runner {
     }
 
     // Replay: a grant admits one job, once.
-    this.#forgetStaleGrants();
-    if (this.#spentGrants.has(grant.grantId)) {
+    if (this.#spentGrants.has(grant.grantId, this.#now())) {
       this.#noteGrantRefusal("replayed", job.id);
       return {
         ok: false,
@@ -798,22 +815,6 @@ export class Runner {
     } else if (!past && this.#clockWarned) {
       this.#clockWarned = false;
       this.#options.onEvent?.({ type: "clock-recovered", skewMs: skew });
-    }
-  }
-
-  /**
-   * Drop replay entries that can no longer matter.
-   *
-   * An entry only has to outlive the grant naming it: past
-   * {@link GRANT_MAX_AGE_MS} the freshness check refuses it anyway, so
-   * keeping the id would be guarding a door that is already shut. Swept on
-   * use rather than on a timer, because a daemon claiming nothing has nothing
-   * to forget and should not wake up to say so.
-   */
-  #forgetStaleGrants(): void {
-    const now = this.#now();
-    for (const [id, expiresAt] of this.#spentGrants) {
-      if (expiresAt <= now) this.#spentGrants.delete(id);
     }
   }
 
@@ -1004,9 +1005,10 @@ export class Runner {
     // upstream re-offers with a *fresh* grant anyway, so there is nothing to
     // protect against by burning it early.
     if (job.grant !== undefined) {
-      this.#spentGrants.set(
+      this.#spentGrants.spend(
         job.grant.grantId,
-        job.grant.issuedAt + GRANT_MAX_AGE_MS,
+        job.grant.issuedAt,
+        this.#now(),
       );
     }
 

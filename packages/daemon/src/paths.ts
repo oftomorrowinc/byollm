@@ -23,6 +23,14 @@ export interface DaemonPaths {
   /** Estimated money spent running other people's work on metered backends. */
   readonly spend: string;
   /**
+   * Grant ids this device has already admitted — byollm-review 2026-08-27.
+   *
+   * On disk because a grant stays valid for two minutes and a supervised
+   * restart takes about one, so an in-process set was empty exactly when it
+   * was still needed. Holds only unexpired ids, so it stays small on its own.
+   */
+  readonly spentGrants: string;
+  /**
    * This machine's device keypairs (byollm_009 §3). The most sensitive file
    * the daemon writes: it is the machine's identity, not a token a server can
    * revoke and reissue.
@@ -71,6 +79,7 @@ export function daemonPaths(root = defaultRoot()): DaemonPaths {
     ingressLog: join(root, "ingress.log"),
     budgets: join(root, "budgets.json"),
     spend: join(root, "spend.json"),
+    spentGrants: join(root, "spent-grants.json"),
     keys: join(root, "keys.json"),
     pauseFlag: join(root, "paused"),
     health: join(root, "health.json"),

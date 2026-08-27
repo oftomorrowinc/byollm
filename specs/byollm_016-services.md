@@ -4530,3 +4530,53 @@ accepting the pre-deploy probe as the guard. The pending-claim leak and the
 payload ceiling are fenced behind untrusted traffic in
 `byollm-cloud/specs/open-door-readiness.md`; three sweep-reliability items
 trail before the sweep runs against a real team.
+
+### .62: the checkpoint found a fourth gap; the rip-debris through-line (2026-08-27)
+
+The ordered checkpoint proved tri-state, non-null owner, and paused against
+PgPolicyStore on real Postgres (11 green), and the 12th threw: an inline
+"site_other" id never became a constant, so the uuid sweep missed it — and the
+property that went dark was SITE ISOLATION. User isolation ("keeps one person's
+consent out of another's") passed all along, so isolation READ as covered while
+its twin had never once run against the store that routes real work. The deepest
+form of the session's recurring lesson: half a property covered masks the total
+absence of the other half. Cutting .62 for the package-level fix (plus a guard
+checking every id's shape wherever written, exemption cut by the opaqueIds gate
+itself) was correct — a must-fix the hub can't go green without is mechanism, not
+a scope call; flag it, don't block. **.62 is the hub-deploy target.**
+
+Three repin findings, same species: server.ts never imported the three
+vocabularies its /healthz block uses (that endpoint never compiled — and the
+PROMOTION GATE reads it); draining.test.ts derived members but hand-listed which
+vocabularies exist (three reported-but-unasserted); six protocolVersion:"0" in
+the cloud repo including operator scripts (round-trip/long-job/kill-test) you run
+WHEN THE HUB LOOKS BROKEN — they'd fail on deploy indistinguishably from the hub
+being broken (a diagnostic that lies exactly when reached for). byollm had a test
+forbidding this; cloud didn't — ported, stricter ("never a version the hub would
+refuse"). ready-for-latest.mjs could map only three of six and refuses on
+unmappable, so the first promotion against a correctly-compiled hub would have
+refused; fixed, and CI now asks the running hub what it reports.
+
+**Through-line for the record: this security pass is largely a systematic purge
+of DUPLICATED FACTS, and that is the characteristic debris of a large rip.**
+Deleting public/roster/allow/selection left every place those facts were spelled
+twice — one copy of which the rip changed — and "they agree until they change" is
+why they slept until now. siteId, GrantAuthor, GrantRef, the Lua holder-check,
+68 version literals, the search boundary, /healthz imports, the draining
+vocabularies, the six cloud scripts, the inline contract id: one root, one cure —
+derive the membership, don't list it. The review found the holes; this pass is
+finding the debris; both share the root.
+
+The probe is the derived real-read-path guard as ruled: builds a real
+PgPolicyStore and calls read() (query+joins+RLS+parsing), names no column or
+grant, proven to throw on each of the three tables revoked in turn with no
+short-circuit on the nonexistent triple, rehearsable via CONTROL_PLANE_READER_URL
+(which caught CCC's own table-wide-vs-column-level mutation slip); withheld-column
+negatives stay. Web repinned .60->.62 even though unbroken (it never puts a
+version on the wire) so the deployed trio agree — a harmless version disagreement
+is still a fact waiting to bite.
+
+Held: three byollm-cloud commits (verify red on the one case until .62 lands).
+Convergence: repin hub+web to .62, re-run checkpoint expecting 12 green, push,
+deploy web, deploy hub. .stopship stays until Todd clears it post-probe — the
+marker doing its job.

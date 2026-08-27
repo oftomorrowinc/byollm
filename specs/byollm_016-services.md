@@ -3678,3 +3678,12 @@ saying so. Todd may know a reason the default is deliberate; his call.
 Next: PgPolicyStore against the pgTAP-pinned SQL, then ControlPlane at claim —
 controlPlanePublic and authorGrant together, which the relay's construction
 throw refuses to accept singly.
+
+Ruling on db:migrate (2026-08-26): Todd — the production default was NOT
+deliberate, and he doesn't use the script (his path is db:push, which migrates
+on Supabase). Ruled accordingly: CCC checks what, if anything, references
+db:migrate. If nothing does, it is deleted — an unused tool that defaults to
+production is unused wire with a loaded barrel, and rip discipline applies. If
+something real uses it, the default inverts: local/DATABASE_URL by default,
+production only behind an explicit flag. Either way, production-by-default
+dies.

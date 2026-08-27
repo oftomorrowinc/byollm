@@ -3043,3 +3043,44 @@ thereafter. CCC's watch item is endorsed as rip discipline: with names gone,
 the claim filter's service branch collapses to kinds, and serves and isDefault
 must fall OUT of ClaimInput entirely — no unused wire fields lingering where a
 reader would infer meaning that no code gives them.
+
+### The wire flip is in; 2b at three of four (2026-08-26)
+
+Recorded from the flip:
+- serves and isDefault fell out of ClaimInput entirely, as ruled — with CCC's
+  distinction kept: isDefault died ON THE WIRE; the owner's default survives as
+  a local fact for direct-mode resolution. What stopped existing is anybody
+  else's interest in it.
+- **Fourth instance of the structural standard, arrived at by deletion:** the
+  REFUSED_SELECTION guard is now unrepresentable rather than prevented — a
+  vocabulary that never crosses a boundary cannot be enumerated across it.
+  refusal-opacity.test.ts became refusals.test.ts, asserting the shape instead
+  of the collapse.
+- The SQL migration is the design telling the truth: the service column renamed
+  with values NULLED, because a stored service name is a name from the wrong
+  namespace and no migration could know the mapping — the mapping is the
+  user's to author, so the null IS the unmapped state, and the consent screen
+  is the only path out of it. Never-silently-remap, enforced by a migration.
+
+**The drift test's own bug, and the phrase it minted:** the first version
+called runJob directly and passed while the mutation it existed for survived —
+the guarded line lives in the claim path. **Testing near a law is not testing
+it** — kin of test-call-sites-not-mechanisms, now with its sharpest instance.
+The loop version names a service alpha and sends purpose alpha so confusion
+picks a visibly wrong machine. Fixing it also surfaced the loop harness hooking
+backend CONSTRUCTION (counting capability-detection health checks as work);
+it hooks execution now — the harness-asserts-its-own-execution family again.
+
+**Coverage ruling (CCC's flag, answered):** the gate does not move — CCC's own
+instinct, endorsed. But the insight is recorded as law: **a ratio survives a
+rip only if its denominator is re-examined** — the shared-denominator rule
+applied across time; 85% today and 85% two weeks ago measure different things
+because the rip deleted well-covered code and left old gaps as a bigger share
+of a smaller whole. Post-2b work queued: codex-cli.ts (20% branches) gets
+covered properly — it is a subscription-class backend and class locks are
+enforced near it, so its gaps are security-adjacent; debug.ts (0%) gets
+covered or deleted per rip discipline — an untested module nothing exercises
+is a candidate for the same treatment as unused wire.
+
+Last 2b commit: the sweep — README, protocol docs, and the demo still speak
+"service" — then daemon and hub are locked together for the deploy.

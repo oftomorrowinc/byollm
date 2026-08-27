@@ -3084,3 +3084,35 @@ is a candidate for the same treatment as unused wire.
 
 Last 2b commit: the sweep — README, protocol docs, and the demo still speak
 "service" — then daemon and hub are locked together for the deploy.
+
+### 2b complete (2026-08-26)
+
+Four commits, verify green. The last sweep caught the best kind of straggler:
+`byollm status` still said "selectable for" — a power nobody has after
+Amendment L, sitting on an owner-read surface three commits after its mechanism
+died. A service now says what it ANSWERS, and the default is labelled "yours,"
+because that is the whole of what a default is now: where your own unresolved
+work goes; a relayed job arrives resolved and never consults it. The daemon
+README's routing promise strengthened to match: a job cannot name a model, URL,
+path, flag — or one of your services.
+
+Ratified without reservation: release notes were NOT rewritten. alpha.58 gets a
+note; alpha.46/48/51 keep describing what those releases actually did. Records
+are records — the same law the specs live by, applied to the README, for the
+concrete reason bump-version.mjs already warns about: rewriting history makes
+every "is this version mentioned?" check ambiguous.
+
+State: Phases 0, 1, 2a–2b done. Daemon and hub locked together; nothing in the
+byollm repo is publishable alone — the state the deploy ordering was designed
+around. Remaining: 2c/2d (web: manifest at registration, the consent/mapping
+page, degradation notifications, /api/hub/rosters deleted), 2e (hub: engine
+against Postgres; Valkey implements the not-before contract case BEFORE the hub
+deploys), 2f (press, Todd's acceptance probe, /healthz and the gate updated in
+the same change). Then: web → hub → npm → Todd's upgrade, re-pair, remap.
+Post-close queue in order: codex-cli.ts covered, debug.ts covered or deleted,
+threshold re-derived.
+
+Operational note: 55 commits sit unpushed on byollm main, all local to one
+machine. Recommended to Todd: push now — durability, not deploy; the repo is
+public OSS by design, npm publishes are manual so pushing source ships nothing,
+and the coordinated deploy ordering governs the cloud repos, not this push.

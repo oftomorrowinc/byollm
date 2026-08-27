@@ -2775,3 +2775,25 @@ GitHub's runner groups, exactly. Cutting it would strip direct sites of supplier
 trust to satisfy a law written about a different relationship. It stays
 direct-mode-only and server-side; the cloud route's equivalent is the hub's own
 consent/mapping machinery, so nothing like it ever crosses the cloud wire.
+
+### @byollm/control-plane is the sixth package — and why it lives alone (2026-08-26)
+
+Todd asked whether the engine is a sixth OSS package and whether the reason is
+shared consumption. Yes it is a sixth; shared consumption is the smaller half of
+the reason. The larger half is that both candidate homes are wrong:
+- Inside @byollm/relay, authoring capability would live in the transport
+  package, demoting "relay delivers, never authors" from structure to
+  convention — a relay deployment without the engine dependency should be
+  INCAPABLE of authoring, not merely told not to.
+- Inside @byollm/server, the law would be welded to one deployment shape, and
+  the proprietary hub (a different repo) would import a direct-mode server to
+  get an admission engine.
+Standing alone, the engine is the law with no data and no transport, imported by
+whoever deploys a control plane: byollm.cloud's hub, a self-hoster's relay
+stack, and the conformance kit's future multiuser target.
+
+Operational consequence, recorded so it isn't discovered at release time: the
+all-or-nothing `latest` promotion set grows from five packages to six, and
+ready-for-latest.mjs must enumerate six — the gate updates in the same change
+that adds the package, per the gate-never-stale rule. Todd's 2FA promotion
+ceremony covers one more name.

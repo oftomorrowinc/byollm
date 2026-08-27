@@ -3253,3 +3253,41 @@ CCC parked the kind-label table in the web lib because the web pins a PUBLISHED
   npm @alpha → web → hub → Todd's upgrade, re-pair, remap — same constraints
   honored (mappings before grants; loud old-daemon refusal), one less reason
   for parallel definitions.
+
+### The half-identity bug; the fixture smell; the sweep's crux ruled (2026-08-26)
+
+**The bug, recorded with its law citation:** a mapping row stored `service`
+alone, when the ruled identity of a service has been (owner, id) since the
+replicas and two-namespaces rulings — the schema carried half the identity. Two
+teams each running a "qwen" were two options on the consent screen collapsing
+into one column on write; work would have been admitted on whichever machine
+claimed first — the substitution this whole design exists to forbid, arriving
+through a column one field short. CCC's own candidate test asserted the
+separation and passed against a list whose entries collapsed on choice — the
+tell walked past. Fixed in both repos: service_owner on the row, owner on the
+engine's Mapping, both carried in the form value; and the engine checks OWNER
+BEFORE capabilities, for the recorded reason: a device sharing a name isn't
+offering the wrong service, it's the wrong machine, and the wrong machine's
+capabilities say nothing either way.
+
+**Smell minted (CCC's, second instance of its class):** when a change makes
+existing tests fail and you fix the FIXTURES, the rule you just added has no
+test yet. The `if (false)` mutation passing 25 tests was the proof; two direct
+cases now exist (same-named teammate service refuses on the wrong machine;
+null owner means "mine", never "anybody") and both mutations are caught.
+
+**The sweep's crux, ratified with its principle:** a referent is GONE only when
+the device is live and no longer advertises the service, or when team
+membership itself ended — control-plane truth. It is never gone because a
+device is silent: devicesForOwner returning empty capabilities for an offline
+laptop is absence of signal, and **absence of signal is not a fact** — the
+evidence-of-absence law wearing its scheduler hat. A mapping to a long-offline
+device stays authored: the unavailable state is visible through the site's
+fallback and the daemon-offline notification, which own that problem. (A
+"mapped to a device offline N days" notice may join the value-add channel
+later; deletion never does.)
+
+Copy shipped as ruled; label table derives from JOB_KINDS (a kind added
+upstream fails the compile until someone names it); interim re-declared shapes
+and the runtime test are marked to retire when the pin moves. Notification
+copy comes to Todd before merge.

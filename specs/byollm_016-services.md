@@ -2822,3 +2822,33 @@ so day-to-day publishes cost zero interaction, while `latest` promotion remains
 exactly what the standing rule says — Todd's, manual, 2FA, all-or-nothing across
 all (now six) packages. The law was always about latest; the 285 were alphas
 paying a ceremony price the ruling never asked of them.
+
+### Why the relay must not author; and the one-command rule for self-hosters (2026-08-26)
+
+Todd asked why relay-delivers-never-authors matters. Recorded plainly: the relay
+is the most exposed component in the system — the internet-facing box that holds
+the queue and moves every message. If the transport could author admission, then
+whoever compromises the loudest, most attackable piece owns every device paired
+through it: mint a grant, run anything on anyone's machine. Because grants are
+signed with a key the relay never holds, a FULLY compromised relay can only
+deliver, delay, or drop — replay is dead via grant-id single-use — so its worst
+case is a stopped mailroom, never a forged signature. The devices' pinned key
+points past the relay at the control plane, which is smaller, quieter, and not
+required to face the internet the same way. You put the authority in the room
+with the fewest doors.
+
+Todd's second question — whether an open-source dev must import 3–4 modules and
+wire them to get a basic service running — ruled as the complexity budget:
+- **The basic OSS path is direct mode and touches none of this.** A dev building
+  a site against their own daemon uses the server SDK and the daemon. No relay,
+  no engine, no wiring, no keys beyond pairing. The import graph above is
+  invisible to them.
+- **A self-hosted relay is one command, not an assembly project.** The layered
+  packages (relay + control-plane + a policy store) are the LIBRARY shape, for
+  people replacing a store or putting keys behind KMS. The OSS deliverable also
+  ships a pre-wired distribution — one package that imports and wires the stack
+  with honest defaults (embedded policy store, keypair generated at init with
+  custody documented) — so the operator experience is start, pair, go. Eject to
+  the layered form only when you outgrow the defaults.
+- The sentence for the docs: the law lives in six packages; the operator
+  experience is one command.

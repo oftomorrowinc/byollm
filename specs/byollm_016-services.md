@@ -3390,3 +3390,42 @@ the settled block does not cover rather than rewrites of what it does:
 Also noted, not acted on: `conform` has twenty-four checks and none is "the
 source is formatted", which is why three files from this redesign drifted and
 went in green. Ten files repo-wide are unformatted.
+
+### Cron wired; two laws from the wiring; copy deltas recommended (2026-08-26)
+
+Sweep cron landed daily, oldest-look-first, 40 people per run with deferred
+people NAMED, never counted away (the no-silent-caps law observed unprompted).
+12/12 mutations, pgTAP 7/7, conform 24/24.
+
+Two laws minted from what wiring found:
+- **updated_at is evidence about a human act, and a background job is not a
+  human act.** moddatetime firing on any update would have had the sweep's
+  bookkeeping columns claim, within an hour of deploy, that every mapping owner
+  had just revisited their choice — a forged review on the exact column a
+  re-disclosure prompt would one day consult. The trigger is narrowed to the
+  columns that ARE the choice, and pgTAP holds both halves: narrowed, and
+  still firing on everything it was there for.
+- **Memory and receipt are different columns.** degraded_at records when a
+  service was first seen gone; notified_at is stamped by the SENDER only — a
+  plan cannot know whether mail left, and stamping there would record a
+  provider outage as having told somebody. Recovery clears both together,
+  because clearing one would silence the next failure forever. Mail is a
+  notification, never a gate: the deletion does not wait for it, and an
+  undelivered notice is named in a WARNING.
+
+Deploy coupling recorded: migration 0035 reaches production BEFORE the cron
+deploys, or the route reads columns that don't exist.
+
+Copy deltas recommended for approval (Todd's word pushes 365cb1c): the plural
+variant (count within a mail, never across), and the third reachable case — a
+teammate's device gone quiet — which correctly borrows neither existing remedy:
+"was using Alice's qwen, which that device is no longer offering. If it's
+offered again, this will resume on its own — if that's a surprise, ask Alice."
+With it the case matrix is complete: share ended (deleted; choose again; ask
+the teammate), own device quiet (kept; resumes; check the machine), teammate's
+device quiet (kept; resumes; ask the teammate). A fourth cell does not exist —
+one's own service cannot be unshared from oneself.
+
+Queued, endorsed from CCC's note: conform gains a "source is formatted" check,
+and the seven pre-existing drifted files get one dedicated commit — after 2d,
+not mid-redesign.

@@ -255,10 +255,14 @@ export type GrantRefusal =
   /** Older than {@link GRANT_MAX_AGE_MS}. */
   | "expired"
   /**
-   * Issued in the future.
+   * Issued further in the future than clock drift explains.
    *
    * Checked, and not as pedantry: an `issuedAt` ahead of now extends a
    * grant's life past the bound, which is the whole thing being enforced.
+   *
+   * Tolerant by {@link CLOCK_SKEW_WARN_MS}, because it was tolerant by
+   * nothing and that made ordinary drift a total outage — see
+   * {@link verifyGrant}.
    */
   | "from-the-future";
 
@@ -282,7 +286,32 @@ export function verifyGrant(input: {
   if (grant.jobId !== input.jobId) return "wrong-job";
 
   const age = now - grant.issuedAt;
-  if (age < 0) return "from-the-future";
+  /**
+   * Forward drift is tolerated to the warning threshold — byollm-review
+   * 2026-08-27.
+   *
+   * This was `age < 0`: a device whose clock was **one millisecond** behind
+   * its control plane refused every grant it was ever sent. A laptop three
+   * seconds behind after a sleep — ordinary NTP drift — ran no relayed work
+   * at all, and said "this grant is dated in the future" per job while the
+   * clock went unmentioned.
+   *
+   * The asymmetry was the bug. A device *ahead* of the signer had the whole
+   * {@link GRANT_MAX_AGE_MS} of slack; a device behind had none, though the
+   * two are the same phenomenon with a sign.
+   *
+   * {@link CLOCK_SKEW_WARN_MS} rather than a new constant, and the choice is
+   * load-bearing: it is exactly the drift at which a device is supposed to
+   * start warning its owner. Below it, work runs and nobody is troubled;
+   * above it, the refusal lands on somebody who has already been told why.
+   * The two halves meet at one number instead of leaving a band where a
+   * device fails silently for a reason no surface mentioned.
+   *
+   * It does not widen the window a grant is good for. Expiry is still
+   * measured from `issuedAt`, so a post-dated document buys no extra life —
+   * it is refused at the far end instead.
+   */
+  if (age < -CLOCK_SKEW_WARN_MS) return "from-the-future";
   if (age > (input.maxAgeMs ?? GRANT_MAX_AGE_MS)) return "expired";
 
   // Checked last, so an expired grant reports expiry rather than whichever

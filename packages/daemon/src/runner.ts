@@ -23,6 +23,7 @@ import {
   type SealedOutcome,
   type JobOutcome,
   CLOCK_ATTRIBUTION_MS,
+  CLOCK_SKEW_WARN_MS,
   GRANT_MAX_AGE_MS,
   RESERVED_PURPOSE,
   type GrantRefusal,
@@ -196,6 +197,17 @@ export type RunnerEvent =
    * landing has no other way to learn that the document saying it could was
    * refused, or which of the checks refused it.
    */
+  /**
+   * This device's clock disagrees with its control plane enough to matter.
+   *
+   * Ahead or behind, signed as the device sees it. A warning rather than a
+   * refusal: everything still works at this point, which is exactly why it is
+   * worth saying — past {@link GRANT_MAX_AGE_MS} of drift the same fact
+   * arrives as every relayed job failing.
+   */
+  | { readonly type: "clock-skew"; readonly skewMs: number }
+  /** And when it comes back, so a fixed clock stops looking broken. */
+  | { readonly type: "clock-recovered"; readonly skewMs: number }
   | {
       readonly type: "grant-refused";
       readonly refusal: GrantRefusalCause;
@@ -346,6 +358,8 @@ export class Runner {
    * that has restarted since is past that window anyway.
    */
   readonly #spentGrants = new Map<string, number>();
+  /** Whether the clock is currently past the warning threshold. */
+  #clockWarned = false;
   #lastUpstreamError: string | undefined;
   #lastError: string | undefined;
   #completed = 0;
@@ -747,6 +761,44 @@ export class Runner {
     }
 
     return { ok: true };
+  }
+
+  /**
+   * Say something about the clock *before* it costs anybody work.
+   *
+   * `serverTime` has been on every heartbeat response since the field was
+   * added, with a docstring saying what it is for, and the daemon read
+   * `.sites`, `.successions`, `.awaitingConsent`, `.lost` and `.cancel` and
+   * never this one — the ruled proactive half of the skew warning, dead since
+   * it was ruled.
+   *
+   * The reactive half already existed and is the wrong half on its own: a
+   * refusal names the clock only once drift has passed
+   * {@link GRANT_MAX_AGE_MS}, by which point every relayed job has already
+   * been refused. The window between {@link CLOCK_SKEW_WARN_MS} and that is
+   * precisely where a warning is worth something — the device still works,
+   * and its owner can fix an ntp problem before it becomes an outage.
+   *
+   * Warned once per crossing rather than every beat. A daemon heartbeats
+   * every few seconds and a clock stays wrong for as long as it takes
+   * somebody to notice; a line per beat is how a real warning becomes noise
+   * that gets filtered. The state resets when the clock comes back, so a
+   * second drift warns again.
+   */
+  #noteClockSkew(serverTime: number): void {
+    // Signed: **behind** and **ahead** are different remedies and the sign is
+    // the only thing that says which. Reported as the device sees it — a
+    // positive number means this machine is ahead of its control plane.
+    const skew = this.#now() - serverTime;
+    const past = Math.abs(skew) > CLOCK_SKEW_WARN_MS;
+
+    if (past && !this.#clockWarned) {
+      this.#clockWarned = true;
+      this.#options.onEvent?.({ type: "clock-skew", skewMs: skew });
+    } else if (!past && this.#clockWarned) {
+      this.#clockWarned = false;
+      this.#options.onEvent?.({ type: "clock-recovered", skewMs: skew });
+    }
   }
 
   /**
@@ -1238,6 +1290,8 @@ export class Runner {
       })),
       paused: this.#paused,
     });
+
+    this.#noteClockSkew(heartbeat.serverTime);
 
     // The site set, applied — cloud_008 finding 59.
     //

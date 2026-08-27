@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { generateKeys } from "./keys.js";
 import {
+  CLOCK_SKEW_WARN_MS,
   GRANT_MAX_AGE_MS,
   GRANT_SIGNED_FIELDS,
   SignedGrant,
@@ -140,11 +141,51 @@ describe("the four forgeries", () => {
     expect(check(signGrant(other, claims()))).toBe("bad-signature");
   });
 
-  it("refuses one issued in the future", () => {
+  it("refuses one issued further ahead than drift explains", () => {
     // Not pedantry: an `issuedAt` ahead of now extends the grant's life past
     // the bound, which is the thing being enforced.
     expect(check(signGrant(plane, claims({ issuedAt: NOW + 60_000 })))).toBe(
       "from-the-future",
+    );
+  });
+
+  it("admits one a few seconds ahead, because clocks drift", () => {
+    /**
+     * The outage this tolerance exists for — byollm-review 2026-08-27.
+     *
+     * The check was `age < 0`, so a device whose clock was one millisecond
+     * behind its control plane refused every grant it was ever sent. Three
+     * seconds behind after a laptop sleep — ordinary NTP drift — meant no
+     * relayed work ran at all, with "dated in the future" as the only
+     * explanation and no mention of a clock.
+     *
+     * A device *ahead* of the signer always had the full window of slack. The
+     * asymmetry was the bug: it is the same phenomenon with a sign.
+     */
+    for (const behind of [1, 3_000, CLOCK_SKEW_WARN_MS]) {
+      const grant = signGrant(plane, claims({ issuedAt: NOW + behind }));
+      expect(check(grant), `${String(behind)}ms behind`).toBeNull();
+    }
+  });
+
+  it("stops tolerating at exactly the drift it would have warned about", () => {
+    // The two halves meet at one number rather than leaving a band where a
+    // device fails for a reason no surface ever mentioned: past the warning
+    // threshold, the refusal lands on somebody already told why.
+    const grant = signGrant(
+      plane,
+      claims({ issuedAt: NOW + CLOCK_SKEW_WARN_MS + 1 }),
+    );
+    expect(check(grant)).toBe("from-the-future");
+  });
+
+  it("does not let a post-dated grant live any longer", () => {
+    // Tolerance is about when a grant starts counting, never how long it
+    // lasts. Expiry is still measured from `issuedAt`, so a document dated
+    // ahead buys no extra life — it is refused at the far end instead.
+    const grant = signGrant(plane, claims({ issuedAt: NOW + 10_000 }));
+    expect(check(grant, { now: NOW + 10_000 + GRANT_MAX_AGE_MS + 1 })).toBe(
+      "expired",
     );
   });
 });

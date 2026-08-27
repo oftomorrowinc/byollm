@@ -430,7 +430,7 @@ export class ByollmHandlers {
         // byollm_016 Phase B. Present only when the site named one, and
         // omitted rather than sent as undefined — the stub is `.strict()` and
         // an explicit undefined is not the same as an absent key.
-        ...(job.service === undefined ? {} : { service: job.service }),
+        ...(job.purpose === undefined ? {} : { purpose: job.purpose }),
         // Bucketed, not measured: an exact size is a stronger fingerprint
         // than routing needs (byollm_009 §6).
         sizeClass: job.sizeClass,

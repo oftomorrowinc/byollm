@@ -45,7 +45,7 @@ export interface JobRecord {
    * the router matches on it. `undefined` means the owner's default answers,
    * which is every job written before this field existed.
    */
-  readonly service: string | undefined;
+  readonly purpose: string | undefined;
   /** The app's id for the user who enqueued it. */
   readonly owner: string;
   /** Server-side restriction on which runner owners may take a `named` job. */
@@ -163,23 +163,26 @@ export interface EnqueueInput {
   /** Defaults to `private` — the safe direction. */
   readonly audience?: Audience;
   /**
-   * Which of the device owner's services should answer — byollm_016 Phase B.
+   * Which of *your site's* declared purposes this job serves — Amendment L.
    *
-   * A **name from their menu**, never a description of what you want. There is
-   * still no model field, no base URL and no flags: this names one entry in
-   * that owner's own config, and what it resolves to is entirely theirs. A
-   * name they do not advertise is refused rather than served by something
-   * else, because substituting is how "pick from my list" becomes "ask for
-   * anything and get something".
+   * **A need, never a name.** You declare purposes at registration —
+   * `"revenue"`, `"writing-assistant"` — and each of your users maps them to
+   * one of their own services on the consent screen. This field names the
+   * purpose; the mapping does the rest.
    *
-   * Leave it out and the owner's default answers, which is what every job
-   * written before this field did.
+   * There is no model field, no base URL, no flags, and — since Amendment L —
+   * no way to name a service either. Your vocabulary is your purposes; theirs
+   * is their services; the two never meet. You learn whether a slot was
+   * satisfiable and nothing else.
    *
-   * You will not usually know the name. It is for the case where a person has
-   * told your app which of *their* devices' services to use — a fine-tune they
-   * named, say — not something an app invents.
+   * Use the purpose **key**, not its label. Labels are prose for the consent
+   * screen and may change; a key travels on every job and is what mappings
+   * are stored against.
+   *
+   * Leave it out only in direct mode, which has no control plane to hold a
+   * mapping and answers by kind alone.
    */
-  readonly service?: string;
+  readonly purpose?: string;
   readonly audienceAllow?: readonly string[];
   readonly dependsOn?: readonly string[];
   /** Defaults to the server config's `defaultTtlMs`. */

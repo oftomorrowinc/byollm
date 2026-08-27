@@ -472,3 +472,38 @@ describe("a pairing written before grants existed", () => {
     expect(pairings.retired).toEqual([]);
   });
 });
+
+describe("a pairings file this version cannot read at all", () => {
+  it("says so, rather than reading as a device that never paired", async () => {
+    /**
+     * The whole-file case, beside the per-row ones above.
+     *
+     * `load` distinguishes three things a caller must not confuse: never
+     * paired (silent, ordinary), a row it could not read (skipped, named),
+     * and a *file* in a shape this version does not know. The third is the
+     * one that reads as the first if nobody reports it — a device that
+     * appears to have paired with nothing, telling somebody to run
+     * `byollm connect` when their pairings are sitting on disk.
+     */
+    await writeFile(path, JSON.stringify({ version: 99, pairings: [] }));
+    const pairings = new Pairings(path);
+    await pairings.load();
+
+    expect(pairings.list()).toEqual([]);
+    expect(pairings.skipped).toEqual([
+      {
+        origin: path,
+        problem: "the pairings file is not in a shape this version can read",
+      },
+    ]);
+  });
+
+  it("stays silent about a file that was never written", async () => {
+    // The control, and the reason the case above matters: a daemon that has
+    // never paired is the ordinary state, and reporting it would train
+    // somebody to ignore the line that means something.
+    const pairings = new Pairings(join(home, "absent.json"));
+    await pairings.load();
+    expect(pairings.skipped).toEqual([]);
+  });
+});

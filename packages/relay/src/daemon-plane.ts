@@ -27,7 +27,7 @@ import {
   type PairingCodes,
   type PendingPairing,
 } from "./pairing-codes.js";
-import { RETRY_AFTER_MS, serviceKey, type HolderRefusal } from "./state.js";
+import { RETRY_AFTER_MS, type HolderRefusal } from "./state.js";
 import { clockSkewRefusal } from "./refusals.js";
 import type { RoutingStore } from "./store.js";
 
@@ -142,6 +142,7 @@ export interface DaemonPlaneDeps {
   readonly authorGrant?: (input: {
     readonly job: ClaimedStub;
     readonly siteId: string;
+    readonly purpose?: string;
     readonly owner: string;
     readonly runnerId: string;
     readonly capabilities: CapabilityMatrix;
@@ -571,20 +572,15 @@ export class DaemonPlane {
         runnerId: device.runnerId,
         owner: device.owner,
         device: device.device,
-        // Only the defaults. byollm_016 Phase B advertises every selectable
-        // service per kind — the menu — so a device may send several rows for
-        // one kind, and exactly one of them is the one an *unselected* job
-        // should reach. Taking every row here would put an unselected job on
-        // whichever service happened to sort first, which is the guess the
-        // whole withheld mechanism exists to refuse.
-        kinds: new Set(
-          request.capabilities.filter((c) => c.isDefault).map((c) => c.kind),
-        ),
-        // The whole menu, as pairs. A job that named a service reaches only a
-        // device advertising that exact (kind, service) — never a fallback.
-        serves: new Set(
-          request.capabilities.map((c) => serviceKey(c.kind, c.service)),
-        ),
+        // Every kind this device can run, from any of its services.
+        //
+        // This used to send only the *defaults* — the rows an unselected job
+        // should reach — beside the whole menu as (kind, service) pairs. A
+        // job names no service now, so there is no menu to match against and
+        // no unselected case for a default to catch: a device answering a
+        // kind at all is a candidate, and which of its services runs the work
+        // is resolved from the person's mapping when the grant is signed.
+        kinds: new Set(request.capabilities.map((c) => c.kind)),
         // The projection, collapsed to data the store can match on — a
         // predicate does not travel, and a set of (site, owner) pairs is
         // what a route is (cloud_009 §3).
@@ -646,6 +642,11 @@ export class DaemonPlane {
             : await author({
                 job,
                 siteId,
+                // The site's own purpose, straight off the stub. A relay does
+                // not interpret it — it does not hold the manifest and does
+                // not hold the mapping; it carries the site's word to the one
+                // party that can join them.
+                ...(job.purpose === undefined ? {} : { purpose: job.purpose }),
                 owner: device.owner,
                 runnerId: device.runnerId,
                 capabilities: request.capabilities,

@@ -162,7 +162,10 @@ const job = (
   grant: plane.sign({
     jobId: overrides.id ?? "job_1",
     user: overrides.owner ?? "stranger",
-    service: overrides.service ?? "paid",
+    // The resolved service now lives only on the grant — a stub cannot name
+    // one (Amendment L), so a test that wants a particular service says so
+    // where the control plane would.
+    service: overrides.grant?.service ?? "paid",
   }),
   ...overrides,
 });
@@ -277,9 +280,12 @@ describe("the ledger is written by the work, not by hand", () => {
       backendFactory: () => new EchoBackend(),
     });
 
-    // Named, because this runner's one service is `local` — the grant has to
-    // resolve to something this device actually offers, which is check three.
-    expect(runner.admit(job({ service: "local" })).ok).toBe(true);
+    // Resolved to `local`, because this runner's one service is `local` — a
+    // grant has to name something this device actually offers, which is
+    // check three. The site never named it; the control plane did.
+    expect(
+      runner.admit(job({ grant: plane.sign({ service: "local" }) })).ok,
+    ).toBe(true);
   });
 });
 

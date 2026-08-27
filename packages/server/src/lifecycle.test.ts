@@ -354,20 +354,21 @@ describe("no-runner signal [NO_RUNNER_SIGNAL]", () => {
   });
 });
 
-describe("selection and defaults, at enqueue time [byollm_016 Phase B]", () => {
+describe("availability, at enqueue time [byollm_016 Amendment L]", () => {
   /**
-   * Each of these sends the reader somewhere different — fix a typo, choose a
-   * default, install something, or ask the device's owner to change theirs.
-   * Collapsing them would send everybody to the last, which is the failure
-   * `NO_RUNNER_SIGNAL` exists to prevent: an app that cannot tell "not yet"
-   * from "never" makes both look like a hang.
+   * What a site may learn before it enqueues — which is now much less, and
+   * deliberately.
    *
-   * Distinguishing them is safe *here* and nowhere else. This answers a site
-   * about its own users' devices, whose capabilities it already stores. The
-   * same split on the wire would let a stranger probe service names to
-   * enumerate somebody else's machine, which is exactly why `RefusalReason`
-   * collapses two of them into one opaque value.
+   * This block used to be about *selection*: a site could name one of the
+   * owner's services, and the answers had to be careful not to become an
+   * inventory oracle. Amendment L removed the naming, so the oracle is
+   * structurally impossible rather than carefully collapsed, and the reasons
+   * that existed to describe a selection went with it.
+   *
+   * What remains are the answers a site can act on: nothing serves this kind,
+   * or something does and none of it will serve *this person*.
    */
+
   const beat = async (
     h: ReturnType<typeof createHarness>,
     runner: PairedRunner,
@@ -388,95 +389,53 @@ describe("selection and defaults, at enqueue time [byollm_016 Phase B]", () => {
 
   const cap = (
     service: string,
-    isDefault: boolean,
     offerScope: Capability["offerScope"] = "private",
   ): Capability => ({
     kind: "llm.generate",
     service,
-    isDefault,
     backendId: "openai-http",
     backendClass: "http",
     model: "qwen",
     offerScope,
   });
 
-  it("says a named service cannot serve them, without saying why", async () => {
-    // The kind is served; that name is not. The reader learns their selection
-    // will not run — enough to fix a typo or ask the device's owner — and
-    // learns nothing about what that owner actually has.
+  it("says nothing serves a kind nobody advertises", async () => {
     const h = createHarness();
     const runner = await h.pair({ owner: "alice" });
-    await beat(h, runner, [cap("studio", true)]);
+    await beat(h, runner, [cap("studio")]);
 
     expect(
-      await h.app.runnerAvailability({
-        kind: "llm.generate",
-        owner: "alice",
-        service: "typo",
-      }),
-    ).toMatchObject({ available: false, reason: "selection-unavailable" });
+      await h.app.runnerAvailability({ kind: "llm.chat", owner: "alice" }),
+    ).toMatchObject({ available: false, reason: "no-matching-capability" });
   });
 
-  it("answers identically whether the name is unknown or merely not offered", async () => {
-    // Constraint one of the terminal ruling, as arithmetic. These are
-    // different facts and must be one answer: if they differ, a requester
-    // tries names, sorts the replies, and enumerates a device they were never
-    // offered — the collapse in `RefusalReason` defeated by a helpful SDK
-    // relaying the finer reason it was given.
+  it("is available when any advertised service for the kind admits them", async () => {
+    /**
+     * Any, not the default — Amendment L.
+     *
+     * This used to pick the row the owner had made default, because an
+     * unselected job went there. Nothing is unselected now: a person's
+     * mapping names the service, and it may name any of them. Reporting on
+     * the default alone would call a device unavailable for a mapping it can
+     * honour perfectly well.
+     */
     const h = createHarness();
     const runner = await h.pair({ owner: "alice" });
-    await beat(h, runner, [cap("studio", true, "private")]);
-
-    const unknown = await h.app.runnerAvailability({
-      kind: "llm.generate",
-      owner: "bob",
-      audience: "team",
-      service: "no-such-name",
-    });
-    const notOffered = await h.app.runnerAvailability({
-      kind: "llm.generate",
-      owner: "bob",
-      audience: "team",
-      service: "studio",
-    });
-    expect(unknown).toEqual(notOffered);
-  });
-
-  it("says a kind is waiting on a default rather than missing", async () => {
-    // Two services answer it and neither is the default, which is the state
-    // byollm_016 withholds. Nothing is missing; a decision is outstanding.
-    const h = createHarness();
-    const runner = await h.pair({ owner: "alice" });
-    await beat(h, runner, [cap("studio", false), cap("laptop", false)]);
-
-    expect(
-      await h.app.runnerAvailability({ kind: "llm.generate", owner: "alice" }),
-    ).toMatchObject({ available: false, reason: "awaiting-default" });
-  });
-
-  it("sends an unselected job to the default, not to whatever answers", async () => {
-    // The control on the two above. A device advertising a menu *and* a
-    // default is available — and reporting otherwise would make the common
-    // case look broken.
-    const h = createHarness();
-    const runner = await h.pair({ owner: "alice" });
-    await beat(h, runner, [cap("studio", true), cap("laptop", false)]);
+    await beat(h, runner, [cap("studio"), cap("laptop")]);
 
     expect(
       await h.app.runnerAvailability({ kind: "llm.generate", owner: "alice" }),
     ).toMatchObject({ available: true });
   });
 
-  it("names the defaults-meet-audiences corner when it bites", async () => {
-    // The specimen byollm_016 called out: a default this requester can never
-    // use. Reported at enqueue rather than left to expire, because a wait that
-    // can never end looks exactly like one that has not ended yet.
-    //
-    // `bob` asking about `alice`'s device, whose default is offered to nobody
-    // but its owner.
+  it("names the owner's own setting when it is what blocks them", async () => {
+    // `bob` asking about `alice`'s device, whose only service is offered to
+    // nobody but her. Reported at enqueue rather than left to expire, because
+    // a wait that can never end looks exactly like one that has not ended yet
+    // — and this one is fixed by the device's owner, not by the asker.
     const h = createHarness();
     const runner = await h.pair({ owner: "alice" });
-    await beat(h, runner, [cap("studio", true, "private")]);
+    await beat(h, runner, [cap("studio", "private")]);
 
     expect(
       await h.app.runnerAvailability({
@@ -487,31 +446,20 @@ describe("selection and defaults, at enqueue time [byollm_016 Phase B]", () => {
     ).toMatchObject({ available: false, reason: "default-unusable" });
   });
 
-  it("keeps the kind-level reasons distinct, because they cannot be probed", async () => {
-    // Not everything collapses, and the line is whether a requester can walk a
-    // namespace. A service name is unbounded and supplied by the asker; a job
-    // kind is neither, and `awaiting-default` is already what a roster member
-    // sees on the devices page. Collapsing these would cost an app a real
-    // difference — the owner can fix "has not chosen", nobody can fix "cannot
-    // serve you" — and buy nothing.
+  it("says nobody is admitted when the exclusion is the asker's own", async () => {
+    // The other side of the split, and the reason it is a split: "nobody may
+    // serve you" reads as a permission somebody could grant, while the case
+    // above is a setting only the device's owner can change.
     const h = createHarness();
     const runner = await h.pair({ owner: "alice" });
-    await beat(h, runner, [cap("studio", false), cap("laptop", false)]);
-    const waiting = await h.app.runnerAvailability({
-      kind: "llm.generate",
-      owner: "alice",
-    });
+    await beat(h, runner, [cap("studio", "team")]);
 
-    const h2 = createHarness();
-    const runner2 = await h2.pair({ owner: "alice" });
-    await beat(h2, runner2, [cap("studio", true, "private")]);
-    const unusable = await h2.app.runnerAvailability({
-      kind: "llm.generate",
-      owner: "bob",
-      audience: "team",
-    });
-
-    expect(waiting.reason).toBe("awaiting-default");
-    expect(unusable.reason).toBe("default-unusable");
+    expect(
+      await h.app.runnerAvailability({
+        kind: "llm.generate",
+        owner: "bob",
+        audience: "private",
+      }),
+    ).toMatchObject({ available: false, reason: "audience-admits-nobody" });
   });
 });

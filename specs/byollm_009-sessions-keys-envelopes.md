@@ -219,7 +219,7 @@ The core change. A job becomes two things instead of one.
 **Phase 1 — the stub.** The site enqueues routing metadata only:
 
 ```
-{ jobId, user, site, kind, audience, service?, sizeClass, deadlineAt,
+{ jobId, user, site, kind, audience, purpose?, sizeClass, deadlineAt,
   streaming }
 ```
 
@@ -236,11 +236,21 @@ The rule Amendment A leaves behind, for every field proposed after it:
 
 > **A class the router acts on may travel. Membership never does.**
 
-`service` was added by **Amendment D**, under that same rule: it names
-which of the owner's advertised services should answer, the router
-matches on it, and it is optional because absent means "the owner's
-default". It is a **key**, never a value — see D.1 for why that
-distinction is the whole of its safety.
+`service` was added by **Amendment D** and **removed by byollm_016
+Amendment L**. It named which of the owner's advertised services should
+answer; sites no longer name services on either route, so the field is
+gone and its refusal machinery with it.
+
+`purpose` replaces it, under the same rule and the same key-not-value
+law: it names one of the site's *own* declared purposes, the control
+plane joins that to whatever the person mapped it to, and the site
+learns only whether the slot was satisfiable. Optional, because direct
+mode has no control plane to hold a mapping and is kind-only.
+
+Amendment D's safety argument is not weakened but completed. A key was
+safe because it selected from a menu rather than describing what to
+run; a purpose does not reach the owner's namespace at all, so **the
+vocabulary that could have been probed never crosses the boundary**.
 
 **Phase 2 — claim, then fetch.** A device claims the stub (audience,
 capability and budget checks daemon-side exactly as today). The

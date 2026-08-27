@@ -194,7 +194,6 @@ export const CHECKS: readonly Check[] = [
           {
             kind: "llm.generate",
             service: "local",
-            isDefault: true,
             backendId: "openai-http",
             backendClass: "http",
             model: "echo-model",

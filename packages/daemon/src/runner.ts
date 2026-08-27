@@ -498,23 +498,6 @@ export class Runner {
       capabilities.push({
         kind: route.kind,
         service: route.service,
-        // Which row an unselected job takes, from the route rather than
-        // asserted — byollm_016 Phase B.
-        //
-        // This read `isDefault: true` for every row, under a comment saying
-        // Phase A advertises exactly one service per kind so every advertised
-        // row is its kind's default — and warning, in its last sentence, that
-        // Phase B would advertise the whole menu and make that untrue. Phase B
-        // shipped the menu and left the line alone, so a device offering four
-        // services for `llm.generate` advertised four defaults.
-        //
-        // Nothing mis-routed: the daemon picks the default from its own config
-        // and always did. What was wrong is the **advertisement** — and this
-        // is the field byollm_016 added expressly so Phase B could grow the
-        // menu without any consumer re-deriving what "default" means. A guard
-        // field that lies is worse than none, because the inference it
-        // replaced at least matched the data.
-        isDefault: route.isDefault,
         backendId: route.backendId,
         backendClass: route.backendClass,
         model: route.model,
@@ -809,28 +792,17 @@ export class Runner {
     /**
      * Check three, first half: whose choice of service is this?
      *
-     * On a relayed route the grant carries the resolution the control plane
-     * made from this user's own mapping, and it is the only answer — a stub
-     * naming something else is a second answer to a settled question, which
-     * is the shape this codebase keeps deleting. It is refused rather than
-     * quietly overridden, because a silent override is how "the grant
-     * decides" would become "whichever we read last".
+     * On a relayed route, the grant's — it carries the resolution the control
+     * plane made from this person's own mapping, and there is nothing else to
+     * consult. A guard used to sit here refusing a stub that named a
+     * *different* service, because for one release both could speak. Amendment
+     * L took the field off the stub, so the disagreement it caught is now
+     * unrepresentable rather than refused, and the guard went with the field.
      *
-     * `job.service` retires entirely with Amendment L; until then this guard
-     * is what keeps the two from disagreeing.
+     * `undefined` is direct mode, where there is no control plane and the
+     * owner's own defaults answer under the ambiguity law as shipped.
      */
-    const requested = job.grant?.service ?? job.service;
-    if (
-      job.grant !== undefined &&
-      job.service !== undefined &&
-      job.service !== job.grant.service
-    ) {
-      return {
-        ok: false,
-        reason:
-          "the job asks for a different service than its grant resolved to",
-      };
-    }
+    const requested = job.grant?.service;
 
     // Check three, second half: do we actually offer it, for this kind? An
     // unknown or unrouted kind is refused, never guessed
@@ -1337,8 +1309,11 @@ export class Runner {
     if (!fetched) return;
     const payload = await this.#openPayload(job, fetched.envelope);
 
-    const route = this.#routeFor(job.kind, job.service);
-    const outcome = await this.runJob({ ...job, payload });
+    // The grant's resolution, carried into the opened job. A relayed job runs
+    // on the service the person mapped; a direct one on the owner's default.
+    const resolved = job.grant?.service;
+    const route = this.#routeFor(job.kind, resolved);
+    const outcome = await this.runJob({ ...job, payload, service: resolved });
 
     // The site's consent ended while this ran — V1-7. There is nothing to
     // seal to: the pin went with the consent, and an answer sealed to a

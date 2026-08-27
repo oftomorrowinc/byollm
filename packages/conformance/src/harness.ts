@@ -257,7 +257,6 @@ export async function pairDaemon(
   const capabilities: Capability[] = loaded.routes.map((route) => ({
     kind: route.kind,
     service: route.service,
-    isDefault: true,
     backendId: route.backendId,
     backendClass: route.backendClass,
     model: route.model,

@@ -290,12 +290,16 @@ describe("ByollmApp — the app-facing surface", () => {
   });
 });
 
-describe("naming a service — byollm_016 Phase B", () => {
+describe("naming a purpose — byollm_016 Amendment L", () => {
   /**
    * A field that is stored and never carried is worse than no field: the app
    * believes it asked for something and nothing downstream ever hears it. So
-   * these follow the name the whole way — `enqueue` to the record, the record
-   * to the stub, the stub to a real claim over the wire.
+   * these follow the purpose the whole way — `enqueue` to the record, the
+   * record to the stub, the stub to a real claim over the wire.
+   *
+   * It is a purpose now, not a service: the site's own vocabulary, which a
+   * control plane joins to whatever the person mapped it to. The route it
+   * travels is the same and so are these assertions.
    */
 
   it("carries the name onto the stub a device claims", async () => {
@@ -305,7 +309,7 @@ describe("naming a service — byollm_016 Phase B", () => {
       kind: "llm.generate",
       payload: { prompt: "hi" },
       owner: "alice",
-      service: "studio",
+      purpose: "revenue",
     });
 
     const claimed = await h.call(
@@ -318,14 +322,14 @@ describe("naming a service — byollm_016 Phase B", () => {
       },
       runner,
     );
-    const jobs = (claimed.body as { jobs: { id: string; service?: string }[] })
+    const jobs = (claimed.body as { jobs: { id: string; purpose?: string }[] })
       .jobs;
     expect(jobs).toHaveLength(1);
     expect(jobs[0]?.id).toBe(handle.id);
-    expect(jobs[0]?.service).toBe("studio");
+    expect(jobs[0]?.purpose).toBe("revenue");
   });
 
-  it("sends no service key at all when the app named none", async () => {
+  it("sends no purpose at all when the app named none", async () => {
     // Absent, not `undefined`. The stub is `.strict()` and an explicit
     // undefined is a different thing on the wire from a missing key — and
     // "the owner's default" is what every job written before this field
@@ -350,13 +354,13 @@ describe("naming a service — byollm_016 Phase B", () => {
     );
     const jobs = (claimed.body as { jobs: Record<string, unknown>[] }).jobs;
     expect(jobs).toHaveLength(1);
-    expect(Object.hasOwn(jobs[0] ?? {}, "service")).toBe(false);
+    expect(Object.hasOwn(jobs[0] ?? {}, "purpose")).toBe(false);
   });
 
   it("still carries no model, URL or flag, whatever the app passes", async () => {
     // The amended NO_PAYLOAD_ROUTING as an assertion on the wire. Selection is
     // permitted; description is not, and adding the first must not have
-    // quietly opened the second. A site naming a service still cannot tell a
+    // quietly opened the second. A site naming a purpose still cannot tell a
     // device what to run it with.
     const h = createHarness();
     const runner = await h.pair({ owner: "alice" });
@@ -364,7 +368,7 @@ describe("naming a service — byollm_016 Phase B", () => {
       kind: "llm.generate",
       payload: { prompt: "use claude-opus-5 at http://evil.test/v1" },
       owner: "alice",
-      service: "studio",
+      purpose: "revenue",
     });
 
     const claimed = await h.call(
@@ -382,7 +386,7 @@ describe("naming a service — byollm_016 Phase B", () => {
       expect(Object.hasOwn(stub ?? {}, forbidden), forbidden).toBe(false);
     }
     // And the prompt did not become the selection.
-    expect(stub?.["service"]).toBe("studio");
+    expect(stub?.["purpose"]).toBe("revenue");
   });
 });
 
@@ -395,6 +399,10 @@ describe("an SDK refuses what it does not understand", () => {
    * run believing it was selecting a service. The symptom was work running on
    * one nobody chose — and there was nothing to see, anywhere, because a
    * dropped option leaves no trace.
+   *
+   * `service` is now a field no SDK understands, which is exactly the case
+   * this rule was written for: a site still passing it is refused rather than
+   * silently ignored.
    *
    * A type does not catch it: types do not survive a JSON boundary, a
    * JavaScript caller, or a version skew, and version skew is the ordinary
@@ -452,7 +460,7 @@ describe("an SDK refuses what it does not understand", () => {
       payload: { prompt: "hi" },
       owner: "alice",
       audience: "private",
-      service: "studio",
+      purpose: "revenue",
       audienceAllow: ["bob"],
       dependsOn: [],
       ttlMs: 60_000,

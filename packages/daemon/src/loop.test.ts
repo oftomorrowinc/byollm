@@ -117,10 +117,18 @@ afterEach(async () => {
   await removeTemp(dir);
 });
 
-async function makeRunner(fetchImpl: typeof fetch, owner = "me") {
+async function makeRunner(
+  fetchImpl: typeof fetch,
+  owner = "me",
+  over: {
+    services?: Record<string, unknown>;
+    defaults?: Record<string, string>;
+    onBackend?: (service: string) => void;
+  } = {},
+) {
   const loaded = resolveConfig(
     DaemonConfig.parse({
-      services: {
+      services: over.services ?? {
         primary: {
           model: "m",
           kinds: ["llm.generate"],
@@ -129,6 +137,7 @@ async function makeRunner(fetchImpl: typeof fetch, owner = "me") {
           offer: "private",
         },
       },
+      ...(over.defaults === undefined ? {} : { defaults: over.defaults }),
       concurrency: 2,
     }),
   );
@@ -155,7 +164,19 @@ async function makeRunner(fetchImpl: typeof fetch, owner = "me") {
       communityPromptDays: 7,
       keepSelfPrompts: true,
     }),
-    backendFactory: () => backend,
+    // Delegates to the shared stub, and reports **which service actually
+    // ran** rather than which was constructed — capability detection builds a
+    // backend for every route, so a factory-level hook counts health checks
+    // as work.
+    backendFactory: (route) => ({
+      id: backend.id,
+      class: backend.class,
+      health: () => backend.health(),
+      execute: (request) => {
+        over.onBackend?.(route.service);
+        return backend.execute(request);
+      },
+    }),
     heartbeatMs: 5,
     onEvent: (event) => events.push(event),
   });
@@ -444,6 +465,78 @@ describe("the loop", () => {
       "the job to finish",
     );
     expect(backend.seen).toEqual(["hi"]);
+  });
+
+  it("ignores a purpose in direct mode, and serves the owner's default", async () => {
+    /**
+     * The drift guard, asserted where the decision is made — Amendment L.
+     *
+     * A site's SDK is uniform across routes, so a direct site may well send a
+     * purpose. Direct mode has no manifest, no mapping and no control plane
+     * to join them, so the field is inert: the owner's own default answers,
+     * exactly as it does for a job that named nothing.
+     *
+     * Driven through the loop rather than through `runJob`, because the line
+     * this protects — the one that turns a grant into a resolved service —
+     * lives in the claim path. A test that called `runJob` directly passed
+     * while a mutation reading `purpose` as a resolution survived, which is
+     * the difference between testing the law and testing near it.
+     */
+    const asked: string[] = [];
+    const runner = await makeRunner(
+      routed({
+        claim: {
+          jobs: [
+            {
+              id: "job_1",
+              kind: "llm.generate",
+              audience: "private",
+              owner: "me",
+              purpose: "alpha",
+              site: TEST_SITE_ID,
+              sizeClass: "small",
+              streaming: false,
+              deadlineAt: Date.now() + 60_000,
+              lease: {
+                id: "lease_test",
+                runnerId: "runner_1",
+                identity: TEST_IDENTITY,
+                expiresAt: Date.now() + 60_000,
+              },
+            },
+          ],
+          leaseMs: 60_000,
+        },
+      }),
+      "me",
+      {
+        // Two services, one of them named exactly like the purpose above —
+        // so a device that read a purpose as a selection would visibly pick
+        // the wrong one.
+        services: {
+          alpha: {
+            model: "m",
+            kinds: ["llm.generate"],
+            type: "openai-http",
+            baseUrl: "http://127.0.0.1:11434/v1",
+          },
+          beta: {
+            model: "m",
+            kinds: ["llm.generate"],
+            type: "openai-http",
+            baseUrl: "http://127.0.0.1:11434/v1",
+          },
+        },
+        defaults: { "llm.generate": "beta" },
+        onBackend: (service) => asked.push(service),
+      },
+    );
+    await runner.tick();
+    await settles(
+      () => events.some((e) => e.type === "finished"),
+      "the job to finish",
+    );
+    expect(asked).toEqual(["beta"]);
   });
 
   it("refuses and releases a job its allowlist does not admit", async () => {

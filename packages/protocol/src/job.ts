@@ -122,17 +122,20 @@ export const ClaimedJob = z
      */
     site: z.string().min(1).optional(),
     /**
-     * Which service the site named, if it named one — byollm_016 Phase B.
+     * Which of the owner's services runs this — resolved, not requested.
      *
-     * The same shape `site` documents above, and added for the same reason:
-     * the stub carries it, the opened job did not, and everything downstream
-     * of the payload lost it. Here that loss was not cosmetic — the daemon
-     * picks the backend from this, so a job that selected a non-default
-     * service would have been served by the default instead, which is the
-     * substitution `NO_PAYLOAD_ROUTING` forbids.
+     * The daemon picks the backend from this, so it has to be the answer
+     * rather than a wish. On a relayed route it is copied off the **grant**,
+     * where a control plane put the person's own mapping and signed it; a
+     * site never named it and could not.
      *
-     * Optional, because absent means "the owner's default" and that is every
-     * job written before selection existed.
+     * It used to be what the site asked for, which made a job that selected a
+     * non-default service liable to be served by the default instead — the
+     * substitution `NO_PAYLOAD_ROUTING` forbids. Amendment L removed the
+     * asking; what is left is the answering.
+     *
+     * Optional, because direct mode has no control plane to resolve anything
+     * and the owner's own defaults answer under the ambiguity law.
      */
     service: z.string().min(1).optional(),
     lease: Lease,
@@ -266,32 +269,17 @@ export type JobOutcome = z.infer<typeof JobOutcome>;
  */
 export const RefusalReason = z.enum([
   /**
-   * A selection this requester cannot be served — byollm_016 Phase B.
-   *
-   * **One value for two causes, and the collapse is the security property.**
-   * A named service may be unknown to this owner, or known and not offered to
-   * this requester. Those are different facts and the requester may learn
-   * neither, because telling them apart turns refusal wording into an
-   * inventory oracle: probe names, sort the answers, and enumerate a device
-   * you were never offered. The finer cause lives owner-side, where the person
-   * reading it already owns the machine — see {@link SelectionFailure}.
-   *
-   * The first draft of this enum had both causes on the wire with a comment
-   * claiming they disclosed identically. They did not; the comment described a
-   * property the code lacked, which is the more dangerous half of that mistake.
-   */
-  "select-unavailable",
-  /**
    * Two or more services answer this kind and the owner has named no default,
    * so the kind is withheld. Nobody may pick on the owner's behalf — the wrong
    * guess is the metered one.
    *
-   * Not collapsed into the value above, and the reason is that a kind is not
-   * probeable. There are two kinds; a requester asking about one is not
-   * enumerating a namespace, and learns nothing they could not learn by
-   * looking at what the device advertises. It is also already what a roster
-   * member sees on the devices page — `awaitingDefault` carries exactly this,
-   * by kind, for exactly this reason.
+   * Told apart from its neighbour deliberately, and the line is whether a
+   * requester can walk a namespace. There are two kinds; asking about one
+   * enumerates nothing they could not learn from what the device advertises,
+   * and the difference is actionable — "the owner has not chosen" is fixable
+   * by the owner, "the default cannot serve you" is not. It is also already
+   * what a team member sees on the devices page: `awaitingDefault` carries
+   * exactly this, by kind, for exactly this reason.
    */
   "default-ambiguity",
   /**
@@ -300,27 +288,16 @@ export const RefusalReason = z.enum([
    *
    * The specimen: an owner's default for `llm.chat` is their Claude
    * subscription, self-locked by `SUBSCRIPTION_SELF_LOCK`. A team member's
-   * unselected job resolves to it and can never be served by it. That must be
-   * a refusal on the spot, not a wait that expires an hour later looking like
-   * nobody was online.
+   * job resolves to it and can never be served by it. That must be a refusal
+   * on the spot, not a wait that expires an hour later looking like nobody
+   * was online.
    *
-   * Bounded like the value above and probeable for the same reason it is not:
-   * the requester named nothing, so there is no name space to walk.
+   * Bounded like the value above, and unprobeable for the same reason: the
+   * requester named nothing, so there is no name space to walk.
    */
   "default-unusable",
 ]);
 export type RefusalReason = z.infer<typeof RefusalReason>;
-
-/**
- * Why a selection failed, for the owner and nobody else.
- *
- * Never on the wire, never in a `JobRefused`, never in anything a requester
- * receives. It exists so a device's own log and its owner's tooling can tell a
- * typo from a scope mistake, which are different fixes — the distinction is
- * genuinely useful to exactly one person, and that person already knows what
- * their machine runs.
- */
-export type SelectionFailure = "unadvertised" | "unoffered-to-you";
 
 /**
  * A terminal outcome nobody sealed — byollm_016 Phase B.
@@ -372,27 +349,11 @@ export type JobRefused = z.infer<typeof JobRefused>;
  */
 export const REFUSAL_TEXT: Readonly<Record<RefusalReason, string>> =
   Object.freeze({
-    "select-unavailable": "that service is not available to you on this device",
     "default-ambiguity":
       "this device serves that kind from more than one service and its owner has not chosen which",
     "default-unusable":
       "this device's default for that kind cannot run work for you",
   });
-
-/**
- * The single outward answer for any selection that cannot be served.
- *
- * A frozen constant rather than a function taking the cause, because a
- * function taking the cause is a place to put a branch, and a branch is where
- * the oracle grows back. There is nothing here to vary, so no call site can
- * vary it — the two causes reach the wire as the same bytes because they reach
- * it as the same object.
- */
-export const REFUSED_SELECTION: JobRefused = Object.freeze({
-  outcome: "refused",
-  reason: "select-unavailable",
-  message: REFUSAL_TEXT["select-unavailable"],
-});
 
 /**
  * The plaintext inside a result envelope.
@@ -545,29 +506,39 @@ export const JobStub = z
     // with it before offering. That is server-internal, where the party
     // holding the list authored it.
     /**
-     * Which of the owner's services should answer — byollm_016 Phase B.
+     * Which of the site's declared purposes this job serves — Amendment L.
      *
-     * **A selection from a menu, never a demand.** The owner advertises named
-     * services; a site may name one of them, and that is the entire power the
-     * field grants. It carries no model, no base URL, no flags — the daemon
-     * resolves the name against its own config and nothing else, so what
-     * actually runs is still decided exclusively by the person who owns the
-     * hardware. A name that is not on that owner's menu is refused
-     * (`select-unadvertised`), never silently substituted, because a
-     * substitution is how "select" would quietly become "whatever we had".
+     * **A need, never a name.** The site's vocabulary is its own purposes;
+     * the person's is their services; and the two never meet. This field says
+     * "writing-assistant", and a control plane joins it to whatever that
+     * person mapped it to. The site learns only whether the slot was
+     * satisfiable.
      *
-     * Absent means "the owner's default for this kind", which is the only
-     * behaviour Phase A had.
+     * It replaced `service`, which let a site name one of the owner's
+     * services directly. That field is gone from both routes (Amendment L
+     * rider) and its refusal machinery with it — including the collapsed
+     * `select-unavailable`, which existed so that "no such service" and "not
+     * offered to you" could not be told apart. There is nothing left to
+     * probe: **a vocabulary that never crosses the boundary cannot be
+     * enumerated across it**, which is a stronger guarantee than the one the
+     * collapse gave.
      *
-     * It travels because the router matches on it, under the rule the absent
-     * `audienceAllow` above establishes: *a class the router acts on may
-     * travel; membership never does.* This is a class.
+     * It travels for the reason the absent `audienceAllow` establishes: *a
+     * class the router acts on may travel; membership never does.* A purpose
+     * is a class, and the control plane acts on it.
      *
-     * It is a **stub** field and never a payload field, which is the line
+     * Optional because direct mode has no control plane to hold a mapping and
+     * is kind-only: the owner's own config and defaults answer, under the
+     * ambiguity law as shipped. Absent on a relayed route resolves against
+     * the site's reserved purpose, which a site that declared its own
+     * purposes will not have mapped — so the slot reads as unmapped and the
+     * site falls back, loudly enough and without a special case.
+     *
+     * A **stub** field and never a payload field, which is the line
      * `NO_PAYLOAD_ROUTING` draws: the prompt cannot reach it, so no amount of
      * user text can influence what runs.
      */
-    service: z.string().min(1).optional(),
+    purpose: z.string().min(1).optional(),
     sizeClass: SizeClass,
     /** Reserved for byollm_006. False until streaming exists. */
     streaming: z.boolean(),

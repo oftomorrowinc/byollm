@@ -49,7 +49,6 @@ export function httpCapabilities(
     {
       kind: "llm.generate",
       service: "local",
-      isDefault: true,
       backendId: "openai-http",
       backendClass: "http",
       model,
@@ -58,7 +57,6 @@ export function httpCapabilities(
     {
       kind: "llm.chat",
       service: "local",
-      isDefault: true,
       backendId: "openai-http",
       backendClass: "http",
       model,
@@ -75,7 +73,6 @@ export function subscriptionCapabilities(
     {
       kind: "llm.generate",
       service: "local",
-      isDefault: true,
       backendId: "claude-cli",
       backendClass: "process",
       model: "claude-opus-5",

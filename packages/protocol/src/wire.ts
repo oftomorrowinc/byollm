@@ -184,20 +184,18 @@ export const Capability = z
      * The owner's name for the service answering this kind — byollm_016.
      *
      * A device advertises *which* of its services serves a kind, not merely
-     * that something does. Phase B lets a job select by this name; until then
-     * it is what a device page shows and what a default is chosen between.
+     * that something does. **A site never sees this**, and never did after
+     * Amendment L: it is what a control plane resolves a person's mapping
+     * against, so that the service a grant names is one this device actually
+     * offers rather than one somebody invented.
+     *
+     * `isDefault` used to sit beside it, saying which row an unselected job
+     * took. Nothing selects any more — a job names a purpose and a person's
+     * mapping names a service — so there is no unselected job for a default
+     * to catch, and the field went with the machinery it served.
      */
     service: z.string().min(1),
-    /**
-     * Whether this row is the default for its kind.
-     *
-     * Stated rather than inferred from being the only row, which is true in
-     * Phase A and stops being true the moment Phase B advertises every
-     * selectable service per kind. A consumer that learned "default means
-     * alone" would have to unlearn it, and the ones that did not would be
-     * quietly wrong. One field now, no second shape later.
-     */
-    isDefault: z.boolean(),
+
     backendId: BackendIdSchema,
     backendClass: BackendClass,
     model: z.string().min(1),

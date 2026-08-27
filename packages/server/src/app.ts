@@ -38,33 +38,6 @@ export type NoRunnerReason =
   | "no-matching-capability"
   | "audience-admits-nobody"
   /**
-   * A named service cannot serve this requester — byollm_016 Phase B.
-   *
-   * **One reason for two causes, and the collapse is the point.** The name may
-   * be one nobody advertises, or one advertised and not offered to this
-   * person. Those are different facts and a requester may learn neither,
-   * because telling them apart turns the advisory into an inventory oracle:
-   * try names, sort the answers, enumerate a device you were never offered.
-   *
-   * My first version split them, on the argument that this answers a site
-   * about its own users' devices. That argument does not survive a team job.
-   * The site holds capabilities for devices belonging to *other people* on the
-   * roster, and it is free to relay a reason to the requester who asked — so
-   * the split leaks through a side door rather than the front one, which is
-   * how the collapse in `RefusalReason` gets defeated by a helpful SDK.
-   *
-   * The finer cause stays owner-side, where `byollm services` reports it to
-   * the person who already knows what their machine runs.
-   */
-  | "selection-unavailable"
-  /**
-   * A kind two services answer with no default chosen, so the daemon
-   * withholds it — byollm_016. Nothing is wrong with the device; its owner has
-   * a decision to make, and saying "no matching capability" would send them
-   * looking for a missing install instead.
-   */
-  | "awaiting-default"
-  /**
    * The owner's default for this kind can never serve *this* requester —
    * byollm_016's defaults-meet-audiences corner.
    *
@@ -95,8 +68,6 @@ export interface RunnerAvailability {
 export interface AvailabilityQuery {
   readonly kind: JobKind;
   readonly owner: string;
-  /** The service the job named, if it named one — byollm_016 Phase B. */
-  readonly service?: string;
   readonly audience?: Audience;
   readonly audienceAllow?: readonly string[];
 }
@@ -176,7 +147,7 @@ const ENQUEUE_OPTIONS: Readonly<Record<keyof EnqueueInput, true>> =
     payload: true,
     owner: true,
     audience: true,
-    service: true,
+    purpose: true,
     audienceAllow: true,
     dependsOn: true,
     ttlMs: true,
@@ -439,80 +410,71 @@ export class ByollmApp {
 
     let capable = 0;
     let admitted = 0;
-    // byollm_016 Phase B. A named service must be matched by name; an
-    // unnamed one goes to whichever service the owner made the default, and
-    // *not* to whatever else answers that kind — matching the menu here would
-    // report a job as runnable that the router will not route.
-    let withheldSomewhere = 0;
     let lastRefusal: MatchRefusal | undefined;
+    /**
+     * Every advertised service for this kind, not one chosen here.
+     *
+     * This used to pick a single row — the one a job named, or the one the
+     * owner had made the default — because a site could name a service and a
+     * router matched on the name. Amendment L removed the naming, so there is
+     * no row to prefer: availability is now "does *anything* this device
+     * offers for this kind admit this person", which is also the honest
+     * question, since which service actually answers is resolved from the
+     * person's own mapping at claim.
+     */
     for (const runner of live) {
-      const forKind = runner.capabilities.filter((c) => c.kind === query.kind);
+      for (const capability of runner.capabilities.filter(
+        (c) => c.kind === query.kind,
+      )) {
+        capable += 1;
 
-      const capability =
-        query.service === undefined
-          ? forKind.find((c) => c.isDefault)
-          : forKind.find((c) => c.service === query.service);
-
-      // A device that answers this kind, advertises no default for it, and
-      // was not asked for a name: the withheld state, which is a decision
-      // waiting rather than a thing missing.
-      if (
-        capability === undefined &&
-        query.service === undefined &&
-        forKind.length > 0
-      ) {
-        withheldSomewhere += 1;
+        const match = matchAudience(
+          {
+            owner: query.owner,
+            audience: query.audience ?? "private",
+            audienceAllow: query.audienceAllow,
+          },
+          {
+            owner: runner.owner,
+            offerScope: capability.offerScope,
+            // A generic backend's cost depends on its base URL, which the
+            // server never sees; assume the expensive reading (byollm_007 §4).
+            cost: backendDescriptor(capability.backendId).cost ?? "metered",
+            // Consent is the daemon's to hold, and it has already applied it:
+            // the offer scope arriving here is the *effective* one, so a
+            // metered backend nobody agreed to share advertises `self` and is
+            // refused by the scope rule above. Re-deriving consent from
+            // `false` here would instead refuse every backend an owner
+            // deliberately shared, because the server has no way to learn they
+            // did — the signal would be wrong in the direction that breaks
+            // working setups.
+            spend: { acknowledged: true },
+            // Same conservative assumption the claim path makes: the server
+            // cannot see a remote daemon's local allowlist (protocol §4.2).
+            admits: () => true,
+          },
+        );
+        if (match.ok) admitted += 1;
+        else lastRefusal = match.refusal;
       }
-      if (!capability) continue;
-      capable += 1;
-
-      const match = matchAudience(
-        {
-          owner: query.owner,
-          audience: query.audience ?? "private",
-          audienceAllow: query.audienceAllow,
-        },
-        {
-          owner: runner.owner,
-          offerScope: capability.offerScope,
-          // A generic backend's cost depends on its base URL, which the
-          // server never sees; assume the expensive reading (byollm_007 §4).
-          cost: backendDescriptor(capability.backendId).cost ?? "metered",
-          // Consent is the daemon's to hold, and it has already applied it:
-          // the offer scope arriving here is the *effective* one, so a
-          // metered backend nobody agreed to share advertises `self` and is
-          // refused by the scope rule above. Re-deriving consent from
-          // `false` here would instead refuse every backend an owner
-          // deliberately shared, because the server has no way to learn they
-          // did — the signal would be wrong in the direction that breaks
-          // working setups.
-          spend: { acknowledged: true },
-          // Same conservative assumption the claim path makes: the server
-          // cannot see a remote daemon's local allowlist (protocol §4.2).
-          admits: () => true,
-        },
-      );
-      if (match.ok) admitted += 1;
-      else lastRefusal = match.refusal;
     }
 
     if (capable === 0) {
       // Ordered most specific first, because each sends the reader somewhere
       // different: a name that cannot serve them, a decision the device's
       // owner has not made, or nothing installed at all.
-      const reason: NoRunnerReason =
-        query.service !== undefined
-          ? "selection-unavailable"
-          : withheldSomewhere > 0
-            ? "awaiting-default"
-            : "no-matching-capability";
-      return { available: false, reason, candidates: 0 };
+      return {
+        available: false,
+        reason: "no-matching-capability",
+        candidates: 0,
+      };
     }
     if (admitted === 0) {
       // Something serves it and nothing may serve *this requester*. When the
-      // job named nothing, that is the defaults-meet-audiences corner — the
-      // owner's default resolved to a service this person can never use — and
-      // it is worth its own word, because "nobody is admitted" reads as a
+      // block is the device owner's own setting, that is the
+      // defaults-meet-audiences corner — every service for this kind is one
+      // this person can never use — and it is worth its own word, because
+      // "nobody is admitted" reads as a
       // permissions problem the requester could ask to have fixed, while this
       // one is fixed by the device's owner choosing differently.
       // Whose decision blocked it, not merely that something did. The first
@@ -531,16 +493,6 @@ export class ByollmApp {
         lastRefusal === "subscription-self-lock" ||
         lastRefusal === "metered-no-spend-consent" ||
         lastRefusal === "metered-ceiling-reached";
-      // A named selection that nobody may serve reports the *same* word as a
-      // name nobody advertises — that is constraint one of the terminal
-      // ruling, and the reason the branch below cannot mention the service.
-      if (query.service !== undefined) {
-        return {
-          available: false,
-          reason: "selection-unavailable",
-          candidates: 0,
-        };
-      }
       return {
         available: false,
         reason: ownersDoing ? "default-unusable" : "audience-admits-nobody",

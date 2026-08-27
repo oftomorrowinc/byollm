@@ -1,4 +1,5 @@
 import {
+  type ClaimedJob,
   type ClaimedStub,
   type JobPayload,
   generateKeys,
@@ -188,7 +189,10 @@ const job = (
   grant: plane.sign({
     jobId: overrides.id ?? "job_1",
     user: overrides.owner ?? "me",
-    service: overrides.service ?? "primary",
+    // The resolved service now lives only on the grant — a stub cannot name
+    // one (Amendment L), so a test that wants a particular service says so
+    // where the control plane would.
+    service: overrides.grant?.service ?? "primary",
   }),
   ...overrides,
 });
@@ -429,7 +433,7 @@ describe("status", () => {
     expect(status.capabilities).toHaveLength(1);
   });
 
-  it("advertises one default per kind, not one per row", async () => {
+  it("advertises every service for a kind, and no default among them", async () => {
     /**
      * byollm_016 Phase B, found in production on 2026-08-25.
      *
@@ -472,22 +476,27 @@ describe("status", () => {
 
     await runner.detectCapabilities();
     const caps = runner.status().capabilities;
-    // The menu still travels in full — that is the point of Phase B, and a
-    // "fix" that advertised only the default would pass the count below while
-    // removing selection entirely.
+    /**
+     * The whole menu travels, and only the menu.
+     *
+     * Every service answering a kind is advertised, because a control plane
+     * resolves a person's mapping to one of them and can only choose from
+     * what it was shown. The rows used to carry `isDefault` so an *unselected*
+     * job could find the one its owner had chosen; nothing is unselected any
+     * more — a job names a purpose and a mapping names a service — so the
+     * flag went with the machinery it served.
+     *
+     * The owner's default still exists, as a local fact for direct mode. It
+     * simply stopped being anybody else's business.
+     */
     expect(caps.filter((c) => c.kind === "llm.generate")).toHaveLength(3);
-
-    for (const kind of ["llm.generate", "llm.chat"]) {
-      const defaults = caps.filter((c) => c.kind === kind && c.isDefault);
-      expect(
-        defaults.map((c) => c.service),
-        kind,
-      ).toHaveLength(1);
-    }
-    // And it is the one the config names, not merely the first row.
     expect(
-      caps.find((c) => c.kind === "llm.generate" && c.isDefault)?.service,
-    ).toBe("beta");
+      caps
+        .filter((c) => c.kind === "llm.generate")
+        .map((c) => c.service)
+        .sort(),
+    ).toEqual(["alpha", "beta", "gamma"]);
+    expect(Object.keys(caps[0] ?? {})).not.toContain("isDefault");
   });
 
   it("withdraws a service that says it is not signed in, after one job", async () => {
@@ -664,7 +673,7 @@ describe("which service runs a job — byollm_016 Phase B", () => {
 
   /** Which route the runner actually asked for a backend. */
   const asked = async (
-    over: Partial<ClaimedStub & { payload: JobPayload }>,
+    over: Partial<ClaimedJob> & { service?: string },
     defaults: Record<string, string>,
   ) => {
     const seen: string[] = [];
@@ -676,16 +685,23 @@ describe("which service runs a job — byollm_016 Phase B", () => {
         return backend;
       },
     });
-    const outcome = await made.runner.runJob(job(over));
+    // `runJob` takes the *opened* job, whose `service` is the resolution the
+    // grant carried — so these cases set it where the control plane would.
+    const outcome = await made.runner.runJob({ ...job(), ...over });
     return { seen, outcome };
   };
 
-  it("sends an unselected job to the default, not to whichever is first", async () => {
+  it("sends a job with no resolution to the owner's default", async () => {
+    // Direct mode: no control plane, so nothing resolved anything, and the
+    // owner's own default answers under the ambiguity law as shipped.
     const { seen } = await asked({}, { "llm.generate": "spare" });
     expect(seen).toEqual(["spare"]);
   });
 
-  it("sends a selected job to the service it named", async () => {
+  it("sends a resolved job to the service its grant names", async () => {
+    // The relayed route. A person's mapping chose `spare`; the owner's
+    // default is `studio`; the mapping wins, because the default was never
+    // anybody else's answer.
     const { seen } = await asked(
       { service: "spare" },
       { "llm.generate": "studio" },
@@ -693,11 +709,11 @@ describe("which service runs a job — byollm_016 Phase B", () => {
     expect(seen).toEqual(["spare"]);
   });
 
-  it("refuses a name this device does not have, never substituting", async () => {
-    // The daemon's half of the both-sides rule. The hub already matched on the
-    // pair; serving a selection from something else is the substitution
-    // NO_PAYLOAD_ROUTING forbids, and falling back to the default would be
-    // exactly that — silently, behind a successful-looking job.
+  it("refuses a resolution this device cannot honour, never substituting", async () => {
+    // The device's half of offer-consistency. A grant naming a service this
+    // machine does not have is stale or forged either way, and falling back
+    // to the default would be the substitution NO_PAYLOAD_ROUTING forbids —
+    // silently, behind a successful-looking job.
     const { seen, outcome } = await asked(
       { service: "not-here" },
       { "llm.generate": "studio" },

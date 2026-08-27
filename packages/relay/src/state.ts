@@ -265,30 +265,26 @@ export interface ClaimInput {
    */
   readonly routes: ReadonlySet<string>;
   /**
-   * Kinds this device has a **default** for, which is what serves an
-   * unselected job.
+   * Kinds this device can run — and that is now the whole of the match.
    *
-   * Not "kinds it can run": since byollm_016 a device may advertise several
-   * services answering one kind, and a job that named none of them must go to
-   * the one its owner chose. A kind with two claimants and no default is
-   * withheld and does not appear here at all.
+   * A relay routes by kind and by consent; **which service answers is not its
+   * question**. A job names a purpose, a person's mapping names a service,
+   * and a control plane joins them at claim. A relay that filtered on the
+   * service would need the mapping, which is the one thing it is not supposed
+   * to hold.
+   *
+   * This carried a companion, `serves`, holding the (kind, service) pairs a
+   * device advertised, so a job naming a service reached only a device with
+   * it. Sites stopped naming services (Amendment L) and the field became wire
+   * nothing read — so it is gone rather than left for a reader to infer
+   * meaning from.
+   *
+   * The cost is stated plainly: a job may be offered to a device whose owner
+   * admits the person but whose machine their mapping did not name. The
+   * control plane declines it as not-here and it goes back with a
+   * {@link RETRY_AFTER_MS} wait, which is what that mechanism is for.
    */
   readonly kinds: ReadonlySet<string>;
-  /**
-   * The (kind, service) pairs this device advertises — byollm_016 Phase B.
-   *
-   * **One set of pairs, for the reason `routes` above is one set of pairs.**
-   * A set of kinds and a set of service names would multiply: a device
-   * offering `studio` for `llm.generate` and `claude` for `llm.chat` has both
-   * kinds and both names, and the product contains
-   * (`llm.chat`, `studio`) — a combination it never advertised and cannot
-   * run. Two sets multiply; an advertisement does not.
-   *
-   * Written with {@link serviceKey}, so a store in another repository agrees
-   * on the encoding by calling the same function rather than by both
-   * spelling it out.
-   */
-  readonly serves: ReadonlySet<string>;
   readonly max: number;
   readonly leaseMs: number;
 }
@@ -301,16 +297,6 @@ export interface ClaimInput {
  */
 export const routeKey = (siteId: string, owner: string): string =>
   `${siteId}\u0000${owner}`;
-
-/**
- * How a (kind, service) advertisement is written — byollm_016 Phase B.
- *
- * The same `\u0000` as {@link routeKey} and for the same reason: it cannot
- * appear in a job kind or a service name, so this is a key rather than a
- * parser. One function, called by every party that has to agree.
- */
-export const serviceKey = (kind: string, service: string): string =>
-  `${kind}\u0000${service}`;
 
 /**
  * Where the store's sense of time comes from — cloud_006 §3.4.
@@ -556,20 +542,11 @@ export class RelayState implements RoutingStore {
       // consented to site B, is in both a set of sites and a set of owners
       // and has no consented route between them.
       if (!input.routes.has(routeKey(job.siteId, job.stub.owner))) continue;
-      // Selection, byollm_016 Phase B. A job naming a service is offered only
-      // to a device advertising that exact (kind, service) pair; a job naming
-      // none goes to whichever service its owner made the default, which is
-      // what `kinds` carries. Never a fallback between the two: a selected
-      // job that finds no match waits for a device that has it rather than
-      // landing on something else, because silently serving a different
-      // service is the substitution NO_PAYLOAD_ROUTING forbids.
-      if (
-        job.stub.service === undefined
-          ? !input.kinds.has(job.stub.kind)
-          : !input.serves.has(serviceKey(job.stub.kind, job.stub.service))
-      ) {
-        continue;
-      }
+      // By kind, and only by kind — Amendment L. Which of the owner's
+      // services answers is the control plane's, resolved from this person's
+      // mapping at claim; a relay that matched on it would need to hold the
+      // mapping, and holding it is what a relay must not do.
+      if (!input.kinds.has(job.stub.kind)) continue;
       // Already declined by this device — `REFUSAL_NOT_REOFFERED`, §2.1.
       if (job.refusedBy.includes(input.runnerId)) continue;
       // Declined for something that may have changed since, but not yet.

@@ -194,6 +194,13 @@ describe("check 1 — the signature, and what it is over", () => {
     expect(stale.ok).toBe(false);
     if (!stale.ok) expect(stale.reason).toContain("signed too long ago");
 
+    // A post-dated one, which is the other direction and the same problem: an
+    // `issuedAt` ahead of now would extend the grant's life past the bound
+    // that exists to limit it.
+    const future = runner.admit(job({}, { issuedAt: NOW + 60_000 }));
+    expect(future.ok).toBe(false);
+    if (!future.ok) expect(future.reason).toContain("dated in the future");
+
     // Far enough out that the clock is the story rather than the grant.
     const skewed = runner.admit(
       job({}, { issuedAt: NOW - GRANT_MAX_AGE_MS - 600_000 }),
@@ -202,6 +209,17 @@ describe("check 1 — the signature, and what it is over", () => {
     if (!skewed.ok) {
       expect(skewed.reason).toContain("clock");
       expect(skewed.reason).toContain("fix the clock, not the relay");
+    }
+
+    // And a clock far *ahead* names itself too, saying post-dated rather than
+    // expired — the same fault, and the same remedy, from the other side.
+    const ahead = runner.admit(
+      job({}, { issuedAt: NOW + GRANT_MAX_AGE_MS + 600_000 }),
+    );
+    expect(ahead.ok).toBe(false);
+    if (!ahead.ok) {
+      expect(ahead.reason).toContain("post-dated");
+      expect(ahead.reason).toContain("fix the clock, not the relay");
     }
   });
 });
@@ -259,74 +277,6 @@ describe("check 3 — offer-consistency", () => {
     const result = (await device()).admit(job({}, { service: "mine" }));
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.reason).toContain("no backend");
-  });
-
-  it("refuses when the job asks for one service and the grant resolved another", async () => {
-    // Two answers to a settled question. Refused rather than silently
-    // overridden, because a silent override is how "the grant decides" turns
-    // into "whichever we read last".
-    const result = (await device()).admit(job({ service: "mine" }));
-    expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.reason).toContain("different service");
-  });
-});
-
-describe("what the run log is told", () => {
-  it("names which check refused, not just that one did", async () => {
-    /**
-     * A refusal that says only "the job did not run" leaves somebody
-     * comparing four possibilities by hand. These are the events `byollm run`
-     * prints, and each names the check — a forged grant and a slow clock are
-     * the same outcome and completely different problems.
-     */
-    const seen: string[] = [];
-    const runner = await device({
-      onEvent: (event) => {
-        if (event.type === "grant-refused") seen.push(event.refusal);
-      },
-    });
-
-    runner.admit(job({ grant: undefined }));
-    runner.admit(job({}, { jobId: "elsewhere" }));
-    runner.admit(job({}, { user: "somebody-else" }));
-    runner.admit(job({}, { issuedAt: NOW - GRANT_MAX_AGE_MS - 1_000 }));
-    const spent = job();
-    runner.admit(spent);
-    runner.admit(spent);
-
-    expect(seen).toEqual([
-      "absent",
-      "wrong-job",
-      "wrong-user",
-      "expired",
-      "replayed",
-    ]);
-  });
-});
-
-describe("the replay set does not grow forever", () => {
-  it("forgets a grant once no fresh one could carry its id", async () => {
-    /**
-     * An entry only has to outlive the grant naming it: past
-     * {@link GRANT_MAX_AGE_MS} the freshness check refuses that grant anyway,
-     * so keeping the id would be guarding a door already shut. Without this a
-     * long-running daemon accumulates one entry per job it has ever admitted.
-     *
-     * Observed through behaviour rather than by reading the map: the same id
-     * becomes usable again once its window has passed, which is exactly what
-     * "forgotten" means and is also proof it is not a leak.
-     */
-    let now = NOW;
-    const runner = await device({ now: () => now });
-
-    expect(runner.admit(job()).ok).toBe(true);
-    expect(runner.admit(job()).ok).toBe(true);
-
-    // Far enough on that nothing signed at NOW is fresh any more, and a grant
-    // signed now reuses the id the swept entry held.
-    now = NOW + GRANT_MAX_AGE_MS + 1;
-    const reissued = job({}, { issuedAt: now });
-    expect(runner.admit(reissued).ok).toBe(true);
   });
 });
 

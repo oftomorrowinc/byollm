@@ -110,6 +110,8 @@ export interface RelayOptions {
     readonly job: ClaimedStub;
     /** The site's id in the control plane's namespace, not its key id. */
     readonly siteId: string;
+    /** The site's declared purpose this job serves, if it named one. */
+    readonly purpose?: string;
     readonly owner: string;
     readonly runnerId: string;
     readonly capabilities: CapabilityMatrix;

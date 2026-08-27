@@ -492,7 +492,6 @@ describe("the site's own row decides whether to seal", () => {
       owner,
       device,
       kinds: new Set(["llm.generate"]),
-      serves: new Set<string>(),
       routes: new Set([routeKey(SITE_ID, owner)]),
       max: 1,
       leaseMs: 60_000,

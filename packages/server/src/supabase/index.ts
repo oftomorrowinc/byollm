@@ -63,8 +63,8 @@ interface JobRow {
    * reinterpreted here as something narrower.
    */
   audience: Audience;
-  /** byollm_016 Phase B. Null for every job that named no service. */
-  service: string | null;
+  /** byollm_016 Amendment L. Null for every job that named no purpose. */
+  purpose: string | null;
   owner: string;
   audience_allow: string[] | null;
   depends_on: string[];
@@ -129,7 +129,7 @@ function toJob(row: JobRow): JobRecord {
     envelope: row.envelope as JobRecord["envelope"],
     sizeClass: row.size_class,
     audience: row.audience,
-    service: row.service ?? undefined,
+    purpose: row.purpose ?? undefined,
     owner: row.owner,
     audienceAllow: row.audience_allow ?? undefined,
     dependsOn: row.depends_on,
@@ -277,7 +277,7 @@ export function supabaseStore(options: SupabaseStoreOptions): ByollmStore {
         envelope: input.envelope,
         size_class: input.sizeClass,
         audience: input.audience ?? "private",
-        service: input.service ?? null,
+        purpose: input.purpose ?? null,
         owner: input.owner,
         audience_allow: input.audienceAllow ? [...input.audienceAllow] : null,
         depends_on: dependsOn,

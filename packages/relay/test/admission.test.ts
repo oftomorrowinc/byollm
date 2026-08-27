@@ -223,7 +223,6 @@ describe("who this device will run work for", () => {
           {
             kind: "llm.generate",
             service: "primary",
-            isDefault: true,
             backendId: "openai-http",
             backendClass: "http",
             model: "echo-model",

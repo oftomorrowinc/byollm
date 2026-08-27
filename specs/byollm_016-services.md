@@ -4194,3 +4194,39 @@ Net "before sharing" set ≈ 14 items: the .60 three + five consent/version fixe
 + ~six promotion-integrity fixes, most of them small. The probe is gated behind
 the .60 three and the consent/version five; promotion is gated behind the
 promotion-integrity six.
+
+### .60 ride-alongs 2 of 3; tracked state at the repin (2026-08-27)
+
+Landed: the derived write-path check (99ddcfb byollm-cloud-web, pushed, conform
+#25 — pg_depend derives function+role membership, nothing named by hand; proved
+by reintroducing the real bug and watching conform name function/constraint/role/
+fix). Paused-consent tri-state (c46ede8 byollm pushed; consented = yes|paused|no,
+because the engine decides not only grant-or-not but whether a refusal is
+PERMANENT — reaches contract, reference store, and PgPolicyStore, proved against
+real Postgres with the resume round trip; 4 mutations incl. paused quietly added
+to the permanent set). releaseLeases terminal guard (f0d0228 byollm pushed) —
+case in the shipped contract, three holder-scoped doors now one rule.
+
+TRACKED at the repin (two risks, both self-correcting IF the repin is treated as
+a hard checkpoint):
+- Two byollm-cloud commits (8173ece, 0237980) are LOCAL, committed --no-verify by
+  design: the hub pins .59 whose PolicySnapshot.consented is still boolean, so
+  the hub cannot compile against the tri-state until the repin. Committed rather
+  than left loose (CCC lost an uncommitted fix earlier today). **At the .60 repin
+  both must verify green and prove against real infra before push** — the
+  pre-push hook (verify at HEAD) is the backstop; never --no-verify the push.
+- The Lua terminal guard is unproven — its contract case ships in unpublished
+  @byollm/relay, inherited at repin exactly as retryAfter was. Proven at repin or
+  .60 stops.
+
+Mistake flagged: the Lua guard first landed in RENEW too (holder check spelled
+identically across the scripts) — Valkey refused the script outright, the LOUD
+kind of wrong; CCC notes a quieter inert version was available, which would have
+been the bad wrong. This is the twice-spelled shape at the Lua layer (CLAIM/
+RENEW/RELEASE/COMPLETE); durable fix if Redis allows is one shared holder-check
+fragment — name the seam once.
+
+Next: replay durability, then .60 publish + repin (the held commits go green and
+push, the Lua guard proves). AND CCC must receive the release-gate classification
+before the probe — otherwise it walks .60 -> probe and skips the five consent/
+version and six promotion-integrity items that gate sharing and promotion.

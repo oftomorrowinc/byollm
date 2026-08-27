@@ -4145,3 +4145,52 @@ the membership rather than listing it. Sibling of the config-reader check.
 Sequence: .60 = engine offerScope + the three ride-alongs (paused-consent also
 touches the stores incl. hub PgPolicyStore); publish, repin hub+web; deploy web
 (sweep/keepOffered/RLS already committed); deploy hub; then the acceptance probe.
+
+### Release-gate classification of the 35 review findings (2026-08-27)
+
+Todd asked which findings must be knocked out before sharing with other people.
+The full set of 35 confirmed, bucketed by the gate each sits behind:
+
+ALREADY FIXED (15): the .59 protocol batch (site binding, kind+purpose binding,
+clock both halves, manifest bounds+sanitization, strict parse ×6) and the
+priority-5 (engine offerScope, critical sweep deletion, keepOffered candidate
+validation, email PII oracle, authenticated RLS + revoked-rows-spring-back).
+
+RIDE .60 (agreed, package-level): paused-consent-permanent, releaseLeases
+terminal guard, replay durability.
+
+BEFORE KEVIN & LIS USE IT (consent-screen correctness + version clarity) — these
+hit a real second human directly:
+- Re-connect "none" silently keeps the old mapping routing.
+- Re-connect silently re-maps to defaults, ignoring existing choices.
+- A duplicated kind in one purpose silently voids the entire submission.
+- Two teammates' same-named services render indistinguishably (display side; the
+  write side has the (owner,id) fix).
+- Old-vocabulary daemon vs new hub → generic unnamed 400; must be a loud
+  named-version refusal (Todd's re-pair, Kevin's setup) per the loud-refusal law.
+
+BEFORE .60 IS PROMOTED (promotion is the act of sharing; a half-landed or
+falsely-green promotion is itself the risk — the .57 lesson):
+- pins-deployed.mjs and releasing.md both enumerate <6 packages (control-plane
+  omitted) — six-package promotion can half-land.
+- /healthz omits audiences/sizeClass/backendClass — the gate greens on unchecked
+  enums.
+- /usage reads the dropped `metered` column — 503s forever (usage feature broken).
+- Drain closes the policy pool while the hub still serves.
+- Safety nets: hub PgPolicyStore never runs the shipped PolicyStore contract; the
+  hub-vs-real-schema test is in no CI; the store contract never exercises a
+  non-null Mapping.owner (the field the anti-substitution check depends on).
+
+CAN TRAIL (before the sweep runs against a real team, not before the probe):
+- fire-and-forget sweep writes → daily notification loop on persistent failure;
+- live pre-Phase-B device mislabeled service-gone;
+- reader-grants / hosted-grants probes not extended for the 0036 mapping grants.
+
+FENCED behind untrusted traffic (ruled, in open-door-readiness.md): pending-claim
+fleet-enumeration leak (before first uncontrolled site); payload-ceiling overspend
+(before any site has untrusted end users).
+
+Net "before sharing" set ≈ 14 items: the .60 three + five consent/version fixes
++ ~six promotion-integrity fixes, most of them small. The probe is gated behind
+the .60 three and the consent/version five; promotion is gated behind the
+promotion-integrity six.

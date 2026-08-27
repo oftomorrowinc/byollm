@@ -2706,3 +2706,15 @@ stable, prose honest.
 by the engine-as-library ruling — an open engine behind the authorGrant seam
 with a pluggable policy store, never inlined into hub code for later
 extraction. Hub grant authorship lands at claim where routeKey already gates.
+
+### Generalized: nothing widens quietly (2026-08-26)
+
+Todd, ratifying the direction: notifications and step-up auth across account
+actions (sites added, etc.) are hub product value, not just protection. Ruled as
+the general policy, extending the offer-management asymmetry to every account
+surface: **any action that WIDENS exposure — enabling a site, widening an offer,
+raising a spend cap, adding a team member — requires step-up re-auth and fires
+both-channel notices (device notice + email). Any action that narrows — disable,
+revoke, lower, remove, pause — is one tap, never gated, and logs to the notices
+feed without alarm.** One sentence for the product and the video both: nothing
+widens quietly.

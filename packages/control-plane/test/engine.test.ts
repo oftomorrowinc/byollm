@@ -154,6 +154,66 @@ describe("a grant, when everything agrees", () => {
     expect(granted).not.toHaveProperty("siteId");
   });
 
+  it("declines a service its owner has narrowed to private", async () => {
+    /**
+     * byollm-review 2026-08-27, and the interesting part is the *shape*.
+     *
+     * The check asked whether a capability row with that kind and service
+     * existed and never looked at `offerScope`, so the engine signed a grant
+     * asserting a teammate's admission onto a service offered to nobody.
+     *
+     * Nothing widened — the device refuses it structurally. But a device's
+     * refusal is released as `refused`, which the upstream remembers
+     * permanently, where the engine declining here is a thirty-second wait.
+     * The owner flipping a service private for a minute permanently unpicked
+     * a queued job from the one device it was always meant for.
+     */
+    mapped();
+    const outcome = await author({
+      capabilities: capabilities.map((row) => ({
+        ...row,
+        offerScope: "private" as const,
+      })),
+    });
+
+    expect(outcome.granted).toBeUndefined();
+    expect(outcome.declined).toEqual({
+      reason: "resolved-elsewhere",
+      permanent: false,
+    });
+  });
+
+  it("still runs the owner's own work on a private service", async () => {
+    // Exempt structurally rather than by scope: a device always runs its
+    // owner's jobs, `private` is about other people, and consulting the scope
+    // here would let the narrowest setting stop somebody's own machine from
+    // serving them.
+    store.consent({
+      siteId: SITE,
+      user: OWNER,
+      mappings: [
+        {
+          purpose: RESERVED_PURPOSE,
+          kind: "llm.generate",
+          service: "qwen",
+          // Their own service: null is "mine", and the owner's own work is
+          // the case this exempts.
+          owner: null,
+        },
+      ],
+    });
+
+    const outcome = await author({
+      job: job({ owner: OWNER }),
+      capabilities: capabilities.map((row) => ({
+        ...row,
+        offerScope: "private" as const,
+      })),
+    });
+
+    expect(outcome.granted).toBeDefined();
+  });
+
   it("uses the site's default purpose when the caller names none", async () => {
     // Until purposes reach the wire every job is the site's one purpose. The
     // engine is already written for the other case; the caller catches up.

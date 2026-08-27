@@ -3,10 +3,33 @@ import {
   RESERVED_PURPOSE,
   type CapabilityMatrix,
   type ClaimedStub,
+  type OfferScope,
   type SignedGrant,
 } from "@byollm/protocol";
 import type { GrantSigner } from "./signer.js";
 import type { PolicyStore } from "./store.js";
+
+/**
+ * Which offer scopes reach somebody other than the owner.
+ *
+ * An allowlist, never a denylist. A filter written against the excluded case
+ * fails **open** the moment somebody renames the excluded value — which is
+ * exactly what happened when `self` became `private` and every owner-locked
+ * route was listed to a whole team. A scope this build has not been taught
+ * stays narrow.
+ *
+ * Exhaustive over the protocol's vocabulary, so a scope added upstream fails
+ * this file to compile until somebody decides whether it widens.
+ */
+const WIDENS: Readonly<Record<OfferScope, boolean>> = {
+  private: false,
+  team: true,
+};
+const WIDENING_SCOPES: ReadonlySet<string> = new Set(
+  Object.entries(WIDENS)
+    .filter(([, widens]) => widens)
+    .map(([scope]) => scope),
+);
 
 /**
  * The control plane: one signed grant per job, or a reason there is none.
@@ -174,9 +197,35 @@ export class ControlPlane {
       return decline("resolved-elsewhere");
     }
 
+    /**
+     * Offered to *this person*, not merely present on the machine.
+     *
+     * byollm-review 2026-08-27. This asked only whether a capability row with
+     * that kind and service existed, and every row carries an `offerScope` it
+     * never looked at. So a mapping naming a service its owner has since
+     * narrowed to `private` was granted: the engine signed a document
+     * asserting a teammate's admission onto a service offered to nobody.
+     *
+     * Nothing widened — the device's private-is-absolute check is structural
+     * and refuses it. But the *shape* of the failure was wrong, and that is
+     * the real defect. A device's refusal releases the job as `refused`,
+     * which the upstream remembers permanently; the engine declining
+     * `resolved-elsewhere` is a thirty-second wait. So an owner flipping
+     * `qwen` to private for a minute permanently unpicked a teammate's queued
+     * job from the one device it was always meant for, with nothing anywhere
+     * reporting why — precisely what the transient-decline machinery exists
+     * to prevent.
+     *
+     * The owner's own work is exempt structurally rather than by scope: a
+     * device always runs its owner's jobs, `private` is a statement about
+     * other people, and consulting the scope here would let the narrowest
+     * setting stop somebody's own machine from serving them.
+     */
     const offered = input.capabilities.some(
       (capability) =>
-        capability.kind === job.kind && capability.service === mapped.service,
+        capability.kind === job.kind &&
+        capability.service === mapped.service &&
+        (job.owner === owner || WIDENING_SCOPES.has(capability.offerScope)),
     );
     if (!offered) return decline("resolved-elsewhere");
 

@@ -717,6 +717,27 @@ export class RelayState implements RoutingStore {
       const job = this.#grantFor(jobId, input.runnerId, leaseId);
       if (!job || job.claimedBy?.runnerId !== input.runnerId) continue;
       if (job.claimedBy.leaseId !== leaseId) continue;
+      /**
+       * A finished job is finished — byollm-review 2026-08-27.
+       *
+       * Terminal **before** holder, the ordering `complete` already uses: a
+       * release naming a valid lease on a done job was flipping it back to
+       * `queued`. The recorded result survives on the row and becomes
+       * unreachable, because `finished()` filters on the state — so the site
+       * never collects it, the job is offered again, and somebody's hardware
+       * runs it a second time and overwrites the first answer.
+       *
+       * The daemon's own shutdown races exactly this. `shutdown()` snapshots
+       * the active leases while a job is finishing, the abort lands, and a
+       * release and a result for the same lease are in flight together. If
+       * the result wins, this used to undo it.
+       *
+       * `takePayload` got this guard at V1-6 and `complete` at cloud_008
+       * §3.6. This is the third holder-scoped door and it was the one left
+       * open — which is the argument for the contract case beside it: three
+       * doors, one rule, and the two that were shut were shut one at a time.
+       */
+      if (job.state === "done") continue;
       // Recorded before the requeue, so the job goes back to the queue
       // already knowing not to come back here. A daemon releasing for
       // `shutdown` or `backend-down` is saying "not now"; `refused` is the

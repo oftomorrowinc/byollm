@@ -475,6 +475,69 @@ export function describeStoreContract(
       await done();
     });
 
+    it("will not un-finish a job that is already done", async () => {
+      /**
+       * The third holder-scoped door — byollm-review 2026-08-27.
+       *
+       * A release naming a valid lease on a **done** job flipped it back to
+       * `queued`. The recorded result survives on the row and becomes
+       * unreachable, because `finished()` filters on state — so the site
+       * never collects it, the job is offered again, and somebody's hardware
+       * runs it a second time and overwrites the first answer.
+       *
+       * Not hypothetical: the daemon's own shutdown races it. A release and a
+       * result for one lease are in flight together, and if the result won,
+       * this undid it.
+       *
+       * `takePayload` got a terminal guard at V1-6 and `complete` at
+       * cloud_008 §3.6. This one was left open, and no contract case existed
+       * for it — so neither implementation could fail for it. Three doors,
+       * one rule, shut one at a time; this is the rule stated where every
+       * store has to answer for it.
+       */
+      const { store, done } = await make();
+      await store.enqueue({ id: "a", siteId: SITE, stub: stub("a") });
+      const [granted] = await store.claim(claimArgs());
+      const lease = granted!.lease.id;
+
+      await store.takePayload({
+        jobId: "a",
+        runnerId: "runner_1",
+        leaseId: lease,
+      });
+      await store.complete({
+        jobId: "a",
+        runnerId: "runner_1",
+        leaseId: lease,
+        envelope: ENVELOPE,
+        disposition: "ok",
+      });
+
+      const released = await store.releaseLeases({
+        runnerId: "runner_1",
+        leases: [{ jobId: "a", leaseId: lease }],
+        reason: "shutdown",
+      });
+
+      // Released nothing, and said so — a caller that believed this had
+      // requeued would be as wrong as the store that did.
+      expect(released).toEqual([]);
+      expect((await store.job(SITE, "a"))?.state).toBe("done");
+
+      // And the result is still collectable, which is the harm the state
+      // change actually caused: `finished()` filters on state, so a job
+      // flipped back to `queued` hid an answer that had already been paid
+      // for.
+      expect((await store.finished(SITE)).map((j) => j.id)).toEqual(["a"]);
+
+      // Nor is it offered to anybody again. The second execution is the
+      // expensive half — somebody's tokens, spent twice, for one job.
+      expect(await store.claim(claimArgs({ runnerId: "runner_2" }))).toEqual(
+        [],
+      );
+      await done();
+    });
+
     it("keeps a job claimable by a runner that only went away", async () => {
       const { store, done } = await make();
       await store.enqueue({ id: "a", siteId: SITE, stub: stub("a") });

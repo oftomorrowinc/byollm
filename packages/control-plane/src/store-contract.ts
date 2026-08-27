@@ -65,6 +65,29 @@ const MAPPING: Mapping = {
   owner: null,
 };
 
+/**
+ * The same service name, on a teammate's machine.
+ *
+ * byollm-review 2026-08-27. Every case here used `owner: null`, so a store
+ * that dropped `owner`, nulled it, or mis-joined it passed the whole suite —
+ * while this contract claimed "a store that passes has the semantics the
+ * engine relies on". It did not.
+ *
+ * The engine's wrong-machine check is `(mapped.owner ?? job.owner) !== owner`,
+ * and it is the enforcement of the one substitution this design exists to
+ * forbid: a mapping naming *carol's* qwen must not be satisfied by *bob's*
+ * qwen. It depends entirely on a store round-tripping this field, and nothing
+ * asked it to.
+ */
+const TEAMMATE_MAPPING: Mapping = {
+  purpose: "writing_assistant",
+  kind: "llm.generate",
+  // Deliberately the same name as the mapper's own service above: a store
+  // keyed on the name alone would pass a case that used a distinct one.
+  service: "qwen",
+  owner: "carol",
+};
+
 /** Run the contract. Call inside a suite; it declares its own `describe`. */
 export function describePolicyStoreContract(
   name: string,
@@ -96,6 +119,74 @@ export function describePolicyStoreContract(
       });
       expect(snapshot.consented).toBe("yes");
       expect([...snapshot.mappings]).toEqual([MAPPING]);
+      await s.done();
+    });
+
+    it("round-trips whose service a mapping names", async () => {
+      /**
+       * The field the anti-substitution check is made of.
+       *
+       * A store that answers `null` here — or the querying device's owner —
+       * makes `(mapped.owner ?? job.owner) !== owner` pass for the wrong
+       * machine, and a grant gets signed putting somebody's work on a device
+       * they never chose. Device-side checks do not save it: the wrong
+       * machine's service is team-scoped and the person is a legitimate
+       * member, so admission succeeds.
+       *
+       * `null` and a real owner are both asserted, because the two are read
+       * through the same column and a store that swapped them would satisfy
+       * either case alone.
+       */
+      const s = await options.make();
+      await s.consent({
+        siteId: SITE,
+        user: USER,
+        mappings: [TEAMMATE_MAPPING],
+      });
+      await s.addMember({ owner: OWNER, user: USER });
+
+      const snapshot = await s.store.read({
+        siteId: SITE,
+        user: USER,
+        owner: OWNER,
+      });
+
+      expect(snapshot.mappings).toEqual([TEAMMATE_MAPPING]);
+      expect(snapshot.mappings[0]?.owner).toBe("carol");
+      await s.done();
+    });
+
+    it("keeps two same-named services apart by whose they are", async () => {
+      /**
+       * The substitution itself, as a stored fact.
+       *
+       * Alice is on two teams that both run a `qwen`. Those are two different
+       * machines and the consent screen shows them as two options; a store
+       * that collapsed them would let either claim the work. Two mappings
+       * under one consent, which no case here previously exercised either.
+       */
+      const s = await options.make();
+      await s.consent({
+        siteId: SITE,
+        user: USER,
+        mappings: [
+          { ...MAPPING, purpose: "mine" },
+          { ...TEAMMATE_MAPPING, purpose: "theirs" },
+        ],
+      });
+      await s.addMember({ owner: OWNER, user: USER });
+
+      const snapshot = await s.store.read({
+        siteId: SITE,
+        user: USER,
+        owner: OWNER,
+      });
+
+      const byPurpose = new Map(
+        snapshot.mappings.map((m) => [m.purpose, m.owner]),
+      );
+      expect(byPurpose.get("mine")).toBeNull();
+      expect(byPurpose.get("theirs")).toBe("carol");
       await s.done();
     });
 

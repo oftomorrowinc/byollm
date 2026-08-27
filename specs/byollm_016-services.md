@@ -3429,3 +3429,21 @@ one's own service cannot be unshared from oneself.
 Queued, endorsed from CCC's note: conform gains a "source is formatted" check,
 and the seven pre-existing drifted files get one dedicated commit — after 2d,
 not mid-redesign.
+
+### 2d closed (2026-08-26)
+
+All three repos pushed (byollm 3b50231, byollm-cloud-web 365cb1c, byollm-cloud
+5f164c8 unchanged). Migration 0035 applied to production by Todd — the
+cron-before-migration hazard is retired; the sweep can run for real. The
+closed case matrix stands in the record with its structural closure: three
+cells, and a fourth cannot exist because one's own service cannot be unshared
+from oneself — a new cell would have to argue its way in, not be discovered in
+an inventory.
+
+**2e: go.** Order within it as CCC stated: Valkey implements
+releaseLeases({retryAfter}) first (the contract case is already waiting in
+@byollm/relay/store-contract — the coupling recorded at 2b comes due);
+PolicyStore against Postgres; ControlPlane wired at claim; the WIDENING set in
+hub/src/devices-api.ts sheds the dead named/public. After 2e, only 2f stands
+between the redesign and the deploy sequence: npm @alpha → web → hub → Todd's
+upgrade, re-pair, remap, probe → latest.

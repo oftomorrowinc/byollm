@@ -3842,3 +3842,29 @@ Mechanical form proposed for CCC (derived, not a hand-kept inventory): an
 dead (remove) or a latent door (explain). It would have caught all three
 roster leftovers the week they died, and it is the dead-exemption rule
 applied to config stores.
+
+### The config-reader check bites on arrival; 2f order approved (2026-08-26)
+
+Four findings on the first run, recorded:
+- siteId: removed from code under a comment saying "gone from the stack's
+  config" while sitting in Pulumi.prod.yaml for months — "a comment asserting
+  a fact about a file it can't see is the whole problem in one line."
+  Comments-are-claims, config-store edition.
+- VALKEY_PASSWORD / REDISCLI_AUTH: genuine exceptions (set on the Valkey
+  container, not the hub's), declared in prose with their reason rather than
+  parsing Kubernetes object graphs. Approved as the sanctioned exception form:
+  a rule naming no members is best; a named exception WITH its reason and a
+  staleness ratchet is the acceptable second.
+- PORT: an exception written on a guess, never needed. **The ratchet's second
+  direction, ratified: an exception is stale when the thing it excused is
+  gone — and when the thing turned out not to need excusing.** It fired on its
+  first run against its own author, which is the only real evidence a guard
+  bites.
+Membership derives from both ends of the chain — unread stack keys, and
+infra-set env vars the hub's schema doesn't declare — and adding an unread key
+fails verify.
+
+2f order approved: gate + STOPSHIP marker first (the piece that must exist
+before anything can promote), then Kevin's manifest, then the acceptance
+probe. Cowork assembles Todd's manual acceptance checklist when the deploy
+sequence starts rolling.

@@ -3957,3 +3957,26 @@ delete-only-on-membership + approveConnect candidate validation + email
 owner-relationship check + the authenticated-role RLS tightening) lands first,
 each as its own commit with the test that proves it, THEN 2f resumes. Todd rules
 in the morning; nothing promotes regardless until he does.
+
+### Manifest copy approved; probe gated on the security pass (2026-08-27)
+
+The gate + STOPSHIP marker landed and pushed overnight. The "manifest" task was
+a real hole, not data entry: dashboard_sites.manifest had five readers and no
+writer — every site declared nothing, every consent screen rendered empty,
+Amendment L was unreachable from the product. CCC built the write path (JSON
+textarea, schema-parsed, the schema's own refusal sentence surfaced, empty box =
+declared-nothing while {} is refused). Copy approved by Todd with one tightening
+of the key/label sentence (no-rename stated as delete-plus-create, the
+destructive semantics made the point rather than a caveat). Pin moved to .58,
+retiring the interim Manifest/Purpose re-declarations; the kind-label check's
+membership half is now the exhaustive Record, the "label differs from id" half
+stays (no type can say it).
+
+Ruling: **the acceptance probe is gated on the overnight security pass.** The
+probe is the last step before the deploy sequence, and running it — or promoting
+off it — on code carrying the review's critical and three grant-binding bypasses
+would ship known holes. CCC lands the pass first, ranked: grant siteId/kind/
+purpose binding; engine offerScope-at-resolution; the CRITICAL sweep delete-only-
+on-membership; approveConnect candidate validation + the email/RLS relationship
+check. Each its own commit with its proving test. The remaining 30 triage after.
+Nothing promotes until Todd rules on the completed pass.

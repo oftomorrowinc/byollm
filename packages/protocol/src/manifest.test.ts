@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { JOB_KINDS } from "./kinds.js";
+// Imported through the package entry, not the module, so a bound that is not
+// exported fails here rather than in whatever tries to use it downstream.
+import { MAX_PURPOSES as EXPORTED_MAX_PURPOSES } from "./index.js";
 import {
   MAX_PURPOSES,
   Manifest,
@@ -237,6 +240,24 @@ describe("what a manifest may not be", () => {
         };
       }
       expect(Manifest.safeParse(many).success).toBe(true);
+    });
+
+    it("exports its own bound, so a consumer can respect it", () => {
+      /**
+       * The published package is the surface, not the module.
+       *
+       * `MAX_PURPOSES` was declared and never re-exported from the entry
+       * point, so it shipped invisible: this suite imported it from
+       * `./manifest.js` and passed, while `@byollm/protocol` had no such
+       * name. A dashboard wanting to say "at most 32" would have had to
+       * hard-code the number — a second copy of a bound, which is how the two
+       * come to disagree.
+       *
+       * Found by loading the published tarball and reading its exports, after
+       * a missing publish notification made it worth looking at the artifact
+       * rather than the registry's metadata.
+       */
+      expect(EXPORTED_MAX_PURPOSES).toBe(MAX_PURPOSES);
     });
 
     it("refuses a kind listed twice", () => {

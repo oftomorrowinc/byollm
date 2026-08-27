@@ -126,6 +126,7 @@ export {
 export {
   Manifest,
   Purpose,
+  MAX_PURPOSES,
   RESERVED_PURPOSE,
   singlePurposeManifest,
 } from "./manifest.js";

@@ -2852,3 +2852,37 @@ wire them to get a basic service running — ruled as the complexity budget:
   the layered form only when you outgrow the defaults.
 - The sentence for the docs: the law lives in six packages; the operator
   experience is one command.
+
+### Press's declared manifest, v1 (2026-08-26, authored by Todd)
+
+Provided by Todd (Press's original author; Kevin is porting) for 2d's consent-
+page rendering and Kevin's migration — real shape, fixtures retire against it:
+
+    {
+      "books": ["llm.generate"],
+      "fact-checker": ["llm.generate"],
+      "revenue": ["llm.generate"],
+      "writing-assistant": ["llm.chat", "llm.generate"],
+      "style-trainer": ["llm.generate"]
+    }
+
+llm.image deliberately left out until the image work is ported — a good test of
+manifest graduation later (a NEW purpose arrives unmapped and notifies; adding a
+purpose is the cheap direction, unlike flat-to-named).
+
+Six slots total (writing-assistant carries two kinds). Display labels are still
+owed by the site — purpose ids are wire vocabulary; the consent screen renders
+site-declared labels (Books, Fact Checker, Revenue, Writing Assistant, Style
+Trainer presumably, but declared, not derived — wording is read by users, so
+Todd reads it before ship).
+
+**Consequence spotted at declaration time, worth everyone knowing before 2d:**
+Lis's writing-assistant llm.chat slot has ZERO candidates today — qwen offers
+llm.generate only, and Todd's llm.chat services are subscription-class, locked,
+unshareable ever. A zero-candidate slot behaves as unmapped from birth: that
+kind within the purpose is unavailable, press falls back to its own API for
+chat, and nothing breaks. If Todd ever wants Lis's chat on team compute, it
+takes a team-offered llm.chat service (e.g. a local model advertised for chat);
+no code, one offer. Also noted with a smile: style-trainer is the slot the
+"Team gwen-demarco-lora" future was always pointing at — the mapping model was
+built for exactly that pulldown.

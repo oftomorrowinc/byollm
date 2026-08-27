@@ -3622,3 +3622,20 @@ decision.** The deliberateness the latest-is-Todd's rule wanted was eroded by
 frequency, not carelessness. Both halves of the fix now exist: CI alphas
 removed the routine publishes (frequency), and the STOPSHIP gate refuses the
 reflex when a ruling stands (guard). Todd waits for the sequence going forward.
+
+### Queued: promotion becomes the pipeline's final stage (2026-08-26)
+
+Todd: "Looking forward to getting latest built-in to the deploy process in the
+right place too." Recorded as the post-redesign design item, with the shape
+that keeps the standing law intact: the promotion stays Todd's deliberate act —
+what moves into the pipeline is its POSITION and its EVIDENCE. Sketch: a
+promotion stage at the end of the deploy sequence that mechanically runs the
+ready-for-latest gate, the STOPSHIP check, and a probe-recorded check, then
+waits on Todd's explicit approval (an environment gate — a deliberate click at
+the right moment, not a terminal ritual at the wrong one), and on approval
+moves all six dist-tags atomically, control-plane's first latest included.
+All-or-nothing preserved; the reflex path (email → terminal) retired. Open
+question for the build: whether dist-tag moves can ride trusted publishing's
+credentials or still need Todd's token for the final hop. Sequenced AFTER 2f —
+the first .58 promotion runs the current ceremony with the new gate checks;
+the pipeline stage is built with the lessons of having done it once.

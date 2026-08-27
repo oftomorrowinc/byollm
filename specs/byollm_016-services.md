@@ -3447,3 +3447,70 @@ PolicyStore against Postgres; ControlPlane wired at claim; the WIDENING set in
 hub/src/devices-api.ts sheds the dead named/public. After 2e, only 2f stands
 between the redesign and the deploy sequence: npm @alpha → web → hub → Todd's
 upgrade, re-pair, remap, probe → latest.
+
+### 2e opens; alpha.58 half-publishes; two of four done (2026-08-27)
+
+**Premise checked and corrected before building on it.** "The case is already
+sitting in the shipped contract waiting to be inherited" is true of the
+contract SOURCE and of no published artifact: `retryAfter` is in neither
+alpha.55 (which the hub pins) nor alpha.57 (current). Valkey cannot inherit a
+case that is not in the package it depends on. The rest of 2e needs the
+publish with more force — `PolicyStore`, `PolicySnapshot`, `Mapping` and
+`ControlPlane` live in `@byollm/control-plane`, never published at all, so
+building against them would mean re-declaring four shapes in the hub: the
+two-definitions defect the early-publish ruling exists to prevent, third
+instance this redesign has produced. So the @alpha publish moved to the front
+of 2e rather than after it, which is where the ratified deploy order already
+put it.
+
+**alpha.58 half-published, and the cause was a documented precondition nobody
+enforced.** Trusted publishing authorises a workflow FOR a package, so the
+package must exist before `npm trust` can name it — a brand-new name takes one
+manual publish first. `docs/releasing.md` says exactly that. The run got
+`@byollm/conformance` out, collected `404 PUT @byollm/control-plane`, and
+stopped with four siblings still at .57. CCC's miss to have read it; what
+changed is that reading it was the whole mechanism. The version step now asks
+the registry whether it knows each name before anything ships — derived, not a
+hand-kept roster of which packages are set up, which is the shape that goes
+stale the release after it is written. Same class as §3b's repository.url
+check, whose own comment says "the cost of learning it mid-loop is a version
+number nobody can reuse".
+
+Todd owes (2FA account): `npm publish --access public` from
+`packages/control-plane`, then `npm trust github "@byollm/control-plane"
+--file release.yml --repo oftomorrowinc/byollm --allow-publish -y`, then
+re-run the Release run for v0.1.0-alpha.58. Idempotent per package; converges
+on the four missing. The tag is NOT moved — it points at the commit CI passed.
+
+**Done, in the hub:**
+- `releaseLeases({ retryAfter })` in Valkey. Per-runner not-before on the job
+  hash, read in CLAIM from Valkey's own clock (two clocks deciding one
+  deadline is what §3.4 moved into the store to prevent), absent from
+  RELEASE's HDEL so it survives the requeue, expired entries pruned on write
+  (unobservable, and finding 52's `noeviction` growth argument). The method's
+  own comment — "an optional field means the compiler will not notice a store
+  that ignores it" — came true a third time and now records that it did.
+- `WIDENING` retired. `["team", "named", "public"]` held two words that no
+  longer exist, and a dead word in a WIDENING allowlist is a door, not stale
+  bookkeeping. Now an exhaustive `Record<OfferScope, boolean>`, which earned
+  itself on the first build: the PINNED protocol still declares `public`, so
+  the honest form names it `false` rather than letting a missing key be
+  silence — and the line self-retires when the pin moves. Removing the
+  literals broke no test (every fixture using them was invisible for another
+  reason), so the rule is asserted directly and the restoring mutation is
+  caught.
+
+**Done, in cloud-web:** `hub_reader` gains five mapping columns and
+`dashboard_consents.id` (ungranted since 0013 — the hub read consents by owner
+and site, never by key, so the tables could not be joined at all). The
+separate-credential option was weighed and rejected on the record: RELAY_BLIND
+covers payloads, and byollm_016 already ruled the same question about rosters
+— routing metadata's opacity "buys nothing the signature doesn't". Absent
+columns are the point: `updated_at` is evidence about a human act, and
+`swept_at`/`degraded_at`/`notified_at` would let a routing credential read who
+has been emailed. 28/28 pgTAP, conform 24/24.
+
+**Blocked on the publish:** PolicyStore against Postgres, ControlPlane wired
+at claim. The hub already computes `paused = !shared_compute && shares_now`
+in `control-plane.ts`, so the snapshot's `consented` reads from that one
+expression rather than a second copy of it.

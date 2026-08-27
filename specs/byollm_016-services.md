@@ -4023,3 +4023,32 @@ dashboard_sites (the raw-PostgREST half of the manifest-validation finding folds
 here — declareManifest already validates against the protocol schema, so what
 remains is the RLS door). Manifest write-path validation half-fixed by the
 morning push, noted.
+
+### .59 batch progress: 3 of 5 (2026-08-27)
+
+1. Site binding (3ad8904): the signed field renamed to `site`, carrying the key
+   id (== JobStub.site), compared directly — no lookup through the distrusted
+   party. Todd's guard is now a test: the engine suite asserts siteId is absent
+   from the signed document. **The morning's headline bug, found one layer up:**
+   the GrantAuthor seam was spelled twice, and a field added to the caller's copy
+   alone would be silently accepted, the grant carrying nothing — "a signed field
+   nobody checks" at the seam layer. Caught by luck (structural compare); the
+   seam is named once now, removing the luck.
+2. Kind + purpose binding (6b1188e).
+3. Clock, both halves (109f4e2): **the warn threshold and the refuse threshold
+   are one number (CLOCK_SKEW_WARN_MS) — no silent band.** A skew refusal can
+   only land on someone already warned; below it work runs untroubled. The
+   proactive half reads serverTime, warns once per crossing, and emits a recovery
+   event so a fixed clock stops looking broken. This is the clock-skew ruling
+   (2b) fully implemented, having been dead since.
+
+Still to assemble before publish: manifest aggregate/uniqueness bounds + label/
+description sanitization; strict parse on the six sub-schemas. Then publish .59,
+repin hub and web.
+
+Two author-mistakes recorded, both the codebase's characteristic failure
+(concluding from an absent signal): a boundary test nearly passed because an
+auto-imported undefined made the comparison NaN (caught by the exact-threshold
+case); a heartbeat fixture "parsed fine" on output vitest had swallowed — it
+didn't (.strict(), extra key), and re-run as an assertion said so instantly.
+The strict-parse item still in this batch worked on its own author.

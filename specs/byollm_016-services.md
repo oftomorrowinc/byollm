@@ -2797,3 +2797,28 @@ all-or-nothing `latest` promotion set grows from five packages to six, and
 ready-for-latest.mjs must enumerate six — the gate updates in the same change
 that adds the package, per the gate-never-stale rule. Todd's 2FA promotion
 ceremony covers one more name.
+
+### The import graph, stated; and the 285-publish problem (2026-08-26)
+
+Todd asked whether the engine should be a shared library imported into relay and
+server, "the two that communicate," with the hub using the relay. Clarified and
+ruled as the import-graph law:
+- The engine IS a shared library — that was never in question. The question is
+  who imports it, and the answer is: **deployments, never the transport.** The
+  relay package depends only on the SEAM'S TYPE (authorGrant's signature); it
+  never imports the engine, or the structural law (a relay without the engine
+  dependency cannot author) dies. The hub imports BOTH relay and control-plane
+  and wires them together at deployment — that is "the hub uses the relay,"
+  stated precisely. A self-hoster's stack does the same wiring; @byollm/server
+  may later ship a pre-wired bundle for them, importing the engine as a
+  deployment would.
+- One sentence for reviews: the relay asks through a function type it defines
+  nothing about; only deployers hand it a real engine.
+
+The operational pain is real and recorded: 285 manual 2FA publishes to reach
+alpha.57, before a sixth package. Proposal (Todd's to accept — his ceremony, his
+ruling): automate @alpha publishes via CI with npm trusted publishing/provenance
+so day-to-day publishes cost zero interaction, while `latest` promotion remains
+exactly what the standing rule says — Todd's, manual, 2FA, all-or-nothing across
+all (now six) packages. The law was always about latest; the 285 were alphas
+paying a ceremony price the ruling never asked of them.

@@ -4666,3 +4666,39 @@ image, watches the edge 300s, and runs a real job through the just-deployed hub
 (reports any request dropped during rollout). Cowork assembling Todd's acceptance
 checklist to deliver when roll.sh lands green — then the acceptance probe, then
 clear .stopship.
+
+### Hub live off .62; roll.sh's stale prover; acceptance probe delivered (2026-08-27)
+
+Deploy landed, hub live and HEALTHY off .62 (image sha256:be15ff1f…): two
+replicas, surge-no-gap, no Kubernetes credential in the pod, each credential
+scoped to its own job, /healthz reporting all six vocabularies with
+offerScopes/audiences private,team (direct proof the never-compiled /healthz
+block now runs correctly), /readyz 200, five unsigned claims 401 at the real edge.
+
+CCC did NOT roll back, correctly: roll.sh's round-trip PROVER died on
+`SyntaxError: ... 'byollm' does not provide an export named 'Allowlist'` — a stale
+deploy-day script (Allowlist removed by Amendment I; it also still passes
+offer:"public"). Evidence-before-diagnosis: the prover has failed identically
+since 2026-08-26 02:04, FIVE runs, two days before this deploy (last green
+2026-08-25 19:05), so a rollback would keep the same red prover and revert a good
+deploy. The stale-operator-script class again — the version-literal guard caught
+protocolVersion "0" but not removed exports, because .mjs operator scripts aren't
+in the typecheck net (a diagnostic that lies when reached for). Follow-up: .mjs
+operator scripts into CI's typecheck/resolve pass.
+
+Ruled with CCC's recommendation: the smoke test's dependency changed from "a
+consent" to "a MAPPED consent" (production holds 3 consents / 0 mappings; the
+engine refuses unmapped by design). So **the acceptance probe's stage 1 IS the
+restored smoke test** — map a purpose to a service, fix roll.sh's three mechanical
+bits (Allowlist drop, public->team, pass controlPlanePublic which PairPollResponse
+carries), then a real job through the deployed hub is the wire's first end-to-end
+proof since .55, exercising the mapping path the redesign is about. Better proof
+than the old script.
+
+Acceptance probe delivered to Todd (byollm-acceptance-probe.md, committed to
+byollm-cloud/specs): setup + version-fence live check; stage 1 wire proof; stage 2
+this pass's properties (tombstones, re-connect correctness, paused-then-resumed
+recovery, offer narrowing); stage 3 Lis's split session (her Claude on her box,
+Todd's qwen/glm on his, press blind). After all green: clear .stopship, promote
+.62 through the six-package + STOPSHIP gate. Hub live, .stopship holds, no clock —
+Todd runs it at his pace.

@@ -344,7 +344,7 @@ export function controlPlane(fixture: RelayFixture): {
   const store = new MemoryPolicyStore();
   const engine = new ControlPlane({ store, signer: keypairSigner(keys) });
 
-  const map = (user: string) => {
+  const map = (user: string, owner = "bob") => {
     store.consent({
       siteId: SITE_ID,
       user,
@@ -352,6 +352,9 @@ export function controlPlane(fixture: RelayFixture): {
         purpose: RESERVED_PURPOSE,
         kind,
         service: "primary",
+        // The device owner's own service, which for `admit(user)` is bob's —
+        // this harness maps everybody onto the one machine it builds.
+        owner,
       })),
     });
   };
@@ -371,7 +374,7 @@ export function controlPlane(fixture: RelayFixture): {
     store,
     admit: (user, owner = "bob") => {
       store.addMember({ owner, user });
-      map(user);
+      map(user, owner);
     },
   };
 }

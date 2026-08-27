@@ -292,6 +292,7 @@ describe("who this device will run work for", () => {
             purpose: RESERVED_PURPOSE,
             kind: "llm.generate",
             service: "on-another-machine",
+            owner: null,
           },
         ],
       });
@@ -341,6 +342,7 @@ describe("who this device will run work for", () => {
             purpose: RESERVED_PURPOSE,
             kind: "llm.generate",
             service: "on-another-machine",
+            owner: null,
           },
         ],
       });

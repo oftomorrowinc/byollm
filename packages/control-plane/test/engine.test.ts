@@ -80,7 +80,12 @@ const mapped = () => {
     siteId: SITE,
     user: USER,
     mappings: [
-      { purpose: RESERVED_PURPOSE, kind: "llm.generate", service: "qwen" },
+      {
+        purpose: RESERVED_PURPOSE,
+        kind: "llm.generate",
+        service: "qwen",
+        owner: OWNER,
+      },
     ],
   });
   store.addMember({ owner: OWNER, user: USER });
@@ -148,7 +153,12 @@ describe("a device runs its own owner's work", () => {
       siteId: SITE,
       user: OWNER,
       mappings: [
-        { purpose: RESERVED_PURPOSE, kind: "llm.generate", service: "qwen" },
+        {
+          purpose: RESERVED_PURPOSE,
+          kind: "llm.generate",
+          service: "qwen",
+          owner: OWNER,
+        },
       ],
     });
     // Deliberately never `addMember(bob, bob)`.
@@ -204,6 +214,7 @@ describe("the two shapes of no", () => {
               purpose: RESERVED_PURPOSE,
               kind: "llm.generate",
               service: "qwen",
+              owner: OWNER,
             },
           ],
         });
@@ -233,6 +244,7 @@ describe("the two shapes of no", () => {
               purpose: RESERVED_PURPOSE,
               kind: "llm.generate",
               service: "somewhere-else",
+              owner: null,
             },
           ],
         });
@@ -298,7 +310,12 @@ describe("the relay's filter is not the authority", () => {
       siteId: SITE,
       user: USER,
       mappings: [
-        { purpose: RESERVED_PURPOSE, kind: "llm.generate", service: "qwen" },
+        {
+          purpose: RESERVED_PURPOSE,
+          kind: "llm.generate",
+          service: "qwen",
+          owner: OWNER,
+        },
       ],
     });
     store.addMember({ owner: OWNER, user: USER });
@@ -311,6 +328,78 @@ describe("the relay's filter is not the authority", () => {
   });
 });
 
+describe("a mapping names whose service, not just which", () => {
+  it("refuses a device that merely shares the service name", async () => {
+    /**
+     * The bug the schema had for one commit, as a test.
+     *
+     * Alice is on two teams and both run something called `qwen`. She chose
+     * carol's. Bob's device advertises a `qwen` too, admits alice, and claims
+     * the job — and a mapping holding only the *name* would have let it run
+     * there. Her work would land on a machine she never picked, which is the
+     * substitution this whole design forbids.
+     *
+     * The check sits before the capability list deliberately: a device that
+     * shares a name is not offering the wrong service, it is the wrong
+     * machine, and the capabilities of the wrong machine say nothing either
+     * way.
+     */
+    store.consent({
+      siteId: SITE,
+      user: USER,
+      mappings: [
+        {
+          purpose: RESERVED_PURPOSE,
+          kind: "llm.generate",
+          service: "qwen",
+          owner: "carol",
+        },
+      ],
+    });
+    store.addMember({ owner: OWNER, user: USER });
+
+    // Bob's device, advertising a `qwen` of his own.
+    const outcome = await author();
+    expect(outcome.granted).toBeUndefined();
+    expect(outcome.declined?.reason).toBe("resolved-elsewhere");
+    // Transient, because carol's machine is where this belongs and it may
+    // yet claim it — a permanent mark here would take the job off every
+    // device including the right one.
+    expect(outcome.declined?.permanent).toBe(false);
+  });
+
+  it("reads a null owner as the mapper's own machine", async () => {
+    // The other half. `null` is not "anybody" — it is "mine", and it resolves
+    // against the person whose job it is, so a teammate's device with the
+    // same service name is still the wrong machine.
+    store.consent({
+      siteId: SITE,
+      user: USER,
+      mappings: [
+        {
+          purpose: RESERVED_PURPOSE,
+          kind: "llm.generate",
+          service: "qwen",
+          owner: null,
+        },
+      ],
+    });
+    store.addMember({ owner: OWNER, user: USER });
+
+    // Alice's job, alice's own service, offered to bob's device.
+    expect((await author()).declined?.reason).toBe("resolved-elsewhere");
+
+    // And on her own device it runs.
+    const hers = await plane.authorGrant({
+      job: job(),
+      siteId: SITE,
+      owner: USER,
+      capabilities,
+    });
+    expect(hers.granted?.service).toBe("qwen");
+  });
+});
+
 describe("a mapping is keyed by purpose and kind together", () => {
   it("does not answer one kind with another kind's mapping", async () => {
     // A purpose may span kinds and a person may want different services
@@ -320,7 +409,12 @@ describe("a mapping is keyed by purpose and kind together", () => {
       siteId: SITE,
       user: USER,
       mappings: [
-        { purpose: RESERVED_PURPOSE, kind: "llm.chat", service: "qwen" },
+        {
+          purpose: RESERVED_PURPOSE,
+          kind: "llm.chat",
+          service: "qwen",
+          owner: OWNER,
+        },
       ],
     });
     store.addMember({ owner: OWNER, user: USER });
@@ -332,7 +426,12 @@ describe("a mapping is keyed by purpose and kind together", () => {
       siteId: SITE,
       user: USER,
       mappings: [
-        { purpose: "advertising", kind: "llm.generate", service: "qwen" },
+        {
+          purpose: "advertising",
+          kind: "llm.generate",
+          service: "qwen",
+          owner: OWNER,
+        },
       ],
     });
     store.addMember({ owner: OWNER, user: USER });

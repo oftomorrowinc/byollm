@@ -147,6 +147,20 @@ export class ControlPlane {
      * services, which is where the "your mapping needs updating" notification
      * belongs — not on the claim path, which sees one machine at a time.
      */
+    /**
+     * Whose machine, before which service.
+     *
+     * A service id means something only inside its owner's namespace, so a
+     * mapping naming a teammate's `qwen` must not be satisfied by a different
+     * teammate's `qwen` — or by the mapper's own. Checked before the
+     * capability list, because a device that merely shares a name is not
+     * "the wrong service" but the wrong machine, and the capabilities of the
+     * wrong machine say nothing either way.
+     */
+    if ((mapped.owner ?? job.owner) !== owner) {
+      return decline("resolved-elsewhere");
+    }
+
     const offered = input.capabilities.some(
       (capability) =>
         capability.kind === job.kind && capability.service === mapped.service,

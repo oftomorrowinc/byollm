@@ -62,6 +62,7 @@ const MAPPING: Mapping = {
   purpose: "writing_assistant",
   kind: "llm.generate",
   service: "qwen",
+  owner: null,
 };
 
 /** Run the contract. Call inside a suite; it declares its own `describe`. */

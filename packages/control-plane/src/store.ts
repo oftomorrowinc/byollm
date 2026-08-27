@@ -40,8 +40,24 @@
 export interface Mapping {
   readonly purpose: string;
   readonly kind: string;
-  /** The owner's own id for the service, from their config. */
+  /** The service id, in {@link Mapping.owner}'s namespace. */
   readonly service: string;
+  /**
+   * Whose service it is. `null` means the mapper's own.
+   *
+   * **Not optional decoration.** Service ids are namespace-local: alice may
+   * be on two teams that both have a service called `qwen`, and the consent
+   * screen shows them as the two different choices they are. A mapping that
+   * stored only the name could not tell them apart — so her work would be
+   * admitted on whichever of those machines claimed it first, which is
+   * exactly the substitution this design exists to forbid.
+   *
+   * The first draft of this interface had only the name, and the consent
+   * screen's own test — "keeps a teammate's identical service name separate
+   * from your own" — was already asserting the distinction that the storage
+   * could not keep.
+   */
+  readonly owner: string | null;
 }
 
 /**

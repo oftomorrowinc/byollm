@@ -28,10 +28,22 @@ export const PAYLOAD_LIMITS = Object.freeze({
  * A conversation turn. `role` is a closed enum — it is routing *within the
  * model call*, not routing of the call, so it cannot select a backend.
  */
-export const ChatMessage = z.object({
-  role: z.enum(["system", "user", "assistant"]),
-  content: z.string().max(PAYLOAD_LIMITS.maxTextChars),
-});
+export const ChatMessage = z
+  .object({
+    role: z.enum(["system", "user", "assistant"]),
+    content: z.string().max(PAYLOAD_LIMITS.maxTextChars),
+  })
+  /**
+   * Strict, like everything else on the wire — byollm-review 2026-08-27.
+   *
+   * This is the shape the law was written about. A site SDK user sends
+   * `{role, content, tool_calls: [...]}` expecting tool use; zod's default
+   * strips the unknown key, the job runs meaning something other than what
+   * was sent, and nothing anywhere says so. "Unknown fields throw" exists
+   * precisely so a version skew is an error rather than a silent difference
+   * in what the model was asked.
+   */
+  .strict();
 export type ChatMessage = z.infer<typeof ChatMessage>;
 
 /**
@@ -99,8 +111,13 @@ export const JOB_KINDS = Object.freeze(JobKind.options);
 
 /** A payload discriminated by its kind. */
 export const KindedPayload = z.discriminatedUnion("kind", [
-  z.object({ kind: z.literal("llm.generate"), payload: GeneratePayload }),
-  z.object({ kind: z.literal("llm.chat"), payload: ChatPayload }),
+  // Strict on the wrappers too. A union member that strips is a door beside
+  // the one that is locked: the payloads inside are strict, and an extra key
+  // on the envelope vanished just as quietly.
+  z
+    .object({ kind: z.literal("llm.generate"), payload: GeneratePayload })
+    .strict(),
+  z.object({ kind: z.literal("llm.chat"), payload: ChatPayload }).strict(),
 ]);
 export type KindedPayload = z.infer<typeof KindedPayload>;
 

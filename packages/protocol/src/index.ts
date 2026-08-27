@@ -180,6 +180,7 @@ export {
   ClaimResponse,
   ENDPOINTS,
   ERROR_STATUS,
+  GrantRef,
   HeartbeatRequest,
   HeartbeatResponse,
   MIN_PROTOCOL_VERSION,

@@ -213,7 +213,6 @@ const oneJob = [
     lease: {
       id: "lease_test",
       runnerId: "runner_1",
-      identity: TEST_IDENTITY,
       expiresAt: 4_000_000_000_000,
     },
   },

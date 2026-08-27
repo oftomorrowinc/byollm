@@ -352,7 +352,6 @@ describe("the loop", () => {
               lease: {
                 id: "lease_test",
                 runnerId: "runner_1",
-                identity: TEST_IDENTITY,
                 expiresAt: Date.now() + 60_000,
               },
             },
@@ -394,7 +393,6 @@ describe("the loop", () => {
               lease: {
                 id: "lease_test",
                 runnerId: "runner_1",
-                identity: TEST_IDENTITY,
                 expiresAt: Date.now() + 60_000,
               },
             },
@@ -446,7 +444,6 @@ describe("the loop", () => {
               lease: {
                 id: "lease_test",
                 runnerId: "runner_1",
-                identity: TEST_IDENTITY,
                 expiresAt: Date.now() + 60_000,
               },
             },
@@ -500,7 +497,6 @@ describe("the loop", () => {
               lease: {
                 id: "lease_test",
                 runnerId: "runner_1",
-                identity: TEST_IDENTITY,
                 expiresAt: Date.now() + 60_000,
               },
             },
@@ -556,7 +552,6 @@ describe("the loop", () => {
               lease: {
                 id: "lease_test",
                 runnerId: "runner_1",
-                identity: TEST_IDENTITY,
                 expiresAt: Date.now() + 60_000,
               },
             },

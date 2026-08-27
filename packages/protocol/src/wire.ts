@@ -239,6 +239,22 @@ export type WithheldKind = z.infer<typeof WithheldKind>;
 // ---------------------------------------------------------------------------
 
 /**
+ * One grant, named by both halves — V1-3.
+ *
+ * A job id is chosen per site, so the lease id is the unique thing an upstream
+ * and a daemon can both point at. Anywhere a request says "this piece of work,
+ * held by me", it says it with both.
+ *
+ * Declared once because it was written out twice — `activeLeases` and
+ * `ReleaseRequest.leases` — and both needed the same `.strict()` added. Two
+ * copies of a shape are two places to forget it.
+ */
+export const GrantRef = z
+  .object({ jobId: z.string().min(1), leaseId: z.string().min(1) })
+  .strict();
+export type GrantRef = z.infer<typeof GrantRef>;
+
+/**
  * Pairing is a device-code exchange, not a pasted secret
  * ({@link MUSTS.PAIR_INTERACTIVE}). The daemon starts a pairing, shows the
  * user a short code and a URL, and polls until the user approves it inside
@@ -249,12 +265,16 @@ export const PairStartRequest = z
   .object({
     protocolVersion: z.literal(PROTOCOL_VERSION),
     action: z.literal("start"),
-    daemon: z.object({
-      version: z.string().min(1),
-      /** Shown in the app's runner list so a user can tell their machines apart. */
-      label: z.string().min(1).max(120),
-      platform: z.enum(["darwin", "linux", "win32"]),
-    }),
+    daemon: z
+      .object({
+        version: z.string().min(1),
+        /** Shown in the app's runner list so a user can tell their machines apart. */
+        label: z.string().min(1).max(120),
+        platform: z.enum(["darwin", "linux", "win32"]),
+      })
+      // Its own `.strict()`: a parent's does not reach a nested object, so
+      // this one stripped unknown keys while the shape around it threw.
+      .strict(),
     /**
      * This machine's public keys (byollm_009 §5).
      *
@@ -425,9 +445,7 @@ export const HeartbeatRequest = z
      * Lease ids rather than job ids, so a replayed heartbeat cannot renew a
      * grant the runner no longer holds — see {@link Lease.id}.
      */
-    activeLeases: z.array(
-      z.object({ jobId: z.string().min(1), leaseId: z.string().min(1) }),
-    ),
+    activeLeases: z.array(GrantRef),
     /** True while the owner has the daemon paused; the server stops offering work. */
     paused: z.boolean(),
   })
@@ -683,9 +701,7 @@ export const ReleaseRequest = z
      * moment it arrives, which for a replayed request is not the lease the
      * daemon meant. See {@link Lease.id}.
      */
-    leases: z.array(
-      z.object({ jobId: z.string().min(1), leaseId: z.string().min(1) }),
-    ),
+    leases: z.array(GrantRef),
     /**
      * Why, so the app's runner list can say something true.
      *

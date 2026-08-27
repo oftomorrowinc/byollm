@@ -4340,3 +4340,36 @@ schema-fingerprint-vs-PROTOCOL_VERSION test that fails if the wire shape changes
 without a version bump — makes "the number stayed still while the vocabulary
 moved" impossible rather than remembered; lives next to schema-drives-statement;
 cost is a false positive on every additive change (arguably the point).
+
+### .61 package content complete; the schema-fingerprint test earned its keep (2026-08-27)
+
+.61 package content done: PROTOCOL_VERSION="1", the non-null Mapping.owner
+contract cases, the vocabulary pin. The offered schema-fingerprint test was built,
+and its scoping is the reason it's usable rather than routed-around: it watches
+only what breaks parsing ON THE OTHER BUILD — **enum membership (both directions)
+and required fields — and deliberately ignores optional fields**, which break
+nobody. The asymmetry is the principle: a member removed breaks a client still
+sending it (this rip); a member added breaks a server that hasn't learned it
+(alpha.47, a silenced fleet); an optional field breaks neither. Required-ness is
+asked of the schema, not read off its constructor (.optional(), a default, and a
+union-with-undefined are three spellings of one fact). Proved both directions
+(enum add fails, optional add passes).
+
+**The test caught its own author, which is the strongest proof it points the
+right way:** the hand-written snapshot was wrong on the first attempt — five
+backend ids CCC didn't know existed, two misremembered required fields — so it
+was rewritten FROM the schemas. A snapshot written from memory would have been a
+fourth definition of the wire, the exact bug it exists to prevent.
+
+Remaining before .61 is cut — the six deploy-only items (hub/web commits):
+pins-deployed six-package; releasing.md six-package retag loop; /healthz enum
+coverage (audiences, sizeClass, backendClass); /usage 503 on the dropped metered
+column; drain closing the policy pool while serving; PgPolicyStore runs the
+shipped contract + hub-schema test reaching CI. Then: cut .61, repin, deploy web,
+deploy hub, probe.
+
+Cowork to assemble Todd's acceptance checklist when the hub deploys — end to end,
+Lis's split session (her Claude, Todd's qwen, press blind) as the finale, plus
+this pass's live checks: version fence refusing an old daemon with a named
+remedy; re-connect + same-named-teammate consent-screen behavior; a
+paused-then-resumed consent recovering its queued job.

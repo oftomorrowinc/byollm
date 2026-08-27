@@ -4412,3 +4412,40 @@ Two flagged:
 
 Left before .61: the PgPolicyStore contract adapter (ids unblocked it) + the
 hub-schema test into CI. Then cut .61, repin, deploy web, deploy hub, probe.
+
+### CI caught the demo's protocolVersion "0"; the search-boundary smell; hub-schema guard ruling (2026-08-27)
+
+CI (correctly, before the tag) caught the demo example typing protocolVersion:"0"
+— the version fence answered 400 unsupported-protocol-version where the case
+expected 401, because the fence runs BEFORE auth (right order: a server can't
+decide who you are over a protocol it doesn't speak). **Lesson, the session's
+recurring smell reframed: the boundary of a SEARCH is itself a hand-kept list.**
+CCC fixed the 68 version literals by sweeping packages/ and stopping; the one
+literal outside that boundary bit. Fixed: the demo reads SERVED_PROTOCOL_VERSION
+(both ends move together) and gained the upgrade-me case. Closed the class: "no
+file may spell the current version" — derived, narrow, old literals legal (a
+frozen "0" is the point of a staleness fixture), matched as `protocolVersion:`
+beside the value not the bare number (flagging every "1" would get it disabled
+within a week — check-adoption wisdom), no exemptions; the next bump turns today's
+correct literals into failures exactly when they stop being fixtures.
+
+**Ruling on the hub-schema CI credential: accept the pre-deploy probe, do NOT
+mint the cross-repo token.** Reasoning: the contract BEHAVIOR is already covered
+(6842d88 runs the shipped contract against a CI Postgres); what remains is whether
+the hub's schema assumption matches cloud-web's ACTUAL DEPLOYED migrations, and a
+probe against the real deployed schema is more truthful than a CI reconstruction
+("verify the artifact the reader receives" — a provisioned copy can drift from
+what's deployed; the deployed schema cannot drift from itself), while avoiding a
+standing cross-repo credential in CI forever. Pre-1.0 single-team, the deploy
+sequence already couples hub and schema at deploy time, so the PR-vs-deploy
+feedback gap is small and the credential surface is not worth it. **Refinement
+that makes the probe as strong as the CI test: exercise PgPolicyStore's actual
+read path against the real schema (run the hub's real queries with hub_reader,
+check they don't error) — derived from what the hub needs, not a hand-listed
+column/grant set.** Reserve the token for a write-side schema property that
+genuinely can't be checked read-only; Todd owns the credential call and may
+overrule for PR-time coverage.
+
+.61 not tagged (CI re-running on e06e9d3); tag when green, publish, repin, run the
+checkpoint on the held commits (tri-state adapter, Lua guard contract case,
+PgPolicyStore contract adapter 6842d88). Then deploy web, deploy hub, probe.

@@ -2662,3 +2662,47 @@ corrected because it is load-bearing:
 
 Sequencing unchanged: this is Amendment L / @byollm/server work, after the rip,
 exactly where the conformance-restoration flag already put it.
+
+### Commit 4: the rip is complete (2026-08-26)
+
+Verify green across all four commits. Daemon: four verbs, three tombstones,
+admission = five checks against one signed document. Protocol: grants in, roster
+and public out. Relay: authorGrant as the seam, construction throw when a
+deployment promises grants it cannot produce. Nothing publishable — the wire is
+broken in both directions and the hub authors no grants yet; that is Phase 2 by
+design, and the deploy ordering holds (web → hub → npm → Todd's upgrade and
+re-pair).
+
+**The fence moved rather than fell — recorded in CCC's precise form.** What used
+to stop a relay minting a keypair and announcing it as a site was device-side
+approval. Now it is one layer down and STRONGER against that attacker: work
+requires a grant signed by the control-plane key pinned at pairing, and a relay
+holds no such key — it can get an id pinned on the machine and never get one job
+run under it. The proving test hands the device a relay-minted site and shows
+the pin succeeding and the work still failing. The genuine cost stays as posture
+item 3 states it: a compromised CONTROL PLANE can point a device at a site the
+owner never chose — caps and pause bound it, the admission-time notice makes it
+loud (after the grant verifies, before any backend is touched, on the first JOB
+rather than the first mention — evidence, not a guess). Largest single reduction
+in device-side control in the design, said plainly, with its test.
+
+**Rule minted from the near-miss:** when a rip deletes a caller, the checks it
+carried are re-homed on the surviving path or explicitly retired — never
+silently dropped with the caller. applyApprovals' file verification ("a file is
+not a smaller thing to verify than a heartbeat") moved into the constructor that
+reads the same file, tests rewritten against the surviving path.
+
+**The characteristic failure, named (CCC's observation, recorded):** twice now a
+coverage or mutation signal has found a branch whose comment described
+protection it could not provide (the hostname==="" guard; GrantRefusal's
+no-pinned-key, unreachable because a device with no pinned key is in direct mode
+and never verifies). This codebase's characteristic failure is COMMENTED
+PROTECTION THAT CANNOT FIRE, and both tools catch it — which is why both run.
+
+SITES_LOCALLY_APPROVED keeps its id and loses its false first sentence — ids
+stable, prose honest.
+
+**Phase 2: go, plan first.** CCC brings the manifest/mapping phase plan shaped
+by the engine-as-library ruling — an open engine behind the authorGrant seam
+with a pluggable policy store, never inlined into hub code for later
+extraction. Hub grant authorship lands at claim where routeKey already gates.

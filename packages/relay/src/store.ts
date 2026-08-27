@@ -149,6 +149,22 @@ export interface RoutingStore {
      * same device, or a restart would strand its own work.
      */
     reason?: ReleaseReason;
+    /**
+     * Epoch ms before which this job MUST NOT be offered to this runner
+     * again — the rate a transient refusal needs.
+     *
+     * "Not now" and "not ever" were the only two things a release could say,
+     * and a control plane declining a job for something the world can change
+     * means neither. Left immediate, the device re-claims at once and is
+     * declined again: a spin, and in a deployment one database read per turn
+     * of it.
+     *
+     * A store MUST NOT offer the job to that runner before this moment, and
+     * MUST go on offering it to every other device immediately — the whole
+     * reason it is not a refusal is that another machine may be the right
+     * one.
+     */
+    retryAfter?: number;
   }): Promise<string[]>;
 
   /** Take a site's sealed payload for a claimed job. */

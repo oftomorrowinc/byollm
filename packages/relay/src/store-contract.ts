@@ -426,6 +426,59 @@ export function describeStoreContract(
       await done();
     });
 
+    it("does not offer a job back to a runner before its not-before", async () => {
+      /**
+       * The middle ground between "not ever" and "immediately".
+       *
+       * A control plane declining a job for something the world can change —
+       * an unfilled mapping slot, a resolution naming another machine, a
+       * store that was briefly unreachable — means neither. Released
+       * immediately, the device re-claims at once and is declined again; a
+       * spin, and in a deployment one database read per turn of it.
+       *
+       * Asserted with an explicit moment rather than by moving a clock,
+       * because a store on the other side of a network has its own and this
+       * contract cannot reach it.
+       */
+      const { store, done } = await make();
+      await store.enqueue({ id: "a", siteId: SITE, stub: stub("a") });
+      const [granted] = await store.claim(claimArgs());
+
+      await store.releaseLeases({
+        runnerId: "runner_1",
+        leases: [{ jobId: "a", leaseId: granted!.lease.id }],
+        retryAfter: Date.now() + 600_000,
+      });
+
+      expect(await store.claim(claimArgs())).toEqual([]);
+      expect((await store.job(SITE, "a"))?.state).toBe("queued");
+      // And it is *not* a refusal: another device gets it at once, which is
+      // the entire reason this is a different thing.
+      expect(
+        (await store.claim(claimArgs({ runnerId: "runner_2" }))).map(
+          (j) => j.id,
+        ),
+      ).toEqual(["a"]);
+      await done();
+    });
+
+    it("offers it again once the not-before has passed", async () => {
+      // The other half, and the one that makes it a rate rather than a
+      // refusal: a person who fixes their mapping gets their queued work.
+      const { store, done } = await make();
+      await store.enqueue({ id: "a", siteId: SITE, stub: stub("a") });
+      const [granted] = await store.claim(claimArgs());
+
+      await store.releaseLeases({
+        runnerId: "runner_1",
+        leases: [{ jobId: "a", leaseId: granted!.lease.id }],
+        retryAfter: Date.now() - 1_000,
+      });
+
+      expect((await store.claim(claimArgs())).map((j) => j.id)).toEqual(["a"]);
+      await done();
+    });
+
     it("keeps a job claimable by a runner that only went away", async () => {
       const { store, done } = await make();
       await store.enqueue({ id: "a", siteId: SITE, stub: stub("a") });

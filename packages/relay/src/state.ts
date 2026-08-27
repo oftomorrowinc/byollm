@@ -59,6 +59,31 @@ export type RoutedState =
  */
 export const AWAITING_PAYLOAD_MS = 10_000;
 
+/**
+ * How long a device waits before asking about a job it could not run — the
+ * rate every transient refusal needs.
+ *
+ * **A transient needs a rate; a retry without a not-before is a spin.** A
+ * release that is not `refused` requeues immediately and stays claimable by
+ * the same device, which is right for a daemon saying "not now, I am
+ * restarting" and catastrophic for a control plane saying "that mapping
+ * resolves to another of your machines": the device re-claims at once, is
+ * declined again, and the pair loops. Measured before it could happen —
+ * twelve ticks produced twelve control-plane reads, which in a deployment is
+ * twelve database queries for a job that was never going to run there.
+ *
+ * Thirty seconds is chosen against the only thing it delays: a person who
+ * fixes a mapping and has work already queued. Half a minute is a wait
+ * nobody notices, and one read per device per thirty seconds per stuck job is
+ * a cost nobody notices either.
+ *
+ * Distinct from the three durations above it, and for a fourth kind of
+ * reason: the TTL asks whether the work is still worth doing, the lease how
+ * long this device gets, {@link AWAITING_PAYLOAD_MS} how long we wait for the
+ * site — and this asks how long before we ask *this device* again.
+ */
+export const RETRY_AFTER_MS = 30_000;
+
 /** A job the relay is routing. Metadata and ciphertext, nothing else. */
 /** Why a daemon gave a job back. Only `refused` means "not me, ever". */
 export type ReleaseReason =
@@ -95,6 +120,21 @@ export interface RoutedJob {
    * forever. The direct plane has always kept this list.
    */
   refusedBy: string[];
+  /**
+   * Runners that may not be offered this job again *yet*, and from when.
+   *
+   * The middle ground {@link RoutingStore.releaseLeases} had no way to say.
+   * `refusedBy` is forever and a bare release is immediate; a control plane
+   * declining a job for a reason the world can change — an unfilled mapping
+   * slot, a resolution that named another machine, a store that was briefly
+   * unreachable — means neither. It means "ask again later", and later needs
+   * a number.
+   *
+   * Keyed by runner because it is a fact about a pairing, not about the job:
+   * the same job goes to another device immediately, which is the whole
+   * point of not marking it refused.
+   */
+  retryAfter?: Record<string, number>;
   /**
    * The site withdrew this job — cloud_008 §2.2.
    *
@@ -532,6 +572,8 @@ export class RelayState implements RoutingStore {
       }
       // Already declined by this device — `REFUSAL_NOT_REOFFERED`, §2.1.
       if (job.refusedBy.includes(input.runnerId)) continue;
+      // Declined for something that may have changed since, but not yet.
+      if ((job.retryAfter?.[input.runnerId] ?? 0) > now) continue;
       // Withdrawn by the site — §2.2. Cheap, and before every other check.
       if (job.cancelled) continue;
       // The relay's half of AUDIENCE_BOTH_SIDES. The daemon re-checks its own
@@ -689,6 +731,7 @@ export class RelayState implements RoutingStore {
     runnerId: string;
     leases: readonly { jobId: string; leaseId: string }[];
     reason?: ReleaseReason;
+    retryAfter?: number;
   }): Promise<string[]> {
     const released: string[] = [];
     for (const { jobId, leaseId } of input.leases) {
@@ -707,6 +750,15 @@ export class RelayState implements RoutingStore {
         !job.refusedBy.includes(input.runnerId)
       ) {
         job.refusedBy.push(input.runnerId);
+      }
+      // Recorded before the requeue for the same reason the refusal is: the
+      // job goes back to the queue already knowing when it may come back
+      // here, rather than being claimable for the instant in between.
+      if (input.retryAfter !== undefined) {
+        job.retryAfter = {
+          ...job.retryAfter,
+          [input.runnerId]: input.retryAfter,
+        };
       }
       this.#requeue(job);
       released.push(jobId);

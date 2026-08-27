@@ -27,7 +27,7 @@ import {
   type PairingCodes,
   type PendingPairing,
 } from "./pairing-codes.js";
-import { serviceKey, type HolderRefusal } from "./state.js";
+import { RETRY_AFTER_MS, serviceKey, type HolderRefusal } from "./state.js";
 import { clockSkewRefusal } from "./refusals.js";
 import type { RoutingStore } from "./store.js";
 
@@ -615,11 +615,15 @@ export class DaemonPlane {
        * **Two release shapes, and the difference is not cosmetic.** A
        * permanent decline is released as `refused`, which means this job is
        * never offered to this device again — right for a person removed from
-       * a team, because removal stops queued claims (hole 1). A transient one
-       * is released plainly, so the job goes back in the queue: a mapping
-       * that resolved to another of the owner's machines, an unfilled slot,
-       * or a policy store that was briefly unreachable must not permanently
-       * unpick a job from a device that may be exactly where it belongs.
+       * a team, because removal stops queued claims (hole 1).
+       *
+       * A transient one goes back in the queue **with a not-before**. Not
+       * plainly: a plain release stays claimable by the same device, so it
+       * would re-claim at once, be declined again, and spin — one control
+       * plane read per turn, for a job that is not going to run there. A
+       * mapping that resolved to another of the owner's machines, an
+       * unfilled slot, or a store that was briefly unreachable are all
+       * states the world can change, and "ask again later" needs a later.
        *
        * The relay does not read the reason. Branching on it here would be a
        * second implementation of a policy this process does not own.
@@ -667,6 +671,7 @@ export class DaemonPlane {
         await this.#deps.state.releaseLeases({
           runnerId: device.runnerId,
           leases: returned,
+          retryAfter: this.#deps.now() + RETRY_AFTER_MS,
         });
       }
 

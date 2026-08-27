@@ -55,7 +55,14 @@ beforeAll(async () => {
  * alone, which is the whole point — a test where the relay also refuses
  * cannot tell a working device check from a missing one.
  */
-async function bobsMachine(): Promise<{
+async function bobsMachine(
+  over: {
+    /** A clock the test moves, for the cases about waiting. */
+    readonly now?: () => number;
+    /** Called each time the control plane is asked, for the cases about cost. */
+    readonly onAuthor?: () => void;
+  } = {},
+): Promise<{
   relay: Relay;
   connector: SiteConnector;
   daemon: Awaited<ReturnType<typeof makeDaemon>>;
@@ -74,7 +81,15 @@ async function bobsMachine(): Promise<{
     revoked: [],
   };
   const plane = controlPlane(fixture);
-  const relay = new Relay({ fixture, ...plane.relay });
+  const relay = new Relay({
+    fixture,
+    controlPlanePublic: plane.relay.controlPlanePublic,
+    authorGrant: (input) => {
+      over.onAuthor?.();
+      return plane.relay.authorGrant(input);
+    },
+    ...(over.now === undefined ? {} : { now: over.now }),
+  });
   const connector = new SiteConnector(relay, siteKeys);
   // Offered to the team, not to the public. A publicly offered service
   // admits everyone by definition, which would make every assertion below
@@ -251,17 +266,24 @@ describe("who this device will run work for", () => {
       expect(daemon.backend.seen).toEqual([]);
     });
 
-    it("offers it again when the mapping simply pointed elsewhere", async () => {
+    it("offers it again once the not-before has passed, and not before", async () => {
       /**
-       * The bug this shape exists to prevent.
+       * The bug this shape exists to prevent, and the rate it needs.
        *
        * Alice is a member and has consented; her mapping names a service this
-       * particular machine does not offer — another of bob's devices does, or
-       * she is about to fix it. Marking that permanently would take this job
-       * off this device for ever, and if her mapping later named `primary`
-       * the job would never come back.
+       * machine does not offer — another of bob's devices does, or she is
+       * about to fix it. Marking that permanently would take the job off this
+       * device for ever. Releasing it plainly would let this device re-claim
+       * at once and be declined again, for ever: a spin, and one control
+       * plane read per turn of it.
+       *
+       * So it comes back, thirty seconds later. Both halves are asserted
+       * here because either alone is a bug that passes.
        */
-      const { connector, daemon, plane } = await bobsMachine();
+      let clock = Date.now();
+      const { connector, daemon, plane, relay } = await bobsMachine({
+        now: () => clock,
+      });
       plane.admit("alice");
       plane.store.consent({
         siteId: SITE_ID,
@@ -281,11 +303,56 @@ describe("who this device will run work for", () => {
       });
 
       expect(await claimAgain(daemon)).not.toContain(jobId);
+      // Immediately after, it is still not on offer here — which is the half
+      // that stops the spin.
+      expect(await claimAgain(daemon)).not.toContain(jobId);
+      // Another of bob's machines would get it now, though: this is a
+      // not-here, not a refusal.
+      expect((await relay.state.job(SITE_ID, jobId))?.state).toBe("queued");
 
-      // She fixes the mapping. The job is still claimable here, which is the
-      // whole point.
+      // She fixes the mapping, and the wait elapses.
       plane.admit("alice");
+      clock += 31_000;
       expect(await claimAgain(daemon)).toContain(jobId);
+    });
+
+    it("asks the control plane a bounded number of times about a job it cannot run", async () => {
+      /**
+       * The measurement that found this, kept as the check.
+       *
+       * Before the not-before, twelve ticks produced twelve control-plane
+       * reads — in a deployment, twelve database queries for a job that was
+       * never going to run on that device, growing without limit. The number
+       * below is not the point; that it does not grow with the tick count is.
+       */
+      const clock = Date.now();
+      let asked = 0;
+      const { connector, daemon, plane } = await bobsMachine({
+        now: () => clock,
+        onAuthor: () => {
+          asked += 1;
+        },
+      });
+      plane.admit("alice");
+      plane.store.consent({
+        siteId: SITE_ID,
+        user: "alice",
+        mappings: [
+          {
+            purpose: RESERVED_PURPOSE,
+            kind: "llm.generate",
+            service: "on-another-machine",
+          },
+        ],
+      });
+      await connector.enqueue({
+        prompt: "alice's work",
+        owner: "alice",
+        audience: "team",
+      });
+
+      for (let i = 0; i < 12; i += 1) await daemon.runner.tick();
+      expect(asked).toBe(1);
     });
   });
 

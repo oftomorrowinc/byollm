@@ -22,6 +22,9 @@ const sourceAliases = {
   "@byollm/relay": fileURLToPath(
     new URL("./packages/relay/src/index.ts", import.meta.url),
   ),
+  "@byollm/control-plane": fileURLToPath(
+    new URL("./packages/control-plane/src/index.ts", import.meta.url),
+  ),
   // Missing until 2026-08-20, and it cost an hour: the posture suite imports
   // `auditDeployment` from here, so every relay test that runs an audit was
   // reading whatever `dist` happened to hold. An edit to a probe looked like a
@@ -75,6 +78,14 @@ export default defineConfig({
       {
         resolve: { alias: sourceAliases },
         test: {
+          name: "control-plane",
+          include: ["packages/control-plane/test/**/*.test.ts"],
+          environment: "node",
+        },
+      },
+      {
+        resolve: { alias: sourceAliases },
+        test: {
           name: "relay",
           include: ["packages/relay/test/**/*.test.ts"],
           environment: "node",
@@ -112,6 +123,16 @@ export default defineConfig({
           branches: 85,
           functions: 85,
           statements: 85,
+        },
+        // The engine is the law over somebody else's data, and it is small
+        // enough that every branch is reachable from a test. Gated at the
+        // server's level rather than the daemon's for that reason: there is
+        // no process-spawning here to excuse a gap.
+        "packages/control-plane/src/**": {
+          lines: 90,
+          branches: 90,
+          functions: 90,
+          statements: 90,
         },
       },
     },

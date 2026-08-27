@@ -9,6 +9,7 @@ import {
   route,
 } from "./harness.js";
 import type { Runner } from "byollm";
+import { RESERVED_PURPOSE } from "@byollm/control-plane";
 
 /**
  * Who this device will run work for — the invariant, end to end.
@@ -72,8 +73,8 @@ async function bobsMachine(): Promise<{
     rosters: [{ id: "team_1", owner: "bob", members: ["alice"] }],
     revoked: [],
   };
-  const plane = controlPlane();
-  const relay = new Relay({ fixture, ...plane });
+  const plane = controlPlane(fixture);
+  const relay = new Relay({ fixture, ...plane.relay });
   const connector = new SiteConnector(relay, siteKeys);
   // Offered to the team, not to the public. A publicly offered service
   // admits everyone by definition, which would make every assertion below
@@ -85,21 +86,6 @@ async function bobsMachine(): Promise<{
   });
   disposers.push(daemon.dispose);
   return { relay, connector, daemon, plane };
-}
-
-/**
- * Bob admits alice.
- *
- * The one line Amendment J rewrote. It used to write a device-local allowlist
- * entry; it now tells the control plane whose work it will author grants for,
- * and the device learns nothing until a job actually arrives with one.
- *
- * Not async any more, and that is the design showing through rather than a
- * tidy-up: there is no longer any device state to write, so there is nothing
- * to await.
- */
-function admit(plane: ReturnType<typeof controlPlane>, owner: string): void {
-  plane.members.add(owner);
 }
 
 /**
@@ -135,7 +121,7 @@ describe("who this device will run work for", () => {
 
   it("runs a stranger's work once the owner admits them", async () => {
     const { relay, connector, daemon, plane } = await bobsMachine();
-    admit(plane, "alice");
+    plane.admit("alice");
     await connector.enqueue({
       prompt: "alice's work",
       owner: "alice",
@@ -183,7 +169,7 @@ describe("who this device will run work for", () => {
      * `runnerOwner` is only as good as the identity underneath it.
      */
     const { relay, connector, daemon, plane } = await bobsMachine();
-    admit(plane, "alice");
+    plane.admit("alice");
     await connector.enqueue({
       prompt: "alice's work, on bob's hardware",
       owner: "alice",
@@ -199,6 +185,110 @@ describe("who this device will run work for", () => {
     expect(result?.device.identity).toBe(daemon.keys.identityPublic);
   });
 
+  /**
+   * A declined job is released, and *how* it is released is a decision with
+   * two answers — byollm_016 Phase 2a.
+   *
+   * `refused` means never offer this job to this device again. That is right
+   * for a person removed from a team: removal stops queued claims (hole 1).
+   * It is wrong for every other decline, and wrong in the direction nothing
+   * reports — a job that can never reach the machine it was always meant for,
+   * with no error anywhere.
+   *
+   * Observed by claiming again over the wire rather than through the Runner,
+   * because the Runner catches, retries and translates: what is being checked
+   * is what the *relay* was still willing to hand over.
+   */
+  describe("how a declined job is released", () => {
+    const claimAgain = async (
+      daemon: Awaited<ReturnType<typeof makeDaemon>>,
+    ): Promise<string[]> => {
+      const response = await daemon.signedFetch("claim", {
+        capabilities: [
+          {
+            kind: "llm.generate",
+            service: "primary",
+            isDefault: true,
+            backendId: "openai-http",
+            backendClass: "http",
+            model: "echo-model",
+            offerScope: "team",
+          },
+        ],
+        max: 8,
+      });
+      const { jobs } = (await response.json()) as { jobs: { id: string }[] };
+      return jobs.map((job) => job.id);
+    };
+
+    it("never offers it again when the person was removed", async () => {
+      const { connector, daemon, plane } = await bobsMachine();
+      plane.admit("alice");
+      const { jobId } = await connector.enqueue({
+        prompt: "alice's work",
+        owner: "alice",
+        audience: "team",
+      });
+
+      // Removed between enqueue and claim — the case the grant exists for.
+      plane.store.removeMember({ owner: "bob", user: "alice" });
+      expect(await claimAgain(daemon)).not.toContain(jobId);
+
+      /**
+       * Re-admitted, and it still does not come back — which is the only way
+       * to see the difference from here.
+       *
+       * While alice is removed, both release shapes look identical at this
+       * endpoint: released plainly the job returns to the queue and is
+       * declined again, so it is absent either way. The permanence is only
+       * observable once the condition clears, and it is exactly what `refused`
+       * means — this job, this device, never again. Hole 1 ruled that removal
+       * stops queued claims; it did not rule that re-adding resumes them, and
+       * the job remains claimable by another of the owner's devices.
+       */
+      plane.admit("alice");
+      expect(await claimAgain(daemon)).not.toContain(jobId);
+      expect(daemon.backend.seen).toEqual([]);
+    });
+
+    it("offers it again when the mapping simply pointed elsewhere", async () => {
+      /**
+       * The bug this shape exists to prevent.
+       *
+       * Alice is a member and has consented; her mapping names a service this
+       * particular machine does not offer — another of bob's devices does, or
+       * she is about to fix it. Marking that permanently would take this job
+       * off this device for ever, and if her mapping later named `primary`
+       * the job would never come back.
+       */
+      const { connector, daemon, plane } = await bobsMachine();
+      plane.admit("alice");
+      plane.store.consent({
+        siteId: SITE_ID,
+        user: "alice",
+        mappings: [
+          {
+            purpose: RESERVED_PURPOSE,
+            kind: "llm.generate",
+            service: "on-another-machine",
+          },
+        ],
+      });
+      const { jobId } = await connector.enqueue({
+        prompt: "alice's work",
+        owner: "alice",
+        audience: "team",
+      });
+
+      expect(await claimAgain(daemon)).not.toContain(jobId);
+
+      // She fixes the mapping. The job is still claimable here, which is the
+      // whole point.
+      plane.admit("alice");
+      expect(await claimAgain(daemon)).toContain(jobId);
+    });
+  });
+
   it("refuses a stranger a different relay would admit", async () => {
     // Admission is per relay because owner ids are namespace local: `alice`
     // on one server is not `alice` on another. Under the allowlist this was a
@@ -206,7 +296,7 @@ describe("who this device will run work for", () => {
     // grant verifies against the key pinned with *this* pairing, so another
     // relay's word about `alice` is not a document this device can even read.
     const { connector, daemon, plane } = await bobsMachine();
-    admit(plane, "alice-elsewhere");
+    plane.admit("alice-elsewhere");
     await connector.enqueue({
       prompt: "alice's work under another origin's grant",
       owner: "alice",

@@ -2,6 +2,7 @@ import {
   MAX_SUCCESSION_CHAIN,
   Succession,
   PublicIdentity,
+  keyId as keyIdOf,
 } from "@byollm/protocol";
 import { routeKey } from "./state.js";
 import { z } from "zod";
@@ -321,6 +322,26 @@ export class Projection {
     return this.#fixture.sites
       .filter((site) => this.consentFor(owner, site.siteId) !== null)
       .sort((a, b) => (a.siteId < b.siteId ? -1 : 1));
+  }
+
+  /**
+   * Which registered site owns this identity key id?
+   *
+   * A stub names its site by *key id* (Amendment A §A.3) so a daemon can
+   * check it against a pinned key without a lookup. A control plane knows
+   * sites by their account id. This is the one place that holds both, so it
+   * is the one place that joins them — a control plane asked to accept key
+   * ids would need its own copy of the registry.
+   *
+   * `null` for a key id no registered site carries, which is a projection
+   * that is behind rather than a job that is wrong.
+   */
+  siteIdForKey(keyId: string): string | null {
+    return (
+      this.#fixture.sites.find(
+        (record) => keyIdOf(record.site.identity) === keyId,
+      )?.siteId ?? null
+    );
   }
 
   /**

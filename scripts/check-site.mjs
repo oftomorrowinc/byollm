@@ -14,7 +14,9 @@
  * on, the version it claims matches the manifest, its anchors resolve, and it
  * loads nothing from the network.
  */
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { readFile } from "node:fs/promises";
+import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = new URL("../", import.meta.url);
@@ -205,12 +207,32 @@ check(
 // ---------------------------------------------------------------------------
 process.stdout.write("\nreadmes\n");
 
+/**
+ * Every published package's README, plus the root one — enumerated, not
+ * listed.
+ *
+ * This was a hand-written array, and it had already gone stale: `relay` had
+ * shipped for weeks without being checked, and `control-plane` would have
+ * joined it. A list of things to check does not grow when the code does,
+ * which is the same shape as the call-site grep that missed the 2026-08-26
+ * stop-ship — a check whose coverage is a literal is a check that silently
+ * shrinks.
+ *
+ * `bump-version.mjs` already walks `packages/` for exactly these files, so
+ * deriving here also means the two scripts cannot disagree about which
+ * READMEs exist.
+ */
 const READMES = [
   "README.md",
-  "packages/protocol/README.md",
-  "packages/daemon/README.md",
-  "packages/server/README.md",
-  "packages/conformance/README.md",
+  ...readdirSync("packages")
+    .filter((dir) => {
+      const manifest = join("packages", dir, "package.json");
+      if (!existsSync(manifest)) return false;
+      if (!existsSync(join("packages", dir, "README.md"))) return false;
+      return JSON.parse(readFileSync(manifest, "utf8")).private !== true;
+    })
+    .sort()
+    .map((dir) => `packages/${dir}/README.md`),
 ];
 
 for (const rel of READMES) {
@@ -228,10 +250,25 @@ for (const rel of READMES) {
     text.includes(manifest.version),
     "the alpha banner names a different version than package.json",
   );
+  /**
+   * Two patterns, neither of which enumerates a binary.
+   *
+   * This was one pattern with `(?!-certify)` bolted on, and the day the
+   * README list stopped being hand-maintained it failed on
+   * `npx byollm-audit-deployment` — a binary that simply had not existed when
+   * the exception was written. A check whose correctness depends on a list of
+   * exceptions goes wrong the same way a check whose coverage depends on a
+   * list of files does.
+   *
+   * So: `npx byollm` followed by neither `@` nor `-` is the unpinned bare
+   * command, and anything after `-` is a different binary this rule has no
+   * opinion about.
+   */
   check(
-    `${name}: every npx invocation pins @alpha`,
-    !/npx byollm(?!@alpha)(?!-certify)/.test(text),
+    `${name}: every npx byollm invocation is pinned`,
+    !/npx byollm(?![@\w-])/.test(text),
   );
+  check(`${name}: every pin is @alpha`, !/npx byollm@(?!alpha\b)/.test(text));
 }
 
 process.stdout.write(

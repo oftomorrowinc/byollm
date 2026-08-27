@@ -15,10 +15,10 @@ import {
   ERROR_STATUS,
   type CapabilityMatrix,
   type ClaimedStub,
-  type SignedGrant,
 } from "@byollm/protocol";
 import { z } from "zod";
 import type { Projection } from "./fixture.js";
+import type { GrantDecision } from "./index.js";
 import {
   PAIRING_BUSY_MESSAGE,
   PAIRING_CODE_TTL_MS,
@@ -141,10 +141,11 @@ export interface DaemonPlaneDeps {
    */
   readonly authorGrant?: (input: {
     readonly job: ClaimedStub;
+    readonly siteId: string;
     readonly owner: string;
     readonly runnerId: string;
     readonly capabilities: CapabilityMatrix;
-  }) => Promise<SignedGrant | undefined> | SignedGrant | undefined;
+  }) => Promise<GrantDecision> | GrantDecision;
   /**
    * Where a human goes to approve a code — the control plane, always.
    *
@@ -605,47 +606,67 @@ export class DaemonPlane {
        * about work somebody else is running, and the window between deciding
        * and writing is exactly where that goes wrong.
        *
-       * A job whose grant comes back `undefined` is released here rather
-       * than sent bare. Sending it would cost three round trips to reach an
-       * answer this side already has, and a device refusing a job with no
-       * grant cannot tell "the control plane said no" from "the relay lost
-       * it" — so it would report the wrong thing.
+       * A declined job is released here rather than sent bare. Sending it
+       * would cost three round trips to reach an answer this side already
+       * has, and a device refusing a job with no grant cannot tell "the
+       * control plane said no" from "the relay lost it" — so it would report
+       * the wrong thing.
        *
-       * Released as `refused`, which means this job is never offered to this
-       * device again. That is the correct permanence: `undefined` is the
-       * control plane declining to authorise this work here, and hole 1's
-       * ruling is that removal stops future claims including queued ones.
-       * The record is honest about authorship too — the relay is writing
-       * down its own control plane's decision, not attributing it to the
-       * device.
+       * **Two release shapes, and the difference is not cosmetic.** A
+       * permanent decline is released as `refused`, which means this job is
+       * never offered to this device again — right for a person removed from
+       * a team, because removal stops queued claims (hole 1). A transient one
+       * is released plainly, so the job goes back in the queue: a mapping
+       * that resolved to another of the owner's machines, an unfilled slot,
+       * or a policy store that was briefly unreachable must not permanently
+       * unpick a job from a device that may be exactly where it belongs.
+       *
+       * The relay does not read the reason. Branching on it here would be a
+       * second implementation of a policy this process does not own.
        */
       const author = this.#deps.authorGrant;
       if (author === undefined) {
         return ok({ jobs: granted, leaseMs: this.#deps.leaseMs });
       }
       const withGrants: ClaimedStub[] = [];
-      const ungranted: { jobId: string; leaseId: string }[] = [];
+      const refused: { jobId: string; leaseId: string }[] = [];
+      const returned: { jobId: string; leaseId: string }[] = [];
       for (const job of granted) {
-        const grant = await author({
-          job,
-          owner: device.owner,
-          runnerId: device.runnerId,
-          capabilities: request.capabilities,
-        });
-        if (grant === undefined) {
-          ungranted.push({ jobId: job.id, leaseId: job.lease.id });
+        const siteId = this.#deps.projection.siteIdForKey(job.site);
+        const decision =
+          siteId === null
+            ? // A stub naming a site this projection cannot place. Transient
+              // rather than permanent: the projection is what is behind, not
+              // the job.
+              { declined: { permanent: false, reason: "unknown-site" } }
+            : await author({
+                job,
+                siteId,
+                owner: device.owner,
+                runnerId: device.runnerId,
+                capabilities: request.capabilities,
+              });
+        if (decision.granted === undefined) {
+          const lease = { jobId: job.id, leaseId: job.lease.id };
+          (decision.declined.permanent ? refused : returned).push(lease);
           continue;
         }
-        withGrants.push({ ...job, grant });
+        withGrants.push({ ...job, grant: decision.granted });
       }
       // Released rather than left leased. A job nobody may run should be back
       // in the queue for a device whose owner still may, not held by a lease
       // that has to time out first.
-      if (ungranted.length > 0) {
+      if (refused.length > 0) {
         await this.#deps.state.releaseLeases({
           runnerId: device.runnerId,
-          leases: ungranted,
+          leases: refused,
           reason: "refused",
+        });
+      }
+      if (returned.length > 0) {
+        await this.#deps.state.releaseLeases({
+          runnerId: device.runnerId,
+          leases: returned,
         });
       }
 

@@ -1,15 +1,15 @@
 {
-  "name": "@byollm/relay",
+  "name": "@byollm/control-plane",
   "version": "0.1.0-alpha.57",
   "type": "module",
-  "description": "The reference relay: routes sealed byollm jobs between sites and daemons, holding no decryption keys by construction.",
+  "description": "The reference control plane: resolves a user's mapping and authors one signed grant per job, against a policy store it does not own.",
   "license": "MIT",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/oftomorrowinc/byollm.git",
-    "directory": "packages/relay"
+    "directory": "packages/control-plane"
   },
-  "homepage": "https://github.com/oftomorrowinc/byollm/tree/main/packages/relay",
+  "homepage": "https://github.com/oftomorrowinc/byollm/tree/main/packages/control-plane",
   "bugs": {
     "url": "https://github.com/oftomorrowinc/byollm/issues"
   },
@@ -33,18 +33,12 @@
     "build": "tsup"
   },
   "dependencies": {
-    "@byollm/protocol": "workspace:*",
-    "zod": "^4.1.13"
+    "@byollm/protocol": "workspace:*"
   },
   "publishConfig": {
     "access": "public"
   },
   "devDependencies": {
-    "@byollm/conformance": "workspace:*",
-    "@byollm/control-plane": "workspace:*",
-    "@byollm/server": "workspace:*",
-    "@supabase/supabase-js": "^2.112.2",
-    "byollm": "workspace:*",
     "vitest": "^4.1.10"
   },
   "peerDependencies": {

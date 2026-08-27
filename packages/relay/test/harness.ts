@@ -17,12 +17,14 @@ import {
   type PublicIdentity,
   type SealedEnvelope,
   type StoredKeys,
-  type CapabilityMatrix,
-  type GrantClaims,
-  type SignedGrant,
   generateKeys,
-  signGrant,
 } from "@byollm/protocol";
+import {
+  ControlPlane,
+  MemoryPolicyStore,
+  RESERVED_PURPOSE,
+  keypairSigner,
+} from "@byollm/control-plane";
 import {
   Budgets,
   DaemonConfig,
@@ -301,73 +303,88 @@ export class SiteConnector {
 }
 
 /**
- * A control plane for a test relay — Amendment J.
+ * A control plane for a test relay — the real one.
  *
- * Holds the signing key, decides who is a member, and authors one grant per
- * claimed job. Everything a real control plane does, minus the database.
+ * This was a fixture: forty lines that signed a grant if a `Set` contained
+ * the job's owner. It is now `@byollm/control-plane` against a
+ * `MemoryPolicyStore`, which means every end-to-end test in this suite —
+ * a real Runner, a real relay, a real job — is certifying the engine that
+ * byollm.cloud will run, rather than a stand-in that happens to agree with it.
  *
- * `members` is a mutable set rather than a constructor argument on purpose:
- * removal has to be observable *between* two claims of the same test, because
- * that is the property Amendment J is for. Add somebody and their next job
- * runs; remove them and their next claim fails, including work already
- * queued. A fixture that fixed membership at construction could not express
- * either half.
+ * `admit` is the store's own write surface, so a test still says who may do
+ * what in one line. What changed is that the answer now comes from the
+ * resolution law rather than from this file's opinion of it.
+ *
+ * **Seeded from the relay's own fixture**, and that is not a convenience.
+ * There are two consent records in this system by design — the projection the
+ * relay routes by, and the policy the engine authorises by — and in
+ * production they are one database read two ways. In a test they are two
+ * literals, and two literals drift. Deriving one from the other makes the
+ * harness reproduce the property the deployment has for free, instead of
+ * quietly testing a world where a relay routes work its control plane would
+ * refuse.
  */
-export function controlPlane(): {
-  readonly controlPlanePublic: string;
-  readonly authorGrant: NonNullable<RelayOptions["authorGrant"]>;
-  /** Who this control plane will author grants for. */
-  readonly members: Set<string>;
-  /** Sign a grant this test wrote by hand, to forge with. */
-  readonly sign: (claims: GrantClaims) => SignedGrant;
-  /** Tamper with what it authors, for tests about the device's checks. */
-  bend: ((grant: SignedGrant) => SignedGrant) | undefined;
+export function controlPlane(fixture: RelayFixture): {
+  /**
+   * What `new Relay()` needs, and only that.
+   *
+   * Grouped so a test can spread it — `new Relay({ fixture, ...plane.relay })`
+   * — without the store and its helpers leaking into a strict options object.
+   */
+  readonly relay: {
+    readonly controlPlanePublic: string;
+    readonly authorGrant: NonNullable<RelayOptions["authorGrant"]>;
+  };
+  /** Admit somebody to the device owner's team, and map them to `primary`. */
+  readonly admit: (user: string, owner?: string) => void;
+  /** The store, for a test that wants an unmapped or revoked state. */
+  readonly store: MemoryPolicyStore;
 } {
   const keys = generateKeys(Date.now());
-  const members = new Set<string>();
-  const plane = {
-    controlPlanePublic: keys.identityPublic,
-    members,
-    sign: (claims: GrantClaims) => signGrant(keys, claims),
-    bend: undefined as ((grant: SignedGrant) => SignedGrant) | undefined,
-    authorGrant: ({
-      job,
-      owner,
-      capabilities,
-    }: {
-      job: JobStub & { lease: { id: string } };
-      owner: string;
-      runnerId: string;
-      capabilities: CapabilityMatrix;
-    }): SignedGrant | undefined => {
-      // The owner's own work needs no membership; anybody else's does.
-      if (job.owner !== owner && !members.has(job.owner)) return undefined;
-      // Resolution, as it is until Amendment L: what the job named, or this
-      // device's default for the kind. The control plane chooses from what
-      // the device advertised and never invents a name.
-      const service =
-        job.service ??
-        capabilities.find((c) => c.kind === job.kind && c.isDefault)?.service;
-      if (service === undefined) return undefined;
-      const grant = signGrant(keys, {
-        grantId: `grant_${job.id}_${String(grantSerial++)}`,
-        jobId: job.id,
-        siteId: SITE_ID,
-        user: job.owner,
-        owner,
-        purpose: "testing",
-        kind: job.kind,
-        service,
-        issuedAt: Date.now(),
-      });
-      return plane.bend ? plane.bend(grant) : grant;
+  const store = new MemoryPolicyStore();
+  const engine = new ControlPlane({ store, signer: keypairSigner(keys) });
+
+  const map = (user: string) => {
+    store.consent({
+      siteId: SITE_ID,
+      user,
+      mappings: KINDS.map((kind) => ({
+        purpose: RESERVED_PURPOSE,
+        kind,
+        service: "primary",
+      })),
+    });
+  };
+  for (const consent of fixture.consents) {
+    map(consent.owner);
+    // A paused consent routes nothing and authorises nothing. The relay
+    // enforces the first; the store has to agree about the second, or a
+    // stale projection would be the only thing standing in the way.
+    if (consent.paused) store.pause({ siteId: SITE_ID, user: consent.owner });
+  }
+
+  return {
+    relay: {
+      controlPlanePublic: keys.identityPublic,
+      authorGrant: (input) => engine.authorGrant(input),
+    },
+    store,
+    admit: (user, owner = "bob") => {
+      store.addMember({ owner, user });
+      map(user);
     },
   };
-  return plane;
 }
 
-/** Distinct grant ids without a clock that tests move. */
-let grantSerial = 0;
+/**
+ * The kinds this harness's daemon serves, mapped for every consenting user.
+ *
+ * Listed rather than derived because a mapping is per (purpose, kind): a
+ * consent that mapped only `llm.generate` would leave a chat job unmapped,
+ * which is a real state and a confusing one to hit by accident in a test
+ * about something else.
+ */
+const KINDS = ["llm.generate", "llm.chat"] as const;
 
 /** Pair and build a real daemon against the relay. */
 export async function makeDaemon(

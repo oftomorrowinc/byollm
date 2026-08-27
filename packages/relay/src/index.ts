@@ -39,6 +39,30 @@ import type { RoutingStore } from "./store.js";
  * would have to justify rather than a line someone could slip in.
  */
 
+/**
+ * What a control plane answers when a relay asks about one job.
+ *
+ * Declared here rather than imported, and deliberately narrower than what
+ * `@byollm/control-plane` returns: a relay needs to know whether it got a
+ * grant and whether a refusal is forever, and nothing else. Stating only that
+ * keeps the two packages independent — a relay can be wired to any control
+ * plane, and the reference engine satisfies this by having more, not less.
+ *
+ * `reason` is for the log. The relay never branches on it, because a relay
+ * that acted differently per reason would be a second implementation of a
+ * policy it does not own.
+ */
+export type GrantDecision =
+  | { readonly granted: SignedGrant; readonly declined?: undefined }
+  | {
+      readonly granted?: undefined;
+      readonly declined: {
+        /** Never offer this job to this device again. */
+        readonly permanent: boolean;
+        readonly reason?: string;
+      };
+    };
+
 export interface RelayOptions {
   /**
    * Which site this relay routes for.
@@ -67,10 +91,14 @@ export interface RelayOptions {
    * deployment that has no control plane simply has no callback, and its
    * devices serve their owners alone.
    *
-   * Returning `undefined` refuses the job at the device, which is the correct
-   * shape for "this person is no longer a member": removal takes effect at
-   * the next claim, including for work already queued, because the grant is
-   * authored here and not at enqueue.
+   * Declining says whether the refusal is **permanent**, and that is the
+   * whole reason this returns a shape rather than `SignedGrant | undefined`.
+   * A relay releases a declined job, and a release can carry `refused`, which
+   * means never offer this job to this device again. "This person was removed
+   * from the team" is forever — removal stops queued claims, per hole 1.
+   * "Their mapping resolved to another of your machines" is emphatically not:
+   * marking that permanently would mean the job could never reach the device
+   * it was always meant for, and nothing would ever report it.
    *
    * The capability matrix is passed because resolution needs it — the control
    * plane chooses from what this device actually advertised, never from a
@@ -80,10 +108,12 @@ export interface RelayOptions {
    */
   readonly authorGrant?: (input: {
     readonly job: ClaimedStub;
+    /** The site's id in the control plane's namespace, not its key id. */
+    readonly siteId: string;
     readonly owner: string;
     readonly runnerId: string;
     readonly capabilities: CapabilityMatrix;
-  }) => Promise<SignedGrant | undefined> | SignedGrant | undefined;
+  }) => Promise<GrantDecision> | GrantDecision;
   /** How long a claim is good for. */
   readonly leaseMs?: number;
   /** Injectable clock, so tests move time instead of sleeping. */

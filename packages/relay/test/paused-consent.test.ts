@@ -153,9 +153,9 @@ describe("a paused consent", () => {
     // Bob's control plane would admit alice, and his service is offered to
     // his team — so the *only* thing that can stop her work here is her own
     // paused consent, which is what this test is about.
-    const plane = controlPlane();
-    plane.members.add("alice");
-    const relay = new Relay({ fixture, ...plane });
+    const plane = controlPlane(fixture);
+    plane.admit("alice");
+    const relay = new Relay({ fixture, ...plane.relay });
     const connector = new SiteConnector(relay, siteKeys);
     const daemon = await makeDaemon(relay, fixture, {
       owner: "bob",
@@ -196,9 +196,9 @@ describe("a paused consent", () => {
     // Bob's control plane would admit alice, and his service is offered to
     // his team — so the *only* thing that can stop her work here is her own
     // paused consent, which is what this test is about.
-    const plane = controlPlane();
-    plane.members.add("alice");
-    const relay = new Relay({ fixture, ...plane });
+    const plane = controlPlane(fixture);
+    plane.admit("alice");
+    const relay = new Relay({ fixture, ...plane.relay });
     const connector = new SiteConnector(relay, siteKeys);
     const daemon = await makeDaemon(relay, fixture, {
       owner: "bob",

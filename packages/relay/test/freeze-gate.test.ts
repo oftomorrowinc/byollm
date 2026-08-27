@@ -289,9 +289,9 @@ describe("the freeze gate — cloud_004 §14", () => {
      * owner's job routes and the relay learns nothing doing it. The
      * device-side law is admission.test.ts.
      */
-    const plane = controlPlane();
-    plane.members.add("alice");
-    const relay = new Relay({ fixture, ...plane });
+    const plane = controlPlane(fixture);
+    plane.admit("alice");
+    const relay = new Relay({ fixture, ...plane.relay });
     const connector = new SiteConnector(relay, siteKeys);
     const daemon = await makeDaemon(relay, fixture, {
       owner: "bob",

@@ -53,6 +53,19 @@ export interface PolicyStoreContractOptions {
     }) => Promise<void> | void;
     done: () => Promise<void>;
   }>;
+  /**
+   * Whether this store accepts arbitrary strings as ids.
+   *
+   * True for a store that keys by concatenation, where two ids differing only
+   * in where a separator falls is a real hazard and the case below is the
+   * point. False for one with typed columns — a Postgres `uuid` cannot hold
+   * `"b:c"`, so the confusion is structurally impossible and demanding the
+   * case would only stop that store running the contract at all.
+   *
+   * Named rather than skipped silently: an implementation that opts out is
+   * saying its ids are typed, which is a claim about its schema.
+   */
+  readonly opaqueIds?: boolean;
 }
 
 /**
@@ -73,6 +86,8 @@ const SITE = "5cbc8f4c-96ab-4c1e-b5b6-9d4b2a1f0e01";
 const OWNER = "5cbc8f4c-96ab-4c1e-b5b6-9d4b2a1f0e02";
 /** alice — whose work it is. */
 const USER = "5cbc8f4c-96ab-4c1e-b5b6-9d4b2a1f0e03";
+/** carol — somebody else entirely, for the cases about keeping people apart. */
+const CAROL = "5cbc8f4c-96ab-4c1e-b5b6-9d4b2a1f0e05";
 const MAPPING: Mapping = {
   purpose: "writing_assistant",
   kind: "llm.generate",
@@ -280,7 +295,7 @@ export function describePolicyStoreContract(
       await s.consent({ siteId: SITE, user: USER, mappings: [MAPPING] });
       const other = await s.store.read({
         siteId: SITE,
-        user: "carol",
+        user: CAROL,
         owner: OWNER,
       });
       expect(other.consented).toBe("no");
@@ -351,10 +366,10 @@ export function describePolicyStoreContract(
       expect(noConsent.member).toBe(true);
       expect(noConsent.consented).toBe("no");
 
-      await s.consent({ siteId: SITE, user: "carol", mappings: [MAPPING] });
+      await s.consent({ siteId: SITE, user: CAROL, mappings: [MAPPING] });
       const noMembership = await s.store.read({
         siteId: SITE,
-        user: "carol",
+        user: CAROL,
         owner: OWNER,
       });
       expect(noMembership.consented).toBe("yes");
@@ -362,20 +377,23 @@ export function describePolicyStoreContract(
       await s.done();
     });
 
-    it("does not let a site id and a user id be confused for each other", async () => {
-      // Composite keys are parsers waiting to meet an id containing their
-      // separator. These two consents differ only in where the boundary
-      // falls, and a store that joined them naively would answer one for the
-      // other.
-      const s = await options.make();
-      await s.consent({ siteId: "a", user: "b:c", mappings: [MAPPING] });
-      const confusable = await s.store.read({
-        siteId: "a:b",
-        user: "c",
-        owner: OWNER,
-      });
-      expect(confusable.consented).toBe("no");
-      await s.done();
-    });
+    it.runIf(options.opaqueIds !== false)(
+      "does not let a site id and a user id be confused for each other",
+      async () => {
+        // Composite keys are parsers waiting to meet an id containing their
+        // separator. These two consents differ only in where the boundary
+        // falls, and a store that joined them naively would answer one for
+        // the other.
+        const s = await options.make();
+        await s.consent({ siteId: "a", user: "b:c", mappings: [MAPPING] });
+        const confusable = await s.store.read({
+          siteId: "a:b",
+          user: "c",
+          owner: OWNER,
+        });
+        expect(confusable.consented).toBe("no");
+        await s.done();
+      },
+    );
   });
 }

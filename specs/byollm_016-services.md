@@ -4702,3 +4702,36 @@ recovery, offer narrowing); stage 3 Lis's split session (her Claude on her box,
 Todd's qwen/glm on his, press blind). After all green: clear .stopship, promote
 .62 through the six-package + STOPSHIP gate. Hub live, .stopship holds, no clock —
 Todd runs it at his pace.
+
+### Version-fence migration gap: a pre-fence daemon can't show its own refusal (2026-08-27)
+
+Todd, running probe step 1 (point the old daemon at the new hub, look for the
+loud refusal), got a .57 daemon (protocol 0) showing OLD deleted vocabulary
+(selectable-for, isDefault, roster "stale 17h", the toddsampson2008 allow entry)
+and NO loud upgrade message. The acceptance checklist's step 1 was WRONG and is
+corrected: **the loud client-side refusal lives in the .59+ daemon; a .57 daemon
+predates it and physically cannot surface its own upgrade message.** It shows the
+stale-roster symptom and carries on (failing safe — stale-fails-narrow serves
+Todd only; toddsampson2008 not admitted).
+
+The honest finding: the version fence's own promise — a device never goes stale
+for a reason the owner can't see — comes up short for exactly the migration case,
+because the good message is in code the old daemon doesn't have, and that can't be
+retrofitted. What IS live-testable on Todd's machine is the HUB half: the .62 hub
+returning a named unsupported-protocol-version refusal (vs a generic 400),
+visible in ~/.byollm/service.log even though the .57 client swallows it into
+"stale roster." The client-side loud surfacing is proven by CCC's handshake test,
+not a .57 machine.
+
+**Follow-up for CCC (the real fix for the migration gap): a hub-delivered notice
+— "a device on an old version was refused; upgrade it" — through the value-add
+notification channel.** The hub KNOWS it refused an old device and can reach the
+owner independent of the daemon's ability to self-report; notices-are-hub-
+delivered applied exactly where it fits. Non-blocking for the probe, but it's what
+makes the fence's promise true for a currently-old daemon rather than only a
+future-stale one.
+
+Next: Todd tails service.log (the honest step 1 — confirm the hub returned the
+named refusal), then `npm i -g byollm@alpha` (latest is .57; the .62 daemon is on
+@alpha), re-pair, and status should show protocol 1 with roster/allow gone and
+effective offer scopes — the first visible proof of the rip.

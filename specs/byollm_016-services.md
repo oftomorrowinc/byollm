@@ -4097,3 +4097,51 @@ ruling on the remaining package-level majors (paused-consent-permanent,
 releaseLeases terminal guard, replay durability, payload ceiling, pending-claim
 leak) is owed after the priority set — which ride the pre-hub bump vs a later
 one — but does not block the publish.
+
+### Priority security set complete; scope ruling on the remaining five (2026-08-27)
+
+The five priority items landed, each with its proving test: engine offerScope,
+the critical sweep delete-only-on-membership, and the three-wall PII/oracle fix
+(keepOffered server-side candidate re-derivation; email ownerLabel gated on
+shared-team membership — a sharing-ended mail now carries no name AT ALL by
+construction, since that verdict fires precisely when the owner is not a member;
+RLS + check-constraint requiring declared slot + actual sharing + live consent,
+and the revoked-rows-spring-back hole from 0032's transition-only trigger now
+closed, making 0036's own comment true).
+
+**Scope ruling on the five remaining majors — CCC's 3-and-2 split accepted, with
+the deferral gate sharpened:**
+- Ride .60 (package-level shape fixes, in files just touched): paused-consent-
+  permanent (a tri-state in the snapshot so a reversible pause declines
+  transiently — highest value; it fires on the join-a-team auto-pause, the
+  product's most common path, and silently loses queued jobs); releaseLeases
+  terminal guard (release-after-complete reverts a done job — double execution);
+  replay durability (the in-memory spent-grant set empties on a ~1s restart
+  inside the 120s window — needs persistence).
+- Deferred, but NOT to "after the hub deploys" (a moment that lets them outlive
+  their safe window). Gated on UNTRUSTED TRAFFIC and routed to open-door
+  readiness:
+  - Pending-claim leak (fleet enumeration via /relay/site/pending) — exploitable
+    only by an untrusted SITE. Blocker: before the first site Todd does not
+    control. The fix reorders claim-then-authorize in the relay's hottest path
+    and earns dedicated mutation + concurrency work.
+  - Payload ceiling (stranger over-spends metered compute) — exposed only to
+    untrusted END USERS. Blocker: before any site opens to untrusted end users
+    (before Kevin's app has real authors). Touches the run path; wants its own
+    attention.
+  Both recorded as open-door-readiness blockers so they cannot silently survive
+  into the moment they would bite.
+
+**Law from CCC's two mistakes (the fix half-landed because the fix was a
+hand-maintained roster):** a permission fix that enumerates the functions to
+grant is the hand-maintained-roster smell one level down — "permission denied
+for function" refused all three forgeries for the wrong reason (a negatives-only
+suite asserts nobody can write anything; the positive controls caught it), then
+granting execute reached two of three functions (a check constraint runs as the
+writing role too). The durable form is a check that exercises EVERY role-executed
+write path — grants and check constraints alike — as the writing role, deriving
+the membership rather than listing it. Sibling of the config-reader check.
+
+Sequence: .60 = engine offerScope + the three ride-alongs (paused-consent also
+touches the stores incl. hub PgPolicyStore); publish, repin hub+web; deploy web
+(sweep/keepOffered/RLS already committed); deploy hub; then the acceptance probe.

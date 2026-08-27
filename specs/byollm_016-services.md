@@ -4632,3 +4632,9 @@ dependency — remove per rip discipline next time that manifest is touched).
 
 .stopship holds; and now the hub deploy itself is gated on the 0038/0039 push +
 green probe.
+
+Todd applied the prod schema push (0038+0039). Gate now sits on CCC re-running the
+schema probe against production: 15 green expected, the team-membership case now a
+permission denial (not absent-table). A migration that "ran" is a claim until the
+probe reads it back. If green -> hub deploys off .62 -> Todd's acceptance probe.
+If red -> stop and report before deploying.

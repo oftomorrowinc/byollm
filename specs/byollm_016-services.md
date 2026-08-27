@@ -3980,3 +3980,46 @@ purpose binding; engine offerScope-at-resolution; the CRITICAL sweep delete-only
 on-membership; approveConnect candidate validation + the email/RLS relationship
 check. Each its own commit with its proving test. The remaining 30 triage after.
 Nothing promotes until Todd rules on the completed pass.
+
+### Security pass in progress; siteId fix is a protocol change; batch the .59 (2026-08-27)
+
+CCC verified the review's proposed siteId one-liner and correctly REFUSED it:
+grant.siteId is the control-plane uuid, job.site is the site's KEY ID — different
+namespaces, so `grant.siteId === job.site` refuses 100% of grants. The
+vulnerability is real (signed site field checked against nothing); the reviewer's
+prescribed fix was wrong. **Law: a review finds holes; it does not get to
+prescribe fixes unverified. The implementer verifies before applying** — proven
+here on the batch's highest-stakes finding, and it is the review-culture-both-
+directions principle running from code back at the review.
+
+Ruling on the fix — GO, as a protocol change:
+- The grant binds the site in the namespace the DEVICE holds from pinning: the
+  site's key id (job.site), not the control-plane uuid. Everything the verifier
+  trusts lives inside the signature, and the device knows sites only by pinned
+  key id — so that is the identity the grant carries and the device checks, no
+  lookup.
+- **Do not repeat the bug being fixed:** the original hole is "a signed field
+  nobody checks." Do not add siteKeyId ALONGSIDE the unchecked uuid siteId. If
+  the uuid has no other reader, the key id replaces it; if something consumes the
+  uuid, keep it AND check the key id. Never carry a signed field the device
+  ignores.
+- **Batch ALL protocol-level security fixes into one .59, publish-and-repin
+  once:** site-key-id binding; verifyGrant forward-skew tolerance + the
+  unimplemented proactive skew warn (CLOCK_SKEW_WARN_MS / heartbeat serverTime,
+  ruled at 2b, still dead); manifest aggregate/uniqueness bounds + label/
+  description sanitization (control chars, bidi, ANSI — the strings rendered on
+  consent screens); strict parse on the six wire sub-schemas that strip unknown
+  fields. One version bump, one repin of hub and web.
+
+Commit-level items proceed independently (no publish): kind+purpose binding
+LANDED (6b1188e, unpushed — and it caught two of our own fixtures that had been
+wrong before today: testControlPlane signed purpose:"testing" and a key id in
+the uuid field, values no engine produces, so the kind/purpose binding could
+never have been tested against reality — "a fixture must build state the way a
+person does," third instance); then engine offerScope-at-resolution; the CRITICAL
+sweep delete-only-on-membership; approveConnect candidate validation + the email
+owner-relationship check + the authenticated-role RLS on both mappings and
+dashboard_sites (the raw-PostgREST half of the manifest-validation finding folds
+here — declareManifest already validates against the protocol schema, so what
+remains is the RLS door). Manifest write-path validation half-fixed by the
+morning push, noted.

@@ -3191,3 +3191,38 @@ Remaining in 2d: the component, approveConnect writing mappings in the same
 act as consent (the ruling made literal), the degradation notification — and
 the consent-screen copy comes to Todd for read BEFORE merge, per
 wording-gates-merge. Confirmed as the process.
+
+### Consent-screen copy: approved (2026-08-26, Todd)
+
+Wording approved for merge, superseding the draft in CCC's checkpoint:
+- Heading: **"Choose what powers each part of this site"** — names the act, not
+  the screen; no internal vocabulary.
+- Grouped by purpose (Todd's ruling): label and description render ONCE per
+  purpose; one nested row per kind, each with its own control and its own
+  "none". The repetition, not the grouping, was what obscured that two kinds
+  are two decisions.
+- Kind ids never render raw on user surfaces: kinds get user-facing labels —
+  llm.chat → "Chat", llm.generate → "Generation" — one table, one place, and
+  the class-vocabulary rule now explicitly covers kind ids.
+- "none — this part will not use my devices" stays the LAST option: the top of
+  the list is the screen's recommendation, and easy-to-withhold is satisfied by
+  the decline button, which refuses the whole site in one act. Option ordering
+  is not where consent's exit lives.
+- Zero-candidate slot: "nothing of yours answers this yet" (matches the
+  services surface's answer vocabulary); below the list: "Some parts of this
+  site have nothing of yours to use yet. They simply won't use your devices —
+  <site> carries on without them, and you can set this up later from Connected
+  sites."
+- Dropdown options: "your <id>" for own services; "<owner> · <id>" for team —
+  the owner prefix load-bearing per the two-namespaces case.
+
+Both shape decisions ratified: the form-attribute single submission (consenting
+and wiring cannot come apart — the ruling made structural), and mapping-write
+failure NOT rolling back consent (the consent is the decision, recorded;
+unmapped is a handled state; rollback would discard the decision to protect the
+detail).
+
+Degradation sweep: go, in parallel with the copy landing — the claim path sees
+one device and cannot tell resolved-elsewhere from referent-gone, so the sweep
+is a background pass per person over mappings against current services, feeding
+the value-add notification channel.

@@ -710,16 +710,20 @@ describe("status shows services and defaults, not only routes", () => {
     defaults: { "llm.generate": "studio" },
   };
 
-  it("tells apart the default and the merely selectable", async () => {
-    // Two different facts that had one sentence between them. `spare` loses
-    // `llm.generate` to the default, and is still a service a site may name —
-    // "serves nothing right now" said the opposite of what is true, and "not
-    // on the menu" would have been a third wrong answer.
+  it("says what each service answers, and which one is yours by default", async () => {
+    // Two different facts that had one sentence between them. `spare` answers
+    // `llm.generate` — a mapping may point at it, and "serves nothing right
+    // now" said the opposite of what is true — while `studio` is additionally
+    // where the owner's *own* unresolved work goes.
+    //
+    // "selectable for" lived here until Amendment L, meaning a site could
+    // name it. No site names anything now, so the word described a power
+    // nobody has.
     await write(CONFIG);
     await run("status");
-    expect(out).toContain("spare");
-    expect(out).toContain("selectable for llm.generate");
-    expect(out).toMatch(/studio[\s\S]*?default for llm\.generate/);
+    expect(out).toMatch(/spare[\s\S]*?answers llm\.generate/);
+    expect(out).toMatch(/studio[\s\S]*?your default for llm\.generate/);
+    expect(out).not.toContain("selectable for");
     expect(out).not.toContain("serves nothing");
   });
 

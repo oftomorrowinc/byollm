@@ -181,12 +181,15 @@ password and never accepts a pasted secret.
 }
 ```
 
-A job's `kind` selects a route **you defined**. A job can never name a model, a
-URL, a path or a flag — there is no field on the wire for any of them.
+A job's `kind` selects a route **you defined**, and a job can never name a
+model, a URL, a path or a flag — there is no field on the wire for any of
+them. It cannot name one of your services either: a site declares what it
+*needs*, you decide which of your services answers that need, and the job
+carries the site's word for the need rather than yours for the answer.
 
-`byollm backends` shows what is configured, what is healthy, and what is
-therefore advertised. A backend that is down is never advertised, so you never
-get work you cannot run.
+`byollm services` shows what is configured, what is healthy, what each one
+answers, and which is your own default. A service that is down is never
+advertised, so you never get work you cannot run.
 
 ## Keep it running
 

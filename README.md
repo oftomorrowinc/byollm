@@ -20,6 +20,47 @@
 > If an upgrade leaves a daemon saying it is paired with nothing, `byollm
 > connect` is the answer and nothing else is lost.
 >
+> **`alpha.58` — sites declare what they need; they no longer name what runs
+> it.** Breaking on every surface, and the largest change since alpha.44.
+>
+> `enqueue({ service })` is gone. A site registers a **manifest** — purposes
+> it declares, each listing the job kinds it uses — and each of your users
+> maps those purposes to their own services on the consent screen. A job names
+> a purpose; the mapping does the rest. Your site never learns which service,
+> which model or whose machine answered: it learns whether a slot was
+> satisfiable, and nothing else.
+>
+> ```jsonc
+> // registered once, by the site
+> { "revenue": { "label": "Revenue", "kinds": ["llm.generate"] } }
+> ```
+> ```ts
+> await app.enqueue({ kind: "llm.generate", purpose: "revenue", owner, payload });
+> ```
+>
+> **Why this is not a rename.** Naming a service put the device owner's
+> vocabulary on the wire, which meant refusals had to be carefully identical
+> so a site could not probe names and enumerate somebody's machine. That
+> vocabulary no longer crosses the boundary at all, so there is nothing to
+> probe — the guarantee stopped being a rule anybody had to keep and became
+> the shape of the wire.
+>
+> **Admission changed underneath it.** A device no longer holds a list of who
+> may use it. Every job arrives with a short-lived, single-use **grant**,
+> signed by the control plane your device pinned when it paired, naming the
+> site, the person, the job and the service to run. Add somebody to your team
+> and their next job runs; remove them and their next claim fails, including
+> work already queued. `byollm allow`, `byollm disallow` and `byollm approve`
+> are gone and leave tombstones pointing at where those decisions live now.
+>
+> **A device with no relay serves its owner and nobody else**, because nothing
+> there can tell it who anybody else is. A `team` offer on such a machine
+> narrows to `private`, and says so.
+>
+> `public` is gone as an offer scope and an audience, in OSS too. It was the
+> one value that ran a stranger's job *without the device checking who they
+> were* — an off switch for admission wearing a wider setting's clothes.
+>
 > **`alpha.52` — a device that is running and invisible now says so, and
 > `byollm offer` no longer disagrees with the daemon about what a service
 > costs.**

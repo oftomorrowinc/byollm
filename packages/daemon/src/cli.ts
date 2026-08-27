@@ -1118,10 +1118,14 @@ async function commandStatus(
   // here. Three displays of two facts is how they drift apart, which is this
   // morning's lesson pointed at our own output.
   //
-  // The two facts a service can have about a kind are now said apart, because
-  // "serves nothing right now" and "is not on the menu" are different and no
-  // surface said which. Every declared service is selectable by name; the
-  // default is only where an *unselected* job goes.
+  // The two facts a service can have about a kind are said apart. Every
+  // declared service **answers** the kinds it declares — a mapping may point
+  // at any of them — and one of them may additionally be the owner's own
+  // **default**, which decides only where a job nothing resolved goes.
+  //
+  // "selectable for" lived here until Amendment L, meaning "a site may name
+  // this one". No site names anything now, so the word described a power
+  // nobody has; the kinds a service answers is the fact that survived.
   //
   // There is no separate `defaults` section, and there was one for about an
   // hour. It listed `llm.chat → claude` beside a service line already reading
@@ -1131,14 +1135,15 @@ async function commandStatus(
   // updated.
   const byService = new Map<
     string,
-    { defaults: string[]; selectable: string[] }
+    { answers: string[]; defaults: string[] }
   >();
   for (const route of loaded.routes) {
     const entry = byService.get(route.service) ?? {
+      answers: [],
       defaults: [],
-      selectable: [],
     };
-    (route.isDefault ? entry.defaults : entry.selectable).push(route.kind);
+    entry.answers.push(route.kind);
+    if (route.isDefault) entry.defaults.push(route.kind);
     byService.set(route.service, entry);
   }
 
@@ -1148,7 +1153,7 @@ async function commandStatus(
     io.out("  (none configured)\n");
   }
   for (const [name, service] of declared) {
-    const entry = byService.get(name) ?? { defaults: [], selectable: [] };
+    const entry = byService.get(name) ?? { answers: [], defaults: [] };
     const route = loaded.routes.find((r) => r.service === name);
     const shown =
       route === undefined
@@ -1183,13 +1188,14 @@ async function commandStatus(
     io.out(`  ${name}\n`);
     io.out(`      ${shown}\n`);
     const says: string[] = [];
-    if (entry.defaults.length > 0) {
-      says.push(`default for ${entry.defaults.join(", ")}`);
+    if (entry.answers.length > 0) {
+      says.push(`answers ${entry.answers.join(", ")}`);
     }
-    if (entry.selectable.length > 0) {
-      // Selectable and not the default: a site that names it gets it, a site
-      // that names nothing does not. That is a real state and it had no words.
-      says.push(`selectable for ${entry.selectable.join(", ")}`);
+    if (entry.defaults.length > 0) {
+      // Named as *yours*, because that is the whole of what a default is now:
+      // where your own work goes when nothing resolved it. A relayed job
+      // arrives already resolved and never consults it.
+      says.push(`your default for ${entry.defaults.join(", ")}`);
     }
     io.out(
       `      ${scope} · ${says.length === 0 ? "not offered — see the problems below" : says.join(" · ")}\n`,

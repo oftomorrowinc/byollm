@@ -3597,3 +3597,19 @@ Open loose end, unresolved: who or what moved latest to .57 remains unknown —
 Todd did not confirm promoting it. Moot for the sequence (latest moves through
 the gate at the end regardless); npm's audit log can answer it if curiosity or
 caution ever wants the answer.
+
+### Loose end closed: Todd promoted .57 (2026-08-26)
+
+Todd: "I did promote to 57. Was totally me." The registry mystery is closed —
+human, not machinery. Recorded without drama and with the lesson it actually
+carries: the stop-ship ruling ("latest holds at .56 until the probe passes")
+lived only in conversation and memory, and memory promoted anyway. The
+promotion gate ran and passed because nothing it checks knew a stop-ship
+existed — the gate compares backend sets, not rulings.
+
+**Every lesson becomes a check, applied to stop-ships:** a declared stop-ship
+gets a mechanical form the moment it is declared — a STOPSHIP marker the
+ready-for-latest gate refuses on, placed by the ruling and removed only by the
+ruling that resolves it. A stop-ship that lives in memory is a hope. Queued for
+CCC alongside 2f's gate update (the gate is already being touched for six
+packages and /healthz; the marker check rides the same change).

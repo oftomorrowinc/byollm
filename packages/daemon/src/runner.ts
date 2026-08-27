@@ -24,6 +24,7 @@ import {
   type JobOutcome,
   CLOCK_ATTRIBUTION_MS,
   GRANT_MAX_AGE_MS,
+  RESERVED_PURPOSE,
   type GrantRefusal,
   type SignedGrant,
   verifyGrant,
@@ -132,6 +133,23 @@ export interface RunnerOptions {
   readonly backendFactory?: (route: ResolvedRoute) => Backend;
 }
 
+/**
+ * Every reason a device turns a grant away.
+ *
+ * `verifyGrant`'s own refusals, plus the ones only a device can make: a
+ * document that is genuine and about something else. Named once because it
+ * was spelled twice — the event union and the method that fires it — and two
+ * copies of a union drift the first time one gains a member, silently, since
+ * the wider one still assigns to nothing.
+ */
+export type GrantRefusalCause =
+  | GrantRefusal
+  | "replayed"
+  | "absent"
+  | "wrong-user"
+  | "wrong-kind"
+  | "wrong-purpose";
+
 export type RunnerEvent =
   | { readonly type: "heartbeat"; readonly capabilities: number }
   /** A disclosure went stale; the user has something to read — finding 48. */
@@ -175,11 +193,11 @@ export type RunnerEvent =
    * Loud, because the consequence is a job that did not run and the cause is
    * invisible from the outside: somebody whose teammate's work stopped
    * landing has no other way to learn that the document saying it could was
-   * refused, or which of the four checks refused it.
+   * refused, or which of the checks refused it.
    */
   | {
       readonly type: "grant-refused";
-      readonly refusal: GrantRefusal | "replayed" | "absent" | "wrong-user";
+      readonly refusal: GrantRefusalCause;
       readonly jobId: string;
     }
   /**
@@ -311,7 +329,7 @@ export class Runner {
   /**
    * Grant ids this device has already acted on, with when they stop mattering.
    *
-   * Check two of four: **replay**. A grant is a bearer document for one unit
+   * **Replay.** A grant is a bearer document for one unit
    * of work, and one that could be presented twice would let a relay run a
    * job again after the owner's membership ended — inside the signature's own
    * window, with every check passing.
@@ -623,7 +641,7 @@ export class Runner {
       };
     }
 
-    // Check one of four: the signature, plus everything the signature is
+    // The signature first, plus everything the signature is
     // *about* — that this grant names this device's owner, this job, and a
     // moment close enough to now to still mean something.
     const refusal = verifyGrant({
@@ -660,7 +678,45 @@ export class Runner {
       };
     }
 
-    // Check two of four: replay.
+    /**
+     * And about this job's *slot* — the same law, applied to the rest of it.
+     *
+     * `user` was the first field where the signed document and the unsigned
+     * stub could disagree, and the rule ratified there is general: **the
+     * signature's word is the only word, and disagreement is refusal.** It was
+     * applied to one field and left off two, which is how a law becomes a
+     * special case.
+     *
+     * `kind` and `purpose` are what the control plane *resolved against*. The
+     * grant says "for this purpose, at this kind, use this service", and the
+     * route is then selected with `job.kind` — a value the routing party
+     * chose. A relay that keeps the job id and rewrites `kind` runs the
+     * resolved service under a slot the person never mapped: a different
+     * per-kind limit, a different sizeClass bucket, and a consent that was
+     * never given for it.
+     *
+     * An absent `purpose` on the stub resolves to {@link RESERVED_PURPOSE},
+     * which is exactly what the engine did before signing — so the comparison
+     * is against the same value the engine used, not against a raw `undefined`
+     * that would refuse every single-purpose site.
+     */
+    if (grant.kind !== job.kind) {
+      this.#noteGrantRefusal("wrong-kind", job.id);
+      return {
+        ok: false,
+        reason: "the grant for this job names a different kind than the job",
+      };
+    }
+
+    if (grant.purpose !== (job.purpose ?? RESERVED_PURPOSE)) {
+      this.#noteGrantRefusal("wrong-purpose", job.id);
+      return {
+        ok: false,
+        reason: "the grant for this job names a different purpose than the job",
+      };
+    }
+
+    // Replay: a grant admits one job, once.
     this.#forgetStaleGrants();
     if (this.#spentGrants.has(grant.grantId)) {
       this.#noteGrantRefusal("replayed", job.id);
@@ -731,10 +787,7 @@ export class Runner {
     }
   }
 
-  #noteGrantRefusal(
-    refusal: GrantRefusal | "replayed" | "absent" | "wrong-user",
-    jobId: string,
-  ): void {
+  #noteGrantRefusal(refusal: GrantRefusalCause, jobId: string): void {
     this.#options.onEvent?.({ type: "grant-refused", refusal, jobId });
   }
 

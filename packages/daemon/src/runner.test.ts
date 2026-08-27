@@ -164,8 +164,8 @@ async function makeRunner(
  *
  * File-level, so `job()` can attach a genuine grant by default and the tests
  * that are *about* a bad grant can bend one field at a time. That is how the
- * four device checks get tested individually rather than through whichever
- * one happens to fire first.
+ * device checks get tested individually rather than through whichever one
+ * happens to fire first.
  */
 const plane = testControlPlane();
 
@@ -189,6 +189,16 @@ const job = (
   grant: plane.sign({
     jobId: overrides.id ?? "job_1",
     user: overrides.owner ?? "me",
+    // The slot the control plane resolved, taken from the job it is for.
+    //
+    // Derived rather than defaulted, because the device now refuses a grant
+    // that disagrees with its stub about kind or purpose — so a helper that
+    // fixed these while the stub varied would hand every kind-related case a
+    // *tampered* grant and refuse it one check too early, for the wrong
+    // reason. A test that wants that disagreement asks for it, by passing a
+    // whole `grant`.
+    kind: overrides.kind ?? "llm.generate",
+    ...(overrides.purpose === undefined ? {} : { purpose: overrides.purpose }),
     // The resolved service now lives only on the grant — a stub cannot name
     // one (Amendment L), so a test that wants a particular service says so
     // where the control plane would.

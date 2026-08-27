@@ -1,4 +1,4 @@
-import { GRANT_MAX_AGE_MS } from "@byollm/protocol";
+import { GRANT_MAX_AGE_MS, RESERVED_PURPOSE } from "@byollm/protocol";
 import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -183,6 +183,52 @@ describe("check 1 — the signature, and what it is over", () => {
     const result = (await device()).admit(job({}, { user: "someone-else" }));
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.reason).toContain("different user");
+  });
+
+  it("refuses a grant naming a different kind than the job", async () => {
+    /**
+     * The relay-rewrites-kind attack, byollm-review 2026-08-27.
+     *
+     * The grant says "for this purpose, at this kind, use this service" — and
+     * the route was then selected with `job.kind`, a value the routing party
+     * chose. A relay that keeps the job id and rewrites the kind runs the
+     * resolved service under a slot the person never mapped: a different
+     * per-kind limit, a different sizeClass bucket, and consent that was
+     * never given for it.
+     *
+     * The signed document and the stub disagree, so it is refused — the same
+     * law `wrong-user` was ratified under, applied to the field it was left
+     * off.
+     */
+    const tampered = job(
+      { kind: "llm.chat" },
+      { kind: "llm.generate", service: "shared" },
+    );
+    const refusal = (await device()).admit(tampered);
+
+    expect(refusal.ok).toBe(false);
+    if (!refusal.ok) expect(refusal.reason).toContain("different kind");
+  });
+
+  it("refuses a grant naming a different purpose than the job", async () => {
+    // The same field one along. A site declaring several purposes has a
+    // mapping per slot, and a stub whose purpose is rewritten resolves a
+    // service the person chose for something else.
+    const tampered = job({ purpose: "revenue" }, { purpose: "books" });
+    const refusal = (await device()).admit(tampered);
+
+    expect(refusal.ok).toBe(false);
+    if (!refusal.ok) expect(refusal.reason).toContain("different purpose");
+  });
+
+  it("admits a single-purpose site, whose stub names no purpose at all", async () => {
+    // The case a naive comparison breaks. `purpose` is optional on the stub —
+    // a site that declared none has one reserved purpose — and the engine
+    // resolves the absent value to `default` before signing. Comparing
+    // against a raw `undefined` would refuse every such site, which is most
+    // of them.
+    const plain = job({ purpose: undefined }, { purpose: RESERVED_PURPOSE });
+    expect((await device()).admit(plain).ok).toBe(true);
   });
 
   it("refuses a grant older than the window, and names the clock when it is the clock", async () => {

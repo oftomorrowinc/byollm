@@ -1,4 +1,5 @@
 import {
+  RESERVED_PURPOSE,
   generateKeys,
   signGrant,
   type GrantClaims,
@@ -80,7 +81,12 @@ export function testControlPlane(now = 1_800_000_000_000): {
         siteId: "BYOLLM-TEST-SITE-KEY-ID",
         user: "stranger",
         owner: "me",
-        purpose: "testing",
+        // What a stub carrying no purpose actually resolves to. `"testing"`
+        // was a value no engine would ever sign: the engine resolves an
+        // absent stub purpose to `RESERVED_PURPOSE` before signing, so a
+        // default of anything else made every fixture a grant that disagreed
+        // with its own job about which slot it was for.
+        purpose: RESERVED_PURPOSE,
         kind: "llm.generate",
         service: "paid",
         issuedAt: Date.now(),

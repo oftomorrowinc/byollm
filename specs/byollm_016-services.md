@@ -5141,3 +5141,27 @@ Sequence: CC runs the live cross-user proof -> green on Todd's qwen log -> Todd
 clears .stopship -> promote through ready-for-latest + STOPSHIP gate: six
 packages, 2FA, control-plane's FIRST latest tag (born on alpha; bare install
 won't resolve without it).
+
+### Cross-user proof plan; full split deferred (no llm.chat on press) (2026-08-27)
+
+Kevin confirmed press has no llm.chat purpose yet, so the FULL Lis split (her
+Claude for chat + Todd's qwen for generate) cannot run — deferred until Kevin's
+port adds llm.chat. But the promotion gate is the CROSS-USER proof, which needs
+only llm.generate and runs tonight with real Lis (she borrows Todd's team-offered
+qwen; needs no device of her own):
+
+A. Stage 2 closeout (CC records): #9 accept c46ede8 (real-Postgres resume proof);
+   #10 site-binding covered by .59 grant.siteId tests; offer narrowing confirmed
+   in services.
+B. Cross-user proof (the gate): (1) Todd adds Lis to his Team (email); qwen is
+   team-offered. (2) Lis signs in, connects Of Tomorrow Press (verified ->
+   Available to connect), Choose-what-powers-this -> maps writing-assistant/
+   Generation -> "Todd · qwen-2.5-14b" (her seeing that option tests team-
+   candidate derivation; missing = bug). (3) CC runs round-trip.mjs owner=Lis,
+   writing-assistant, llm.generate -> routes to Todd's qwen as a NON-OWNER via
+   team admission -> confirmed on Todd's qwen server log.
+C. Promote: clear .stopship -> 2FA, six packages, control-plane's FIRST latest
+   tag, ready-for-latest + STOPSHIP gate.
+
+The full split remains the video demo / a later gate once press has llm.chat +
+Lis maps chat to her own device.

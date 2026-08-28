@@ -5426,3 +5426,54 @@ three repos.
 Remaining queue, unchanged, none blocking: migration-replaces-newest-definition
 check; service_owner null-vs-explicit costed migration; 23505 invite wording split;
 five hub suites that skip silently.
+
+---
+
+## 2026-08-28 — The admin-invite bypass: found live, closed by 0044/0045
+
+**What the first-pass review's off-by-one question uncovered was not an off-by-one.**
+The team-seats invite trigger counted memberships and pending invites *excluding
+role = 'admin'*. Two consequences, one intended (the owner, an admin, went
+uncounted — so "6 seats" admitted seven heads) and one not: `role` is a column on a
+row a group admin may insert, the invites policy constrained no values, and
+PostgREST is the same origin with the same session — so from an empty roster a Team
+subscriber could send **unlimited admin invitations**, each check seeing zero, then
+have them all accept. Unlimited membership is unlimited grant eligibility: this was
+a roster hole, which makes it an admission finding, not a billing one.
+
+**It was live in production until this push.** Exploitation needed a Team
+subscription and a hand-built PostgREST call, so it is unlikely anyone hit it — but
+it was not theoretical. Found only because the review asked what the trigger counts.
+
+The law it mints: **the dashboard is not the boundary.** The dashboard only ever
+sends `role = viewer`; the database accepted anything. A policy that constrains no
+values delegates the constraint to whichever client is polite enough to impose one.
+Every enforcement question in review now gets the follow-up: *enforced against
+which caller?*
+
+The fix is one rule closing both holes: **every head counts, the owner's included.**
+Cap is six rows, card is "you + 5", same sentence; `team_seats.test.sql` pins the
+counting basis, both halves mutation-tested. 0045 makes owner-cannot-leave a
+server-side refusal at both doors, not a hidden button.
+
+**The watermark shipped in the safer order.** CCC could not verify no-team-above-six
+(admin.env holds the ledger URL, not the dashboard DB) and built
+`dashboard_team_seat_floors` instead of asking to be unblocked: the backfill records
+any team a narrowing cap would catch, and the effective cap is the larger of the
+two. If nothing exceeds six, the backfill writes no rows — **inert by arithmetic
+rather than by hope**. A narrowing whose safety rests on an unverified fact is one
+taken on trust; this one rests on a floor the database computes. Approved as the
+better shape — the prescribed pre-check is now merely a curiosity query.
+
+Also worth its pattern-entry: the retired apex-domain gate's test was **inverted
+rather than deleted** — it now asserts the gate stays gone, because a retired limit
+nothing watches is one somebody re-adds by accident, and a limit's failure mode is
+silence. And `dashboard_domain_limit_refusal` stays in the schema, unreachable,
+as the record of what people were shown — ratified wording is history, like
+release notes.
+
+**Open action (Todd): push migrations 0044–0046.** 0044 narrows what an existing
+team can do — a co-admin now costs a seat where it was free. The watermark catches a
+team over the cap, not one relying on uncounted admins: any live team running two
+admins loses one seat of headroom at db:push. Pre-open-door the teams are known and
+small, and the same push closes the live bypass — apply promptly.

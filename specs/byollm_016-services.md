@@ -5188,3 +5188,44 @@ live. Admit -> revoke -> refused = full lifecycle, one identity, three jobs.
 Key: the refusal must happen at grant AUTHORSHIP (hub declines for a non-member),
 so the job never reaches the device — the seat boundary enforced at the source,
 not the device refusing after the fact.
+
+### Gate harness ready; three fixes that made a green run mean something (2026-08-27)
+
+CC found three things without which a green cross-user run would have proven
+nothing — all ratified:
+1. OWNER was a relabel, not a filter — the harness renamed the owner but routed
+   under whichever mapped consent it found first, so a run could validate Todd's
+   mapping wearing Lis's name. Now selects the person's OWN consent (their having
+   no mapping IS the answer). The determinism discipline: route under the identity
+   under test, don't relabel.
+2. Audience must be team — a Lis-owned job hitting Todd's device is refused
+   device-side by matchAudience (audience-self-other-owner) BEFORE the hub is
+   asked. Correct refusal, WRONG LAYER: the gate tests the seat boundary at the
+   CONTROL PLANE, so the job must reach grant authorship (audience=team), not be
+   refused device-side. Parsed not cast (AUDIENCE=teem fails loudly).
+3. refusedBy attribution — the real fix. A job that doesn't run looks identical
+   from outside (queued, silent) whether the hub declined, the device refused, or
+   it's slow. why-not-claimed.mjs reads refusedBy, which the relay appends to
+   ONLY on a permanent grant-author decline; a runner id there means the control
+   plane authored nothing and won't retry. Attribution law applied where a
+   refusal was invisible. Read-only via kubectl exec, ids only.
+
+Smoke-site substitution ratified: the harness signs the enqueue as the site and
+holds ONE site key; press's keys are Todd's secrets and routing them through the
+harness is the workaround we don't take. The smoke site proves the identical
+property with keys the harness holds; Lis still sees "Todd · qwen" (team-candidate
+derivation test). Never-handle-secrets holding under deadline.
+
+Sharpening on half 2: keep Lis's MAPPING, remove only her team MEMBERSHIP — if
+the hub still declines, membership is proven the gate independent of the mapping
+(the seat boundary pure). Deleting the mapping would just re-test "unmapped"
+(stage 1 covered). CC's plan is membership-only; confirm the mapping stays.
+
+Execution: Half 1 (admitted) — Todd adds Lis to team, qwen team-offered + qwen
+server up, Lis maps Hub smoke test -> Todd·qwen, gives CC her id; CC runs
+OWNER=<id> AUDIENCE=team -> lands on Todd's qwen log. Half 2 (refused) — Todd
+removes Lis's membership (mapping stays), CC re-runs and probes refusedBy for
+Todd's runner id -> hub declined at authorship, nothing new on qwen log. Keep the
+daemon running through BOTH (half 2 needs a real claim attempt to trigger
+author-and-decline). Green both -> clear .stopship -> promote (six packages,
+control-plane's first latest, ready-for-latest + STOPSHIP).

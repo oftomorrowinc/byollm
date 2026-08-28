@@ -5229,3 +5229,44 @@ Todd's runner id -> hub declined at authorship, nothing new on qwen log. Keep th
 daemon running through BOTH (half 2 needs a real claim attempt to trigger
 author-and-decline). Green both -> clear .stopship -> promote (six packages,
 control-plane's first latest, ready-for-latest + STOPSHIP).
+
+### STOP-SHIP RESOLVED — the three-leg gate is met (2026-08-27)
+
+The cross-user gate passed as a full lifecycle: ran -> removed -> refused ->
+restored -> ran. Member admitted and ran on Todd's qwen (leg 1); non-member's job
+did not run (leg 2); restoring membership made the SAME job run again (leg 3) —
+membership demonstrated and reversible, confirmed against Todd's qwen server log.
+
+Leg 2 mechanism, recorded honestly: the hub declined to ROUTE (never offered the
+job to a device; refusedBy empty) rather than declining to author a grant against
+a claim — one layer further upstream, arguably stronger (the job never reaches a
+device). The proof's rigor is from leg 3's reversibility (controlled toggle: only
+membership changed, run/no-run followed it), not from refusedBy. Precise note:
+leg 2 exercised the ROUTING pre-filter's membership check, not the engine's
+grant-author refusal (the routing filter caught it first) — the design's
+two-layer structure (Phase 2 ruling: routing is optimisation, engine is
+authority, must not disagree); engine backstop stays unit-tested. Non-blocking
+confirm owed: routing filter and engine check read the SAME roster source (no
+drift seam).
+
+The deepest bug of the night, found by leg 3: re-adding a removed member was
+IMPOSSIBLE — a consumed invitation blocked re-invitation forever, accepting
+couldn't reinstate a suspended membership. In a product whose subject is
+reversible consent, removal was silently permanent. Two migrations fixed it;
+found by Todd clicking, not a check. CC's own near-miss recorded: 0042 copied
+0019's function body and reverted two later migrations (suite caught it) -> open
+check: a migration must replace the NEWEST definition of a function.
+
+**RULING: the stop-ship placed on .57 (63ba3af, 2026-08-26) is RESOLVED.** Wire
+proven end to end; member admitted, non-member refused at the control plane,
+membership reversible — all live; the security pass closed the 35-finding review
+AND its own production gaps (0038/0039); every promotion-integrity check in; all
+three repos pushed green; hub on .62. The .stopship marker may be cleared and
+.62 may take latest.
+
+Remaining after promotion (non-blocking, carried): service_owner null-vs-explicit
+(cost as migration); the full Lis split (needs press llm.chat via Kevin's port +
+Lis's device — the video demo); the two untrusted-traffic blockers (pending-claim
+leak, payload ceiling — fenced before the first uncontrolled site / untrusted end
+users, open-door-readiness.md); the migration-newest-definition check; the
+routing-vs-engine same-roster confirm.

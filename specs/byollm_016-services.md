@@ -5008,3 +5008,32 @@ typecheck/resolve pass — `service:` is exactly the rot that would fail at CI n
 the wire. Then STAGE 2 (tombstones, re-connect correctness, paused-then-resumed
 recovery, offer narrowing) and STAGE 3 (Lis's split session), then clear
 .stopship and promote through the six-package + STOPSHIP gate.
+
+### Wire proof CONFIRMED independently — the qwen server's own log (2026-08-27)
+
+Stage 1 fully closed with the strongest possible confirmation: not the harness's
+self-report but Todd's qwen server's OWN log — POST /v1/chat/completions 200,
+prompt processing 15/15 — and the site rendered the actual generated text ("Hello!
+It's great to see a message from the future..."). Verification reading the
+artifact the work truly produced. Four properties held live:
+- first job: ok, sealed both ways (full grant-at-claim path)
+- mapped purpose: ok, resolved through Todd's AUTHORED mapping (not a fixture)
+- unmapped purpose: queued, NEVER ran, no fallback — the negative that proves the
+  positive; admission refusing unmapped work is what makes every other guarantee
+  real
+- hub: held no key that opens either direction (RELAY_BLIND)
+The "FAILED" positive control was stale harness (asserted THIS device ran it; the
+mapping correctly resolved to Todd's real qwen device) — same rot as service:,
+fixed to match reality.
+
+The arc: stop-shipped .57 promotion -> rebuilt admission (Amendments I-L) ->
+35-finding review -> security pass that caught its own production gap (0038/0039)
+at the last gate -> a real job running end to end on Todd's own hardware, under a
+signed grant, chosen by a mapping he authored, hub blind throughout.
+
+Clean stopping point offered (late; latest holds; nothing at risk). Remaining
+before .stopship clears: harness cleanup (service: scenario, positive control) +
+the two queued checks (app-vs-RLS, .mjs-into-typecheck); STAGE 2 (tombstones,
+re-connect correctness, paused-then-resumed recovery, offer narrowing); STAGE 3
+(Lis's split session — needs Lis). Then promote through the six-package + STOPSHIP
+gate.

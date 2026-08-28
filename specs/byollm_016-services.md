@@ -4955,3 +4955,33 @@ undeclarable is what keeps the null-fallback and declared-manifest paths from
 colliding. Todd verified the smoke domain (TXT restored, un-stale). Next: CCC
 ships the fallback -> smoke site shows one "Hub smoke test / Everything this site
 does" slot -> Todd maps it (Choose what powers this -> qwen) -> round-trip routes.
+
+### Seam spelled THRICE: default-purpose fact disagreed in the RLS policy (2026-08-27)
+
+The smoke-site write bounced with an RLS violation: the "manifest-less site has a
+default purpose" fact lived in the engine, the consent screen, AND 0038's RLS
+policy (which read `s.manifest is not null`) — the third disagreed and refused
+every mapping insert. **Insidious because a policy has no surface: the app and
+screen agreed visibly while the RLS rule disagreed invisibly, so the divergence
+surfaced only when Todd's click hit the write — past every gate, because nothing
+renders an RLS policy.** Migration 0040 (dbc1616) accepts "default" there; safe
+because the branches are exclusive BY CONSTRUCTION (Manifest refuses "default" as
+a declared key), kind left open (a legacy site sends what it sends). Proved with
+positive controls first (restoring 0038's rule made the first two cases fail with
+the exact error — 0038's own lesson: a suite where only refusals pass asserts
+nobody can write). Todd applied it (db:push, "that worked") and mapped the slot.
+
+**Ruling on CCC's self-flag ("twice tonight I shipped one half of a two-sided
+fact; if it happens a third time I'll build the check"): DON'T wait for the
+third.** Two occurrences of the SAME class in one evening — the app authorizes a
+write the RLS refuses — is a lesson twice over, and rule-of-three contradicts the
+pass's own law (every lesson becomes a check). The existing write-path check
+catches scoping (admin-widens-first-person); this is a distinct class: **app-
+predicate and RLS-predicate disagreeing about the same write.** Build the check —
+a both-ends test (promise↔remedy shape) asserting the app's may-I-write predicate
+and the RLS may-I-insert predicate agree, so the two sides are re-read together.
+Sequence it AFTER the wire proof (one round-trip away; don't context-switch out).
+
+Wire proof is the immediate next step: CCC confirms the smoke rows and runs
+round-trip (purpose-less -> "default" -> matches Todd's mapping -> routes). First
+end-to-end job since .55.

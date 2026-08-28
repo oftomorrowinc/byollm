@@ -4985,3 +4985,26 @@ Sequence it AFTER the wire proof (one round-trip away; don't context-switch out)
 Wire proof is the immediate next step: CCC confirms the smoke rows and runs
 round-trip (purpose-less -> "default" -> matches Todd's mapping -> routes). First
 end-to-end job since .55.
+
+### WIRE PROOF PASSED — first grant-at-claim job end to end (2026-08-27)
+
+Stage 1 CLOSED. The first job since .55 went through the deployed hub: hub
+authored the signed grant, the device claimed and verified it (signature, site,
+kind, purpose, owner, replay, offer-consistency), ran it, and sealed the result
+back — "the site sealed to the device that claimed it." The rebuilt admission
+model (signed grants, purpose->service resolution, private-is-absolute) carried a
+real prompt to Todd's qwen and back. The redesign works on real infrastructure.
+
+The remaining `service:` failure is a LATER round-trip scenario using the deleted
+select-by-name — stale harness (Allowlist / protocolVersion "0" class), and the
+red is the deployed strict-parse CORRECTLY REFUSING removed vocabulary (a
+confirmation, not a regression). Rip-discipline ruling: delete the scenario if it
+tests select-by-name (a test for deleted machinery dies with it); rewrite in
+purpose terms if it tests something still valid.
+
+Queued after the harness cleanup, in order: (1) the app-vs-RLS agreement check
+(don't wait for a third strike); (2) .mjs operator/harness scripts into CI's
+typecheck/resolve pass — `service:` is exactly the rot that would fail at CI not
+the wire. Then STAGE 2 (tombstones, re-connect correctness, paused-then-resumed
+recovery, offer narrowing) and STAGE 3 (Lis's split session), then clear
+.stopship and promote through the six-package + STOPSHIP gate.

@@ -269,17 +269,30 @@ JSONL, `0600`, and yours to read, grep and delete.
 Off by default. A fresh daemon runs your work and nobody else's.
 
 ```bash
-byollm allow https://your-app.com alice   # asks you to confirm, in plain words
-byollm allow --list                       # everyone who can use this device
-byollm offer openai public --cap 250      # share a paid backend, with a ceiling
-byollm disallow https://your-app.com alice
+byollm offer qwen team --cap 250          # share a service with your team
+byollm offer qwen private                 # back to your work only
 ```
 
-The allowlist is **yours**, checked locally, keyed by `(app, user)`. An app
-saying "this runner is allowed" is not enough — your daemon decides. Community
-jobs are additionally rate-limited, capped daily, given a tighter resource
-budget, and their prompts are reduced to hashes after 7 days so you are not
-holding strangers' content indefinitely.
+Who "your team" is lives in the dashboard, not on this machine. Add somebody
+to your roster there and their next job can run here; remove them and their
+next claim fails, including work already queued.
+
+`byollm allow` and `byollm disallow` are gone. A device no longer keeps its own
+list of who may use it — that list had to be kept in step with the roster by
+hand, and two lists that must agree are one list and a bug waiting. Both
+commands leave a tombstone pointing at where the decision lives now.
+
+What replaced it is stronger than a list. Every teammate's job arrives carrying
+a **grant**: short-lived, single-use, signed by the control plane your device
+pinned when it paired, naming the site, the person, the job and the service to
+run. Your daemon checks that signature itself before it runs anything, so an
+app saying "this runner is allowed" is still not enough — and neither is a
+relay saying it. Jobs from other people are additionally rate-limited, capped
+daily, given a tighter resource budget, and their prompts are reduced to hashes
+after 7 days so you are not holding anybody else's content indefinitely.
+
+`public` is not a scope. It was one until 2026-08-26, and `byollm offer <service>
+public` now refuses by name rather than silently doing something else.
 
 **Your subscription-backed models are never part of this.** `claude-cli` is
 locked to your own work — a protocol rule, not a setting you can change.

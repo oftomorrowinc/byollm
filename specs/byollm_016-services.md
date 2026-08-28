@@ -4819,3 +4819,40 @@ mapping editor). Lis cannot map her split session without a dashboard path, and
 this is the "choose again on Connected sites" the degradation email already
 promises. Also review whether the dashboard connectSite action should route
 through the mapping screen rather than writing a consent with no mapping.
+
+### Mapping-UI fix: copy approved, push (2026-08-27)
+
+CCC built the fix — a "Choose what powers this" link on each connected-site row
+routing to the reused consent/mapping screen (NOT a second editor: a second
+mapping UI would be the seam spelled twice, the copy surviving a change whichever
+one someone remembered to edit). Copy APPROVED as proposed, wording gates the
+merge:
+- Connections row link: "Choose what powers this"
+- Headline: first connect "{site} wants to send work to your devices"
+  (unchanged); revisiting "Choose what powers {site}"
+- Primary button: "Connect {site}" (first) / "Save choices" (revisit — refuses
+  "Connect", an act done months ago)
+- Secondary: "Not now" (first) / "Cancel" (revisit)
+- UNCHANGED on both paths: stored disclosure, fingerprint, boundary paragraph.
+  "A screen that softened its terms on a second visit would tell them less about
+  a grant they still hold."
+
+Live bug fixed en route: approveConnect with a missing return hit a bare return
+(Save = silent no-op, no consent, no mapping). Now explicit — absent is not
+invalid (no attacker-supplied address to be tricked by; the landing is one we
+name).
+
+**Smell named: three true-sounding halves that only become a lie when followed.**
+The email linked a real page, the page listed real sites, approveConnect cited a
+real remedy — each honest alone, collectively false, because the control they all
+pointed at did not exist. A promise whose referent exists but is empty. **Cure,
+now mechanical: a test tying the promise to the remedy from BOTH ends — fails if
+the link leaves Connected sites AND if the email stops making the promise — so
+the pair is re-read together instead of drifting.** conform 26/26, typecheck
+clean, builds; mutation-tested by pointing the link elsewhere.
+
+Scope noted: covers sites with a live consent; a disconnected site (no row) is
+the existing connect flow's job; denyConnect already lands on /connections.
+
+Unblocks stage 1 step 6 (mappings 0 -> >=1) via the dashboard link OR Todd's
+hand-built /connect URL.

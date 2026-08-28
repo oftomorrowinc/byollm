@@ -5477,3 +5477,23 @@ team can do — a co-admin now costs a seat where it was free. The watermark cat
 team over the cap, not one relying on uncounted admins: any live team running two
 admins loses one seat of headroom at db:push. Pre-open-door the teams are known and
 small, and the same push closes the live bypass — apply promptly.
+
+### 2026-08-28 — Migrations 0042–0046 applied to production; first pass fully live
+
+Todd ran db:push (all five, in order). Post-push check, recorded per the ruling:
+**`dashboard_team_seat_floors` is empty — 0044 narrowed no existing team.** Gate 4
+closes as "narrows nobody in fact," and the watermark stands anyway: the law is now
+a property of the schema rather than a paragraph in a spec, inherited by the next
+cap that moves without anyone needing to remember it, with team_seats.test.sql
+watching the null-guard and floor logic. The empty table is the point of the table.
+
+The admin-invite bypass is therefore closed in production as of this push.
+
+Standing radar item (not a queue item): a team sitting at exactly six that relied
+on an uncounted co-admin is at seven counted now and discovers it at its next
+invitation, not today. The remedy is deliberate: one row in
+dashboard_team_seat_floors, granted on request — never a widening of the count.
+
+Open queue additions from this pass: the +$3 seat is priced but not purchasable
+(build the purchase before any team needs a seventh head); the comparison-matrix
+layout call (in-card vs strip) waits for the pricing-page walk.

@@ -4889,3 +4889,22 @@ health check — "Choose what powers {site}" + "Save choices" means the consent
 lookup found the consent; "wants to send work" means it's still failing. Todd's
 retry watches the heading as the tell; CCC verifies mappings>=1 in the DB, not
 the screen — the episode's whole lesson.
+
+### Mapping confirmed in DB (mappings 0->1); wire proof running (2026-08-27)
+
+CCC verified from the database, not the screen: mappings=1 on Todd's consent
+(9c5748f5), row = (writing-assistant, llm.generate, qwen-2.5-14b,
+service_owner=null). service_owner=null is the correct encoding for "own
+service" — a service id means nothing outside its owner's namespace, so
+null-owner vs teammate-owner are different services (the anti-substitution
+identity in the data). Stage 1 steps 4-5 done, and the row being on Todd's
+consent specifically proves the admin-scoping bug is fixed, not masked.
+
+Step 6 (wire proof) running via repaired round-trip.mjs — the full grant-at-claim
+path, first end-to-end job since .55. CCC pre-flagged that the round trip picks a
+live consent and the site has two (Todd's mapped, the other unmapped); a pick of
+the unmapped one yields a correct "unmapped" refusal, not a wire failure, and CCC
+will say which. Ruling: if it picks wrong, make round-trip.mjs TARGET Todd's
+consent (9c5748f5) deterministically — a harness picking arbitrarily between a
+mapped and unmapped consent flakes forever ("a mutation must be deterministic"
+applied to the fixture).

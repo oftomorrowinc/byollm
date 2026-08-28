@@ -5037,3 +5037,12 @@ the two queued checks (app-vs-RLS, .mjs-into-typecheck); STAGE 2 (tombstones,
 re-connect correctness, paused-then-resumed recovery, offer narrowing); STAGE 3
 (Lis's split session — needs Lis). Then promote through the six-package + STOPSHIP
 gate.
+
+Harness cleanup pushed (5af3495, verify green). CCC building the queue in order,
+app-vs-RLS agreement check first (ruled: build now, two strikes is enough).
+Design note ruled: the check must run the REAL write path against REAL Postgres,
+BOTH directions — app-authorized inputs must be ACCEPTED by the policy (0038's
+own positive-control lesson), app-refused inputs REFUSED. A mocked-RLS or
+refusals-only version would have passed 0038 clean. Runtime both-ends test at the
+app<->RLS boundary (PgPolicyStore-contract shape), not a static text compare (the
+scoping check's shape) — app-vs-RLS agreement is richer than a static predicate.

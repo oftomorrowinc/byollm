@@ -5376,3 +5376,53 @@ single structurally-shared value), same family as the config-reader check. Flag
 (b) — live-exercising the engine refusal inside the ≤2s window (the only
 certified property on inference not observation) — is worth doing once, low
 priority. Neither touched tonight.
+
+---
+
+## 2026-08-28 — Two-readers follow-up CLOSED; and a lesson about two agents in one clone
+
+**The roster's two-readers item — the only open follow-up touching a certified
+property — is done and shipped** (`hub/test/one-roster-source.test.ts`, pushed at
+47ca0a6, verify green 227/227-passed at that HEAD).
+
+The shape it landed in is worth recording because it beat the prescribed fix. The
+original prescription (Cowork) was a two-settings-must-agree check at boot. CCC's
+pushback: there is ONE setting (`CONTROL_PLANE_READER_URL`), read twice, four lines
+apart — a boot check would compare a value to itself and pass forever, an inert
+check, the exact green-light-that-checks-nothing smell this pass spent a night
+deleting. The hazard is a *future edit* (pointing the 2-second poller at a read
+replica is the attractive one), and a future edit is guarded in CI, failing on the
+diff that introduces it — not at runtime after a deploy. Ruling: CI test only, no
+inert runtime twin. Concession recorded with attribution; same lesson as
+grant.siteId: **a review (or a ruling) names the hole; the fix must be fitted to
+the code by whoever can see it.**
+
+The test itself closes its own dodges, each mutation-verified: both reader
+constructions must be *found* (a rename fails loudly instead of going vacuously
+green); both must take the *same* expression (replica edit fails); and the
+expression must be a *direct* `config.FIELD` (hiding both behind
+`pickReaderUrl(config)` fails on its own terms — indirection has to be argued for,
+not slipped in). A check that can actually fail, guarding the asymmetry that keeps
+the engine the strictly-fresher reader.
+
+**The near-miss: two agents, one clone.** Both agents committed in the same working
+copy with `git add -A` habits. Result, in the mild direction: Cowork's bare commit
+swept CCC's staged test into an unrelated commit (87e14d8); CCC's push published two
+of Cowork's spec commits as ride-alongs. Nothing was lost and nothing half-finished
+shipped — but the same mechanism publishes unfinished work in either direction, and
+nothing about a lock error announces the risk. Protocol adopted by both, effective
+now: **commit by pathspec, never `git add -A` / bare `git commit` in this tree; on a
+lock error, stop and report — never retry blind, never sweep locks blind** (a
+retry is what turned a failed commit into a merged one; a blind sweep can clear a
+lock the other agent legitimately holds). Path ownership stands: Cowork writes
+`specs/`, CCC writes code.
+
+Root cause of the lock litter itself, for the record: Cowork's workspace mounts the
+repo behind a deletion guard, so git could create its locks but never unlink them —
+every commit left a stale `index.lock` behind. Fixed by granting the session delete
+permission; the litter (and the `_stale_locks/` holding pens) is cleaned out of all
+three repos.
+
+Remaining queue, unchanged, none blocking: migration-replaces-newest-definition
+check; service_owner null-vs-explicit costed migration; 23505 invite wording split;
+five hub suites that skip silently.

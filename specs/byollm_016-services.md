@@ -5046,3 +5046,20 @@ own positive-control lesson), app-refused inputs REFUSED. A mocked-RLS or
 refusals-only version would have passed 0038 clean. Runtime both-ends test at the
 app<->RLS boundary (PgPolicyStore-contract shape), not a static text compare (the
 scoping check's shape) — app-vs-RLS agreement is richer than a static predicate.
+
+### Stage 2: tombstones pass (2026-08-27)
+
+byollm allow / disallow both print the tombstone — fact + remedy (team page) +
+the redesign's own reasoning as user copy: "it could never check the names on
+that list, so the list only ever agreed with whoever was asking" (Amendment I's
+GitHub-analogy argument rendered for a user at the moment they'd wonder why the
+command vanished) + "Membership lives with your relay now... one signed grant at
+a time." Tombstone-with-remedy law working live; stage-2 tombstone check GREEN.
+
+Wording note (Todd flagged length; his call): the essential lines are fact +
+remedy; the one-line why earns its length (turns a dead end into an
+explanation); the trimmable line is the last — "A device with no relay serves
+its owner and nobody else, which is what byollm status will tell you" — a
+no-relay tangent at the moment someone's trying to add a teammate, pushing the
+remedy down. Optional CCC trim to four tight sentences; not a blocker, copy not
+wrong.

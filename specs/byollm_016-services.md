@@ -5340,3 +5340,39 @@ split. (5) five silently-skipping hub suites. (6) Kevin's llm.chat port -> Lis's
 full split demo. Both post-promotion confirms in specs/byollm-acceptance-probe.md.
 
 byollm_016 SHIPPED.
+
+### Two-reader investigation (read-only): the property holds; one latent config risk (2026-08-27)
+
+CCC confirmed from code, changed nothing:
+1. The engine INDEPENDENTLY re-checks membership at authorship — engine.ts:173
+   `if (job.owner !== owner && !snapshot.member) return decline("not-a-member")`,
+   snapshot from the engine's own store read, no relay input, no early return
+   around it, fails closed on store failure. So a non-member reaching authorship
+   by ANY route (routing-filter bug included) is refused there. The Phase 2
+   ruling holds in code: pre-filter is optimisation, engine is authority. The one
+   deliberate short-circuit — job.owner===owner before the store — is
+   private-is-absolute (a store saying member:false about your own account must
+   not block your own device).
+2. One source (public.dashboard_team_roster_members view — the definition that
+   was written three times at finding 14, now single), two READS: routing =
+   ControlPlaneReader ROSTERS, aggregated, polled every 2s; engine =
+   PgPolicyStore.read() exists() per claim, live. Same endpoint. **The seam is
+   asymmetric in the SAFE direction: the live engine is never staler than the
+   2s projection, so drift only OVER-OFFERS (projection lists someone already
+   dropped -> routing offers -> engine refuses = extra transient decline, never
+   an admitted non-member).** That also explains leg 2: removal had reached the
+   projection before enqueue, so the pre-filter caught it and the engine's check
+   was never reached.
+
+**Cowork's take (for morning, no action tonight): the property is solid — the
+authority backstop holds, and the seam can only over-decline under today's
+deployment. The one item worth acting on is CCC's flag (a): the safe asymmetry
+depends on BOTH readers sharing an endpoint, and NOTHING enforces it.** If ops
+ever points the projection at a read replica while the policy store stays on
+primary (a reasonable scaling move), the asymmetry INVERTS and the seam can admit
+a non-member. That is the "two settings that must agree" law — one
+CONTROL_PLANE_READER_URL used twice must stay equal — so it wants a CHECK (or a
+single structurally-shared value), same family as the config-reader check. Flag
+(b) — live-exercising the engine refusal inside the ≤2s window (the only
+certified property on inference not observation) — is worth doing once, low
+priority. Neither touched tonight.

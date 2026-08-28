@@ -5079,3 +5079,38 @@ So Todd's hands-on stage-2 work is done. Remaining person-needing item is STAGE 
 (Lis's split session — add Lis to the team, she connects press and maps, a job
 proves her chat on her box + her generate on Todd's), which needs Lis. Then CC's
 queued checks (app-vs-RLS, .mjs typecheck) finish, and .stopship clears -> promote.
+
+### Both queued checks landed, both caught real bugs (2026-08-27)
+
+1. App-vs-RLS agreement check (0dbc314): executable both-ends (same inputs to app
+   and DB; disagreement = bug), 7 cases; restoring 0038 fails the two
+   default-on-undeclared cases — tonight's bug caught before a click. Adding a
+   case asks both sides at once, so a change can't land one-sided.
+2. .mjs into CI typecheck (ca81acf): reintroduce service: -> TS2353. Found a real
+   one first run — grant-key.mjs built its rehearsal grant with siteId (renamed
+   to `site` in .59), so the ceremony that proves the PRODUCTION SIGNING KEY works
+   was rehearsing on a statement no device would ever see, one field short, its
+   own comment claiming "the real shape." Key itself fine (deployed fingerprint
+   BYOLLM-PTTZ-… still matches); the rehearsal's PROOF was hollow. "Testing near a
+   law is not testing it" applied to a security ceremony — hidden forever because
+   nobody compiles .mjs. Fixed.
+   Config judgment ratified: dropped noImplicitAny/strictNullChecks (90 edits
+   about untyped JSON, nothing about staleness — a gate that expensive gets turned
+   off); kept the rot-finding signal. Kept one runtime fix: reading a caught throw
+   via instanceof Error rather than assuming .message (an error handler that would
+   throw while reporting someone else's failure).
+
+State-sync to CCC: stage-2 #7 (tombstones) and #8 (re-connect) are ALREADY GREEN
+(Todd walked them in the UI tonight). Remaining stage 2 = #9 paused-then-resumed
+(CC's harness; core proven c46ede8), #10 site-binding (test-covered), offer
+narrowing (confirmed in services). So stage 2 is essentially done bar #9.
+
+Recorded as the night's lesson: FOUR bugs were found by Todd clicking the real
+path, not by automated checks — the mapping-UI gap, the admin-scoping consent
+bug, the thrice-spelled RLS default rule, the never-wired singlePurposeManifest.
+Each then rooted by CCC. The acceptance probe earned its keep four times; a human
+walking the real path catches what a test suite structurally cannot. Clean full
+stop available: wire proven, stage 2 green bar one CC harness test, both queued
+checks landed, latest holding. Remaining: #9, Lis's split session, clear
+.stopship, promote. Open non-blocking: service_owner null-vs-explicit (cost as a
+migration).

@@ -4945,3 +4945,13 @@ restore the _byollm.smoke.byo-llm.com TXT record (stale -> paused -> stops
 routing). The service_owner null-vs-explicit question stays open for after the
 proof (CCC costs the migration; explicit removes the null-resolution fail-open
 risk, "duplication" objection weak because service_owner is a distinct field).
+
+Smoke-site manifest: paste NOTHING (CCC, ratified). round-trip.mjs enqueues a
+purpose-less job -> RESERVED_PURPOSE "default"; the schema refuses "default" as a
+declared key, so a declared named manifest would never match the smoke job. The
+singlePurposeManifest fallback (null-manifest -> one "default" slot) is the
+correct path. Validates the reserved-purpose design end to end: "default"
+undeclarable is what keeps the null-fallback and declared-manifest paths from
+colliding. Todd verified the smoke domain (TXT restored, un-stale). Next: CCC
+ships the fallback -> smoke site shows one "Hub smoke test / Everything this site
+does" slot -> Todd maps it (Choose what powers this -> qwen) -> round-trip routes.

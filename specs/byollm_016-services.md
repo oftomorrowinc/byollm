@@ -4908,3 +4908,40 @@ will say which. Ruling: if it picks wrong, make round-trip.mjs TARGET Todd's
 consent (9c5748f5) deterministically — a harness picking arbitrarily between a
 mapped and unmapped consent flakes forever ("a mutation must be deterministic"
 applied to the fixture).
+
+### Wire proof aimed at a no-manifest site; singlePurposeManifest never wired (2026-08-27)
+
+The wire proof failed because round-trip.mjs routed through a no-manifest site
+(the engine correctly answered unmapped). Diagnosis and rulings:
+
+**The proof isn't blocked on the manifest bug — the harness targeted the wrong
+site.** Todd has a real mapped consent on Of Tomorrow Press (writing-assistant ->
+qwen). Ruling: run the proof against the MAPPED path — Of Tomorrow Press + Todd's
+consent 9c5748f5, deterministically — the richer primary purpose-mapping proof.
+Constraint: if targeting press needs its site keys (Todd's secrets), do NOT hand
+them to the harness; use the smoke path (below) instead. CCC picks by friction.
+
+**singlePurposeManifest is a real bug — built, exported, documented (Amendment L
+flat-list sugar), called NOWHERE (grepped all three repos).** So every flat-list
+and null-manifest site gets slots=[] and is silently unroutable, though
+engine.ts:122 (`input.purpose ?? RESERVED_PURPOSE` = "default") is ready to route
+a default mapping. This is the review's REFUTED finding ("singlePurposeManifest
+bypasses validation" — refuted for zero callers) turning out to mark real dead
+code that's a MISSING WIRING — **"not exploitable" is not "not a bug"** — and the
+pass's built-but-never-wired through-line again (kin: /healthz never compiled).
+Fix: wire singlePurposeManifest as the fallback for a no-parseable-manifest site.
+
+Copy APPROVED: slot label = the site's OWN NAME (consistent with the reserved-
+purpose ruling — "default" never renders, the flat slot shows the site name),
+description "Everything this site does." **Kinds: BOTH (JOB_KINDS)** — a legacy/
+undeclared site sends what it sends; offering one kind would silently break a
+site that sends the other; the user still consents and maps each slot, so both is
+safe. Require-declaration-before-a-kind is right for NEW sites (they declare
+anyway), wrong as a legacy migration accommodation.
+
+Decisions to CCC's two questions: do the FIX, not the one-off /sites paste (the
+paste is a one-off; the fallback fixes the class). DNS is Todd's regardless —
+restore the _byollm.smoke.byo-llm.com TXT record (stale -> paused -> stops
+routing). The service_owner null-vs-explicit question stays open for after the
+proof (CCC costs the migration; explicit removes the null-resolution fail-open
+risk, "duplication" objection weak because service_owner is a distinct field).

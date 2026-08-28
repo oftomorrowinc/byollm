@@ -5063,3 +5063,19 @@ its owner and nobody else, which is what byollm status will tell you" — a
 no-relay tangent at the moment someone's trying to add a teammate, pushing the
 remedy down. Optional CCC trim to four tight sentences; not a blocker, copy not
 wrong.
+
+### Stage 2 essentially complete on Todd's side (2026-08-27)
+
+#8 re-connect correctness GREEN (mapping shown back; "none" removes it; re-add
+persists — the review's consent-screen quartet closed live). Division of the rest:
+- #9 paused-then-resumed: CC's, not a UI walk — needs a job queued during a pause
+  window with team-membership timing (a harness test). Core already proven
+  (tri-state resume round trip vs real Postgres, c46ede8); an end-to-end hub
+  version is optional/CC's.
+- #10 site-binding refusal: test-covered (the .59 grant.siteId fix), CC's.
+- Offer narrowing: already confirmed in Todd's `byollm services` output
+  ("metered — team, cap $25.00/day" IS the narrowing).
+So Todd's hands-on stage-2 work is done. Remaining person-needing item is STAGE 3
+(Lis's split session — add Lis to the team, she connects press and maps, a job
+proves her chat on her box + her generate on Todd's), which needs Lis. Then CC's
+queued checks (app-vs-RLS, .mjs typecheck) finish, and .stopship clears -> promote.

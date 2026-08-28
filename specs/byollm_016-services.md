@@ -4856,3 +4856,36 @@ the existing connect flow's job; denyConnect already lands on /connections.
 
 Unblocks stage 1 step 6 (mappings 0 -> >=1) via the dashboard link OR Todd's
 hand-built /connect URL.
+
+### Zero-mappings bug: is_platform_admin un-scoped the consent lookup — THIRD instance (2026-08-27)
+
+The mapping didn't save, and the cause was invisible on screen. The consent/
+mapping lookup filtered on site_id, but the RLS policy's is_platform_admin clause
+stopped the "own consent" filter narrowing for Todd (an admin), so the query
+became "anybody's consent for this site." Of Tomorrow Press has two consenters
+(Todd 9c5748f5, another 5b9db721); maybeSingle() matched two rows and returned
+nothing, breaking both halves: the PAGE loaded no prior mappings (every slot
+showed its default — the qwen Todd saw was never a saved choice, it was the
+screen never learning he had one, the more misleading symptom), and
+approveConnect skipped the whole mapping block (consent recorded, zero mappings
+wired).
+
+**This is the THIRD instance of the review's admin-widens-first-person pattern**
+(Connections RLS is_platform_admin; "Teams you are on"; now the consent lookup).
+**Law reinforced: a first-person query must scope on the column the RLS policy
+uses to mean "yours" — a widening admin clause silently un-scopes any OTHER
+filter, and maybeSingle() over such a query returns nothing on 2+ rows (latent
+until a site has a second consenter — i.e. until the first real multi-user
+site).** Fix (e7eb431, deployed): both queries name the owner and exclude revoked
+rows (two queries about one fact must not differ in meaning). The check reads the
+ownership column out of the migration's POLICY TEXT rather than guessing filters
+— CCC's guessing first draft flagged six false positives (a primary key, an
+insert returning its own row, a group-scoped lookup) and would have been disabled
+within a week; deriving from the policy is what makes it survive. The
+derive-don't-guess / a-noisy-check-gets-disabled disciplines, together.
+
+Elegant side effect: the approved connect-vs-revisit wording now doubles as a
+health check — "Choose what powers {site}" + "Save choices" means the consent
+lookup found the consent; "wants to send work" means it's still failing. Todd's
+retry watches the heading as the tell; CCC verifies mappings>=1 in the DB, not
+the screen — the episode's whole lesson.

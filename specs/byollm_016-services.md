@@ -5270,3 +5270,27 @@ Lis's device — the video demo); the two untrusted-traffic blockers (pending-cl
 leak, payload ceiling — fenced before the first uncontrolled site / untrusted end
 users, open-door-readiness.md); the migration-newest-definition check; the
 routing-vs-engine same-roster confirm.
+
+### Write-up reviewed; open list completed; promotion go (2026-08-27)
+
+CCC's status write-up (artifact a8d36b6f; read via Todd's paste — the artifact
+frame domain is blocked from this environment's network allowlist) reviewed and
+confirmed accurate against this record. Through-line crystallized: 7 of 8 bugs
+were one shape — a fact written in two places agreeing until one changed, or a
+mechanism built/documented/never wired to what already awaited it (the rip's
+characteristic debris). The 0042 design call affirmed: re-invite over a "restore
+button" because the seat cap is enforced only on invite-insert, so a restore path
+would bypass it — guarantee-is-a-shape under pressure, keeping enforcement where
+it lives rather than adding a second door.
+
+Open items completed from CCC's list (nothing lost): 23505 invite wording now
+covers two states (genuinely pending vs already a member) in one sentence; five
+hub suites skip silently when infra is down (loud in CI via REQUIRE_*, but the
+shape that hid the contract bug — derived-check follow-up). Already carried:
+service_owner null-vs-explicit; create-or-replace-replaces-newest-definition
+check; full Lis split (needs press llm.chat + Lis device); routing-vs-engine
+same-roster confirm; pending-claim leak + payload ceiling (open-door blockers).
+
+Ruling stands: stop-ship RESOLVED, .62 GO to promote. Final sequence: clear
+.stopship -> ready-for-latest passes clean -> Todd moves latest to .62 across all
+six packages (2FA), control-plane's FIRST latest tag included.

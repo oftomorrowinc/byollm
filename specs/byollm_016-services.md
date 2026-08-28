@@ -5165,3 +5165,26 @@ C. Promote: clear .stopship -> 2FA, six packages, control-plane's FIRST latest
 
 The full split remains the video demo / a later gate once press has llm.chat +
 Lis maps chat to her own device.
+
+### Cross-user gate upgraded to a MATCHED PAIR (Todd) (2026-08-27)
+
+Todd: prove valid AND invalid, not just valid — the negative-proves-the-positive
+discipline (stage 1 was solid because the UNMAPPED job never ran). A cross-user
+proof that only admits proves nothing about who's kept out, and the membership/
+seat boundary is the one that, if it leaks, lets anyone use anyone's device (the
+billing+trust fence). So the gate is a matched pair on the SAME service:
+1. Valid — Lis (team member, mapped): job routes to Todd's qwen and runs
+   (confirmed on qwen log). Admission admits the member.
+2. Invalid — a non-member: job enqueued targeting the same qwen -> the HUB
+   refuses to author a grant (not a member) -> never reaches Todd's device
+   (confirmed: nothing on qwen log for that user + a hub refusal). Admission
+   refuses at the CONTROL PLANE, before anything touches the machine.
+
+Stronger option (recommended): same user for both — add to team (job runs),
+REMOVE (next job refused at claim). Proves instant revocation too (Amendment J's
+"remove -> next claim fails"), the one membership property only unit-tested, never
+live. Admit -> revoke -> refused = full lifecycle, one identity, three jobs.
+
+Key: the refusal must happen at grant AUTHORSHIP (hub declines for a non-member),
+so the job never reaches the device — the seat boundary enforced at the source,
+not the device refusing after the fact.

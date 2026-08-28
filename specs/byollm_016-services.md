@@ -5114,3 +5114,30 @@ stop available: wire proven, stage 2 green bar one CC harness test, both queued
 checks landed, latest holding. Remaining: #9, Lis's split session, clear
 .stopship, promote. Open non-blocking: service_owner null-vs-explicit (cost as a
 migration).
+
+### Plan to wrap the probe and promote .62 tonight (2026-08-27)
+
+Todd wants to promote tonight. Ruling on the bar:
+- Stage 1 proved the wire live but Todd-to-Todd (own job, own device, own
+  mapping). The one flagship property NOT yet proven live is CROSS-USER: a
+  non-owner running on Todd's device via team admission. It is unit/integration
+  tested + security-hardened, but tonight found four bugs by live clicking that
+  tests missed — so promoting to latest with cross-user never run live is the
+  "shipped believing it works" risk the review exists to prevent.
+- **Promotion gate: one LIVE cross-user job.** No Lis needed — CC orchestrates
+  server-side: a second (test) user added to Todd's team, consent+mapping to
+  Todd's TEAM-offered qwen, a job enqueued as that user, confirmed routing to
+  Todd's qwen under a signed grant (non-owner via team admission), verified on
+  Todd's qwen server log (as stage 1). The full Lis split (her device) is a later
+  DEMO not a gate — private-is-absolute on a second owner's device is
+  structurally proven (unreachable-path test).
+- #9 paused-resume: accept c46ede8 (real-Postgres resume round trip proves the
+  exact property); don't re-run live.
+- NON-gates for promotion: the two untrusted-traffic blockers (pending-claim
+  leak, payload ceiling — fenced before untrusted sites/users, which promotion
+  doesn't do); service_owner null-vs-explicit (non-blocking design question).
+
+Sequence: CC runs the live cross-user proof -> green on Todd's qwen log -> Todd
+clears .stopship -> promote through ready-for-latest + STOPSHIP gate: six
+packages, 2FA, control-plane's FIRST latest tag (born on alpha; bare install
+won't resolve without it).

@@ -5294,3 +5294,49 @@ same-roster confirm; pending-claim leak + payload ceiling (open-door blockers).
 Ruling stands: stop-ship RESOLVED, .62 GO to promote. Final sequence: clear
 .stopship -> ready-for-latest passes clean -> Todd moves latest to .62 across all
 six packages (2FA), control-plane's FIRST latest tag included.
+
+### SHIPPED — .62 promoted to latest; the stop-ship is closed (2026-08-27)
+
+All six packages at 0.1.0-alpha.62 on latest AND alpha (no split between new-user
+install and release channel). ready-for-latest passed clean (six vocabularies
+match protocol: backends 19/19, kinds 2/2, offerScopes 2/2, audiences 2/2,
+sizeClasses 4/4, backendClasses 2/2). pins-deployed against both live pods: hub
+running .62, git says .62 — the deployed hub was built from the pins the repo
+holds. The alpha.47 drift (a pin bumped in git, never shipped, invisible to every
+other check) is closed in the direction that counts: promoted version, deployed
+image, repository all naming .62.
+
+The pass ran from a 35-finding multi-agent review through Amendments I-L (kill
+local allow, kill the held roster, claim-time signed grants, need-manifests +
+user mappings, kill public), a security pass that closed the review AND caught
+its own undeployed production migrations (0038/0039), two releases (.61 protocol-
+level fixes, .62 for one uuid-shaped contract id), a hub deploy, and a three-leg
+live cross-user gate (admitted -> refused -> restored). .stopship was placed by
+the ruling that called the stop-ship on .57 and removed by the ruling that
+resolved it.
+
+Two corrections from CCC accepted (my earlier notes were wrong):
+1. @byollm/control-plane already had a latest (.58, from Todd's loop) — .62 was
+   NOT its first latest tag. My repeated "first latest tag" was stale from its
+   born-on-alpha state.
+2. ready-for-latest compares SIX VOCABULARIES against ONE package (@byollm/
+   protocol, the wire), not six packages. Six packages is the promotion SET; the
+   gate's subject is the wire. I conflated them.
+
+Capstone lesson minted: **a check that refuses early enough, for long enough,
+stops being a check on anything after the refusal.** ready-for-latest hadn't run
+since .stopship was placed and had rotted (npm pack ships no deps; a hand-list of
+two would go stale) — the stop-ship marker HID a broken gate behind it, the pass's
+own shape delivered by the pass's own instrument. Fixed by reading deps from the
+tarball manifest (derive-don't-list). A stop-ship protects and conceals; both
+true.
+
+Follow-ups, ordered (none blocking): (1) the roster's two readers — routing
+pre-filter vs engine grant-author membership; leg 2 refused at the routing layer,
+so a drift seam between them would have looked green (front of queue — the only
+item touching a just-certified property). (2) migration-replaces-newest-definition
+check. (3) service_owner null-vs-explicit (costed migration). (4) invite wording
+split. (5) five silently-skipping hub suites. (6) Kevin's llm.chat port -> Lis's
+full split demo. Both post-promotion confirms in specs/byollm-acceptance-probe.md.
+
+byollm_016 SHIPPED.

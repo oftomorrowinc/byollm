@@ -4789,3 +4789,33 @@ Next: STAGE 1 (wire proof) — Todd maps a purpose to a service on one of his tw
 served sites (needs a site with a declared manifest; qwen the natural target),
 confirm dashboard mappings >=1, then CCC fixes roll.sh's three bits and one real
 job goes through the deployed hub.
+
+### Mapping-UI gap diagnosed: the mapping screen is only reachable site-initiated (2026-08-27)
+
+Cowork read the current connect-flow code on Todd's machine to diagnose why
+reconnecting showed no mapping form. Finding: **the mapping screen renders ONLY
+in the site-initiated flow — /connect?site=<id>&return=<url-on-verified-domain>
+(connect/page.tsx renders MappingSlots when the site is found, its manifest
+parses, and slots>0; approveConnect writes consent+mapping on submit).** The
+dashboard has no equivalent: connections/page.tsx "Connected" section renders
+ONLY a Disconnect button — no re-map / choose-again control — and the dashboard
+connect path does not route through /connect. So:
+- Todd's reconnect showed no form because reconnect never reaches /connect.
+- A user who connects from the dashboard, or connected before mappings existed
+  (Todd's press connection, 8/25), has NO UI path to author a mapping.
+- The degradation email's promise "Choose again any time on Connected sites" is
+  UNFULFILLED — no such control exists on the Connections page.
+
+Immediate unblock for the wire proof: Todd navigates to
+`/connect?site=14a83c81-9df8-49cc-b08f-3ac03ba16ac4&return=https://oftomorrow.press`
+(Of Tomorrow Press's siteId + a return on its verified domain — what press's
+button would supply), maps writing-assistant -> Chat:Claude, Generation:qwen,
+submits (redirects to oftomorrow.press; mapping saved). State is optional in
+approveConnect, so the hand-built URL works.
+
+**Blocker for CCC (stage-3 / Lis):** add a "Choose what powers this" control on
+each connected site routing to /connect?site=&return= (or an in-dashboard
+mapping editor). Lis cannot map her split session without a dashboard path, and
+this is the "choose again on Connected sites" the degradation email already
+promises. Also review whether the dashboard connectSite action should route
+through the mapping screen rather than writing a consent with no mapping.

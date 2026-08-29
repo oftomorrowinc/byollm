@@ -68,6 +68,33 @@ describe("the per-message ceiling", () => {
     expect(body.message).toMatch(/smaller jobs/i);
   });
 
+  it("never says a message is exactly the size of the limit it exceeded", () => {
+    /**
+     * Found by rendering the sentence rather than asserting on it. `toFixed`
+     * rounds to nearest, so one byte over printed "this message is 10.0 MB
+     * and the limit is 10.0 MB" — a refusal that reads as a contradiction,
+     * handed to somebody who now has no idea what to change.
+     *
+     * The size rounds up and only up, which is also the honest direction:
+     * understating how far over a message is would send somebody to trim a
+     * hundred bytes off something that needs to lose a megabyte.
+     */
+    for (const over of [1, 1024, 3 * 1024 * 1024]) {
+      const body = tooLargeRefusal(MAX_ENVELOPE_BYTES + over).body as {
+        message: string;
+      };
+      const [reported, limit] = [...body.message.matchAll(/([\d.]+) MB/g)].map(
+        (m) => Number(m[1]),
+      );
+      expect(limit, "the limit stopped being stated").toBe(10);
+      expect(
+        reported,
+        `a message ${String(over)} bytes over the line was reported as no ` +
+          "larger than the line, so the refusal contradicts itself",
+      ).toBeGreaterThan(limit!);
+    }
+  });
+
   it("refuses an oversized payload from a site", async () => {
     /**
      * The inbound half, end to end through the relay's own routing and

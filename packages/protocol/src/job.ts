@@ -408,6 +408,16 @@ export type DeliveredResult = z.infer<typeof DeliveredResult>;
  * bucket survives compression and encoding changes that an exact count does
  * not.
  *
+ * **Two grains, on purpose — ratified 2026-08-28.** Metering a
+ * GB-denominated plan needs real totals, and this is deliberately not where
+ * they come from: exact bytes exist only as increment-only *monthly*
+ * aggregates, and no per-job byte figure is ever persisted anywhere. The
+ * record needs vagueness and the meter needs totals; neither borrows the
+ * other's grain, which is why the consent screen's "roughly how big" stays
+ * exactly true of everything retained about a job. If you are here because
+ * you need a number, the aggregate is the one to reach for — adding a byte
+ * count to this envelope would trade a promise for a convenience.
+ *
  * `unbounded` exists for streamed jobs, which have no size when they start.
  * It is reserved now rather than added later: byollm_009 §8.1 — adding a
  * field to a published envelope is the v2 break all over again.

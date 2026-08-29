@@ -80,6 +80,8 @@ export {
   Lease,
   SIZE_CLASS_LIMITS,
   SizeClass,
+  MAX_ENVELOPE_BYTES,
+  envelopeBytes,
   sizeClassCeiling,
   sizeClassOf,
   ResultProvenance,

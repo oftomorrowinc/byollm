@@ -1,4 +1,8 @@
-import { ERROR_STATUS, MAX_CLOCK_SKEW_MS } from "@byollm/protocol";
+import {
+  ERROR_STATUS,
+  MAX_CLOCK_SKEW_MS,
+  MAX_ENVELOPE_BYTES,
+} from "@byollm/protocol";
 import type { PlaneResult } from "./daemon-plane.js";
 
 /**
@@ -33,6 +37,48 @@ export function clockSkewRefusal(now: number): PlaneResult {
       // value, and so does every `Date` header.
       serverTime: now,
       maxSkewMs: MAX_CLOCK_SKEW_MS,
+    },
+  };
+}
+
+/**
+ * The envelope is larger than the relay will hold — ratified 2026-08-28.
+ *
+ * A **relay-memory safety rail**, the same ceiling on every tier, and the same
+ * refusal in both directions: a site attaching a payload and a device
+ * returning a result reach it by different routes and hit one limit.
+ *
+ * ## Refused before acceptance, and nothing is written down
+ *
+ * That is the whole implementation, and it is why the cap needed no schema.
+ * The size is known for the length of this check and is then gone — recording
+ * a size in order to enforce a limit against it would be exactly the per-job
+ * byte figure the metering ruling exists to not keep.
+ *
+ * ## `bad-request`, not a code of its own
+ *
+ * 413 is the semantically tidy status and a new `WireErrorCode` member is the
+ * tidy code, and neither is worth what it costs here. Error codes are a
+ * published enumeration that daemons and sites parse; a member added today
+ * reaches a client shipped last month as an unrecognised value, and the
+ * refusal it renders would be worse than the plain one. An over-size request
+ * *is* a bad request, callers act on the code rather than the status, and the
+ * right behaviour on both — do not retry, make it smaller — is the same.
+ *
+ * The message carries the limit and the remedy, because a ceiling somebody
+ * cannot see the height of is a ceiling they hit twice.
+ */
+export function tooLargeRefusal(bytes: number): PlaneResult {
+  const mb = (n: number) => `${(n / (1024 * 1024)).toFixed(1)} MB`;
+  return {
+    status: ERROR_STATUS["bad-request"],
+    body: {
+      error: "bad-request",
+      message:
+        `this message is ${mb(bytes)} and the limit is ` +
+        `${mb(MAX_ENVELOPE_BYTES)} — every plan has the same ceiling, and it ` +
+        "is a limit on one message rather than on how many you send. Split " +
+        "the work into smaller jobs and send them separately.",
     },
   };
 }

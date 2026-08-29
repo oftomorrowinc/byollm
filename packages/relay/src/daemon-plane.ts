@@ -4,10 +4,12 @@ import {
   ClaimRequest,
   FetchRequest,
   HeartbeatRequest,
+  MAX_ENVELOPE_BYTES,
   PROTOCOL_VERSION,
   ReleaseRequest,
   ResultRequest,
   RequestSignature,
+  envelopeBytes,
   keyId,
   verifyRequest,
   verifyPublicIdentity,
@@ -27,6 +29,7 @@ import {
   type PairingCodes,
   type PendingPairing,
 } from "./pairing-codes.js";
+import { tooLargeRefusal } from "./refusals.js";
 import { RETRY_AFTER_MS, type HolderRefusal } from "./state.js";
 import { clockSkewRefusal } from "./refusals.js";
 import type { RoutingStore } from "./store.js";
@@ -742,6 +745,13 @@ export class DaemonPlane {
     body: unknown,
   ): Promise<PlaneResult> {
     return this.#authed(auth, body, ResultRequest, async (request, device) => {
+      // The same ceiling the site plane applies, on the way back — ratified
+      // 2026-08-28. Both directions count against the pool and both are
+      // refused by one limit; a rail that guarded only the inbound half would
+      // be a relay a device could still fill.
+      const bytes = envelopeBytes(request.envelope);
+      if (bytes > MAX_ENVELOPE_BYTES) return tooLargeRefusal(bytes);
+
       const recorded = await this.#deps.state.complete({
         jobId: request.jobId,
         runnerId: device.runnerId,

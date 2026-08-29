@@ -1,5 +1,7 @@
 import {
+  MAX_ENVELOPE_BYTES,
   PROTOCOL_VERSION,
+  envelopeBytes,
   keyId,
   JobStub,
   RequestSignature,
@@ -9,7 +11,7 @@ import {
 import { z } from "zod";
 import type { PlaneResult } from "./daemon-plane.js";
 import type { Projection } from "./fixture.js";
-import { clockSkewRefusal } from "./refusals.js";
+import { clockSkewRefusal, tooLargeRefusal } from "./refusals.js";
 import type { RoutingStore } from "./store.js";
 
 /**
@@ -413,6 +415,12 @@ export class SitePlane {
       PayloadRequest,
       (request) => request.siteId,
       async (request, siteId) => {
+        // The ceiling, before acceptance — ratified 2026-08-28. Refused here
+        // rather than after the store call, because the point of a
+        // relay-memory rail is that the oversized thing is never held.
+        const bytes = envelopeBytes(request.envelope);
+        if (bytes > MAX_ENVELOPE_BYTES) return tooLargeRefusal(bytes);
+
         // One store call: the check and the write together. A site that read
         // "awaiting-payload" and then wrote would be racing the timeout that
         // makes the state mean anything.

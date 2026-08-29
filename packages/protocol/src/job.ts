@@ -428,6 +428,52 @@ export const SizeClass = z.enum(["small", "medium", "large", "unbounded"]);
 export const SIZE_CLASSES = Object.freeze(SizeClass.options);
 export type SizeClass = z.infer<typeof SizeClass>;
 
+/**
+ * The most one envelope may be, in bytes — ratified 2026-08-28.
+ *
+ * A **relay-memory safety rail**, not a plan feature: every tier has the same
+ * ceiling, and differentiating tiers on it would be selling a safety limit as
+ * a benefit. What it bounds is any single job, so no one message can make the
+ * relay hold an unbounded amount of somebody else's memory.
+ *
+ * ## It stores nothing, and that is the design
+ *
+ * Enforced at ingress by refusing before acceptance, in both directions. A
+ * ceiling on what the relay already has in hand needs no schema and no record:
+ * the size is known for the length of the check and then it is gone. This
+ * matters because the alternative — recording a size to enforce a limit
+ * against — is precisely the per-job byte figure the metering ruling exists to
+ * not have.
+ *
+ * ## Measured on the serialised envelope
+ *
+ * The same quantity the monthly rollup counts, deliberately. The relay stores
+ * the serialised envelope and the meter measures what it stored, so a cap on
+ * anything else — the ciphertext alone, the decoded length — would mean the
+ * limit and the bill disagreed about what a byte is, and a job could be small
+ * enough to accept and larger than it was charged as.
+ */
+export const MAX_ENVELOPE_BYTES = 10 * 1024 * 1024;
+
+/**
+ * How big an envelope is, by the one measure that counts it.
+ *
+ * `JSON.stringify` because that is what the store persists and therefore what
+ * the meter measures. Length in UTF-16 code units rather than encoded bytes:
+ * it is the same number the store's own `HSTRLEN` reports, and the point of
+ * this function is that one number answers both questions.
+ */
+export function envelopeBytes(envelope: unknown): number {
+  // Annotated, because the lib types are wrong about this one and the lint
+  // believes them: `JSON.stringify` is declared to return `string`, and
+  // `JSON.stringify(undefined)` returns `undefined` at runtime. Writing the
+  // type out makes the case real to the compiler rather than papering it with
+  // an optional chain the linter can see is dead — and nothing has zero bytes
+  // more honestly than nothing.
+  const serialised = JSON.stringify(envelope) as string | undefined;
+  return serialised === undefined ? 0 : serialised.length;
+}
+
 /** Where the bucket boundaries sit, in characters of payload text. */
 export const SIZE_CLASS_LIMITS = Object.freeze({
   small: 4_000,

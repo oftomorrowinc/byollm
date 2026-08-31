@@ -5546,3 +5546,45 @@ integrators do):**
 Sequence from here: CCC builds embed v1 against the working baseline (consent
 wording comes for approval before ship); Todd runs the fresh-account cold walk
 in parallel; .63 before Kevin.
+
+## 2026-08-31 — The empty-grid bug (most serious of the five); embed v1 verified live
+
+**Connected Sites rendered empty for every user** — 0048's exemption column was
+selected by the grid but never added to dashboard_public_sites, the VIEW the
+grid reads. PostgREST refuses the whole select; the page discarded the error
+with `?? []` and rendered the fresh-install zero-state. Every connection every
+user had: invisible and unrevocable, on the one screen the consent model
+promises for taking a permission back. Fifth refusal dressed as an ordinary
+negative this weekend — and the first whose disguise was a sentence we wrote on
+purpose. Caught same day; 0051 applied by Todd; grid restored with the test
+site pinned and badged.
+
+Three laws out of it:
+1. **A failed read is never an empty list.** null means "we don't know" and
+   says so; the recovery copy is a model of consent-honest failure: "Nothing
+   has changed — any site you enabled is still enabled, and any site you did
+   not is still not."
+2. **A check that skips is a check that can't fail, wearing circumstances.**
+   The executable app-vs-database suite skips when no local database runs —
+   which is exactly how this shipped. The new guard is deliberately static
+   (two literals compared, nothing running). Corollary adopted: the queued
+   "five hub suites that skip silently" item MOVES UP — it is this same
+   disease, already on the books.
+3. **Testing needs both privileges.** Four of the five bugs only an outsider
+   could find; this one only an insider could — a fresh account's empty grid
+   would have been TRUE by accident, so the cold walk would have blessed it.
+   The mirror of first-party-tests-share-the-privilege, and the pair now
+   travels together.
+
+**Embed v1 verified in production** (3d0c05a): exactly ONE CSP header on
+/embed/button (the intersection near-miss holds where it counts),
+class="unknown" + "Connect BYOLLM" from a sessionless curl (the third state
+confirmed by machine), consent screen refusing all framing including ours,
+unknown site 400-refused. Everything built today is live and proven: the
+partner path, the reference app, both job kinds through two services, the
+embed, and the restored grid.
+
+Remaining before invites: Todd's cold-account walk — now the exact path
+invitees get. Known gap, expected, not a bug: the logged-out embed branch is
+the plain-redirect fallback; the landing page (copy approved) is still to
+build.

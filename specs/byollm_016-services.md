@@ -5497,3 +5497,52 @@ dashboard_team_seat_floors, granted on request — never a widening of the count
 Open queue additions from this pass: the +$3 seat is priced but not purchasable
 (build the purchase before any team needs a seventh head); the comparison-matrix
 layout call (in-card vs strip) waits for the pricing-page walk.
+
+---
+
+## 2026-08-31 — PROVEN FROM OUTSIDE: the first partner connect in the product's history
+
+test.byollm.cloud, customer #1, completed the whole chain with no platform
+session anywhere in it: published npm packages only, a key it generated itself,
+consent read on our domain, a mapping the user authored, work run on the user's
+own device. "I am Claude Opus 5." on the chat slot; "I am Qwen." on generate.
+
+**The detail that makes it conclusive: the two answers are DIFFERENT.** One
+model answering twice could impersonate two slots; two distinct models means two
+mappings resolved independently — chat and generate as genuinely separate slots,
+each landing where it was sent. And the site rendered both without ever learning
+what produced either. It asked; the model answered; the fence held.
+
+The honest tally, all found by the outsider, none findable from inside
+(first-party tests share the privilege being tested):
+1. /api/connect/verify behind the session guard — no partner could ever have
+   connected, through every audit we ran.
+2. .env.example teaching defaults the code didn't honour.
+3. The 401/valid:false merge — "your key is wrong" dressed as "bad assertion".
+4. CCC's own prompt-for-messages payload — generate's shape under chat's kind,
+   type-legal, runtime-refused. The refusal named both halves in the device's
+   own words: passing the device's words through instead of paraphrasing paid
+   for itself the first time it was tested.
+
+Test-page design ruled in the fix: TWO buttons (Ask chat / Ask generate) — a
+mapping slot is a purpose AND a kind, and a diagnostic must show what is true,
+never let it be inferred; the answer names which kind produced it. Pinned by
+parsing what the app builds against the schemas the relay validates with, BOTH
+directions (the negative half makes the positive mean something), plus the
+mutation that matters ethically: a system message sneaked into the chat turn
+fails — this site must not put words in the model's mouth and then report what
+it said back.
+
+**SDK list for the next release (RULING: cut .63 BEFORE the framework/Kevin
+integration, not before Monday's user onboarding — users don't touch the SDK;
+integrators do):**
+- enqueue uses the protocol's own PayloadFor<K> — five lines that turn a class
+  of runtime refusal into a compile error for every integrator. First.
+- siteKeysFromEnv: render-safe failure mode.
+- app.cloud optionality on the type.
+- The 10MB ingress cap rides along (built at 24c118d, held per the defer
+  ruling — .63 is its natural release).
+
+Sequence from here: CCC builds embed v1 against the working baseline (consent
+wording comes for approval before ship); Todd runs the fresh-account cold walk
+in parallel; .63 before Kevin.

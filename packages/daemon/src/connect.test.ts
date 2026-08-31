@@ -31,19 +31,21 @@ const device = publicIdentityOf(generateKeys(1_700_000_000_000));
 function client(sites: Record<string, unknown>): ProtocolClient {
   return {
     origin: "https://hub.test",
-    pairStart: async () => ({
-      userCode: "ABCD-EFGH",
-      deviceCode: "dc",
-      verificationUrl: "https://hub.test/devices?pair=1",
-      expiresAt: 2_000_000_000_000,
-      pollIntervalMs: 0,
-    }),
-    pairPoll: async () => ({
-      status: "approved" as const,
-      runnerId: "runner-1",
-      owner: "owner-1",
-      sites,
-    }),
+    pairStart: () =>
+      Promise.resolve({
+        userCode: "ABCD-EFGH",
+        deviceCode: "dc",
+        verificationUrl: "https://hub.test/devices?pair=1",
+        expiresAt: 2_000_000_000_000,
+        pollIntervalMs: 0,
+      }),
+    pairPoll: () =>
+      Promise.resolve({
+        status: "approved" as const,
+        runnerId: "runner-1",
+        owner: "owner-1",
+        sites,
+      }),
   } as unknown as ProtocolClient;
 }
 
@@ -54,7 +56,7 @@ const options = {
   device,
   onCode: () => undefined,
   now: () => 1_700_000_000_000,
-  sleep: async () => undefined,
+  sleep: () => Promise.resolve(undefined),
 };
 
 describe("pairing with nothing to serve yet", () => {

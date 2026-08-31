@@ -127,19 +127,31 @@ export async function connect(options: ConnectOptions): Promise<ConnectResult> {
               "paired.",
           };
         }
-        if (Object.keys(polled.sites).length === 0) {
-          // Approved, and covering nothing. A pairing with no site is a row
-          // that reports "paired" and serves nobody — the shape §2.3a's
-          // per-row parse produces on a bad file, arriving here by consent
-          // having gone between approval and this poll.
-          return {
-            ok: false,
-            reason: "denied",
-            message:
-              "this app approved the pairing and then offered no sites to " +
-              "serve. Nothing was paired.",
-          };
-        }
+        // Approved and covering nothing is **normal**, and refusing it here
+        // made a first install impossible.
+        //
+        // This used to return `denied` with "offered no sites to serve.
+        // Nothing was paired." The reasoning was that a pairing with no site
+        // reports "paired" and serves nobody. But that is the ordinary state
+        // of a brand-new account: somebody installs, pairs, and only then
+        // connects their first site — in that order, because the dashboard
+        // tells them to, and because there is nothing to connect a site *to*
+        // beforehand. Every genuinely new user hit this.
+        //
+        // What made it hard to see is that it looked like success from the
+        // outside. The control plane had already approved, so the dashboard
+        // showed the device with "It will start taking work within a few
+        // seconds", while this end had discarded the pairing — leaving a
+        // machine that never reports, services that never appear, and jobs
+        // that time out into "nothing was listening", none of which name a
+        // pairing.
+        //
+        // Serving nothing yet is a state the rest of this design already
+        // understands: sites arrive later and are announced with their
+        // fingerprints on their first job, `byollm status` prints "(serving
+        // nothing right now)", and `known` exists precisely to hold ids that
+        // are pinned but not currently offered. The guard was refusing a
+        // condition its own neighbours model.
         return {
           ok: true,
           pairing: {

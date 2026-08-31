@@ -616,6 +616,17 @@ async function commandConnect(
   for (const site of Object.values(result.pairing.sites)) {
     io.out(`   ${fingerprint(site.identity)}\n`);
   }
+  /* Nothing pinned yet is the normal first install: you pair before you have
+     connected anything, because there is nothing to connect a site to
+     beforehand. Said out loud so the empty list reads as a step remaining
+     rather than as something having gone wrong — and so nobody waits for work
+     that has no reason to arrive. */
+  if (Object.keys(result.pairing.sites).length === 0) {
+    io.out(
+      `   no sites yet — connect one in your dashboard and its first job\n` +
+        `   will arrive here, with its fingerprint, for you to see.\n`,
+    );
+  }
   io.out(`\nNow running jobs for ${origin}. Ctrl-C to stop.\n\n`);
 
   return runLoop(paths, [result.pairing.origin], io, signal);

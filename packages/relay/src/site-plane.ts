@@ -113,10 +113,45 @@ const fail = (status: number, error: string, message: string): PlaneResult => ({
   body: { error, message },
 });
 
+/**
+ * Whether a purpose can be satisfied for this person, asked at enqueue.
+ *
+ * The relay does not hold the answer and must not: a relay that filtered on
+ * mappings would hold the mapping, which is the one thing it cannot have. So
+ * it asks — of the control plane, which already answers the same question at
+ * claim, from the same authority, a moment later.
+ *
+ * Three replies, because three things are true at three different times.
+ * `not-declared` is the site's own manifest and is fixed by the developer.
+ * `unmapped` is the person's own dashboard and is fixed by them. `ok` covers
+ * everything the transient path was always for: declared, mapped, and no
+ * device able to claim right now.
+ *
+ * Optional, because a self-hosted relay may have no control plane. When it is
+ * absent nothing is refused — and the relay says so at boot and on its health
+ * surface, because a check that quietly is not there is the skipping-check law
+ * wearing deployment.
+ */
 export interface SitePlaneDeps {
   readonly state: RoutingStore;
   readonly projection: Projection;
   readonly now: () => number;
+  /**
+   * Asked once per enqueue, when a control plane is present.
+   *
+   * What this teaches the relay is one bit it did not previously hold:
+   * whether this owner has *a* mapping for this purpose. Existence, never
+   * which service — that stays in the control plane, and this is recorded in
+   * the enumerated-metadata commitment so the list stays exhaustive.
+   */
+  readonly satisfiable?: (query: {
+    readonly siteId: string;
+    readonly owner: string;
+    readonly purpose: string | undefined;
+    readonly kind: string;
+  }) => Promise<{
+    readonly verdict: "ok" | "not-declared" | "unmapped";
+  }>;
   /**
    * The one site this relay routes for.
    *
@@ -296,6 +331,46 @@ export class SitePlane {
             // identified site claiming another site's stub is `forbidden`.
             "forbidden",
             "that stub does not name the site that signed it",
+          );
+        }
+
+        /**
+         * Refused here, or never — the two answers a site can act on.
+         *
+         * Both are knowable now and neither becomes knowable later. A purpose
+         * the manifest does not declare will not appear in it by waiting, and
+         * a person who maps a slot thirty seconds from now is served by the
+         * next job, which is the same thirty seconds. Queuing either would be
+         * a poll wearing a promise — and worse, a job the site has already
+         * fallen back on must never be served afterwards.
+         *
+         * The third case is the one the transient path was always for:
+         * declared, mapped, and nothing able to claim it right now.
+         */
+        const answer = await this.#deps.satisfiable?.({
+          siteId,
+          owner: request.stub.owner,
+          purpose: request.stub.purpose,
+          kind: request.stub.kind,
+        });
+        if (answer?.verdict === "not-declared") {
+          return fail(
+            409,
+            "purpose-not-declared",
+            `this site does not declare ${request.stub.purpose ?? "that purpose"} — ` +
+              "declare it on Developer Sites, and the people who have already " +
+              "connected will each map the new slot before it routes",
+          );
+        }
+        if (answer?.verdict === "unmapped") {
+          // One sentence, never why. Which service, whose device and whether
+          // one exists are all the person's, and a site learns only that the
+          // slot is unsatisfiable — the opacity is the promise, not a
+          // side-effect of it.
+          return fail(
+            409,
+            "slot-unsatisfiable",
+            "nobody has chosen what answers this yet",
           );
         }
 

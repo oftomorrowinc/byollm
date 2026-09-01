@@ -112,6 +112,16 @@ export interface PolicySnapshot {
   readonly member: boolean;
   /** This user's mappings for this site. Order is not meaningful. */
   readonly mappings: readonly Mapping[];
+  /**
+   * The purpose keys this site declares, when the store can say.
+   *
+   * `undefined` means "this store does not answer that", which is not the
+   * same as "declares nothing" — a store that could not tell us must not make
+   * every purpose undeclared. A site with no manifest declares everything
+   * implicitly, which is the reading the consent screen and the engine
+   * already share.
+   */
+  readonly declares?: ReadonlySet<string> | undefined;
 }
 
 export interface PolicyStore {

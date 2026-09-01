@@ -81,6 +81,43 @@ export class RelayUnavailable extends Error {
   }
 }
 
+/**
+ * The job was not queued, and waiting will not change that.
+ *
+ * Distinct from {@link RelayUnavailable} because it is the opposite situation:
+ * the relay answered, promptly and correctly, and the answer is that this job
+ * has nowhere to go. Catching "the relay is down" to handle "nobody has chosen
+ * a model" would retry forever against a fact.
+ *
+ * Two codes, and they belong to two different people.
+ *
+ * `purpose-not-declared` is the site's own manifest. It names the purpose and
+ * the remedy, because a developer reading their own logs is entitled to both
+ * and neither says anything about a person.
+ *
+ * `slot-unsatisfiable` is the person's own dashboard, and says only that.
+ * Which service, whose device, whether one exists at all — none of it travels,
+ * and the sentence is the same for everybody. A site learns *that* a slot
+ * cannot be satisfied, which is exactly what the README has always promised
+ * and what this class finally delivers.
+ */
+export class EnqueueRefused extends Error {
+  /** `purpose-not-declared` or `slot-unsatisfiable`. */
+  readonly code: string;
+
+  constructor(message: string, code: string) {
+    super(message);
+    this.name = "EnqueueRefused";
+    this.code = code;
+  }
+}
+
+/** The refusals that mean "not queued", rather than "try again later". */
+const REFUSED_AT_ENQUEUE = new Set([
+  "purpose-not-declared",
+  "slot-unsatisfiable",
+]);
+
 export interface PumpReport {
   /** Jobs sealed to a claiming device this cycle. */
   readonly sealed: string[];
@@ -471,6 +508,11 @@ export class CloudLane {
       response.status === 429 ||
       code === "not-ready" ||
       code === "server-error";
+
+    if (REFUSED_AT_ENQUEUE.has(code)) {
+      // No job exists, so there is nothing to await and nothing to retry.
+      throw new EnqueueRefused(message, code);
+    }
 
     throw new RelayUnavailable(
       `${endpoint}: ${code || "refused"} — ${message}`,

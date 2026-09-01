@@ -83,6 +83,53 @@ export class ControlPlane {
    * A step that fails stops the rest, so the reason returned names the first
    * thing that was actually wrong rather than whichever check ran last.
    */
+  /**
+   * Can this purpose be satisfied for this person, asked before a job exists.
+   *
+   * The two answers a site can act on, each decided where it is knowable and
+   * nowhere else. A purpose the manifest does not declare will not appear in
+   * it by waiting. A purpose nobody has mapped is the person's own dashboard,
+   * and somebody who maps it thirty seconds from now is served by the next
+   * job — the same thirty seconds, and it avoids the thing that must never
+   * happen: a job the site has already fallen back on being served afterwards.
+   *
+   * Everything else is `ok`, including every case the transient path was
+   * always for — declared, mapped, and nothing able to claim right now.
+   *
+   * Deliberately not a second gate at claim. This answers at enqueue, claim
+   * answers at claim, and a mapping revoked between the two falls to the
+   * transient path exactly as it does today.
+   */
+  async satisfiable(input: {
+    readonly siteId: string;
+    readonly user: string;
+    readonly purpose: string | undefined;
+    readonly kind: string;
+  }): Promise<{ verdict: "ok" | "not-declared" | "unmapped" }> {
+    const snapshot = await this.#store.read({
+      siteId: input.siteId,
+      user: input.user,
+      // No device is involved yet, so the reader is the person themselves.
+      // `member` is a claim-time question about somebody else's machine.
+      owner: input.user,
+    });
+
+    const purpose = input.purpose ?? RESERVED_PURPOSE;
+
+    // A store that cannot say what a site declares must not make every purpose
+    // undeclared, and a site with no manifest declares everything — the
+    // implicit-`default` reading the consent screen already uses, and the one
+    // a stricter reading once broke by refusing a write with no surface.
+    if (snapshot.declares !== undefined && !snapshot.declares.has(purpose)) {
+      return { verdict: "not-declared" };
+    }
+
+    const mapped = snapshot.mappings.some(
+      (mapping) => mapping.purpose === purpose && mapping.kind === input.kind,
+    );
+    return { verdict: mapped ? "ok" : "unmapped" };
+  }
+
   async authorGrant(input: {
     readonly job: ClaimedStub;
     /** The site's id in this control plane's namespace, for the policy read. */

@@ -92,6 +92,20 @@ export interface Backend {
    */
   canary?(model: string): Promise<BackendHealth>;
 
+  /**
+   * How somebody signs this backend in, in their own terminal.
+   *
+   * The remedy belongs to the backend because only the backend knows it:
+   * `claude` wants the bare command and a browser, `codex` wants
+   * `codex login`. A template that guessed would be wrong for one of them and
+   * would go on being wrong as they change.
+   *
+   * Absent when the idea does not apply — an HTTP model server has a URL and a
+   * key in the owner's config, not a sign-in, so it gets no sentence rather
+   * than a sentence naming a command that does not exist.
+   */
+  readonly signIn?: string;
+
   /** Run one model call. The only thing a job is permitted to cause. */
   execute(request: BackendRequest): Promise<BackendResult>;
 }

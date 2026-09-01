@@ -32,6 +32,7 @@ import {
   type ServicePlatform,
   type ServiceTarget,
 } from "./service.js";
+import { serviceLine, type ServiceReport } from "./service-line.js";
 import { DAEMON_VERSION, formatVersion } from "./index.js";
 
 const USAGE = `byollm — run an app's LLM jobs on your own models.
@@ -498,12 +499,23 @@ async function commandConnect(
    * routes here until a route goes healthy — and then it starts on its own,
    * with no second pairing.
    */
+  /**
+   * What the probe learned, not how many survived it.
+   *
+   * "0 backends are healthy" is true of a machine with no CLI installed and
+   * of a machine whose subscription token expired last week, and those want
+   * opposite actions from the person reading it. The canary already knew
+   * which — it ran, it failed, the route was dropped — and this sentence
+   * threw the answer away, so somebody paired a machine, watched it advertise
+   * nothing, and had to go and find out why from a job that failed later.
+   */
+  reportServices(runner, await labelFor(paths, name), io);
+
   if (capabilities.length === 0) {
     io.err(
-      "\n0 backends are healthy, so nothing will route to this device yet.\n" +
-        "Pairing anyway — set a model server up " +
-        "(docs.byollm.cloud/guides/models),\nthen check `byollm services`. " +
-        "Work starts arriving on its own once one is healthy.\n",
+      "\nNothing will route to this device yet.\n" +
+        "Pairing anyway — work starts arriving on its own once a service can\n" +
+        "answer. `byollm status` says where each one stands.\n",
     );
   }
 
@@ -1888,6 +1900,33 @@ function commandRetiredApprove(io: CliIo): 2 {
       )}\n`,
   );
   return 2;
+}
+
+/**
+ * The owner's services, in the one sentence all three surfaces use.
+ *
+ * `byollm connect` and `byollm status` print this; the daemon's own output
+ * prints it when a service changes state. One template, so a machine cannot
+ * describe itself differently depending on where you look at it.
+ */
+function reportServices(
+  runner: { serviceStates: ReadonlyMap<string, ServiceReport> },
+  device: string,
+  io: CliIo,
+): void {
+  if (runner.serviceStates.size === 0) return;
+  io.out("\nservices\n");
+  for (const [service, report] of runner.serviceStates) {
+    const said = serviceLine({
+      service,
+      device,
+      state: report.state,
+      ...(report.signIn === undefined ? {} : { signIn: report.signIn }),
+    });
+    io.out(`  ${said.line}\n`);
+    // The backend's own words, for the owner, beneath the remedy.
+    if (said.detail !== undefined) io.out(`    ${said.detail}\n`);
+  }
 }
 
 // -- backends ------------------------------------------------------------------

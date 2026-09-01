@@ -1,3 +1,4 @@
+import type { ServiceReport } from "./service-line.js";
 import { outcomeForSite } from "./site-outcome.js";
 import {
   type Succession,
@@ -477,6 +478,14 @@ export class Runner {
    * daemon then receives no work for it, which is the correct outcome and one
    * the owner can see in `byollm status`.
    */
+  /**
+   * What the last probe learned about each service, for the owner's surfaces.
+   *
+   * Read by `byollm status`, by `byollm connect`'s report and by the daemon's
+   * own output — one answer, three renderings, through `serviceLine`.
+   */
+  serviceStates = new Map<string, ServiceReport>();
+
   async detectCapabilities(
     options: {
       /**
@@ -495,6 +504,16 @@ export class Runner {
       canary?: boolean;
     } = {},
   ): Promise<Capability[]> {
+    /**
+     * Why each service is or is not usable, kept rather than discarded.
+     *
+     * The canary already knew: it ran, it failed, the route was dropped. What
+     * reached the person was "0 backends are healthy", which is true of a
+     * machine with no CLI installed and of a machine whose subscription token
+     * expired last week, and those want opposite actions. The check was never
+     * the problem; throwing away its answer was.
+     */
+    this.serviceStates = new Map();
     const capabilities: Capability[] = [];
 
     /**
@@ -531,9 +550,43 @@ export class Runner {
         // The credentialed check, when asked for and when the backend has one.
         // Only after `health` passed — there is no sense spending a call on a
         // binary that is not there.
+        /**
+         * What the probe learned, kept beside the remedy that fixes it.
+         *
+         * Learned together, from the backend instance that knows both, so a
+         * surface rendering the line later does not have to work out which
+         * backend a service used in order to say how to sign it in.
+         */
+        const remedy =
+          backend.signIn === undefined ? {} : { signIn: backend.signIn };
+        if (!health.healthy) {
+          this.serviceStates.set(route.service, {
+            state: { kind: "missing" },
+            ...remedy,
+          });
+        } else if (options.canary !== true || backend.canary === undefined) {
+          // Nothing was asked. Not a failure — see `ServiceState.unknown`.
+          this.serviceStates.set(route.service, {
+            state: { kind: "unknown", model: route.model },
+            ...remedy,
+          });
+        } else {
+          this.serviceStates.set(route.service, {
+            state: { kind: "answers", model: route.model },
+            ...remedy,
+          });
+        }
+
         if (usable && options.canary === true && backend.canary !== undefined) {
           const proof = await backend.canary(route.model);
           if (!proof.healthy) {
+            this.serviceStates.set(route.service, {
+              state: {
+                kind: "signed-out",
+                ...(proof.detail === undefined ? {} : { detail: proof.detail }),
+              },
+              ...remedy,
+            });
             usable = false;
             this.#unauthenticated.add(route.service);
             this.#options.onEvent?.({

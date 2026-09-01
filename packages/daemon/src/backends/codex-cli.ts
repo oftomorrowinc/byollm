@@ -103,6 +103,7 @@ export function codexArgv(model: string): readonly string[] {
 export class CodexCliBackend implements Backend {
   readonly id: BackendId = "codex-cli";
   readonly class: BackendClass = "process";
+  readonly signIn = "run `codex login`";
   readonly #binary: string;
 
   /**

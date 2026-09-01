@@ -75,8 +75,11 @@ describe("byollm connect — when it cannot", () => {
     // There is no hub at this URL, so the run still fails; what matters is
     // that it failed at the *network*, having said its piece and tried.
     await runCli(["connect", "http://127.0.0.1:1"], { paths, io: io() });
-    expect(err).toContain("0 backends are healthy");
-    expect(err).toContain("byollm services");
+    expect(err).toContain("Nothing will route to this device yet");
+    /* Still points somewhere. It used to say `byollm services`; the lines
+       themselves are printed inline now, so it points at the surface that
+       keeps saying it rather than the one that lists backends. */
+    expect(err).toContain("byollm status");
     expect(err).not.toContain("nothing to offer");
     // It got past the backend check to the part where it names where it is
     // going — the proof that pairing was attempted rather than refused.

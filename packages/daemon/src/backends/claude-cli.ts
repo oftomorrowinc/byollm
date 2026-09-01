@@ -323,6 +323,7 @@ function resolveUncached(
 export class ClaudeCliBackend implements Backend {
   readonly id: BackendId = "claude-cli";
   readonly class: BackendClass = "process";
+  readonly signIn = "run `claude` in a terminal";
   readonly #binary: string;
 
   /**

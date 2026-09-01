@@ -1,7 +1,7 @@
 {
   "name": "@byollm/protocol",
   "version": "0.1.0-alpha.63",
-  "description": "The BYOLLM wire contract — types, zod schemas, and the audience rules both the daemon and server enforce. ALPHA: under active development.",
+  "description": "The BYOLLM wire contract \u2014 types, zod schemas, and the audience rules both the daemon and server enforce. ALPHA: under active development.",
   "license": "MIT",
   "type": "module",
   "exports": {
@@ -14,7 +14,9 @@
   "types": "./dist/index.d.ts",
   "files": [
     "dist",
-    "README.md"
+    "README.md",
+    "ABOUT.md",
+    "ABOUT-SHORT.md"
   ],
   "engines": {
     "node": ">=22.14"

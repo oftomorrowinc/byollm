@@ -17,3 +17,10 @@ README.md
 packages/*/README.md
 docs
 dist-tarballs/
+
+# Generated from ABOUT.md and ABOUT-SHORT.md by scripts/generate-about.mjs.
+# Formatting it would make the drift check compare prettier's output with the
+# generator's and fail on every clean tree.
+packages/protocol/src/about.ts
+packages/protocol/ABOUT.md
+packages/protocol/ABOUT-SHORT.md

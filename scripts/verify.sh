@@ -18,6 +18,7 @@
 # `&&` braces.
 set -euo pipefail
 
+node scripts/generate-about.mjs --check
 pnpm run format:check
 pnpm run build
 pnpm run smoke

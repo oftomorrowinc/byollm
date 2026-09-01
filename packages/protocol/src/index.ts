@@ -14,6 +14,12 @@
  */
 
 export {
+  ABOUT,
+  ABOUT_SHORT,
+  ABOUT_SHORT_LEDE,
+  ABOUT_SHORT_TAIL,
+} from "./about.js";
+export {
   Audience,
   AUDIENCES,
   effectiveOfferScope,

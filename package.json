@@ -24,7 +24,8 @@
     "test:unit": "vitest run --project unit",
     "freeze-gate": "vitest run --project relay",
     "release:check": "node scripts/release-check.mjs",
-    "hooks:install": "node scripts/install-hooks.mjs"
+    "hooks:install": "node scripts/install-hooks.mjs",
+    "about": "node scripts/generate-about.mjs"
   },
   "devDependencies": {
     "@changesets/cli": "^2.31.1",

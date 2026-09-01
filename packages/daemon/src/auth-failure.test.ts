@@ -45,4 +45,43 @@ describe("recognising a signed-out CLI", () => {
     // silence this replaces — so the negatives matter more than the positives.
     expect(isAuthFailure(text)).toBe(false);
   });
+
+  /**
+   * The expiry family, from Todd's Mac on 2026-08-31.
+   *
+   * The CLI said "Failed to authenticate. API Error: 401 OAuth access token
+   * has expired. Re-authenticate to continue." Not one pattern matched: the
+   * list held "authentication failed" and the CLI wrote those two words in the
+   * other order, and it held "401 unauthorized" against a 401 that named
+   * OAuth. So a signed-out backend was classed `backend-error`, the service
+   * stayed listed as working, and the person was told "exited with status 1".
+   *
+   * This is the *ordinary* case for a subscription CLI — every token expires
+   * eventually, on a machine that worked yesterday — and it was the one the
+   * corpus lacked.
+   */
+  it.each([
+    [
+      "Failed to authenticate. API Error: 401 OAuth access token has expired. Re-authenticate to continue.",
+    ],
+    ["Your access token has expired."],
+    ["Please re-authenticate to continue"],
+    ["Please reauthenticate."],
+  ])("matches an expired subscription token: %s", (text) => {
+    expect(isAuthFailure(text)).toBe(true);
+  });
+
+  /* And still not prose about it. A false positive withdraws a service that
+     works, which is worse than the silence being replaced — so the sentences a
+     model might plausibly write stay outside. */
+  it.each([
+    [
+      "Tokens expire for security reasons; the server then asks the client to authenticate again.",
+    ],
+    [
+      "In the story, the guard had failed to authenticate the visitor's papers.",
+    ],
+  ])("does not match prose about expiry: %s", (text) => {
+    expect(isAuthFailure(text)).toBe(false);
+  });
 });

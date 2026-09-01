@@ -209,9 +209,17 @@ function spawnIn(job: ProcessJob, scratch: string): Promise<BackendResult> {
           code: authFailed ? "unauthorized" : "backend-error",
           message: authFailed
             ? `${displayName} is not signed in`
-            : stderr.trim() === ""
-              ? `${displayName} exited with status ${String(code)}`
-              : `${displayName} failed: ${firstLine(stderr)}`,
+            : stderr.trim() !== ""
+              ? `${displayName} failed: ${firstLine(stderr)}`
+              : /* Nothing on stderr does not mean nothing was said. An
+                   agentic CLI writes its errors to stdout — that is where
+                   "Failed to authenticate" arrived — and reporting a bare
+                   exit code while holding the explanation is the one thing a
+                   diagnostic must not do. No new exposure: stdout already
+                   goes to the site on success. */
+                stdout.trim() !== ""
+                ? `${displayName} failed: ${firstLine(stdout)}`
+                : `${displayName} exited with status ${String(code)}`,
           retryable: false,
           durationMs,
         });
@@ -268,6 +276,30 @@ const AUTH_FAILURE = [
   /\bauthentication failed\b/,
   /\binvalid api key\b/,
   /\b401 unauthorized\b/,
+  /**
+   * The expiry family — Todd's Mac, 2026-08-31, and the reason this list grew.
+   *
+   * The CLI said "Failed to authenticate. API Error: 401 OAuth access token
+   * has expired. Re-authenticate to continue." and not one pattern above
+   * matched it: the list had "authentication failed" and the CLI wrote the
+   * same two words in the other order, and it had "401 unauthorized" against
+   * a 401 that named OAuth instead. So a signed-out backend was reported as
+   * `backend-error`, the service was not withdrawn, and the sentence that
+   * reached the person was "the claude CLI exited with status 1".
+   *
+   * An expired token is the *common* case in a subscription CLI — it is what
+   * happens to everybody eventually, on a machine that was working
+   * yesterday — and it was the one the corpus lacked.
+   *
+   * "failed to authenticate" was in this list for about a minute. The test
+   * below refused it: "the guard had failed to authenticate the visitor's
+   * papers" is a sentence a model can write, and matching it would withdraw a
+   * service that works. The two that remain are auth machinery talking about
+   * itself, which prose has little reason to imitate — and Todd's message
+   * contained both, so nothing was lost by dropping the loose one.
+   */
+  /\baccess token has expired\b/,
+  /\bre-?authenticate\b/,
 ];
 
 export function isAuthFailure(output: string): boolean {

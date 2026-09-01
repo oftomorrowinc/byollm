@@ -5985,3 +5985,17 @@ the same path as someone who pasted the one-liner. Ruled:
   last line is setup; setup's last line is the truth.
 Rides with the install script (onboarding batch, after .64) – not a
 .64 item; Kevin is unblocked and the verbs work today.
+
+### 2026-09-01 – ABOUT in @byollm/protocol with the drift check: the one-source rule has teeth
+
+Two forms (generated TS module for bundlers; the markdown in the
+tarball so npm renders it – a description that needs a bundler to read
+is one most people won't). ABOUT_SHORT exported as lede / tail / whole
+from the cut mark; a file with no cut mark is refused. The check runs in
+verify and refuses all three ways of making two states (markdown edited
+without regenerating; generated file hand-edited; package copies
+edited), each mutation-verified. Generated files sit outside prettier –
+**a generated file with two formatters is a file with two sources.**
+Accepted. One addition: the dashboard and docs copies swap to the
+import in the SAME push that bumps the dependency to .64 – the debt is
+closed by the release, not left for the day after.

@@ -88,3 +88,55 @@ export function serviceLine(input: {
     }
   }
 }
+
+/**
+ * Every service as the owner's surfaces print it — the block, not the line.
+ *
+ * Lives here rather than in the CLI because it is rendering, and rendering
+ * that sits inside a two-thousand-line command file is rendering nobody
+ * tests. `byollm connect` and the daemon both print exactly this.
+ */
+export function renderServices(
+  states: ReadonlyMap<string, ServiceReport>,
+  device: string,
+): string[] {
+  const lines: string[] = [];
+  for (const [service, report] of states) {
+    const said = serviceLine({
+      service,
+      device,
+      state: report.state,
+      ...(report.signIn === undefined ? {} : { signIn: report.signIn }),
+    });
+    lines.push(`  ${said.line}`);
+    // The backend's own words, for the owner, beneath the remedy. Indented
+    // because it is evidence for the sentence above it, not a second finding.
+    if (said.detail !== undefined) lines.push(`    ${said.detail}`);
+  }
+  return lines;
+}
+
+/**
+ * The line `byollm status` adds beneath a service, or nothing.
+ *
+ * Nothing in two cases, and they are different: a service that answered has
+ * no remedy to offer, and a service nobody has probed has no finding at all.
+ * Both print what `status` always printed, because inventing a sentence from
+ * an absence is how "not asked" becomes "cannot answer".
+ */
+export function authNote(input: {
+  readonly service: string;
+  readonly device: string;
+  readonly report: ServiceReport | undefined;
+}): ServiceLine | undefined {
+  const { report } = input;
+  if (report === undefined) return undefined;
+  if (report.state.kind === "answers") return undefined;
+  if (report.state.kind === "unknown") return undefined;
+  return serviceLine({
+    service: input.service,
+    device: input.device,
+    state: report.state,
+    ...(report.signIn === undefined ? {} : { signIn: report.signIn }),
+  });
+}

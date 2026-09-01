@@ -39,6 +39,19 @@ export interface DaemonPaths {
   /** Set while the owner has the daemon paused. */
   readonly pauseFlag: string;
   /**
+   * What the last probe learned about each service — the owner's copy.
+   *
+   * Written by whoever ran the probe, read by `byollm status`, which is a
+   * different process and must not spend a model call of its own to answer
+   * "how are my services". A canary on a metered backend costs real money,
+   * and `status` is a command people run often.
+   *
+   * Latest state only, never a history: this answers "where does this stand
+   * now", and a log of every probe would be a log of when somebody's token
+   * lapsed, which is nobody's business including ours.
+   */
+  readonly serviceStates: string;
+  /**
    * How the daemon's last conversation with an upstream went.
    *
    * Written by the running daemon, read by `byollm status`, which otherwise
@@ -79,6 +92,7 @@ export function daemonPaths(root = defaultRoot()): DaemonPaths {
     ingressLog: join(root, "ingress.log"),
     budgets: join(root, "budgets.json"),
     spend: join(root, "spend.json"),
+    serviceStates: join(root, "services.json"),
     spentGrants: join(root, "spent-grants.json"),
     keys: join(root, "keys.json"),
     pauseFlag: join(root, "paused"),

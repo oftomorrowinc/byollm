@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { serviceLine } from "./service-line.js";
+import { authNote, renderServices, serviceLine } from "./service-line.js";
 
 /**
  * One sentence, three surfaces, and never a site.
@@ -106,5 +106,119 @@ describe("what the owner is told about a service", () => {
         signIn: "run `claude` in a terminal",
       }).detail,
     ).toBe("401 OAuth access token has expired");
+  });
+});
+
+/**
+ * The fallbacks, which exist because a backend may not have told us.
+ *
+ * Both are deliberately vague rather than wrong. A sentence that named a
+ * command the backend does not have would send somebody to a terminal to type
+ * something that fails, which is worse than telling them less.
+ */
+describe("when the backend said nothing about its remedy", () => {
+  it("still says the service needs signing in", () => {
+    expect(
+      serviceLine({
+        service: "something",
+        device: "a-laptop",
+        state: { kind: "signed-out" },
+      }).line,
+    ).toBe("something — needs sign-in on a-laptop: sign it in");
+  });
+
+  it("points at the config when it cannot name a remove command", () => {
+    expect(
+      serviceLine({
+        service: "something",
+        device: "a-laptop",
+        state: { kind: "missing" },
+      }).line,
+    ).toContain("config.json");
+  });
+});
+
+/**
+ * The block all three surfaces print.
+ *
+ * It lives beside the template rather than inside the CLI, because rendering
+ * buried in a two-thousand-line command file is rendering nobody tests — and
+ * this is the sentence that decides whether somebody knows their token
+ * expired before a site asks.
+ */
+describe("the services block", () => {
+  it("prints nothing when nothing has been probed", () => {
+    expect(renderServices(new Map(), "a-laptop")).toEqual([]);
+  });
+
+  it("puts the backend's own words under the line they explain", () => {
+    expect(
+      renderServices(
+        new Map([
+          [
+            "claude",
+            {
+              state: {
+                kind: "signed-out" as const,
+                detail: "401 OAuth access token has expired",
+              },
+              signIn: "run `claude` in a terminal",
+            },
+          ],
+        ]),
+        "tood-mbp",
+      ),
+    ).toEqual([
+      "  claude — needs sign-in on tood-mbp: run `claude` in a terminal",
+      "    401 OAuth access token has expired",
+    ]);
+  });
+
+  it("gives a healthy service one line and no evidence", () => {
+    expect(
+      renderServices(
+        new Map([
+          ["qwen", { state: { kind: "answers" as const, model: "Qwen2.5" } }],
+        ]),
+        "tood-mbp",
+      ),
+    ).toEqual(["  qwen — Qwen2.5"]);
+  });
+});
+
+/**
+ * What `byollm status` adds beneath a service — or does not.
+ *
+ * Two silences, and they are different things. A service that answered has no
+ * remedy to offer. A service nobody has probed has no finding at all. Both
+ * print what status always printed, because inventing a sentence from an
+ * absence is exactly how "not asked" turns into "cannot answer".
+ */
+describe("the status note", () => {
+  const at = (report: Parameters<typeof authNote>[0]["report"]) =>
+    authNote({ service: "claude", device: "tood-mbp", report });
+
+  it("says nothing when nothing has probed", () => {
+    expect(at(undefined)).toBeUndefined();
+  });
+
+  it("says nothing when the service answered", () => {
+    expect(at({ state: { kind: "answers", model: "opus" } })).toBeUndefined();
+  });
+
+  it("says nothing when there was no way to ask", () => {
+    expect(at({ state: { kind: "unknown", model: "Qwen" } })).toBeUndefined();
+  });
+
+  it("speaks up when it is signed out", () => {
+    expect(
+      at({ state: { kind: "signed-out" }, signIn: "run `claude`" })?.line,
+    ).toBe("claude — needs sign-in on tood-mbp: run `claude`");
+  });
+
+  it("speaks up when the binary is gone", () => {
+    expect(at({ state: { kind: "missing" } })?.line).toContain(
+      "not found on tood-mbp",
+    );
   });
 });

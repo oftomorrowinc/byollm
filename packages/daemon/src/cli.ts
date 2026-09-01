@@ -32,7 +32,8 @@ import {
   type ServicePlatform,
   type ServiceTarget,
 } from "./service.js";
-import { serviceLine, type ServiceReport } from "./service-line.js";
+import { authNote, renderServices } from "./service-line.js";
+import { readServiceStates, writeServiceStates } from "./service-states.js";
 import { DAEMON_VERSION, formatVersion } from "./index.js";
 
 const USAGE = `byollm — run an app's LLM jobs on your own models.
@@ -480,6 +481,9 @@ async function commandConnect(
   // Daemon start: the one place a canary runs. `#tick()` calls this with no
   // options, so the polling loop never spends a call.
   const capabilities = await runner.detectCapabilities({ canary: true });
+  // The daemon is the process that probes; `byollm status` is the process that
+  // reports. This is the only thing that connects them.
+  await writeServiceStates(paths.serviceStates, runner.serviceStates);
 
   /**
    * Zero healthy backends is a warning, not a refusal — cloud_002, ruled
@@ -509,7 +513,16 @@ async function commandConnect(
    * threw the answer away, so somebody paired a machine, watched it advertise
    * nothing, and had to go and find out why from a job that failed later.
    */
-  reportServices(runner, await labelFor(paths, name), io);
+  {
+    const lines = renderServices(
+      runner.serviceStates,
+      await labelFor(paths, name),
+    );
+    if (lines.length > 0) io.out(`\nservices\n${lines.join("\n")}\n`);
+  }
+  // Kept for `byollm status`, which is a different process and must not spend
+  // a model call of its own to answer "how are my services".
+  await writeServiceStates(paths.serviceStates, runner.serviceStates);
 
   if (capabilities.length === 0) {
     io.err(
@@ -1174,6 +1187,10 @@ async function commandStatus(
   }
 
   io.out("\nservices\n");
+  // What the last probe recorded, if anything has probed. Read rather than
+  // re-run — see the comment beside `authLine` below.
+  const recorded = await readServiceStates(paths.serviceStates);
+  const deviceName = await labelFor(paths, undefined);
   const declared = Object.entries(loaded.config.services);
   if (declared.length === 0) {
     io.out("  (none configured)\n");
@@ -1203,6 +1220,22 @@ async function commandStatus(
     const scope =
       `${summary.scope} (${summary.audience})` +
       (summary.narrowedBy === undefined ? "" : ` — ${summary.narrowedBy}`);
+
+    /**
+     * What the last probe found, if anything has probed.
+     *
+     * Read rather than re-run: this is a different process, and the canary is
+     * a real model call — on a metered backend, real money, on a command
+     * people run repeatedly while something is wrong.
+     *
+     * Absent is not signed-out. A machine that has never probed prints what it
+     * always printed, because "nothing has asked yet" is not a finding.
+     */
+    const authLine = authNote({
+      service: name,
+      device: deviceName,
+      report: recorded.get(name),
+    });
     // Three short lines rather than one long one. `openai-http:` prefixed
     // onto `mlx-community/Qwen2.5-14B-Instruct-4bit` with a scope after it
     // wrapped at any sane terminal width, and a wrapped line in a column
@@ -1226,6 +1259,15 @@ async function commandStatus(
     io.out(
       `      ${scope} · ${says.length === 0 ? "not offered — see the problems below" : says.join(" · ")}\n`,
     );
+    /* The auth line, when the probe found something to say. Same template as
+       `byollm connect` and the daemon's output, so one machine cannot
+       describe itself differently depending on where you look. */
+    if (authLine !== undefined) {
+      io.out(`      ${authLine.line}\n`);
+      if (authLine.detail !== undefined) {
+        io.out(`        ${authLine.detail}\n`);
+      }
+    }
   }
 
   // **Withheld is shown, never merely absent.**
@@ -1900,33 +1942,6 @@ function commandRetiredApprove(io: CliIo): 2 {
       )}\n`,
   );
   return 2;
-}
-
-/**
- * The owner's services, in the one sentence all three surfaces use.
- *
- * `byollm connect` and `byollm status` print this; the daemon's own output
- * prints it when a service changes state. One template, so a machine cannot
- * describe itself differently depending on where you look at it.
- */
-function reportServices(
-  runner: { serviceStates: ReadonlyMap<string, ServiceReport> },
-  device: string,
-  io: CliIo,
-): void {
-  if (runner.serviceStates.size === 0) return;
-  io.out("\nservices\n");
-  for (const [service, report] of runner.serviceStates) {
-    const said = serviceLine({
-      service,
-      device,
-      state: report.state,
-      ...(report.signIn === undefined ? {} : { signIn: report.signIn }),
-    });
-    io.out(`  ${said.line}\n`);
-    // The backend's own words, for the owner, beneath the remedy.
-    if (said.detail !== undefined) io.out(`    ${said.detail}\n`);
-  }
 }
 
 // -- backends ------------------------------------------------------------------

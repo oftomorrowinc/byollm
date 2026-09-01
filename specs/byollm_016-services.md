@@ -5834,3 +5834,43 @@ already has users re-consents once (the implicit flat slot's mappings
 orphan), so the guide says "declare your manifest before you invite
 users". No protocol change; nothing rides a release but the docs and the
 editor placeholder.
+
+### 2026-09-01 – Satisfiability at enqueue: relay-asks-never-holds CONFIRMED, with four conditions; build order set
+
+CCC's shape: the site-plane enqueue handler gains an optional dependency
+`satisfiable?(siteId, owner, purpose, kind)`, wired in the hub to the
+control plane (which already answers this at claim via
+`PolicyStore.read()`); the relay's ConsentRecord stays `{owner, siteId,
+paused}` – no mappings, as ruled; the manifest joins the policy read for
+case 1. Both cases refuse at enqueue as thrown, typed errors, consistent
+with enqueue's existing throws. Confirmed. Conditions:
+
+1. **Optional must be visible, not silent.** A relay without the
+   dependency behaves as today – acceptable only if it says so: the
+   relay logs its satisfiability mode at boot and reports it on its
+   health surface (`satisfiability: control-plane | none`), and the SDK
+   docs state where the signal exists. A check that quietly isn't there
+   is the skipping-check law wearing deployment.
+2. **The constant is the assertion.** Two stable error codes
+   (`purpose-not-declared`, `slot-unsatisfiable`), pinned by tests; the
+   unsatisfiable MESSAGE is a fixed-sentence constant, never composed,
+   and a test greps it for purpose ids, service names and the word
+   "mapping" the way the owner/site split's tests grep for "claude".
+   The not-declared message may name the purpose and the remedy – it is
+   the site's own manifest.
+3. **Widening, named and accepted.** The relay now learns, per enqueue,
+   whether THIS owner has a mapping for THIS purpose – existence, never
+   which service. That is one bit more than ConsentRecord held; write it
+   into the relay's enumerated-metadata commitment (byollm_009 §6) so
+   the list stays exhaustive.
+4. **Enqueue-time answer, claim-time truth.** A mapping revoked between
+   enqueue and claim falls to the transient path exactly as today; no
+   second check is added at claim. One question, one answerer, per
+   moment.
+
+**Build order (Kevin is unblocked):** auth probe → Windows two → ABOUT in
+@byollm/protocol + drift check → apps/test stopgap out → guide's audience
+line → THEN satisfiability, last. If it is not green when the rest is,
+**.64 ships without it and it heads .65** – a release is not held by its
+largest piece, and the promise is a day older either way. `latest` moves
+to whatever ships.

@@ -84,6 +84,25 @@ export interface RelayOptions {
    */
   readonly controlPlanePublic?: string | undefined;
   /**
+   * Whether a purpose can be satisfied for this person, asked at enqueue.
+   *
+   * The relay does not hold the answer and must not: one that filtered on
+   * mappings would hold the mapping, which is the one thing it cannot have. So
+   * it asks whoever does — in practice the control plane, which already
+   * decides this at claim, a moment later.
+   *
+   * Optional. A relay without it refuses nothing, which is a supported
+   * arrangement and one an operator must be able to see they are in: say so at
+   * boot and on the health surface, because a check that quietly is not there
+   * reads as a check that passed.
+   */
+  readonly satisfiable?: (query: {
+    readonly siteId: string;
+    readonly owner: string;
+    readonly purpose: string | undefined;
+    readonly kind: string;
+  }) => Promise<{ readonly verdict: "ok" | "not-declared" | "unmapped" }>;
+  /**
    * Author a grant for one claimed job — Amendment J.
    *
    * **The relay asks; it does not decide.** Everything a grant asserts —
@@ -230,6 +249,9 @@ export class Relay {
       state: this.state,
       projection: this.projection,
       now: this.#now,
+      ...(options.satisfiable === undefined
+        ? {}
+        : { satisfiable: options.satisfiable }),
     });
   }
 

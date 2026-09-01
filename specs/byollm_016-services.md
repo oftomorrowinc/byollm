@@ -6097,3 +6097,15 @@ plan → Todd says go → CCC runs `pnpm up` → /readyz shows
 undeclared purpose refused immediately with the remedy; an unmapped
 declared slot declined with the fixed sentence) → Todd moves `latest`
 .63 → .65, all six, one move.
+
+Correction to the deploy sequence (CCC caught it before running
+anything): `pnpm up` applies infra with the PINNED digest – 23
+unchanged, exit 0, .62-era code still serving; finding 55 one level up
+("a deploy that silently ships the last program is worse than one that
+fails"). The real deploy is `./scripts/roll.sh`: edge watch started
+BEFORE the rollout (finding 56), build+push while still serving,
+build/typecheck + pulumi, read the deployment back from the cluster
+against the new digest, then a real job through the hub it deployed.
+Rollback string recorded (sha256:afa1f754…); no MIGRATE, additive. GO
+given – and the new digest lands in Pulumi.prod.yaml, which gets
+committed with the roll as before.

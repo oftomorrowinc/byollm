@@ -5690,3 +5690,26 @@ commit → verify → push stands; pipefail stays in the script; a red commit
 that cannot be pushed is not a red main. A required status check on main
 is the honest upgrade if we ever move to PRs; not now, with two agents
 and Todd pushing to one branch.
+
+### 2026-09-01 – The owner/site split landed (604e27b) and found a second fence breach
+
+CCC: no backend message reaches a site now – one fixed sentence per
+class; timeout and output-too-large keep their own classes (facts about
+the job, naming nothing); signed-out and crashed are deliberately ONE
+class to the site, and the owner gets the CLI's words on Your Devices,
+`byollm status` and ingress.log. The larger finding: every failure
+message named its backend ("the claude CLI is not signed in") – the
+disclosure fence, breached through the error path, while every success
+path was careful to hide the same fact. Four boundary tests now, three of
+which fail the moment a message travels (one greps for the owner's home
+directory, one for the word "claude"). knip surfaced SERVICE_UNAVAILABLE
+exported and never asserted – now the constant IS the assertion.
+
+Law, for the record: **the error path is a disclosure path.** Every
+fence has to be checked where things go wrong, because that is where
+nobody was looking. Accepted as ruled; the same-class decision for
+signed-out/crashed is right – telling them apart tells the site about
+the person's setup, and the person is the one who already knows.
+Sequence unchanged: auth probe → Windows two → ABOUT in @byollm/protocol
+→ apps/test stopgap out → guide line → release .64 → Todd walks fresh
+account #3 → Kevin.

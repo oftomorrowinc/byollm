@@ -5999,3 +5999,28 @@ edited), each mutation-verified. Generated files sit outside prettier –
 Accepted. One addition: the dashboard and docs copies swap to the
 import in the SAME push that bumps the dependency to .64 – the debt is
 closed by the release, not left for the day after.
+
+### 2026-09-01 – .64 RELEASE APPROVED (Cowork; Todd holds the 2FA)
+
+Feature-complete, ten local commits, green: PayloadFor<K> · audience
+derived + refused · runnerAvailability refusing · owner/site split ·
+pipefail · auth probe (setup, connect, status, daemon) · Windows two ·
+ABOUT in @byollm/protocol with the drift check · satisfiability's
+package half (EnqueueRefused distinct from RelayUnavailable – "retrying
+forever against a fact" is the right sentence; the undefined-store case
+has its own test). The hub half is SCHEDULED, not missing: wiring it
+before .64 exists on npm would put a lie on a health surface, so it
+rides the post-publish push – hub wiring + boot line + health field +
+enumerated-metadata commitment; apps/test stopgap removal with the
+dependency bump; the guide's audience line; dashboard + docs ABOUT
+imports. Four items, one push, each wrong to land early for the same
+reason: it would document a version nobody is running.
+
+Release train: CCC publishes .64 to `@alpha` (registry-verified, as
+.63); Todd moves `latest` to .64 across all six (2FA, one command per
+package – skipping .63 entirely); post-publish push lands; hub deploys;
+Todd re-installs on his laptop and walks fresh account #4 with
+`byollm uninstall` first as a real step; if clean, Kevin gets the
+summary and the proven steps. One question open for CCC's report: where
+did the Your Devices auth-state wire piece land – riding the
+post-publish hub push, or .65 as provided for.

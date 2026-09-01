@@ -5955,3 +5955,33 @@ Mutation-verified both ways. Accepted. One note for the docs: the
 Windows install page says which supervisor it got and what each means,
 in the same two sentences the CLI prints – the interim `byollm run`
 answer stays in the guide.
+
+### 2026-09-01 – Four verbs, no ceremony: `setup` finishes the job (Todd; ruled, rides with the install script)
+
+Todd: "it is weird that we have connect, run and install – and setup
+does none of them at the end. Maybe the shell script will fix that."
+The script must NOT be what fixes it: **the script does only what the
+CLI cannot (get Node, get byollm); everything after that is the CLI's
+own ceremony**, so someone who `npm i -g byollm` by hand – Kevin – gets
+the same path as someone who pasted the one-liner. Ruled:
+
+- `byollm setup` becomes the whole first run, in order, each step a
+  question with a default and each skippable: services (as today) →
+  **connect** this device (asks for the pairing code, or takes
+  `--code <code>` from the command the setup page shows, and `--name`
+  defaulting to the hostname) → **install** supervision (with the
+  Windows fallback wording as built; declining says `byollm run` is the
+  foreground alternative). It ends with what is true, not what to do
+  next: "tood-mbp is connected · claude answers · supervised by launchd"
+  – or, for any step skipped, the one command that finishes it.
+- The four verbs stay as the re-runnable pieces (`connect` for a second
+  account or a re-pair, `install` after a decline, `run` for foreground,
+  `setup` again to change services). Nothing is removed; setup composes
+  them. Re-running setup on a configured, connected, supervised machine
+  asks nothing and prints the same true sentence.
+- The install script therefore ends with exactly one command:
+  `byollm setup --code <code>` (code present only when the setup page
+  baked one in). The page's pasted line is the script; the script's
+  last line is setup; setup's last line is the truth.
+Rides with the install script (onboarding batch, after .64) – not a
+.64 item; Kevin is unblocked and the verbs work today.

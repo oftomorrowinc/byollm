@@ -5874,3 +5874,30 @@ line → THEN satisfiability, last. If it is not green when the rest is,
 **.64 ships without it and it heads .65** – a release is not held by its
 largest piece, and the promise is a day older either way. `latest` moves
 to whatever ships.
+
+### 2026-09-01 – Auth probe, first half (7bcb3d3): the canary was already the probe. Wording for the owner surfaces, RULED
+
+CCC found the existing daemon-start canary is the right instrument (one
+real token through the real binary) and wired setup to it. Three facts,
+three words: `installed` (the binary), `answers` (the credentials),
+`undefined` (not asked – backends with no canary). The third is right:
+rendering not-asked as `false` would tell every local-server owner their
+model cannot answer – "not asked is not no", sibling of "empty is not
+configured". Writing the service to config when it cannot answer is
+approved: a lapsed token is a five-second fix, nothing routes until it
+answers, and the wizard says so.
+
+**The owner-facing sentence, one template, three surfaces** (Your
+Devices card, `byollm status`, daemon output) – ruled, and the same
+words CCC was waiting on for the signed-out card:
+- answers → as today (healthy, model name).
+- installed, does not answer → **"claude – needs sign-in on tood-mbp:
+  run `claude` in a terminal"**, with the CLI's own first line beneath
+  it, muted. The remedy verb comes from the backend, which knows its own
+  sign-in ("codex – needs sign-in on tood-mbp: run `codex login`");
+  the template is one string.
+- not installed (config names a binary that is gone) → "claude – not
+  found on tood-mbp: install it, or remove the service with `byollm
+  …`" – the remedy names the command.
+- undefined → no auth sentence; health as today.
+Never on a site: the class only, as already built.

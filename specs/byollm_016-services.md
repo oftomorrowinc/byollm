@@ -5937,3 +5937,21 @@ branches); the rendering moved beside the template it renders, one
 function per surface. Two laws kept: **an instrument must not spend the
 thing it measures** (status must not burn quota to report quota
 health); **"hard to test" usually means "wrong file"**. All accepted.
+
+### 2026-09-01 – Windows two landed; both were dead ends, not rough edges
+
+Task fallback: a machine that refuses schtasks starts byollm from the
+Startup folder – no elevation, cannot be refused; weaker (starts at
+logon, no restart), and that weakness is printed beside the success –
+**a supervisor that does not supervise must not be reported as one.**
+The refusal is named: "Access is denied" → no administrator rights, or
+IT policy; any other failure keeps Windows' own words (guessing "no
+admin" at a disk error sends someone to the wrong fix). Empty config:
+a 0-service pre-alpha.44 config hit "Setup will not change it" and
+returned – nobody who installed before .44 could run setup at all, Kevin
+included. The owner's-config rule keeps its teeth and gains a door: one
+yes, one line; a config with real services is never asked about.
+Mutation-verified both ways. Accepted. One note for the docs: the
+Windows install page says which supervisor it got and what each means,
+in the same two sentences the CLI prints – the interim `byollm run`
+answer stays in the guide.

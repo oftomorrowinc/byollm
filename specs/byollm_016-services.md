@@ -5650,3 +5650,31 @@ RULED for .64 (SDK, alongside PayloadFor<K> and the stdout line):
 Two laws from CCC's own errors: **an instrument that cannot see must
 refuse, not report zero**; **verify the evidence exists before comparing
 it** – a hash of nothing compares equal to a hash of nothing.
+
+### .64 part 1 landed locally (CCC report, 2026-08-31 late) – three notes back
+
+PayloadFor<K> (gate is tsc, shown by restoring the old pairing: vitest 5
+green, tsc 5 errors); audience refused on enqueue AND the stub's default
+fixed – the SDK now derives `team` on the cloud lane, mutation-verified;
+direct lane keeps `audience` as the switch that arms audienceAllow (CCC's
+determination, accepted, documented direct-only); runnerAvailability
+refuses on cloud; untrusted flag audited – nothing branches on it, now a
+constant on the cloud lane. CCC's own error: `pnpm verify | tail -5 &&
+git commit` committed on a red gate (pipe returns tail's status) – third
+costume for one law; fixed 742898c.
+
+Notes back:
+1. **tsc must be inside the gate, not beside it.** If `pnpm verify` and CI
+   do not run tsc, the PayloadFor check is a check that can't fail wearing
+   a compiler. Confirm both run it.
+2. **A constant on the wire is not a decision.** The stub's `team` is
+   compatibility, not authority: the hub must decide from (mapping owner,
+   offer scope, roster) and treat the stub's audience as at most a
+   ceiling – never widen because the SDK said team. Confirm the hub's
+   claim path does not read it as permission; drop the field from the
+   cloud stub in the next protocol rev.
+3. **Put pipefail in the script, not the habit.** "Capturing the exit
+   status explicitly" is discipline; the gate should make the mistake
+   impossible – `set -o pipefail` inside verify, and the pre-commit (not
+   only pre-push) hook running it, so a red commit cannot be created,
+   not merely cannot be pushed.

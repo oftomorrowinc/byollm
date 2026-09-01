@@ -144,7 +144,6 @@ describe.each(CASES)("the cloud lane over $name", (storeCase) => {
     const handle = await app.enqueue({
       kind: "llm.generate",
       owner,
-      audience: "private",
       payload: { prompt: "through the relay" },
     });
 
@@ -174,7 +173,20 @@ describe.each(CASES)("the cloud lane over $name", (storeCase) => {
       outcome: "ok",
       text: "echo: through the relay",
     });
-    expect(delivered?.provenance?.untrusted).toBe(false);
+    /**
+     * `true`, and it is a constant on this lane now.
+     *
+     * It is derived from the audience, and the cloud lane derives `team` for
+     * every job — because who may serve one is the person's decision, taken
+     * from a mapping the site is never shown. So the site cannot know whether
+     * a teammate's device answered, and the honest marking is the one that
+     * assumes it might have. It said `false` yesterday, which was an
+     * assurance nobody was entitled to give.
+     *
+     * The disclosure an app owes its users is therefore the same sentence for
+     * every job, rather than a per-job fact it would have to explain.
+     */
+    expect(delivered?.provenance?.untrusted).toBe(true);
     expect(daemon.backend.seen).toEqual(["through the relay"]);
   });
 
@@ -208,7 +220,6 @@ describe.each(CASES)("the cloud lane over $name", (storeCase) => {
     const handle = await app.enqueue({
       kind: "llm.generate",
       owner,
-      audience: "private",
       payload: { prompt: "who holds this" },
     });
 
@@ -269,7 +280,6 @@ describe.each(CASES)("the cloud lane over $name", (storeCase) => {
     const handle = await app.enqueue({
       kind: "llm.generate",
       owner,
-      audience: "private",
       payload: { prompt: "whose result is this" },
     });
 
@@ -345,7 +355,6 @@ describe.each(CASES)("the cloud lane over $name", (storeCase) => {
     const handle = await app.enqueue({
       kind: "llm.generate",
       owner,
-      audience: "private",
       payload: { prompt: "across a deploy" },
     });
 
@@ -417,7 +426,6 @@ describe("provenance names a person, not a key", () => {
     const job = await app.enqueue({
       kind: "llm.generate",
       owner,
-      audience: "private",
       payload: { prompt: "whose machine ran this" },
     });
 
@@ -476,7 +484,6 @@ describe("the site's own row decides whether to seal", () => {
     const job = await app.enqueue({
       kind: "llm.generate",
       owner,
-      audience: "private",
       payload: { prompt: "cancelled before anyone ran it" },
     });
 
@@ -556,7 +563,6 @@ describe("what the relay is told, and what it is not", () => {
     const job = await app.enqueue({
       kind: "llm.generate",
       owner,
-      audience: "team",
       // The site restricts the job to two named people…
       audienceAllow: ["carol", "erin"],
       payload: { prompt: "who may run this" },
@@ -591,7 +597,6 @@ describe("what the relay is told, and what it is not", () => {
     const job = await app.enqueue({
       kind: "llm.generate",
       owner,
-      audience: "team",
       audienceAllow: ["carol"],
       payload: { prompt: "still known here" },
     });

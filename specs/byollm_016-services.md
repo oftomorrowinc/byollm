@@ -6109,3 +6109,12 @@ against the new digest, then a real job through the hub it deployed.
 Rollback string recorded (sha256:afa1f754…); no MIGRATE, additive. GO
 given – and the new digest lands in Pulumi.prod.yaml, which gets
 committed with the roll as before.
+
+Roll note: the wire prover (round-trip.mjs:519) itself passed
+`audience` and was refused client-side by the .65 SDK before any bytes
+left the machine – pairing and site-key pinning through the new hub had
+already succeeded, so the deploy was fine and the prover was stale. A
+prover ages with the contract it proves; when a release removes an
+option, the greps must include the instruments. The enqueue-refused
+throw naming its cause is what made this a two-minute diagnosis instead
+of a rollback – the refusal law paying for itself on our own tooling.

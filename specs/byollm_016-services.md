@@ -5801,3 +5801,36 @@ pro-tip lands with whichever release carries (2), so the examples never
 teach a convention that changes a week later. Kevin's manifest becomes
 `{default, fact-checker, style-trainer}` with `writing-assistant`
 folded into default if he wants – his call, and his users re-map once.
+
+**Superseded within the hour (Todd): `default` stays reserved; the answer
+is a best practice, not a schema change.** Declare the site-wide needs
+under a purpose named for the SITE, both kinds, and give special features
+their own label only when they may need a different model. Kevin's
+manifest, as Todd would write it:
+
+    {
+      "of-tomorrow-press": {
+        "kinds": ["llm.generate", "llm.chat"],
+        "label": "Of Tomorrow Press",
+        "description": "Device services used for most of the Of Tomorrow Press website"
+      },
+      "writing-assistant": {
+        "kinds": ["llm.generate"],
+        "label": "Writing Assistant",
+        "description": "Device service used to draft scenes from story outlines"
+      }
+    }
+
+Ruled as the documented best practice: the integrate guide's first
+example manifest has this shape; the pro-tip box says why (one everyday
+slot, named slots only for work that deserves its own model, each added
+purpose is a re-consent event); the Developer Sites manifest editor's
+placeholder is this shape with the site's own name and slug filled in.
+Sites always enqueue with a purpose once a manifest exists; a
+purpose-less enqueue against a declared manifest is outcome 1 with the
+remedy "name a purpose – your site-wide one is `of-tomorrow-press`".
+Known and accepted: a site that declares its first manifest after it
+already has users re-consents once (the implicit flat slot's mappings
+orphan), so the guide says "declare your manifest before you invite
+users". No protocol change; nothing rides a release but the docs and the
+editor placeholder.

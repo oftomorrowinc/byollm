@@ -1,10 +1,10 @@
 import type {
+  PayloadFor,
   PublicIdentity,
   Audience,
   Capability,
   JobKind,
   JobOutcome,
-  JobPayload,
   SealedEnvelope,
   SizeClass,
   JobState,
@@ -154,13 +154,48 @@ export interface PairingRecord {
   readonly createdAt: number;
 }
 
-/** What the app supplies to enqueue a job. */
-export interface EnqueueInput {
-  readonly kind: JobKind;
+/**
+ * What the app supplies to enqueue a job.
+ *
+ * Generic over the kind, so the payload has to be the payload *for* that kind.
+ * These were independent — `kind: JobKind` beside `payload: JobPayload`, the
+ * union of both shapes — and the pairing was left to the author's memory. A
+ * chat job carrying a generate payload typechecked, built, shipped, and was
+ * refused at the relay's ingress with a precise sentence nobody sees until
+ * somebody clicks.
+ *
+ * `PayloadFor<K>` was already exported by the protocol when that happened, and
+ * `enqueue` did not use it. A wrong pairing is now a compile error at the call
+ * site, which is the only place that knows what it meant.
+ *
+ * A caller whose `kind` is a variable rather than a literal still gets the old
+ * permissive union — the conditional distributes — so nothing that was legal
+ * and correct stops compiling.
+ */
+export interface EnqueueInput<K extends JobKind = JobKind> {
+  readonly kind: K;
   /** The work, in plaintext. The server seals it before it is stored. */
-  readonly payload: JobPayload;
+  readonly payload: PayloadFor<K>;
   readonly owner: string;
-  /** Defaults to `private` — the safe direction. */
+  /**
+   * Direct lane only. Refused on the cloud lane, where it is derived.
+   *
+   * On the cloud lane, who may serve a job comes from the person's own
+   * mapping — the service they chose, its owner, and that owner's offer scope
+   * — none of which a site is told, and all of which the hub holds at claim.
+   * A site declaring an audience there was a third vote cast by the one party
+   * the disclosure fence forbids from knowing the answer, and its `private`
+   * default silently disabled team sharing for every user who had a team.
+   *
+   * On the direct lane it still selects something real, which is why it stays
+   * rather than going in the same release: it is the switch that turns
+   * {@link EnqueueInput.audienceAllow} on. `private` is own-devices-only;
+   * `team` hands the decision to the allowlist. Without it there is no way to
+   * say "these runner owners, and no others", and supplier trust needs one.
+   *
+   * Defaults to `private` — the safe direction, and on this lane a direction
+   * a caller can meaningfully choose.
+   */
   readonly audience?: Audience;
   /**
    * Which of *your site's* declared purposes this job serves — Amendment L.

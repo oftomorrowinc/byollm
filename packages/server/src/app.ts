@@ -219,7 +219,7 @@ export class ByollmApp {
    * result comes back marked untrusted (see {@link ByollmApp.result}), and
    * the app is obliged to disclose that to whoever reads it.
    */
-  async enqueue(input: EnqueueInput): Promise<JobHandle> {
+  async enqueue<K extends JobKind>(input: EnqueueInput<K>): Promise<JobHandle> {
     // An option this SDK does not know is refused, never ignored.
     //
     // A caller newer than its SDK is the ordinary way this happens, and the
@@ -238,6 +238,39 @@ export class ByollmApp {
           `ignored, because an ignored option is a job that runs differently ` +
           `than you asked with nothing to see — most often an SDK older than ` +
           `the code calling it. Upgrade @byollm/server, or remove the option.`,
+      );
+    }
+
+    /**
+     * `audience` is not a fact a cloud-lane site holds — so it may not state
+     * one.
+     *
+     * Who may serve a job is decided by the person: their mapping names a
+     * service and its owner, that owner's offer scope says who the service
+     * serves, and the hub holds both at claim. The site's declaration was a
+     * third vote cast by the one party the disclosure fence forbids from
+     * knowing the answer.
+     *
+     * Which is exactly how its default came to disable the headline feature
+     * in silence. It defaults to `private` — own devices only — so a site that
+     * simply never mentioned it broke team sharing for every user who had a
+     * team, while working perfectly for everyone testing alone. **A
+     * declaration required from the party that cannot know is a default in
+     * disguise.**
+     *
+     * Refused rather than ignored, by this method's own rule two paragraphs
+     * up: an ignored option is a job that runs differently than asked with
+     * nothing to see. The remedy travels with the refusal, because a caller
+     * who set it was trying to express something real and deserves to know
+     * where that decision now lives.
+     */
+    if (this.cloud !== undefined && input.audience !== undefined) {
+      throw new Error(
+        "enqueue does not take `audience` on the cloud lane. Who may serve a " +
+          "job is derived from the person's own mapping — the service they " +
+          "chose, its owner, and that owner's sharing — which your site is " +
+          "not told and cannot compute. Remove `audience`; ask for the kind " +
+          "and the purpose, and their decision does the rest.",
       );
     }
 
@@ -313,6 +346,27 @@ export class ByollmApp {
     const record = await this.#store.create(
       {
         ...input,
+        /**
+         * Derived here, because on the cloud lane it is derivable and nowhere
+         * else knows the lane.
+         *
+         * Refusing the site's declaration is only half of "derived, never
+         * declared" — the stub still carries an audience to the relay, and a
+         * store that defaults it to `private` would keep every cloud job
+         * private no matter who was forbidden from saying so. The half that
+         * fixes anything is this one.
+         *
+         * `team` is the value that defers: it says a device whose owner
+         * admits this person may serve, and the hub then decides whether one
+         * does, from the mapping the person authored, its service's owner,
+         * that owner's offer scope, and the roster. Nothing is widened by
+         * saying it — both axes still have to agree, and the owner's scope is
+         * the other axis.
+         *
+         * Direct mode keeps the store's `private` default: there is no
+         * control plane there to derive from, and owner-only is the ruling.
+         */
+        ...(this.cloud === undefined ? {} : { audience: "team" as const }),
         id: jobId,
         envelope,
         sizeClass: sizeClassOf(
@@ -392,6 +446,33 @@ export class ByollmApp {
   async runnerAvailability(
     query: AvailabilityQuery,
   ): Promise<RunnerAvailability> {
+    /**
+     * On the cloud lane this cannot see, so it does not answer.
+     *
+     * It counts runners in *this site's own store*. In direct mode that is
+     * the whole world — devices pair with the site. On the cloud lane they
+     * pair with the relay, nothing ever writes a runner here, and the honest
+     * count is not zero but unknown.
+     *
+     * It reported zero, as `no-runner-paired` with `candidates: 0`, for every
+     * cloud-lane app that ever called it. A teammate using a shared device
+     * was told no device was paired to her account — true, irrelevant, and
+     * rendered as advice to go and install software she did not need.
+     *
+     * **An instrument that cannot see must refuse, not report zero.** A wrong
+     * answer given confidently is worse than no answer, and this one was
+     * confident, specific and false all at once.
+     */
+    if (this.cloud !== undefined) {
+      throw new Error(
+        "runnerAvailability cannot answer on the cloud lane. It counts " +
+          "runners this site knows about, and on the cloud lane devices pair " +
+          "with the relay rather than with you — so the answer would be " +
+          "`none` whatever the truth is. Enqueue the job: the result says " +
+          "whether it ran, and the person's own dashboard says why not.",
+      );
+    }
+
     const now = this.#now();
     const all = await this.#store.listRunners();
     const live = all.filter(

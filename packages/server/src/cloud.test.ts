@@ -78,7 +78,6 @@ describe("publishing a stub", () => {
     await app.enqueue({
       kind: "llm.generate",
       owner: "alice",
-      audience: "private",
       payload: { prompt: "a secret" },
     });
 
@@ -135,7 +134,6 @@ describe("what the site refuses to believe", () => {
     const handle = await app.enqueue({
       kind: "llm.generate",
       owner: "alice",
-      audience: "private",
       payload: { prompt: "hi" },
     });
 
@@ -182,7 +180,6 @@ describe("what the site refuses to believe", () => {
     const handle = await app.enqueue({
       kind: "llm.generate",
       owner: "alice",
-      audience: "private",
       payload: { prompt: "hi" },
     });
 
@@ -231,7 +228,6 @@ describe("what the site refuses to believe", () => {
     const handle = await app.enqueue({
       kind: "llm.generate",
       owner: "alice",
-      audience: "private",
       payload: { prompt: "hi" },
     });
 
@@ -369,5 +365,77 @@ describe("a relay that says ask me later — alpha.31", () => {
       const { app } = appWith(refusing("pending", status, error));
       await expect(app.cloud!.pump()).rejects.toThrow(/pending/);
     }
+  });
+});
+
+/**
+ * Who may serve a job is the person's decision, and the site is not told it.
+ *
+ * A cloud-lane site cannot compute an audience: the person's mapping names a
+ * service and its owner, that owner's offer scope says who it serves, and the
+ * hub holds both at claim. The site holds none of it — the disclosure fence
+ * exists so it never does.
+ *
+ * Asking it to declare one anyway is how the default came to disable team
+ * sharing in silence. `private` means own devices only, so a site that simply
+ * never mentioned the field broke sharing for every user with a team, while
+ * working perfectly for everyone testing alone. **A declaration required from
+ * the party that cannot know is a default in disguise.**
+ */
+describe("audience on the cloud lane", () => {
+  it("refuses a site that declares one", async () => {
+    const relay = fakeRelay({});
+    const { app } = appWith(relay.fetchImpl);
+
+    await expect(
+      app.enqueue({
+        kind: "llm.generate",
+        owner: "someone",
+        payload: { prompt: "hello" },
+        /* Typechecks, and must: the lane is a runtime fact, so the type
+           cannot refuse this and the method has to. That asymmetry is the
+           whole reason the refusal exists at all. */
+        audience: "team",
+      }),
+    ).rejects.toThrow(/does not take `audience` on the cloud lane/);
+  });
+
+  /* Refusing the declaration is only half of it. The stub still carries an
+     audience to the relay, and a store defaulting it to `private` would keep
+     every cloud job private no matter who was forbidden from saying so. */
+  it("derives one that defers to the person's own mapping", async () => {
+    const relay = fakeRelay({});
+    const { app, store } = appWith(relay.fetchImpl);
+
+    const job = await app.enqueue({
+      kind: "llm.generate",
+      owner: "someone",
+      payload: { prompt: "hello" },
+    });
+
+    const stored = await store.get(job.id);
+    expect(
+      stored?.audience,
+      "a private job can only run on the requester's own devices, so a " +
+        "teammate's mapping could never be honoured",
+    ).toBe("team");
+  });
+
+  /**
+   * And it does not answer a question it cannot see.
+   *
+   * `runnerAvailability` counts runners in this site's own store. On the
+   * cloud lane devices pair with the relay, nothing writes a runner here, and
+   * the truthful answer is "unknown" rather than "none" — it reported
+   * `no-runner-paired, candidates: 0` to every cloud app that asked, and a
+   * teammate on a shared device was told to install software she did not need.
+   */
+  it("refuses to report availability it cannot see", async () => {
+    const relay = fakeRelay({});
+    const { app } = appWith(relay.fetchImpl);
+
+    await expect(
+      app.runnerAvailability({ owner: "someone", kind: "llm.generate" }),
+    ).rejects.toThrow(/cannot answer on the cloud lane/);
   });
 });

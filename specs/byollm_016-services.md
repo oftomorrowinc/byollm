@@ -6028,3 +6028,14 @@ post-publish hub push, or .65 as provided for.
 Correction (Todd): `latest` already points at .63 – he moved it after the
 .63 publish. The train step is simply .63 → .64 after CCC's publish, all
 six packages.
+
+### 2026-09-01 – .64 tagged and pushed; .65 manifest stated
+
+Verify green at the tag; registry confirmation pending. Your Devices
+auth state lands in .65 (daemon presence payload = package release), so
+the post-publish push is exactly four items. **.65 carries:** Your
+Devices auth state (template key not CLI text; latest state only) ·
+byollm_017 model choice · dropping `audience` from the cloud stub
+(protocol rev). Note: CCC says `latest` still points at .62, Todd says
+he moved it to .63 – `npm dist-tag ls byollm` settles it before the 2FA
+command runs; either way the target is .64 on all six.

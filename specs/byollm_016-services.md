@@ -6146,3 +6146,14 @@ Honest gaps and follow-ups, recorded:
   Rightly not changed in the same commit that fixed what it caught;
   queued. The unmapped-job check inverted from wait-and-see-nothing-
   moved to asserting the refusal – the weak reading was exactly Kevin's.
+
+Closeout addendum (CCC): the 0052 grant was an OUTAGE avoided, not a
+feature enabled – hub_reader without dashboard_sites.manifest fails
+seven store tests, five of them the existing cloud lane, because the
+manifest shares a statement with the consent read. Caught before deploy
+by the same reader-grants path that then proved production. .65 CLOSED:
+npm aligned, DB applied and path-proven, hub deployed and sealed both
+ways. Open, carried forward: purpose-not-declared production proof
+(arrives with Kevin's first real refusal); roll.sh "unproven" status;
+.66 = Your Devices auth state + byollm_017 + cloud-stub audience drop
+(one fewer caller after today). Kevin heads-up goes out now.

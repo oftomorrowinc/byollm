@@ -6055,3 +6055,26 @@ question: `latest` is .63; Todd's 2FA moves it to .64. Remaining: hub
 wiring (in progress). Kevin owes himself an upgrade: docs now describe
 .64, he runs .62, and `provenance.untrusted` is a constant on the cloud
 route – his code may branch on it today.
+
+### 2026-09-01 – .64 shipped satisfiability unreachable (no RelayOptions wiring); hotfix .65 APPROVED
+
+The dep went onto SitePlaneDeps and never onto RelayOptions – nothing
+could supply it; found only by wiring the first real consumer. CCC's
+first test agreed with the bug (constructing with the option doesn't
+throw – passes with the wiring removed): "a test that cannot fail,
+written about a feature that cannot run", third instance this weekend.
+Law worth the sharper form: **a feature exists when its first consumer
+runs it** – an injection point nobody can inject is dead code wearing an
+API, and the wiring of the consumer is part of the feature, not an
+integration detail. The real test now goes through relay.handle and an
+actual enqueue; the refusal is grepped for service/device/mapping/model
+names (opacity is the promise). Hub is on .64: manifest in the policy
+snapshot, control plane wired as answerer, mode at boot and /readyz.
+
+RULED: **cut .65 now as the small release** – 2443241 plus whatever is
+already green, nothing else pulled in. The prior .65 manifest (Your
+Devices auth state, byollm_017, cloud-stub audience drop) becomes .66.
+Todd holds the `latest` 2FA until .65 is live and the satisfiability
+path is proven end to end (an undeclared purpose refused with the
+remedy, an unmapped slot declined with the fixed sentence, on the test
+site) – then one move, .63 → .65, all six.

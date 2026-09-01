@@ -6039,3 +6039,19 @@ byollm_017 model choice · dropping `audience` from the cloud stub
 (protocol rev). Note: CCC says `latest` still points at .62, Todd says
 he moved it to .63 – `npm dist-tag ls byollm` settles it before the 2FA
 command runs; either way the target is .64 on all six.
+
+### 2026-09-01 – .64 LIVE on all six (registry-verified); validated on Todd's machine; three of four post-publish items shipped (317097f)
+
+Todd uninstalled everything, logged out, forgot the test site, redid the
+whole path on .64: "Much smoother." The stopgap lived exactly one
+evening and left with the bump, as it had to. The ABOUT swap failed its
+own test on v3's rewording – the assertion now names the CLAIM (the
+encryption promise), not the phrasing, so a rewording passes and losing
+the promise fails: **assert the claim, not the phrasing** – the drift
+check's sibling, one level up. The guide now says the one idea ("who
+may serve a job is the person's decision, made on their dashboard –
+your site asks for kinds and purposes"). Registry settled the dist-tag
+question: `latest` is .63; Todd's 2FA moves it to .64. Remaining: hub
+wiring (in progress). Kevin owes himself an upgrade: docs now describe
+.64, he runs .62, and `provenance.untrusted` is a constant on the cloud
+route – his code may branch on it today.

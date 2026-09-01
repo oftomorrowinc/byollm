@@ -5763,3 +5763,41 @@ One nit: the log line names the transport – it should name the kind
 beside it, so the log stops looking like a bug to the person reading it.
 Images and other kinds remain a protocol change with their own spec and
 threat review – correctly gated.
+
+### 2026-09-01 – Todd: "map a default generate and chat you can always use; namespace the special ones." RULED, and it reopens the reserved id
+
+The pro-tip is right and it is the growth path every site will walk:
+start with the flat slot, add named purposes only when a task should be
+mappable to a DIFFERENT model than the everyday one. Two ways to give it
+to developers; the second makes the first back-compatible:
+
+1. **Docs, now:** a pro-tip box in the integrate guide and every example
+   manifest: declare one everyday purpose covering both kinds and route
+   ordinary work there; add `fact-checker`-style purposes only for work
+   that deserves its own slot. Adding a purpose is a re-consent event,
+   so add them deliberately.
+2. **Let `default` be declared (amends the reserved-id ruling of
+   2026-08-27).** Today `default` exists only as the IMPLICIT purpose of
+   a site with no manifest; the moment a manifest is declared it
+   vanishes, every purpose-less `enqueue()` becomes undeclared, and every
+   existing user's mapping to it becomes an orphan. So the first
+   namespaced purpose a site adds breaks every connected user – the
+   opposite of a growth path. Ruled: a manifest MAY declare `default`;
+   its label is always the site's own name (not overridable – the reason
+   the id was reserved holds: "default → your Claude" teaches nothing,
+   "Of Tomorrow Press → your Claude" does); description optional
+   ("Everything else this site does" when absent); `enqueue()` with no
+   purpose targets `default`. A site that grows from no manifest to
+   `{default, fact-checker}` keeps every existing mapping intact and
+   adds exactly one new slot to map. Refusal survives for a manifest
+   that declares purposes and omits `default` while the site still
+   enqueues purpose-less jobs – that is outcome 1 above ("this site
+   does not declare…"), now with a better remedy: "declare `default`".
+
+Release: (2) is a protocol schema relaxation plus the dashboard's label
+rule – CCC sizes it; in .64 if it is the one-liner it looks like (the
+protocol package ships in .64 regardless), .65 otherwise. The docs
+pro-tip lands with whichever release carries (2), so the examples never
+teach a convention that changes a week later. Kevin's manifest becomes
+`{default, fact-checker, style-trainer}` with `writing-assistant`
+folded into default if he wants – his call, and his users re-map once.

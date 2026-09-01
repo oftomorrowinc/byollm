@@ -11,6 +11,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type {
   Backend,
+  BackendErrorCode,
   BackendRequest,
   BackendResult,
 } from "./backends/index.js";
@@ -19,6 +20,7 @@ import { ProtocolClient } from "./client.js";
 import { composePrompt } from "./compose.js";
 import { DaemonConfig, resolveConfig, type ResolvedRoute } from "./config.js";
 import { IngressLog } from "./ingress.js";
+import { SERVICE_UNAVAILABLE } from "./site-outcome.js";
 import { SpendLedger } from "./spend.js";
 import { Runner, type RunnerEvent } from "./runner.js";
 import { removeTemp, testControlPlane } from "./test-support.js";
@@ -769,6 +771,8 @@ describe("what leaves the machine when a backend fails", () => {
     expect(outcome).toMatchObject({
       outcome: "error",
       code: "service_unavailable",
+      // The sentence itself, so it cannot drift into naming something.
+      message: SERVICE_UNAVAILABLE,
     });
     const said = JSON.stringify(outcome);
     expect(said, "the owner's path travelled to the site").not.toMatch(

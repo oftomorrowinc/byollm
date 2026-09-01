@@ -6024,3 +6024,7 @@ Todd re-installs on his laptop and walks fresh account #4 with
 summary and the proven steps. One question open for CCC's report: where
 did the Your Devices auth-state wire piece land – riding the
 post-publish hub push, or .65 as provided for.
+
+Correction (Todd): `latest` already points at .63 – he moved it after the
+.63 publish. The train step is simply .63 → .64 after CCC's publish, all
+six packages.

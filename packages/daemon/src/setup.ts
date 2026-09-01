@@ -102,6 +102,62 @@ const BOTH_KINDS: readonly JobKind[] = Object.freeze([
  * So the checkmark means *startable*, and the wizard says "found" rather than
  * "working" — a smaller claim, and a true one.
  */
+/**
+ * What a detected CLI can actually do — found, or found *and* able to answer.
+ *
+ * `health()` runs `--version`, which needs no credentials. That is the right
+ * question for "is it installed" and the wrong one for "will it work", and
+ * setup was asking only the first and reporting "Found the `claude` CLI".
+ *
+ * The gap has a cost measured in evenings. A subscription token that expired
+ * last week leaves a CLI that answers `--version` perfectly and every job with
+ * status 1, so the machine advertises a service it cannot provide, the
+ * dashboard shows it, a site sends work to it, and the first person to learn
+ * is whoever was waiting for an answer. A job is not where somebody should
+ * discover their token lapsed.
+ *
+ * So detection asks both, and they are different words: `installed` is the
+ * binary, `answers` is the credentials. The canary is the cheapest true call
+ * the backend has — for a CLI, one token — and it is the same one the daemon
+ * already runs at start.
+ */
+export interface Detected {
+  /** The binary is there and runs. */
+  readonly installed: boolean;
+  /**
+   * It answered a real prompt. `undefined` when the backend offers no canary,
+   * which is not the same as `false` and must not be rendered as one.
+   */
+  readonly answers: boolean | undefined;
+  /** Why it could not answer, in the backend's own words, for the owner. */
+  readonly detail?: string | undefined;
+}
+
+async function detect(id: BackendId, model: string): Promise<Detected> {
+  try {
+    const backend = createBackend(id, {});
+    const health = await backend.health();
+    if (!health.healthy) {
+      return {
+        installed: false,
+        answers: undefined,
+        ...(health.detail === undefined ? {} : { detail: health.detail }),
+      };
+    }
+    if (backend.canary === undefined) {
+      return { installed: true, answers: undefined };
+    }
+    const proof = await backend.canary(model);
+    return {
+      installed: true,
+      answers: proof.healthy,
+      ...(proof.detail === undefined ? {} : { detail: proof.detail }),
+    };
+  } catch {
+    return { installed: false, answers: undefined };
+  }
+}
+
 export async function detectInstalled(id: BackendId): Promise<boolean> {
   try {
     const backend = createBackend(id, {});
@@ -131,6 +187,14 @@ export async function runSetup(
   io: SetupIo,
   detector: Detector = detectInstalled,
   probe: Probe = () => probeLocalServers(),
+  /**
+   * Asks whether a found CLI can actually answer — "found" is not "works".
+   *
+   * Last, so that adding it did not renumber the parameters every existing
+   * caller passes positionally. Which it did, briefly, and the compiler said
+   * so in four places before anything ran.
+   */
+  verifier: (id: BackendId, model: string) => Promise<Detected> = detect,
 ): Promise<SetupResult> {
   if (!io.interactive) {
     io.err(
@@ -172,6 +236,26 @@ export async function runSetup(
     if (!found) continue;
 
     io.out(`\nFound the \`${cli.binary}\` CLI.\n`);
+    /**
+     * And whether it can answer, which is a different question.
+     *
+     * "Found" was the last thing setup said about a CLI, and `--version`
+     * needs no credentials — so a machine whose subscription token expired
+     * last week finished this wizard being told everything was fine, and
+     * learned otherwise when somebody's job came back with status 1.
+     *
+     * Asked here rather than left to the first job, because this is the
+     * moment somebody is sitting in front of a terminal ready to fix it.
+     */
+    const proof = await verifier(cli.id, cli.model);
+    if (proof.answers === false) {
+      io.out(
+        `  It is installed but cannot answer yet — it needs signing in.\n` +
+          `  Run \`${cli.binary}\` in a terminal, sign in, then rerun this.\n` +
+          `  Setting it up anyway; nothing will route to it until it can\n` +
+          `  answer, and \`byollm status\` will keep saying so.\n`,
+      );
+    }
     // The self-lock is spoken, not buried — byollm_015, and it is consent
     // wording, which is product law here: the moment of enablement is the
     // moment of disclosure. Said before the question, not after the answer.

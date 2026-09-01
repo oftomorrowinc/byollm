@@ -61,6 +61,18 @@ const serving =
   () =>
     Promise.resolve(servers);
 
+/**
+ * A CLI that is installed and answers, without spawning anything.
+ *
+ * The real verifier runs the backend's canary — a genuine one-token call
+ * through the genuine binary — which is exactly what it is for and exactly
+ * what a unit test must not do. A test that stubbed only `detector` hung for
+ * five seconds waiting for a subscription CLI that was never going to be
+ * there.
+ */
+const answersFine = () =>
+  Promise.resolve({ installed: true, answers: true } as const);
+
 const noServers: Probe = () => Promise.resolve([]);
 
 /** A scripted terminal: answers in order, transcript captured. */
@@ -87,7 +99,13 @@ describe("the wizard writes a config the daemon accepts", () => {
     // would produce a daemon that advertises nothing and cannot say why.
     const p = await paths();
     const io = scripted(["my laptop", "n"]);
-    const result = await runSetup(p, io, machineWith([]), noServers);
+    const result = await runSetup(
+      p,
+      io,
+      machineWith([]),
+      noServers,
+      answersFine,
+    );
 
     expect(result.wrote).toBe(false);
     await expect(readFile(p.config, "utf8")).rejects.toThrow();
@@ -116,6 +134,7 @@ describe("the wizard writes a config the daemon accepts", () => {
       scripted(["x", "y"]),
       machineWith([]),
       noServers,
+      answersFine,
     );
     expect(result.wrote).toBe(false);
     expect(await readFile(p.config, "utf8")).toBe(mine);
@@ -127,7 +146,13 @@ describe("the wizard writes a config the daemon accepts", () => {
     // accident.
     const p = await paths();
     const io = { ...scripted([]), interactive: false };
-    const result = await runSetup(p, io, machineWith([]), noServers);
+    const result = await runSetup(
+      p,
+      io,
+      machineWith([]),
+      noServers,
+      answersFine,
+    );
     expect(result.wrote).toBe(false);
     expect(io.transcript()).toContain("needs a terminal");
   });
@@ -141,6 +166,7 @@ describe("what it writes, when something is installed", () => {
       scripted(["studio-mac", "y", "n"]),
       machineWith(["claude-cli"]),
       noServers,
+      answersFine,
     );
     expect(result.wrote).toBe(true);
 
@@ -164,7 +190,13 @@ describe("what it writes, when something is installed", () => {
     // of disclosure. Asserted on the transcript, because that is what a person
     // reads — a comment in the source is not a disclosure.
     const io = scripted(["mac", "y", "n"]);
-    await runSetup(await paths(), io, machineWith(["claude-cli"]), noServers);
+    await runSetup(
+      await paths(),
+      io,
+      machineWith(["claude-cli"]),
+      noServers,
+      answersFine,
+    );
 
     const text = io.transcript();
     const disclosure = text.indexOf("YOUR OWN jobs");
@@ -187,6 +219,7 @@ describe("what it writes, when something is installed", () => {
       scripted(["mac", "y", "y", "2"]),
       machineWith(["claude-cli", "codex-cli"]),
       noServers,
+      answersFine,
     );
     const parsed = DaemonConfig.safeParse(
       JSON.parse(await readFile(p.config, "utf8")),
@@ -219,6 +252,7 @@ describe("what it writes, when something is installed", () => {
         scripted(answers),
         machineWith(machine),
         noServers,
+        answersFine,
       );
       if (!result.wrote) continue;
       expect(
@@ -237,7 +271,7 @@ describe("the smaller decisions", () => {
     // somebody's devices page.
     const p = await paths();
     const io = scripted(["", "y", "n"]);
-    await runSetup(p, io, machineWith(["claude-cli"]), noServers);
+    await runSetup(p, io, machineWith(["claude-cli"]), noServers, answersFine);
     expect(io.transcript()).toContain("byollm connect --name");
     expect(io.transcript()).not.toContain('--name ""');
   });
@@ -247,7 +281,13 @@ describe("the smaller decisions", () => {
     process.env["BYOLLM_LABEL"] = "studio-rig";
     try {
       const io = scripted(["", "y", "n"]);
-      await runSetup(await paths(), io, machineWith(["claude-cli"]), noServers);
+      await runSetup(
+        await paths(),
+        io,
+        machineWith(["claude-cli"]),
+        noServers,
+        answersFine,
+      );
       expect(io.transcript()).toContain("studio-rig");
     } finally {
       if (previous === undefined) delete process.env["BYOLLM_LABEL"];
@@ -259,7 +299,13 @@ describe("the smaller decisions", () => {
     // The honest empty case. Somebody with no local server should be told
     // where to add one, not shown an empty numbered list.
     const io = scripted(["mac", "y", ""]);
-    await runSetup(await paths(), io, machineWith(["claude-cli"]), noServers);
+    await runSetup(
+      await paths(),
+      io,
+      machineWith(["claude-cli"]),
+      noServers,
+      answersFine,
+    );
     expect(io.transcript()).toContain("none answering on the usual ports");
     expect(io.transcript()).toContain("guides/models");
   });
@@ -273,6 +319,7 @@ describe("the smaller decisions", () => {
       scripted(["mac", "n", "n"]),
       machineWith(["claude-cli", "codex-cli"]),
       noServers,
+      answersFine,
     );
     expect(result.wrote).toBe(false);
     await expect(readFile(p.config, "utf8")).rejects.toThrow();
@@ -290,6 +337,7 @@ describe("the smaller decisions", () => {
       scripted(["mac", "y", "n"]),
       machineWith(["claude-cli"]),
       noServers,
+      answersFine,
     );
     expect(result.wrote).toBe(true);
   });
@@ -301,6 +349,7 @@ describe("the smaller decisions", () => {
       scripted(["mac", "y", "y", "banana"]),
       machineWith(["claude-cli", "codex-cli"]),
       noServers,
+      answersFine,
     );
     const parsed = DaemonConfig.safeParse(
       JSON.parse(await readFile(p.config, "utf8")),
@@ -345,6 +394,7 @@ describe("the real terminal adapter", () => {
       ),
       machineWith(["claude-cli"]),
       noServers,
+      answersFine,
     );
     expect(result.wrote).toBe(false);
   });
@@ -395,6 +445,7 @@ describe("a config file that is JSON but not a config", () => {
       scripted(["mac", "y", "n"]),
       machineWith(["claude-cli"]),
       noServers,
+      answersFine,
     );
     expect(result.wrote).toBe(false);
     expect(await readFile(p.config, "utf8")).toBe("{}");
@@ -417,6 +468,7 @@ describe("what the wizard is allowed to write", () => {
       scripted(["mac", "y", ""]),
       machineWith(["claude-cli"]),
       noServers,
+      answersFine,
     );
     const raw: unknown = JSON.parse(await readFile(p.config, "utf8"));
     expect(Object.keys(raw as object)).toEqual(["services"]);
@@ -443,6 +495,7 @@ describe("what the wizard is allowed to write", () => {
       scripted(["mac", "y", ""]),
       machineWith(["claude-cli"]),
       noServers,
+      answersFine,
     );
     const parsed = DaemonConfig.safeParse(
       JSON.parse(await readFile(p.config, "utf8")),
@@ -486,6 +539,7 @@ describe("finding local servers by asking them", () => {
       scripted([]),
       machineWith([]),
       noServers,
+      answersFine,
     );
     const p2 = await paths();
     await runSetup(
@@ -542,5 +596,70 @@ describe("finding local servers by asking them", () => {
     const p = await paths();
     await runSetup(p, scripted(["mac", "9"]), machineWith([]), serving(ollama));
     await expect(readFile(p.config, "utf8")).rejects.toThrow();
+  });
+});
+
+/**
+ * "Found" is not "works" — a8137b5.
+ *
+ * `health()` runs `--version`, which needs no credentials. So a machine whose
+ * subscription token expired last week finished this wizard being told
+ * everything was fine, advertised a service it could not provide, and the
+ * first person to find out was whoever was waiting on a job.
+ *
+ * A job is not where somebody discovers their token lapsed. Setup is sitting
+ * in front of a terminal with the fix one command away, so it asks.
+ */
+describe("a CLI that is there but cannot answer", () => {
+  const cannotAnswer = () =>
+    Promise.resolve({
+      installed: true,
+      answers: false,
+      detail: "the claude CLI is not signed in",
+    } as const);
+
+  it("says so, and says what to do about it", async () => {
+    const io = scripted(["a", "y", "n"]);
+    await runSetup(
+      await paths(),
+      io,
+      machineWith(["claude-cli"]),
+      noServers,
+      cannotAnswer,
+    );
+    const said = io.transcript();
+    expect(said).toContain("cannot answer yet");
+    expect(said, "the person is not told what to run").toMatch(/sign(ing)? in/);
+  });
+
+  /* Still written. A token that expires is a five-second fix, and a wizard
+     that refused to record the service would make somebody redo the whole
+     thing after running one command. Nothing routes to it until it answers. */
+  it("sets it up anyway, and says nothing will route yet", async () => {
+    const io = scripted(["a", "y", "n"]);
+    const result = await runSetup(
+      await paths(),
+      io,
+      machineWith(["claude-cli"]),
+      noServers,
+      cannotAnswer,
+    );
+    expect(result.services).toContain("claude");
+    expect(io.transcript()).toMatch(/nothing will route to it/);
+  });
+
+  /* And a backend with no canary is not reported as broken. `undefined` is
+     "not asked", which is a third thing, and rendering it as `false` would
+     tell everybody with a local model server that it cannot answer. */
+  it("says nothing when there was no way to ask", async () => {
+    const io = scripted(["a", "y", "n"]);
+    await runSetup(
+      await paths(),
+      io,
+      machineWith(["claude-cli"]),
+      noServers,
+      () => Promise.resolve({ installed: true, answers: undefined } as const),
+    );
+    expect(io.transcript()).not.toContain("cannot answer yet");
   });
 });

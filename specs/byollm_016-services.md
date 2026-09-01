@@ -6157,3 +6157,21 @@ ways. Open, carried forward: purpose-not-declared production proof
 (arrives with Kevin's first real refusal); roll.sh "unproven" status;
 .66 = Your Devices auth state + byollm_017 + cloud-stub audience drop
 (one fewer caller after today). Kevin heads-up goes out now.
+
+### 2026-09-01 – Onboard #2 (Todd): setup-finishes-the-job PROMOTED to now; connect always exits
+
+Second onboarding session confirms the four-verb gap in the field.
+Promoted from "rides with the install script" to the immediate daemon
+batch (small: two questions + composing existing verbs, per the
+2026-09-01 ruling):
+- `byollm setup` ends with **"Connect to byollm.cloud? [Y/n]"** and
+  **"Run in background? [Y/n]"**, both defaulting YES; yes runs
+  `byollm connect` then `byollm install`, with the ruled ending – the
+  true sentence, or the one command that finishes a skipped step.
+- **`byollm connect` always exits after the connection is made** –
+  pairing is a ceremony, not a service; running is `run`'s and
+  `install`'s job. If connect currently lingers, that is a bug under
+  this ruling.
+The device page's new copy (website-sync, this date) leans on these two
+answers by name, so they ship before or with it. The curl|sh script
+drops to the backlog – npm plus setup-finishes-the-job covers the path.

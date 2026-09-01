@@ -5588,3 +5588,65 @@ Remaining before invites: Todd's cold-account walk — now the exact path
 invitees get. Known gap, expected, not a bug: the logged-out embed branch is
 the plain-redirect fallback; the landing page (copy approved) is still to
 build.
+
+### CROSS-ACCOUNT PROVEN – Lis ran on Todd's qwen. The bug was a declaration the site could not make (2026-08-31)
+
+Lis's generate job reached Todd's device and came back. Team sharing is
+proven in production between two real accounts – the second milestone
+after "proven from outside". The blocker (c0988cb): `EnqueueInput.audience`
+defaults to `private`; apps/test never set it; every job said "only my own
+machines"; Lis has none; nothing could claim it; "nothing was listening" –
+true and useless. Eight hypotheses eliminated with evidence first. Two of
+CCC's own errors recorded: a confidently wrong diagnostic (runnerAvailability
+is direct-mode, counts the site's own store, answers `candidates: 0` for
+every cloud app – Lis was told to install byollm she doesn't need; reverted
+8088c05) and a vacuous check (md5 of an empty SSO-gated response, caught
+because it was d41d8cd9…, the md5 of "").
+
+Todd: "remove the second team mapping instead of always making it team."
+He is right, and this spec already said why, twice: "offer scoping IS the
+per-audience routing" (per-user model selection, above) and "the cloud
+route's equivalent [of audienceAllow] is the hub's own consent/mapping
+machinery". A cloud-lane job's audience is not a fact the site holds. The
+person's mapping names the service and its owner; the owner's offer scope
+says who that service serves; the hub has both at claim. The site's
+declaration was a third vote from the one party the disclosure fence
+forbids from knowing the answer – which is exactly why its default could
+disable the headline feature without anyone noticing. **A declaration
+required from the party that cannot know is a default in disguise.**
+
+RULED for .64 (SDK, alongside PayloadFor<K> and the stdout line):
+
+1. **Cloud lane: audience is derived, never declared.** The hub computes
+   claimability from (mapping.service_owner, that owner's offer scope,
+   roster). `audience` on enqueue is REFUSED on the cloud lane with the
+   remedy in the message ("the cloud lane derives who may serve a job
+   from the person's own mapping – remove `audience`"). Refused, not
+   ignored: this SDK's own law, an ignored option is a job that runs
+   differently than asked with nothing to see. apps/test drops the
+   `audience: "team"` it just gained.
+2. **Direct lane: CCC says whether `audience` is dead weight there too.**
+   Direct mode is owner-only by ruling; `audienceAllow` (supplier trust,
+   runner groups) STAYS per the earlier ruling. If `audience` on direct
+   only ever resolves to self, it goes in the same release; if it still
+   selects something real, it stays direct-only and the docs say so.
+3. **The "untrusted result" marking follows the fact, not the
+   declaration – and check what consumes it.** Today widening the
+   audience marks the result untrusted and obliges the app to disclose.
+   The fence says the site may not learn whether a teammate's device
+   served – so the marking cannot become per-job truth either. On the
+   cloud lane it becomes a constant: every result was produced on a
+   device of the person's choosing, which may be a teammate's; the app's
+   disclosure sentence is the same for every job. CCC audits what reads
+   the flag before removing the per-job value.
+4. **runnerAvailability refuses on the cloud lane** – it answers a
+   question it cannot answer there. The instrument must not report zero
+   for "I cannot see" (the ambiguity law, one more instance).
+5. **Integrate guide:** the sentence about audience goes away with the
+   field; what replaces it is one line: "who may serve a job is the
+   person's decision, made on their dashboard – your site asks for kinds
+   and purposes."
+
+Two laws from CCC's own errors: **an instrument that cannot see must
+refuse, not report zero**; **verify the evidence exists before comparing
+it** – a hash of nothing compares equal to a hash of nothing.

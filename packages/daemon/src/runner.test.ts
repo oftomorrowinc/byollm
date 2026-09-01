@@ -732,3 +732,105 @@ describe("which service runs a job — byollm_016 Phase B", () => {
     expect(seen).toEqual([]);
   });
 });
+
+/**
+ * What a site is told when somebody's backend fails — a8137b5.
+ *
+ * The owner's surfaces get the CLI's own words. The site gets a class and a
+ * fixed sentence, and this is the boundary where that has to hold.
+ *
+ * Two reasons, and the second is the larger. CLI errors quote the owner's
+ * machine — paths, usernames, config locations, account emails — and a
+ * stranger's page is not where those go. And every message named its backend,
+ * so "the claude CLI is not signed in" told a site which model answered:
+ * exactly what the disclosure fence exists to prevent, arriving through the
+ * error path because nobody was watching the error path.
+ */
+describe("what leaves the machine when a backend fails", () => {
+  const failing = (message: string, code: BackendErrorCode = "backend-error") =>
+    ({
+      execute: () =>
+        Promise.resolve({
+          ok: false as const,
+          code,
+          message,
+          retryable: false,
+          durationMs: 1,
+        }),
+    }) as unknown as Backend;
+
+  it("sends the site a class, not the CLI's words", async () => {
+    const { runner } = await makeRunner({
+      backendFactory: () =>
+        failing("the claude CLI failed: /Users/todd/.claude missing"),
+    });
+
+    const outcome = await runner.runJob(job());
+    expect(outcome).toMatchObject({
+      outcome: "error",
+      code: "service_unavailable",
+    });
+    const said = JSON.stringify(outcome);
+    expect(said, "the owner's path travelled to the site").not.toMatch(
+      /Users|todd|\.claude/,
+    );
+    expect(said, "the site learned which model answered").not.toMatch(
+      /claude/i,
+    );
+  });
+
+  /* Not signed in is the same class. Telling it apart from a crash would tell
+     the site something about the person's setup, and the person already knows
+     — they are the one who has to log in. */
+  it("does not tell the site the difference between broken and signed out", async () => {
+    const { runner } = await makeRunner({
+      backendFactory: () =>
+        failing("the claude CLI is not signed in", "unauthorized"),
+    });
+
+    const outcome = await runner.runJob(job());
+    expect(outcome).toMatchObject({ code: "service_unavailable" });
+  });
+
+  /* And the owner keeps everything. The text is theirs — it is their machine,
+     their CLI, and the sentence that tells them what to do about it. */
+  it("keeps the CLI's words for the owner", async () => {
+    const seen: string[] = [];
+    const { runner, ingress } = await makeRunner({
+      backendFactory: () =>
+        failing("the claude CLI is not signed in", "unauthorized"),
+      onEvent: (event) => {
+        if (event.type === "service-not-signed-in") seen.push(event.detail);
+      },
+    });
+
+    await runner.runJob(job());
+    expect(seen).toEqual(["the claude CLI is not signed in"]);
+    const entries = await ingress.read();
+    expect(JSON.stringify(entries)).toContain(
+      "the claude CLI is not signed in",
+    );
+  });
+
+  /* `retryable` still travels: whether to try again is the site's decision
+     and says nothing about whose machine it was. */
+  it("still tells the site whether trying again is worth it", async () => {
+    const { runner } = await makeRunner({
+      backendFactory: () =>
+        ({
+          execute: () =>
+            Promise.resolve({
+              ok: false as const,
+              code: "timeout" as const,
+              message: "the claude CLI did not answer within 120000ms",
+              retryable: true,
+              durationMs: 1,
+            }),
+        }) as unknown as Backend,
+    });
+
+    const outcome = await runner.runJob(job());
+    expect(outcome).toMatchObject({ code: "timeout", retryable: true });
+    expect(JSON.stringify(outcome)).not.toMatch(/claude/i);
+  });
+});

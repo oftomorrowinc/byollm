@@ -1,3 +1,4 @@
+import { outcomeForSite } from "./site-outcome.js";
 import {
   type Succession,
   RETIREMENT_WINDOW_MS,
@@ -1107,10 +1108,30 @@ export class Runner {
         ? { outcome: "ok", text: result.text }
         : result.code === "canceled"
           ? { outcome: "canceled" }
-          : {
+          : /**
+             * The class, never the text — a8137b5.
+             *
+             * `result.message` is the CLI's own words and stays with the
+             * owner: the event above, the ingress log below, `byollm status`
+             * and Your Devices. It does not travel, for two reasons.
+             *
+             * It quotes the owner's machine — paths, usernames, config
+             * locations, account emails all live in CLI errors, and a
+             * stranger's page is not where those go.
+             *
+             * And it names the service. "the claude CLI is not signed in"
+             * tells a site which model answered, which is the one thing the
+             * disclosure fence exists to prevent — arriving through the error
+             * path because nobody was watching the error path. Every message
+             * named its backend, so every failure leaked what every success
+             * is careful to hide.
+             *
+             * `retryable` still travels: whether to try again is the site's
+             * decision and says nothing about whose machine it was.
+             */
+            {
               outcome: "error",
-              code: result.code,
-              message: result.message,
+              ...outcomeForSite(result.code),
               retryable: result.retryable,
             };
 

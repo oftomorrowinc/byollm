@@ -5713,3 +5713,53 @@ the person's setup, and the person is the one who already knows.
 Sequence unchanged: auth probe → Windows two → ABOUT in @byollm/protocol
 → apps/test stopgap out → guide line → release .64 → Todd walks fresh
 account #3 → Kevin.
+
+### 2026-09-01 – THIRD INTEGRATOR PROVEN (Kevin's Press, fact-checker → Todd's qwen). The unsatisfiable-slot promise, RULED for .64
+
+Kevin's generate job routed end to end through Of Tomorrow Press – the
+first integrator who is not us, on a manifest he wrote. Two hours were
+lost first, to a purpose (`fact-checker`) his manifest did not declare:
+the engine declines unmapped as transient, the job sat queued to its TTL,
+and the site was told nothing – "accepted, queued, never offered". We had
+promised the opposite in writing (migration note: "an unmapped slot
+arrives on that same branch – you learn that a slot is unsatisfiable";
+README: "it learns whether a slot was satisfiable, and nothing else").
+Second documented promise with no implementation in two days, both found
+by someone using the product. Kevin asked the right two questions and
+identified that the answer should have come from us.
+
+**RULED for .64 – three outcomes, decided where each is knowable:**
+1. **Purpose not in the site's manifest → refused at enqueue**, with the
+   remedy: "this site does not declare the purpose `fact-checker` –
+   declare it on Developer Sites". The site's own manifest; nothing
+   disclosed.
+2. **Purpose declared, but this owner has no mapping for (purpose, kind)
+   → declined at enqueue on the unavailable branch**, reason
+   `unsatisfiable`, the job NOT queued. This is the promise as written:
+   "the same branch as unavailable". It is knowable at enqueue (the hub
+   holds the mapping), and a job the site has already fallen back on
+   must not be served later – a person who maps the slot thirty seconds
+   after is served by the NEXT job, which is the same thirty seconds.
+   CCC's first instinct ("answerable immediately at enqueue") is the
+   ruling; "stays queued and the site can ask" is a poll wearing a
+   promise.
+3. **Declared, mapped, and no device can currently claim → transient**,
+   exactly as today (nothing was listening; TTL). This is the only case
+   the transient rule was ever for.
+Opacity unchanged: the site learns satisfiable-or-not and never why or
+which service.
+
+**Adding a purpose is a re-consent event (RULED, dashboard side in
+website-sync).** Kevin's manifest went from one purpose to three; every
+connected user now has two unmapped slots and nobody told them. See the
+website-sync entry for the developer-side warning and the user-side
+notice. No auto-mapping – mapping is consent.
+
+Also from the thread: `chat/completions` is the transport for every HTTP
+job by design (the one endpoint every server implements; instruct models
+want the chat template; a closed union of two literals is a smaller
+surface). The kind survives in the payload shape and the mapping slot.
+One nit: the log line names the transport – it should name the kind
+beside it, so the log stops looking like a bug to the person reading it.
+Images and other kinds remain a protocol change with their own spec and
+threat review – correctly gated.

@@ -5901,3 +5901,22 @@ words CCC was waiting on for the signed-out card:
   …`" – the remedy names the command.
 - undefined → no auth sentence; health as today.
 Never on a site: the class only, as already built.
+
+### 2026-09-01 – Probe wording landed; Your Devices deferred (wire, not rendering)
+
+CCC: the canary always worked on Todd's machine – it failed on the
+expired token and dropped the route correctly; "0 backends are healthy"
+threw the answer away. **The check worked; the message discarded its
+result** – the same law as stderr-empty, one layer up. Now four states,
+one template, remedy travelling beside the state (learned in the same
+moment from the same backend instance), device name in every sentence.
+
+RULED: **Your Devices defers to the end of .64 with satisfiability**, and
+ships in .65 if not green – it is a wire change (the presence payload
+carries the auth state), and the local surfaces (`byollm status`, daemon
+output, connect) already give the owner the sentence in the terminal they
+are standing at. Conditions when it lands: the presence payload carries
+the STATE and the REMEDY TEMPLATE KEY, never the CLI's text – the CLI
+line stays on the machine (paths, emails); the hub stores nothing but
+the latest state per service; the card renders the same template. Until
+then Your Devices shows health as today.

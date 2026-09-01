@@ -663,3 +663,74 @@ describe("a CLI that is there but cannot answer", () => {
     expect(io.transcript()).not.toContain("cannot answer yet");
   });
 });
+
+/**
+ * A config with nothing in it is a dead end, not work to protect.
+ *
+ * "An existing config is the owner's and is never edited from under them" is
+ * the right rule and it kept its teeth. But a file with zero services was
+ * written by a version that wrote one before it knew how to find anything,
+ * and it made this command unusable: "It has 0 service(s). Setup will not
+ * change it", and then nothing, on a machine where setup was the thing needed.
+ * Kevin's Windows box, and everybody who installed before alpha.44.
+ */
+describe("an existing config with no services", () => {
+  const emptyConfig = async (p: DaemonPaths) => {
+    await writeFile(
+      p.config,
+      JSON.stringify({ device: "old-laptop", services: {} }),
+      "utf8",
+    );
+    return p;
+  };
+
+  it("offers to set it up rather than stopping", async () => {
+    const p = await emptyConfig(await paths());
+    const io = scripted(["y", "a", "y", "n"]);
+    const result = await runSetup(
+      p,
+      io,
+      machineWith(["claude-cli"]),
+      noServers,
+      answersFine,
+    );
+    expect(io.transcript()).toContain("no services in it");
+    expect(result.wrote, "the door exists but did not open").toBe(true);
+  });
+
+  /* Still nothing without a yes. The rule is unchanged; what changed is that
+     saying no is now a choice somebody makes rather than the only outcome. */
+  it("changes nothing when the answer is no", async () => {
+    const p = await emptyConfig(await paths());
+    const io = scripted(["n"]);
+    const result = await runSetup(
+      p,
+      io,
+      machineWith(["claude-cli"]),
+      noServers,
+      answersFine,
+    );
+    expect(result.wrote).toBe(false);
+    expect(await readFile(p.config, "utf8")).toContain("old-laptop");
+  });
+
+  /* And a config with real services is still untouchable, unasked. */
+  it("does not offer when there is something to protect", async () => {
+    const p = await paths();
+    await writeFile(
+      p.config,
+      JSON.stringify({ services: { claude: { type: "claude-cli" } } }),
+      "utf8",
+    );
+    const io = scripted([]);
+    const result = await runSetup(
+      p,
+      io,
+      machineWith([]),
+      noServers,
+      answersFine,
+    );
+    expect(result.wrote).toBe(false);
+    expect(io.transcript()).toContain("Setup will not change it");
+  });
+});

@@ -611,3 +611,56 @@ describe("the service runs with a PATH that can find things", () => {
     }
   });
 });
+
+/**
+ * A Windows machine that will not register a task still starts byollm.
+ *
+ * Registering a scheduled task is not always permitted — a managed laptop can
+ * have it blocked by policy, a standard account can be refused elevation.
+ * What that produced was an exit code and "the daemon is not supervised", on
+ * the machine most likely to be somebody's work computer, which is the one
+ * where "run it in a terminal forever" is least plausible.
+ */
+describe("windows, when the task will not register", () => {
+  const denied = () => ({ code: 1, output: "ERROR: Access is denied." });
+
+  it("falls back to the Startup folder and succeeds", async () => {
+    const { run } = recording(denied);
+    const result = await installService(target("win32"), run);
+    expect(result.ok).toBe(true);
+    expect(result.lines.join("\n")).toContain("Startup folder");
+  });
+
+  /* The weakness is stated, not implied. A supervisor that does not supervise
+     must not be reported as one — somebody whose daemon dies at 2am should
+     have been told at install time that nothing was going to restart it. */
+  it("says what the fallback does not do", async () => {
+    const { run } = recording(denied);
+    const result = await installService(target("win32"), run);
+    expect(result.lines.join("\n")).toContain("does not restart it");
+  });
+
+  /* "exit 1" is not something anybody can act on. Windows says "Access is
+     denied" for the two cases that actually happen, and naming which turns a
+     dead end into a sentence with a next step in it. */
+  it("names the refusal rather than printing an exit code", () => {
+    const { run } = recording(denied);
+    return installService(target("win32"), run).then((result) => {
+      const said = result.lines.join("\n");
+      expect(said).toContain("will not let you register a scheduled task");
+      expect(said).toContain("IT policy");
+    });
+  });
+
+  /* A failure that is not about permission keeps its own words — guessing
+     "no admin rights" at a disk error would send somebody to the wrong fix. */
+  it("does not claim elevation when that was not the problem", async () => {
+    const { run } = recording(() => ({
+      code: 1,
+      output: "ERROR: The system cannot find the file specified.",
+    }));
+    const result = await installService(target("win32"), run);
+    expect(result.lines.join("\n")).not.toContain("administrator rights");
+    expect(result.lines.join("\n")).toContain("cannot find the file");
+  });
+});

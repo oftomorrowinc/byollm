@@ -73,6 +73,29 @@ export interface ServicePlan {
   readonly logPath: string;
   /** In words, for the person at the terminal. */
   readonly supervisor: string;
+  /**
+   * A weaker way to start at logon, for a machine that refuses the first one.
+   *
+   * Windows only, and it exists because registering a scheduled task is not
+   * always allowed: a managed laptop can have task creation blocked by policy
+   * and a standard account can be refused elevation. The result was a person
+   * being handed an exit code and told the daemon was unsupervised, which on
+   * the machine most likely to be somebody's work computer is the machine
+   * most likely to need it.
+   *
+   * The Startup folder always works, needs nobody's permission, and is
+   * genuinely worse: it starts byollm at logon and does not restart it if it
+   * stops. That difference is stated where it is used rather than hidden
+   * behind the word "installed" — a supervisor that does not supervise must
+   * not be reported as one.
+   */
+  readonly fallback?: {
+    readonly unitPath: string;
+    readonly unitContents: string;
+    readonly supervisor: string;
+    /** What it does not do, in words, said at install time. */
+    readonly caveat: string;
+  };
 }
 
 export interface ServiceTarget {
@@ -309,6 +332,39 @@ WantedBy=default.target
     query: ["schtasks", "/query", "/tn", SERVICE_LABEL],
     logPath,
     supervisor: "Task Scheduler",
+    /**
+     * The Startup folder, for a machine that will not register a task.
+     *
+     * A `.cmd` here runs at logon for this user, needs no elevation and no
+     * policy exemption, and cannot be refused. What it does not do is restart
+     * byollm if it stops — which is the whole reason the task XML exists — so
+     * that is said out loud rather than left for somebody to discover when a
+     * crash goes unnoticed.
+     *
+     * `start ""` so the shim exits immediately and the logon does not wait on
+     * a long-running process; the empty title is required because `start`
+     * reads a first quoted argument as the window title.
+     */
+    fallback: {
+      unitPath: join(
+        process.env["APPDATA"] ?? root,
+        "Microsoft",
+        "Windows",
+        "Start Menu",
+        "Programs",
+        "Startup",
+        "byollm.cmd",
+      ),
+      unitContents:
+        `@echo off\r\n` +
+        `rem byollm — run an app's LLM jobs on your own models\r\n` +
+        `start "" /b "${execPath}" "${scriptPath}" run >> "${logPath}" 2>&1\r\n`,
+      supervisor: "the Startup folder",
+      caveat:
+        "It starts byollm when you log in. It does not restart it if it " +
+        "stops — Task Scheduler would have, and this machine would not " +
+        "register the task.",
+    },
   };
 }
 

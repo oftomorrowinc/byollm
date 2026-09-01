@@ -209,13 +209,38 @@ export async function runSetup(
   // them. Offering to start over is a different thing from doing it.
   const existing = await readExisting(paths.config);
   if (existing !== undefined) {
+    const count = Object.keys(existing.services).length;
+    /**
+     * A config with nothing in it is not work to protect — it is a dead end.
+     *
+     * The rule above is right: an existing config is the owner's and is never
+     * edited from under them. But a file with zero services was written by a
+     * version that wrote one before it knew how to find anything, and it made
+     * this command unusable — "It has 0 service(s). Setup will not change it"
+     * and then nothing, on a machine where setup is exactly what was needed.
+     * Kevin's Windows box, and anybody who installed before alpha.44.
+     *
+     * So the rule keeps its teeth and gains a door: nothing is overwritten
+     * without a yes, and the yes is one line rather than a wizard somebody has
+     * to abandon and rerun with a flag they have to find out about.
+     */
+    if (count > 0) {
+      io.out(
+        `You already have a config at ${paths.config}.\n` +
+          `It has ${String(count)} service(s). Setup will not change it.\n` +
+          "Run `byollm services` to see what it does, or edit that file.\n",
+      );
+      return { wrote: false, services: [] };
+    }
     io.out(
-      `You already have a config at ${paths.config}.\n` +
-        `It has ${String(Object.keys(existing.services).length)} service(s). ` +
-        "Setup will not change it.\n" +
-        "Run `byollm services` to see what it does, or edit that file.\n",
+      `\nYour config at ${paths.config} has no services in it, so nothing\n` +
+        "can run yet. That is how versions before alpha.44 left it.\n",
     );
-    return { wrote: false, services: [] };
+    const go = await io.ask("  Set it up now? [Y/n] ");
+    if (!yes(go, true)) {
+      io.out("  Left alone. Nothing was changed.\n");
+      return { wrote: false, services: [] };
+    }
   }
 
   io.out(`\nSetting up byollm. Change any of it later in ${paths.config}.\n\n`);

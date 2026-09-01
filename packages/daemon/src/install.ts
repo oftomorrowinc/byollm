@@ -82,6 +82,26 @@ export async function serviceState(
   return { state: "installed", detail: "registered, not running" };
 }
 
+/**
+ * The refusal, named when we can name it.
+ *
+ * "exit 1" tells somebody nothing they can act on. Windows says "Access is
+ * denied" for the two cases that actually happen — no elevation, or policy —
+ * and saying which turns a dead end into a sentence with a next step in it.
+ */
+function refusalOf(
+  command: readonly string[],
+  result: { code: number; output: string },
+): string {
+  const said = result.output.trim();
+  const denied = /access is denied|requires elevation|0x80070005/i.test(said);
+  return denied
+    ? `${command.join(" ")} — this machine will not let you register a ` +
+        `scheduled task (no administrator rights, or IT policy).`
+    : `${command.join(" ")} — exit ${String(result.code)}` +
+        (said === "" ? "" : `: ${said}`);
+}
+
 export interface InstallResult {
   readonly ok: boolean;
   /** Sentences to print, in order. Empty on plain success is not allowed. */
@@ -109,16 +129,66 @@ export async function installService(
     // and it fails whenever there was none. Only that one is allowed to.
     const mayFail = plan.platform === "darwin" && index === 0;
     if (result.code !== 0 && !mayFail) {
+      /**
+       * A machine that will not register a task still gets to start byollm.
+       *
+       * Registering a scheduled task is not always permitted: a managed
+       * laptop can have it blocked by policy, a standard account can be
+       * refused elevation. What that produced was an exit code and "the
+       * daemon is not supervised" — on the machine most likely to be
+       * somebody's work computer, which is the machine most likely to need
+       * it, and the one where "run it in a terminal forever" is least
+       * plausible.
+       *
+       * So there is a second way, and it is weaker in a way the person is
+       * told about rather than left to discover after a crash nobody noticed.
+       */
+      const fallback = plan.fallback;
+      if (fallback !== undefined) {
+        // Bound to a local first: `plan.fallback!` inside the closures would
+        // be an assertion that the narrowing above still holds several
+        // statements later, which is the kind of claim this project makes the
+        // compiler check rather than the author.
+        const fell = await mkdir(dirname(fallback.unitPath), {
+          recursive: true,
+        })
+          .then(() =>
+            writeFile(fallback.unitPath, fallback.unitContents, "utf8"),
+          )
+          .then(
+            () => true,
+            () => false,
+          );
+        if (fell) {
+          return {
+            ok: true,
+            plan,
+            lines: [
+              `${plan.supervisor} would not register the task, so byollm is`,
+              `set to start from ${fallback.supervisor} instead.`,
+              "",
+              `  ${fallback.caveat}`,
+              "",
+              `  ${refusalOf(command, result)}`,
+              "",
+              `  startup:  ${fallback.unitPath}`,
+              `  log:      ${plan.logPath}`,
+              `  check:    byollm status`,
+              `  remove:   byollm uninstall`,
+            ],
+          };
+        }
+      }
       return {
         ok: false,
         plan,
         lines: [
           `wrote ${plan.unitPath}, but ${plan.supervisor} refused it:`,
           "",
-          `  ${command.join(" ")}`,
-          `  exit ${String(result.code)}${result.output.trim() === "" ? "" : `: ${result.output.trim()}`}`,
+          `  ${refusalOf(command, result)}`,
           "",
-          `The daemon is not supervised. \`byollm run\` still works in a terminal.`,
+          `The daemon is not supervised. \`byollm run\` still works in a terminal,`,
+          `and is the way to keep serving until this is sorted.`,
         ],
       };
     }

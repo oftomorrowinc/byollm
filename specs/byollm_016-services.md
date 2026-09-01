@@ -6078,3 +6078,22 @@ Todd holds the `latest` 2FA until .65 is live and the satisfiability
 path is proven end to end (an undeclared purpose refused with the
 remedy, an unmapped slot declined with the fixed sentence, on the test
 site) – then one move, .63 → .65, all six.
+
+### 2026-09-01 – .65 published; DB proven by the real path; hub deploy staged
+
+reader-grants.mjs proved production by building a real PgPolicyStore on
+the hosted hub_reader credential and calling read() – query, joins, RLS
+and parsing together, covering the new manifest subquery without
+editing (nothing in it names a column). The migration list only says a
+file ran; the script says the path works – the instrument the docstring
+promised, now also reachable as `pnpm reader:grants` (the docstring's
+command finally exists – a docstring that names a command that does not
+run is the drift disease in miniature). State: byollm .65 published
+(`latest` holds at .63); 0052 applied in prod; hub wiring pushed green,
+NOT deployed – live /readyz still generation 1, no satisfiability
+field. Deploy sequence ruled: CCC runs `pnpm preview` and shows the
+plan → Todd says go → CCC runs `pnpm up` → /readyz shows
+"satisfiability":"control-plane" → the Kevin test on the test site (an
+undeclared purpose refused immediately with the remedy; an unmapped
+declared slot declined with the fixed sentence) → Todd moves `latest`
+.63 → .65, all six, one move.

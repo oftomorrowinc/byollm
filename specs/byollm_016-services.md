@@ -6118,3 +6118,31 @@ prover ages with the contract it proves; when a release removes an
 option, the greps must include the instruments. The enqueue-refused
 throw naming its cause is what made this a two-minute diagnosis instead
 of a rollback – the refusal law paying for itself on our own tooling.
+
+### 2026-09-01 – SATISFIABILITY LIVE END TO END. `latest` = `alpha` = .65 on all six, drift zero
+
+/readyz reports "satisfiability":"control-plane"; a real job through the
+deployed hub ran the mapped purpose and refused the unsatisfiable slot
+AT ENQUEUE, with the refusal crossing the network and passing the
+disclosure grep. Todd moved `latest`; release-check shows all six
+aligned. The promise from Kevin's afternoon is kept, in production,
+same day.
+
+Honest gaps and follow-ups, recorded:
+- **purpose-not-declared is proven by tests, not production** – no site
+  whose keys we hold can reach it (the smoke site can't carry a manifest
+  without breaking its own round trip). Accepted as stated; the first
+  real proof will be Kevin's next typo, which will now cost him one
+  sentence instead of an afternoon.
+- **Press behaviour change, heads-up owed to Kevin:** a manifest site
+  enqueueing without a purpose is now refused as purpose-not-declared
+  (purpose ?? "default" meets the reserved key). Those jobs were already
+  dying silently at TTL; now they say so with a remedy naming his own
+  manifest. Improvement, but visible: refusals today where there was
+  silence yesterday.
+- **roll.sh wants the exit-3 treatment:** a status meaning "the wire is
+  unproven because the prover couldn't run", distinct from "the wire is
+  red" – it printed rollback instructions for a client-side throw.
+  Rightly not changed in the same commit that fixed what it caught;
+  queued. The unmapped-job check inverted from wait-and-see-nothing-
+  moved to asserting the refusal – the weak reading was exactly Kevin's.

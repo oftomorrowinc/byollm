@@ -1,4 +1,4 @@
-BYOLLM lets you use your own AI on websites. A small program installed on your machine lets you use your favorite models and subscriptions on sites with BYOLLM integrated. That means your favorite model goes everywhere you do, including new models the moment you get them – no site updates required. BYOLLM Cloud allows sites you authorize to run prompts on your device using end-to-end encryption so no one, including us, can see them.
+BYOLLM lets you use your own AI on websites. A small program installed on your machine lets you use your favorite models and subscriptions on sites with BYOLLM integrated. That means your favorite model goes everywhere you do, including new models the moment you get access to them – no site updates required. BYOLLM Cloud allows sites you authorize to run prompts on your device using end-to-end encryption so no one, including us, can see them.
 
 <!-- lede ends here. Surfaces with room show the tail below; the welcome screen shows the lede only. -->
 

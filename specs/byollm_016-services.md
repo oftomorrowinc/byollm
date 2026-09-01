@@ -5920,3 +5920,20 @@ the STATE and the REMEDY TEMPLATE KEY, never the CLI's text – the CLI
 line stays on the machine (paths, emails); the hub stores nothing but
 the latest state per service; the card renders the same template. Until
 then Your Devices shows health as today.
+
+### 2026-09-01 – `byollm status` reads, never probes; latest state only; absent is not signed-out
+
+CCC: status is a separate process and the canary is a real model call –
+on a metered backend, real money on a command run repeatedly while
+something is wrong – so status READS what the daemon last recorded.
+Latest state only, never a history: a probe log would be a record of the
+day a subscription lapsed and every day after, which is nobody's
+business including ours (the hub piece follows the same rule). Absent
+is not signed-out, asserted three ways: no file, unreadable file, and a
+state written by a future version – all three read as "nothing has
+probed", so a .65 daemon's fourth kind cannot make a .64 status invent
+a finding. The coverage gate refused rendering in cli.ts (77.9%
+branches); the rendering moved beside the template it renders, one
+function per surface. Two laws kept: **an instrument must not spend the
+thing it measures** (status must not burn quota to report quota
+health); **"hard to test" usually means "wrong file"**. All accepted.

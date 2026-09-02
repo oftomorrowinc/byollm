@@ -72,6 +72,52 @@ describe("codex terminal outcomes", () => {
     ).toMatchObject({ ok: false, code: "backend-error", retryable: false });
   });
 
+  it.each(["out of credits", "quota is exhausted"])(
+    "recognizes an exhausted-capacity diagnostic: %s",
+    (message) => {
+      expect(
+        parseCodexOutput(
+          stream({ type: "error", message: `\u0000 ${message}\u007f` }),
+        ),
+      ).toMatchObject({
+        ok: false,
+        code: "quota-exhausted",
+        message: `the codex CLI failed: ${message}`,
+        retryable: true,
+      });
+    },
+  );
+
+  it("ignores non-events and accepts the agent-message compatibility field", () => {
+    expect(
+      parseCodexOutput(
+        stream(
+          null,
+          [],
+          "notice",
+          {
+            type: "item.completed",
+            item: { type: "agent_message", text: "" },
+          },
+          {
+            type: "item.completed",
+            item: { type: "agent_message", message: "answer" },
+          },
+          { type: "turn.completed" },
+        ),
+      ),
+    ).toEqual({ ok: true, text: "answer" });
+  });
+
+  it("uses a bounded generic diagnostic when Codex omits one", () => {
+    expect(parseCodexOutput(stream({ type: "error", error: [] }))).toEqual({
+      ok: false,
+      code: "backend-error",
+      message: "the codex CLI failed: codex reported an error",
+      retryable: false,
+    });
+  });
+
   it("requires a terminal event even when the process exited zero", () => {
     expect(
       parseCodexOutput(

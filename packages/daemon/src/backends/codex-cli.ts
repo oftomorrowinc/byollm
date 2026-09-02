@@ -112,10 +112,8 @@ function record(value: unknown): Record<string, unknown> | undefined {
 function diagnostic(value: unknown): string | undefined {
   if (typeof value !== "string") return undefined;
   const text = Array.from(value, (character) => {
-    const codePoint = character.codePointAt(0);
-    return codePoint !== undefined && (codePoint <= 31 || codePoint === 127)
-      ? " "
-      : character;
+    const codeUnit = character.charCodeAt(0);
+    return codeUnit <= 31 || codeUnit === 127 ? " " : character;
   })
     .join("")
     .trim()

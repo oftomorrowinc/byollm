@@ -6371,3 +6371,39 @@ Morning list (Todd): mint the PAT → `latest` .66 → .67, all six →
 the non-admin walk against what shipped (the walk notes which specced
 items are not yet walkable rather than counting them as failures) →
 tell Kevin: upgrade via latest, and setup now asks three things.
+
+### 2026-09-02 – Promises made to Eric, audited against the build (one gap, one verify)
+
+Todd told Eric: (1) quota-blocked accounts (five-hour block, weekly
+cap, model block) are detected and "easy to route" around – fall back
+to the site's own API; (2) multiple personal Claude accounts
+round-robin "using the ones that work" (Todd flagged it himself as
+needing work); (3) hosted onboarding in a few days, under two minutes;
+(4) everything metered where the developer can see it, sizes never
+contents.
+
+Audit:
+- (1) is a GAP in the fast path. A signed-out CLI is now detected
+  (auth probe) and an unmapped slot refuses at enqueue – but a mapped
+  service whose account is QUOTA-BLOCKED mid-day surfaces as
+  unhealthy → unclaimable → the TRANSIENT path: the site waits the
+  job's TTL before learning nobody answered. That is Kevin's-afternoon
+  slow, on the case Eric cares most about. **Spec item for CCB
+  (byollm_019 candidate): quota-exhaustion is a detectable CLI error
+  class – classify it in the probe/failure taxonomy (distinct from
+  auth), mark the service unhealthy-with-reason, and give the site a
+  FAST answer when every mapped service for a slot is currently
+  unhealthy – enqueue-time (satisfiability already reads the control
+  plane; health could join it) or a short first-poll deadline. Design
+  question to settle there: opacity – "nobody can answer right now"
+  is fine; "his Claude is rate-limited" is not.**
+- (2) is true between jobs across devices (claim semantics), needs
+  Hosted Devices for multiple ACCOUNTS (one CLI login per machine),
+  and mid-block failover inherits the (1) gap. Todd's own hedge to
+  Eric was right.
+- (3) is byollm_018, on schedule.
+- (4) VERIFY before Eric onboards: what does a site developer actually
+  see of usage today – per-site aggregates exist in the meter; is
+  there a developer-facing usage surface? If not, it precedes Eric's
+  onboarding as a small dashboard item, because he asked for exactly
+  this.

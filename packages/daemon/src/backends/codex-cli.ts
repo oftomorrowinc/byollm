@@ -111,8 +111,13 @@ function record(value: unknown): Record<string, unknown> | undefined {
 /** One bounded line from a provider diagnostic, for the device owner only. */
 function diagnostic(value: unknown): string | undefined {
   if (typeof value !== "string") return undefined;
-  const text = value
-    .replace(/[\u0000-\u001f\u007f]+/gu, " ")
+  const text = Array.from(value, (character) => {
+    const codePoint = character.codePointAt(0);
+    return codePoint !== undefined && (codePoint <= 31 || codePoint === 127)
+      ? " "
+      : character;
+  })
+    .join("")
     .trim()
     .slice(0, 2_000);
   return text === "" ? undefined : text;

@@ -524,6 +524,10 @@ export async function runSetup(
   }
 
   const config = {
+    // Whatever the owner had that this wizard does not ask about, first, so
+    // the keys it *does* write win. Empty for a first run, which is the
+    // common case and costs nothing.
+    ...(existing?.rest ?? {}),
     services,
     ...(Object.keys(defaults).length > 0 ? { defaults } : {}),
   };
@@ -633,16 +637,69 @@ export async function runSetup(
   return { wrote: true, services: enabled, connected: true, running: true };
 }
 
+/**
+ * The existing config, whole — not just the part this wizard writes.
+ *
+ * It used to return `{ services }` and nothing else, and the wizard then wrote
+ * `{ services, defaults }` over the top. Every other key the owner had was
+ * silently dropped: `concurrency`, the community and ingress blocks, a
+ * per-service `offer`. Settings somebody chose deliberately, deleted by a
+ * command that never said it would touch them.
+ *
+ * It only bites on a config with **zero** services, because a config with any
+ * is refused a few lines up — which is exactly why it survived. The path that
+ * loses the owner's work is the path taken by people whose config a previous
+ * version left empty, i.e. the people already having a bad time.
+ *
+ * The whole object comes back so the write can put it back. What this wizard
+ * knows about, it replaces; what it does not, it leaves alone. A tool that
+ * cannot enumerate every setting it is not editing must not assume there are
+ * none.
+ */
 async function readExisting(
   path: string,
-): Promise<{ services: Record<string, unknown> } | undefined> {
+): Promise<
+  | { services: Record<string, unknown>; rest: Record<string, unknown> }
+  | undefined
+> {
   try {
     const raw = await readFile(path, "utf8");
     const parsed: unknown = JSON.parse(raw);
-    if (typeof parsed === "object" && parsed !== null && "services" in parsed) {
-      return parsed as { services: Record<string, unknown> };
+    if (typeof parsed !== "object" || parsed === null)
+      return { services: {}, rest: {} };
+    const row = parsed as Record<string, unknown>;
+
+    /**
+     * Carried across only if the daemon would still accept it.
+     *
+     * The first version of this kept every key it did not recognise, and the
+     * existing suite refused it within the minute: a pre-alpha.44 config
+     * carries `device`, `DaemonConfig` is `.strict()`, and the wizard's own
+     * "would the daemon load this?" check then failed. Preserving a key the
+     * schema has since dropped does not save somebody's work — it writes a
+     * file that will not load, which is worse than the deletion it was
+     * fixing.
+     *
+     * So the set is the schema's own top-level keys, read from the schema
+     * rather than typed out here. A setting added to `DaemonConfig` next month
+     * survives a re-run without anybody remembering this function.
+     */
+    const known = new Set(Object.keys(DaemonConfig.shape));
+    const rest: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(row)) {
+      // `services` and `defaults` are this wizard's to rewrite.
+      if (key === "services" || key === "defaults") continue;
+      if (known.has(key)) rest[key] = value;
     }
-    return { services: {} };
+
+    const services = row["services"];
+    return {
+      services:
+        typeof services === "object" && services !== null
+          ? (services as Record<string, unknown>)
+          : {},
+      rest,
+    };
   } catch {
     return undefined;
   }

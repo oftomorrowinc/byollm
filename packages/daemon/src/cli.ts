@@ -503,44 +503,36 @@ async function commandConnect(
   const origin = normalizeOrigin(connectTarget(args));
 
   /**
-   * Already paired? Say so before starting a ceremony — 2026-08-26.
+   * The stored credential IS the device — ruled 2026-09-02 (byollm_016).
    *
-   * `connect` mints a code, prints it, and polls for ten minutes. Todd ran it
-   * while already paired, read the docs, and typed the code after it had
-   * expired — a failure that was entirely avoidable, because he did not need
-   * to pair at all.
+   * This used to say "already paired with …" and then ask `Pair again?`, and
+   * a yes ran the whole ceremony: new code, new approval, new fingerprint
+   * compare. Two things were wrong with it.
    *
-   * The check has to *inform* rather than refuse: re-pairing is sometimes
-   * exactly right, and it is how a device that predates roster sync gets the
-   * control-plane key. So it says what this pairing already has, which is the
-   * question somebody is actually asking when they run this.
+   * The first is that the ceremony could not succeed. The dashboard inserts a
+   * device row keyed on the fingerprint of this machine's identity key, and
+   * that key is stable — `DeviceIdentity` mints one only when the file is
+   * absent. So re-pairing the same machine hits the unique index, comes back
+   * `23505`, and the screen says "that device's keys are already registered
+   * on an account". The daemon, meanwhile, polls until the code expires. The
+   * flow's happy path was a dead end.
+   *
+   * The second is worse and is why this is ruled rather than tidied: **a
+   * ceremony repeated becomes a habit, and a habit is not a comparison.** The
+   * fingerprint check is load-bearing precisely because it is rare. Asking
+   * for it on every routine re-run trains the person to approve without
+   * looking, which is a security regression wearing a UX complaint.
+   *
+   * So the credential is presented first. Found is not works, so it is
+   * *probed* rather than assumed — one real signed heartbeat, which is the
+   * same call this daemon makes every ten seconds anyway. The hub recognising
+   * it is a session, not a ceremony.
    */
   const existing = await (async () => {
     const pairings = new Pairings(paths.pairings);
     await pairings.load();
     return pairings.get(origin);
   })();
-  if (existing !== undefined) {
-    io.out(
-      `${wrap(
-        `This device is already paired with ${origin} as ` +
-          `${existing.ownerLabel ?? existing.owner}, serving ` +
-          `${String(Object.keys(existing.sites).length)} site(s).`,
-      )}\n\n` +
-        `${wrap(
-          existing.controlPlanePublic === undefined
-            ? "It holds no control-plane key, so it cannot take part in team " +
-                "routing. Re-pairing is how it gets one."
-            : "It already holds a control-plane key, so team routing works. " +
-                "Re-pairing will not change that.",
-        )}\n\n`,
-    );
-    const again = await io.confirm(`Pair with ${origin} again?`);
-    if (!again) {
-      io.out("Nothing changed.\n");
-      return 0;
-    }
-  }
 
   const { loaded, ingress, budgets, spend, spentGrants } = await context(paths);
 
@@ -613,6 +605,80 @@ async function commandConnect(
         "Pairing anyway — work starts arriving on its own once a service can\n" +
         "answer. `byollm status` says where each one stands.\n",
     );
+  }
+
+  /**
+   * Present the stored credential, and see whether the hub still knows it.
+   *
+   * Placed after detection so the heartbeat carries this device's real
+   * capabilities: a reconnect that also refreshes what the hub knows is worth
+   * more than one that only says hello, and `connect` has already paid for
+   * the probe by this point.
+   *
+   * The three outcomes are deliberately not two.
+   *
+   * - Accepted: a session. Print what it reconnected as and stop. Nothing on
+   *   the dashboard changes, and no fingerprint is compared, because nothing
+   *   about this device's identity is new.
+   * - Refused by name — revoked, or a runner this hub does not know: the
+   *   credential is genuinely spent, and pairing is the right next step. Said
+   *   out loud first, because "we are pairing again" needs a reason.
+   * - Could not ask: **not a refusal.** An unreachable hub, a timeout, a
+   *   clock too far off. Falling through to a ceremony here would ask
+   *   somebody to re-approve a machine over a wifi problem, and would mint a
+   *   pairing attempt that cannot land anyway. This is the same law as the
+   *   control plane's polls and the release gate's exit 4: an unreadable
+   *   answer is not a negative answer.
+   */
+  if (existing !== undefined) {
+    const identity = new DeviceIdentity(paths.keys);
+    const asStored = client.withIdentity({
+      runnerId: existing.runnerId,
+      sign: (input) => identity.signRequest(input),
+    });
+    io.out(`\nChecking this device's existing connection to ${origin}\n`);
+    try {
+      await asStored.heartbeat({
+        runnerId: existing.runnerId,
+        daemonVersion: DAEMON_VERSION,
+        capabilities,
+        activeLeases: [],
+        // Truthfully, never `false` for convenience: a probe that reported an
+        // unpaused device would silently resume routing to a machine whose
+        // owner had paused it.
+        paused: await isPaused(paths),
+      });
+      const when = new Date(existing.pairedAt).toISOString().slice(0, 10);
+      io.out(
+        `\n  Connected as ${await labelFor(paths, name)} (paired ${when}).\n` +
+          `  Nothing to approve — this device was already known here.\n`,
+      );
+      return 0;
+    } catch (error) {
+      const spent =
+        error instanceof ClientError &&
+        (error.kind === "revoked" || error.kind === "unauthorized");
+      if (!spent) {
+        const detail = error instanceof Error ? error.message : String(error);
+        io.err(
+          `\n  Could not check this device's connection to ${origin}.\n` +
+            `  ${detail}\n\n` +
+            `${wrap(
+              "  This device is still paired and nothing was changed. That is " +
+                "not the same as being refused, so it has not been re-paired: " +
+                "try again when the connection is back.",
+            )}\n`,
+        );
+        return 1;
+      }
+      io.out(
+        `\n${wrap(
+          `  This device's pairing with ${origin} is no longer accepted ` +
+            `(${error instanceof ClientError ? error.kind : "refused"}), so ` +
+            `it needs approving again.`,
+        )}\n`,
+      );
+    }
   }
 
   io.out(`\nConnecting to ${origin}\n`);

@@ -1,4 +1,6 @@
 import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { createServer, type Server, type ServerResponse } from "node:http";
+import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { generateKeys, publicIdentityOf, keyId } from "@byollm/protocol";
@@ -895,17 +897,79 @@ describe("a device that is running and invisible", () => {
   });
 });
 
-describe("connect when already paired", () => {
+describe("connect when this device is already paired", () => {
   /**
-   * `connect` mints a code, prints it and polls for ten minutes. Todd ran it
-   * while already paired, read the docs, and typed the code after it had
-   * expired — a failure that was entirely avoidable, because he did not need
-   * to pair at all.
+   * Re-pairing updates, never replaces — ruled 2026-09-02 (byollm_016).
    *
-   * It informs rather than refuses: re-pairing is sometimes exactly right,
-   * and it is how a device that predates roster sync gets the control-plane
-   * key. So it answers the question somebody is actually asking.
+   * This used to print "already paired with …" and ask `Pair again?`, and a
+   * yes ran the whole ceremony. Two things were wrong.
+   *
+   * It could not succeed: the dashboard inserts a device row keyed on the
+   * fingerprint of this machine's identity key, that key is stable, so the
+   * re-pair hits the unique index and comes back "already registered on an
+   * account" while the daemon polls until the code expires.
+   *
+   * And it trained the wrong reflex. **A ceremony repeated becomes a habit,
+   * and a habit is not a comparison** — the fingerprint check is load-bearing
+   * exactly because it is rare.
+   *
+   * These run against a real local hub rather than a stubbed client, because
+   * the thing being asserted is that a *signed* heartbeat is presented and
+   * believed. A fake that answers without checking a signature would pass
+   * while the daemon sent nothing at all.
    */
+  let hub: Server;
+  let origin: string;
+  let heartbeats: number;
+  let beats: { paused: boolean }[];
+  let answer: (res: ServerResponse) => void;
+
+  beforeEach(async () => {
+    heartbeats = 0;
+    beats = [];
+    answer = (res) => {
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(
+        JSON.stringify({
+          sites: {},
+          cancel: [],
+          lost: [],
+          serverTime: Date.now(),
+          awaitingConsent: [],
+        }),
+      );
+    };
+    hub = createServer((req, res) => {
+      if ((req.url ?? "").endsWith("/heartbeat")) {
+        heartbeats++;
+        let raw = "";
+        req.on("data", (chunk: Buffer) => {
+          raw += chunk.toString("utf8");
+        });
+        req.on("end", () => {
+          beats.push(JSON.parse(raw) as { paused: boolean });
+          answer(res);
+        });
+        return;
+      }
+      // Any pairing traffic is a failure of the test's premise, so it is made
+      // to look like one rather than quietly succeeding.
+      res.writeHead(500, { "content-type": "application/json" });
+      res.end(JSON.stringify({ error: "bad-request", message: "no ceremony" }));
+    });
+    await new Promise<void>((resolve) => hub.listen(0, "127.0.0.1", resolve));
+    origin = `http://127.0.0.1:${String((hub.address() as AddressInfo).port)}`;
+  });
+
+  afterEach(
+    async () =>
+      new Promise<void>((resolve) => {
+        hub.close(() => {
+          resolve();
+        });
+      }),
+  );
+
   const alreadyPaired = async (extra: Record<string, unknown> = {}) => {
     await mkdir(home, { recursive: true });
     await writeFile(
@@ -914,11 +978,11 @@ describe("connect when already paired", () => {
         version: 1,
         pairings: [
           {
-            origin: "https://hub.test",
+            origin,
             runnerId: "r1",
             owner: "alice",
             sites: {},
-            pairedAt: 1_800_000_000_000,
+            pairedAt: Date.parse("2026-09-02T00:00:00Z"),
             ...extra,
           },
         ],
@@ -927,31 +991,88 @@ describe("connect when already paired", () => {
     );
   };
 
-  it("says so, and does nothing when the answer is no", async () => {
+  it("reconnects on the stored credential, with no ceremony", async () => {
     await alreadyPaired();
-    confirmAnswer = false;
-    expect(await run("connect", "https://hub.test")).toBe(0);
-    expect(out).toContain("already paired with https://hub.test");
-    expect(out).toContain("Nothing changed");
-    // No code was minted, which is the point — the ceremony never started.
+    expect(await run("connect", origin)).toBe(0);
+
+    expect(out).toContain("Connected as");
+    expect(out).toContain("2026-09-02");
+    // The whole point: the ceremony never started. Asserted on its actual
+    // markers — the numbered steps and the code/fingerprint block — rather
+    // than on the word "approve", which the success line legitimately uses
+    // when it says there is nothing to approve.
+    expect(out).not.toContain("Your steps:");
+    expect(out).not.toContain("waiting for approval");
     expect(out).not.toMatch(/[A-Z0-9]{4}-[A-Z0-9]{4}/);
+    // And it was actually asked, rather than assumed from the file. Found is
+    // not works.
+    expect(heartbeats).toBeGreaterThan(0);
   });
 
-  it("says re-pairing is how a keyless pairing gets a key", async () => {
-    // The one reason to say yes, named where the decision is made.
+  it("never asks the owner anything on a healthy re-run", async () => {
+    /* A confirm here would be the old habit in a smaller costume: the point
+       is not fewer keystrokes, it is that a routine re-run stops rehearsing
+       the security check that only means something when it is rare. */
     await alreadyPaired();
-    confirmAnswer = false;
-    await run("connect", "https://hub.test");
-    expect(out).toContain("holds no control-plane key");
-    expect(out).toContain("Re-pairing is how it gets one");
+    await run("connect", origin);
+    expect(confirmQuestions).toEqual([]);
   });
 
-  it("says re-pairing changes nothing when a key is already held", async () => {
-    await alreadyPaired({ controlPlanePublic: "some-key" });
-    confirmAnswer = false;
-    await run("connect", "https://hub.test");
-    expect(out).toContain("already holds a control-plane key");
-    expect(out).toContain("will not change that");
+  it("reports the pause honestly while it reconnects", async () => {
+    /**
+     * A probe is still a heartbeat, and a heartbeat says whether this device
+     * is taking work. Reporting `false` for convenience would quietly resume
+     * routing to a machine whose owner had paused it — the reconnect would
+     * un-pause them as a side effect of saying hello.
+     *
+     * This exists because the comment claiming it mattered survived a
+     * mutation that hard-coded `false`. A prediction ships with the check
+     * that catches it.
+     */
+    await alreadyPaired();
+    expect(await run("pause")).toBe(0);
+    expect(await run("connect", origin)).toBe(0);
+    expect(beats.map((b) => b.paused)).toEqual([true]);
+  });
+
+  it("pairs again when the hub says the credential is spent", async () => {
+    await alreadyPaired();
+    answer = (res) => {
+      res.writeHead(403, { "content-type": "application/json" });
+      res.end(
+        JSON.stringify({
+          error: "revoked",
+          message: "this device was revoked",
+        }),
+      );
+    };
+    await run("connect", origin);
+    /* Whitespace-flattened: these sentences go through `wrap()`, so asserting
+       on the raw string tests the terminal width rather than the words. */
+    const said = out.replace(/\s+/g, " ");
+    expect(said).toContain("no longer accepted");
+    expect(said).toContain("needs approving again");
+  });
+
+  it("does not re-pair because it could not ask", async () => {
+    /**
+     * The third state, and the reason this is not a boolean. An unreachable
+     * hub is not a refusal — falling through to a ceremony would ask somebody
+     * to re-approve a machine over a wifi problem, and mint a pairing that
+     * cannot land anyway. Same law as the control plane's polls: an
+     * unreadable answer is not a negative answer.
+     */
+    await alreadyPaired();
+    await new Promise<void>((resolve) => {
+      hub.close(() => {
+        resolve();
+      });
+    });
+    expect(await run("connect", origin)).toBe(1);
+    expect(err.replace(/\s+/g, " ")).toContain(
+      "still paired and nothing was changed",
+    );
+    expect(out).not.toMatch(/[A-Z0-9]{4}-[A-Z0-9]{4}/);
   });
 });
 

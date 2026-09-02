@@ -768,3 +768,52 @@ describe("an existing config with no services", () => {
     expect(io.transcript()).toContain("Setup will not change it");
   });
 });
+
+/**
+ * A config with no services still holds the owner's settings — Batch D,
+ * pulled forward 2026-09-02.
+ *
+ * The wizard read the existing file for its `services` count and then wrote
+ * `{ services, defaults }` over the top, so every other key the owner had —
+ * `concurrency`, the community and ingress blocks — was silently deleted by a
+ * command that never said it would touch them.
+ *
+ * It only bites on a config with **zero** services, because a config with any
+ * is refused outright, which is exactly why it survived this long: the path
+ * that loses somebody's work is the one taken by people whose config an older
+ * version already left empty.
+ */
+describe("setting up over a config that has no services", () => {
+  it("keeps the settings it did not ask about", async () => {
+    const p = await paths();
+    await mkdir(p.root, { recursive: true });
+    await writeFile(
+      p.config,
+      JSON.stringify({
+        services: {},
+        // Chosen deliberately by somebody, and not a question this wizard
+        // asks. That is the whole category at risk.
+        concurrency: 3,
+      }),
+      "utf8",
+    );
+
+    const result = await runSetup(
+      p,
+      scripted(["y", "my laptop", "y", "n"]),
+      machineWith(["claude-cli"]),
+      noServers,
+      answersFine,
+    );
+
+    expect(result.wrote).toBe(true);
+    const written = JSON.parse(await readFile(p.config, "utf8")) as {
+      concurrency?: number;
+      services: Record<string, unknown>;
+    };
+    expect(written.concurrency).toBe(3);
+    // The control: the wizard's own key is still written, so this is not
+    // passing because nothing happened at all.
+    expect(Object.keys(written.services).length).toBeGreaterThan(0);
+  });
+});

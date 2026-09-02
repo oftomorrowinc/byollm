@@ -6208,3 +6208,25 @@ manifest (Your Devices auth state, byollm_017, audience stub drop)
 slides to .67. `latest` moves with it after the fixture proves the
 loop. Kevin is two for two on finds our own walks could not make –
 worth saying to him.
+
+### 2026-09-01 – .66 published and proven from outside (same script: fails on .65, passes on .66)
+
+CCC took the no-instrument shape: delivery is handed nothing on the
+cloud lane and skips the check it doesn't hold; the direct lane keeps
+the instrument (NO_RUNNER_SIGNAL is a MUST – a version removing it
+everywhere would pass every other test). The fixture took two tries
+and the first was VACUOUS: it pumped, then awaited a job already
+terminal, so the loop returned on its first read and never executed
+the availability call – a reproduction that never runs the line it is
+about. The real fixture starts the wait while the job is still queued
+(the consumer's actual shape) and, with the fix reverted, fails with
+Kevin's exact error. Gap named for the record: every cloud test drove
+enqueue then read the store; app.result() is a store read,
+job.result() is the delivery, and no test awaited the second.
+
+Carried forward, deliberately out of .66: the release verifier read a
+stale registry, went red, and the re-run's "already at .66" refusal
+was itself the proof of success – the refusal-vs-redirect family; the
+verify step wants a retry window, queued. **.67 manifest:** Your
+Devices auth state · byollm_017 · audience stub drop. `latest` → .66
+is Todd's 2FA after his non-admin walk.

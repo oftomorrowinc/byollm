@@ -60,7 +60,8 @@ class SupabaseRealtimeDelivery implements ResultDelivery {
     // here: a rejection that escapes this object becomes an unhandled
     // rejection, and an unhandled rejection ends the process.
     const settled = Promise.withResolvers<DeliveredResult>();
-    this.#resolve = settled.resolve;
+    // Keyed by job, not held as one field — see `#resolvers`.
+    this.#resolvers.set(jobId, settled.resolve);
 
     const channel = this.#client.channel(`byollm_job_${jobId}`).on(
       "postgres_changes",
@@ -98,16 +99,42 @@ class SupabaseRealtimeDelivery implements ResultDelivery {
     } finally {
       clearTimeout(timer);
       clearInterval(watcher);
+      this.#resolvers.delete(jobId);
       options.signal?.removeEventListener("abort", abort);
       await this.#client.removeChannel(channel);
     }
   }
 
-  #resolve: ((result: DeliveredResult) => void) | undefined;
+  /**
+   * One resolver per job in flight — P0, 2026-09-02.
+   *
+   * This was a single field, `#resolve`, assigned by every `waitFor`. One
+   * delivery object serves a whole app, so two concurrent waits meant the
+   * second assignment clobbered the first, and then:
+   *
+   *   1. `waitFor(A)` sets the resolver.
+   *   2. `waitFor(B)` overwrites it.
+   *   3. A's row event arrives, `#check(A)` reads A's result — and resolves
+   *      **B's** promise with it.
+   *   4. A never resolves and waits out its timeout.
+   *
+   * So an app awaiting two jobs at once got one answer under the wrong job
+   * id, with the wrong text, silently — and a spurious timeout beside it. No
+   * error anywhere; the failure is that the caller believes it.
+   *
+   * A map, and the entry is removed in the same `finally` that tears down the
+   * channel. A resolver that outlived its wait would be a leak that also
+   * resolves a promise nobody is holding.
+   */
+  readonly #resolvers = new Map<string, (result: DeliveredResult) => void>();
 
   async #check(jobId: string): Promise<void> {
     const current = await this.#deps.read(jobId);
-    if (current && isTerminal(current.state)) this.#resolve?.(current);
+    // The job's own resolver. `#check` has always taken a `jobId` and read
+    // the right row; what it did with the answer was the bug.
+    if (current && isTerminal(current.state)) {
+      this.#resolvers.get(jobId)?.(current);
+    }
   }
 
   /** Poll runner liveness; there is no row event for "nothing is happening". */

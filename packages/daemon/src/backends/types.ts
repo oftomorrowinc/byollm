@@ -42,6 +42,7 @@ export type BackendErrorCode =
   | "backend-unreachable"
   | "backend-error"
   | "model-not-found"
+  | "quota-exhausted"
   | "timeout"
   | "output-too-large"
   | "canceled"

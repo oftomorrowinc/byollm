@@ -125,6 +125,22 @@ sixth question: "supported" presumes the codex tool-escape probe row
 exists and passes in the adversarial corpus — CCC to confirm; if the
 row is missing, it lands before the table does.
 
+### Terminal outcome, not process status
+
+`codex exec` can emit a terminal `error` / `turn.failed` event and exit zero.
+Its process status therefore says only that the CLI ran; it does not say the
+model call succeeded. The adapter requests JSONL and treats exactly one of the
+provider's terminal events as authoritative: `turn.completed` succeeds,
+`error` or `turn.failed` fails, and a stream ending without any terminal event
+fails closed. Model prose is read only from `item.completed` and is never
+searched for error wording.
+
+This is also the first local half of the quota-block finding filed for
+`byollm_019`: an observed subscription exhaustion is a typed backend failure,
+while the site still receives the same opaque `service_unavailable` class. The
+cross-device fast-fallback design remains a separate `byollm_019` candidate;
+this change does not claim to implement it.
+
 ---
 
 ## The keychain finding + the health-canary question (2026-08-25 night)

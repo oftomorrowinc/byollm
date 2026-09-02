@@ -796,6 +796,25 @@ describe("what leaves the machine when a backend fails", () => {
     expect(outcome).toMatchObject({ code: "service_unavailable" });
   });
 
+  /* Quota is the owner's account state. It is actionable as a retry decision,
+     but neither the provider nor the reason belongs on the site's surface. */
+  it("does not expose subscription exhaustion to the site", async () => {
+    const { runner } = await makeRunner({
+      backendFactory: () =>
+        failing(
+          "the codex CLI failed: You've hit your usage limit",
+          "quota-exhausted",
+        ),
+    });
+
+    const outcome = await runner.runJob(job());
+    expect(outcome).toMatchObject({
+      code: "service_unavailable",
+      message: SERVICE_UNAVAILABLE,
+    });
+    expect(JSON.stringify(outcome)).not.toMatch(/codex|usage|quota/i);
+  });
+
   /* And the owner keeps everything. The text is theirs — it is their machine,
      their CLI, and the sentence that tells them what to do about it. */
   it("keeps the CLI's words for the owner", async () => {

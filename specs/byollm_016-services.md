@@ -6489,3 +6489,51 @@ inferred the format from nothing, which is most of why he got it
 wrong; the example ships in the best-practice shape (site-named
 everyday purpose first). Ergonomics evidence recorded honestly: the
 format is right and it isn't obvious.
+
+### 2026-09-02 – Auto-update RULED (Todd's ask, shaped): the floor and the updater are two features, both wanted
+
+Todd: ask at setup to auto-update byollm (default on for hosted);
+alternative = refuse outdated daemons with a printed remedy. Ruled:
+these are complements, not alternatives – **the FLOOR is correctness,
+the UPDATER is hygiene**, and the fleet needs both.
+
+1. **The floor (first – smallest, and the backstop).** The hub
+   declares a minimum supported daemon version on the channel that
+   already exists (the protocol-version machinery that refuses "0"
+   today). A too-old daemon is refused at connect/claim with the
+   remedy printed: "byollm X.Y is below the supported floor – run
+   `npm i -g byollm` then `byollm install`." Raising the floor is a
+   deliberate act with a spec note, never automatic.
+2. **The updater (no second runner).** The SUPERVISOR is the right
+   home: the daemon learns the current version on the channel it
+   already polls (no new phone-home), then DRAINS (finish the running
+   job, claim nothing), runs `npm i -g byollm@<exact version>` +
+   `byollm install`, restarts, and the boot canary must pass –
+   **an updater must be able to un-update**: previous version kept,
+   auto-rollback on a failed boot canary, and the failure reported on
+   the owner surfaces.
+3. **Consent posture:** setup asks "Keep byollm up to date
+   automatically? [Y/n]", default YES (consistent with the other
+   defaults-yes; owner's machine, owner's switch – `byollm config`
+   can flip it). Hosted Devices: ON and not asked – our box, stated
+   plainly on the provision page.
+4. **Version semantics:** during alpha, everything auto-applies (that
+   is what alpha means). From 1.0: patch/minor auto-apply; a MAJOR
+   applies after a grace window or when the hub raises the floor –
+   the floor is how stragglers are moved, never a silent major jump
+   on day one.
+5. **Staged rollout, honestly cheap:** the hosted fleet updates first
+   (we watch it – it is the canary cohort), personal devices follow
+   with jitter, never the whole fleet in one minute. A bad release
+   must not be able to take every device down simultaneously.
+6. **Named for the record – the trade:** an auto-updating daemon means
+   whoever controls the npm publish controls the fleet. The controls
+   are the existing 2FA on publish, exact-version installs (never
+   `@latest` inside the updater), the canary+rollback, and the staged
+   cohorts. This is the Chrome trade and it is the right one for a
+   protocol daemon; it is written down so nobody discovers it as a
+   surprise.
+Sequencing: floor rides the next daemon release that touches connect
+(.69 candidate); updater ships WITH byollm_018 (hosted-on by design)
+and reaches personal devices the release after, behind the setup
+question. Spec-fit by CCB; this entry is the ruling.

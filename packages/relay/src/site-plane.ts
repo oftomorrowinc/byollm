@@ -347,12 +347,48 @@ export class SitePlane {
          * The third case is the one the transient path was always for:
          * declared, mapped, and nothing able to claim it right now.
          */
-        const answer = await this.#deps.satisfiable?.({
-          siteId,
-          owner: request.stub.owner,
-          purpose: request.stub.purpose,
-          kind: request.stub.kind,
-        });
+        /**
+         * A read that failed is not a negative answer — and not a 500 either.
+         *
+         * This call reaches the control plane's policy store. A blip there —
+         * a connection reset, a failover, a pool exhausted — threw straight
+         * out of `handle`, so every cloud-lane enqueue became `internal`
+         * while the database caught its breath.
+         *
+         * The property that matters already held: nothing turns a failed read
+         * into `not-declared` or `unmapped`, so no job was ever refused for a
+         * reason nobody could check. What was wrong is what the site was
+         * told. `internal` says "we are broken and you should stop"; this is
+         * a transient condition, and the honest answer is ask again.
+         *
+         * 503 rather than a 409, deliberately. The enqueue endpoint's 409
+         * class *is* the refusal class — an unknown code there is read as
+         * `EnqueueRefused` and the job is abandoned. A transient failure
+         * arriving in that class would tell a site to give up on a job the
+         * relay never even evaluated.
+         *
+         * Not swallowed into "satisfiable" either, which would be the other
+         * tempting shape: accepting the job and letting it expire is the
+         * pre-alpha.65 behaviour, and the whole point of that release was
+         * that a slot nobody can answer should not cost the site a TTL.
+         */
+        let answer;
+        try {
+          answer = await this.#deps.satisfiable?.({
+            siteId,
+            owner: request.stub.owner,
+            purpose: request.stub.purpose,
+            kind: request.stub.kind,
+          });
+        } catch {
+          // The reason stays here. A site learns that we could not answer,
+          // never that a database was the thing that could not.
+          return fail(
+            503,
+            "server-error",
+            "we could not check this just now — try again shortly",
+          );
+        }
         if (answer?.verdict === "not-declared") {
           return fail(
             409,

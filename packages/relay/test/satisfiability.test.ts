@@ -37,12 +37,23 @@ const siteKeys = generateKeys(1_700_000_000_000);
  */
 async function enqueueThrough(
   verdict: "ok" | "not-declared" | "unmapped" | "absent",
+  /**
+   * A control plane that cannot answer, for the transient cases.
+   *
+   * Passed as the rejection rather than as a whole relay, so every case in
+   * this file goes through the same signed request and the same fixture — a
+   * second construction is a second thing to keep in step, and the signature
+   * is the part that is easy to get subtly wrong.
+   */
+  throws?: Error,
 ): Promise<{ status: number; body: { error?: string; message?: string } }> {
   const relay = new Relay({
     fixture: fixtureFor(publicIdentityOf(siteKeys)),
-    ...(verdict === "absent"
-      ? {}
-      : { satisfiable: () => Promise.resolve({ verdict }) }),
+    ...(throws !== undefined
+      ? { satisfiable: () => Promise.reject(throws) }
+      : verdict === "absent"
+        ? {}
+        : { satisfiable: () => Promise.resolve({ verdict }) }),
   });
   const stub = {
     id: "job_1",
@@ -114,5 +125,46 @@ describe("enqueueing a slot nobody can satisfy", () => {
      named at boot rather than left to be inferred from silence. */
   it("accepts everything when nothing can answer the question", async () => {
     expect((await enqueueThrough("absent")).status).toBe(200);
+  });
+});
+
+/**
+ * When the control plane cannot answer — HIGH 16, 2026-09-02.
+ *
+ * `satisfiable` reaches the policy store. A blip there threw straight out of
+ * `handle`, so a connection reset turned every cloud-lane enqueue into
+ * `internal` for as long as the database was unhappy.
+ *
+ * The property that mattered already held — nothing turns a failed read into
+ * `not-declared` or `unmapped`, so no job was refused for a reason nobody
+ * could check. What was wrong is what the site was told.
+ */
+describe("a policy store that is having a moment", () => {
+  it("says ask again, rather than saying we are broken", async () => {
+    const answer = await enqueueThrough(
+      "ok",
+      new Error("connection reset by peer"),
+    );
+
+    // 503 and not a 409: the enqueue endpoint's 409 class is the *refusal*
+    // class, and an unknown code there is read as `EnqueueRefused` — which
+    // would tell a site to abandon a job the relay never evaluated.
+    expect(answer.status).toBe(503);
+    expect((answer.body as { error: string }).error).toBe("server-error");
+  });
+
+  it("says nothing about what failed", async () => {
+    const answer = await enqueueThrough(
+      "ok",
+      new Error("FATAL: too many connections for role hub_reader"),
+    );
+    const message = JSON.stringify(answer.body).toLowerCase();
+
+    // The upstream sentence names a role, a database and a limit. A site
+    // learns that we could not answer, never that a database was the thing
+    // that could not.
+    for (const leaked of ["hub_reader", "connections", "fatal", "role"]) {
+      expect(message, `the refusal leaked "${leaked}"`).not.toContain(leaked);
+    }
   });
 });

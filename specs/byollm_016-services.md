@@ -6442,3 +6442,19 @@ by the developer's own devices, and API parity so the same code runs
 on both lanes – the switch is config, not code. Spec to write when
 called; positioning entry rides now (it is pitch #1's little sibling:
 "zero LLM wiring before you've picked a vendor").
+
+### 2026-09-02 – All five P0s closed; .68 RULED as the small release carrying the Realtime fix
+
+P0 4 fixed (per-job resolver map); the first fixture passed against
+the bug – fakeClient never fired its row-change callback, so waits
+settled from their opening checks and resolvers never overlapped;
+mutation said so; rebuilt to interleave (both waits registered, THEN
+A's event, store silent until told). Third vacuous-first-fixture this
+week, all three caught by mutation – the discipline is carrying its
+weight. RULED: **cut .68 after HIGHs 16/12/13, carrying the Realtime
+fix plus whatever is green** – the corruption is in .67, which is what
+Kevin and Eric install today, and it bites exactly the busy integrator
+(Realtime delivery + concurrent jobs). The stated .68 manifest
+(audience stub drop, Your Devices auth state) slides to .69. Same
+hotfix playbook, third use; `latest` follows once proven from the
+registry.

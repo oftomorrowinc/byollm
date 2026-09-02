@@ -6264,3 +6264,30 @@ ones that catch grant outages; loud-but-skipped is still a check that
 cannot fail, so loud skips land only as the interim while the PAT
 propagates, not as the destination. CCC proceeds on 2, 3, 4 and the
 ledger half of 1 meanwhile, as proposed.
+
+### 2026-09-02 – Tonight's scope so tomorrow's walk is comprehensive; a live copy/CLI mismatch caught
+
+`latest` = .66 (Todd, after a basic test); full non-admin walk
+tomorrow. Todd wants the open dashboard/daemon items landed tonight so
+the walk covers the finished product.
+
+**Caught while scoping: the device page already tells walkers to "say
+YES to Connect to byollm.cloud and Run in background" – questions
+`byollm setup` does not ask until the setup-finishes-the-job work
+ships.** Live copy describing a version nobody is running – our own
+law, on our own page, shipped this evening in item 5. Two ways out,
+CCC picks by feasibility tonight: (a) ship a **.67-lite** carrying
+ONLY setup-finishes-the-job (two Y/n questions, connect always exits)
+so the copy is true by morning – the full .67 manifest (Your Devices
+auth state, 017, stub drop) is unchanged and ships later; or (b) if
+(a) can't be green tonight, soften the device-page NOTE to match the
+shipped CLI and restore it when .67 lands. The walk must meet a page
+that tells the truth.
+
+Tonight's list, in order: housekeeping already in flight (verifier
+wording, roll.sh unproven, error-class keying, ledger CI half; PAT
+when Todd mints it) → Developer Sites trio (manifest editor always
+open; values not counts; re-consent badge + save-time warning) →
+post-consent one-page setup flow (mapping only when mappable) →
+verify /welcome renders the ABOUT lede only → (a) or (b) above.
+Freeze-at-close and per-member bandwidth stay queued – walk-invisible.

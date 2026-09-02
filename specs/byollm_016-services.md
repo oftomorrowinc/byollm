@@ -6622,3 +6622,48 @@ new install. Diagnosis discipline (for CCB, before any fix):
    satisfiability-unreachable lesson (a feature exists when its first
    consumer runs it) one level up: a protocol exists when both sides
    agree on it, and nothing asserted that.
+
+### 2026-09-02 – Evidence + mitigation for the lockstep P0 (screenshots)
+
+`byollm status` on Todd's .68 (installed via `latest`, so latest=.68):
+- **daemon 0.1.0-alpha.68, protocol 1**; `state: NOT REPORTING`
+- **the hub has rejected this device's last 811 messages** – "running
+  and invisible"; error verbatim, both pair and report: **"request
+  failed schema validation"**.
+- Setup itself was clean – found claude, wrote config, offered connect;
+  the ONLY failure is the hub rejecting the wire shape. So config,
+  identity, service detection all fine; it is purely daemon↔hub schema.
+
+Bright spot, named: the status page told the whole truth unprompted –
+"anything below is what this device believes, not what the hub has
+been told." The failed-read-honesty and owner-surface laws paid off in
+the worst moment: the daemon that cannot report still says exactly why.
+
+**It is schema validation, NOT a protocol-version refusal** (protocol
+prints 1 and the version gate would name a remedy). So it is a
+field-shape disagreement WITHIN protocol 1 – a daemon-emitted shape
+the deployed hub's validator rejects. Given .65/.66/.67/.68 all
+shipped after the last hub deploy (satisfiability, 09-01, digest in
+Pulumi.prod.yaml), the leading hypothesis is **daemon got ahead of the
+hub**: a report/pair field changed in a recent daemon release and the
+live hub validates the older schema.
+
+**Decisive test for CCB (2 minutes, no deploy):** run a real .68
+pair/report payload against the CURRENT hub HEAD's validator locally.
+- **Green** → the code is already correct and the deployed hub is
+  simply STALE. Mitigation = **roll the hub forward** (deploy current
+  HEAD via roll.sh) – restores every device; this is a normal roll,
+  not a rollback, and needs no daemon release.
+- **Red** → the divergence is real in code: HEAD hub and .68 daemon
+  disagree. Then fix the SHAPE hub-first (accept old AND new), deploy,
+  and only then consider a daemon release. Never publish a daemon that
+  a deployed hub can't read again.
+
+Mitigation ranking is not the tidy fix, it is restore-reporting-now:
+every device on `latest` is invisible right now, so whichever branch,
+the hub side moves first because it is one deploy vs. thousands of
+reinstalls. The guardrail owed once green: a contract test that runs
+the PUBLISHED daemon's wire shape against the DEPLOYED hub's validator
+in CI – "a protocol exists when both sides agree, and nothing asserted
+that." .69 stays halted until a real pair+report against the live hub
+goes green from Todd's machine.

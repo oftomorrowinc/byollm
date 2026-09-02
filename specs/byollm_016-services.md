@@ -6234,3 +6234,33 @@ is Todd's 2FA after his non-admin walk.
 Todd validated .66 on a real install (alpha install, byollm install,
 live calls), is moving `latest` → .66 and telling Kevin. CCC proceeds
 to the remaining queue.
+
+### 2026-09-02 – Housekeeping reconciliation (CCC, with evidence); PAT ruled
+
+Closed: codex on byo-llm.com (lowercase copy beat the first grep;
+drift-guarded by check-site.mjs pinning data-provider against
+BACKEND_IDS); the verifier's retry window exists (8 attempts,
+backoff to 30s) – the OPEN half is that exhausting it is reported as
+"partial release" when the true statement is "still unreadable after
+N minutes"; a timeout is not a finding about the release, it is a
+finding about the window. Open, ranked: (1) CI runs strictly fewer
+tests than a developer laptop – 21 skipped green vs 5 locally; the
+REQUIRE_* gates exist but ci.yml sets only REQUIRE_VALKEY, no
+Postgres service in verify; policy-store.test.ts is the suite that
+would have caught the hub_reader manifest grant. (2) reader-grants in
+no workflow – a deploy-day check run by memory. (3) roll.sh: exit-3
+exists for "smoke site disabled", nothing for "the prover itself
+failed". (4) enqueue-refusal classes decided by allowlist
+(REFUSED_AT_ENQUEUE.has(code)) – a relay-side third code reaches an
+older client as RelayUnavailable and sites' catch stops matching; the
+409 class is already on the wire; **the status class is the key, the
+allowlist is a description**. (5) test-site service account – Todd's,
+support@ is a forward not a sign-in.
+
+RULED on CCC's question: **mint the PAT** – fine-grained, read-only
+(contents:read), scoped to byollm-cloud-web alone, with an expiry –
+Todd's two minutes. The suites that need the dashboard schema are the
+ones that catch grant outages; loud-but-skipped is still a check that
+cannot fail, so loud skips land only as the interim while the PAT
+propagates, not as the destination. CCC proceeds on 2, 3, 4 and the
+ledger half of 1 meanwhile, as proposed.

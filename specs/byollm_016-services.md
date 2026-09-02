@@ -6319,3 +6319,20 @@ setup-finishes-the-job, this gate. Hotfix discipline still applies
 inside the night: whatever is not green by morning is cut, not
 waited for – the walk meets what shipped, and the device-page NOTE
 matches it either way.
+
+### 2026-09-02 – Single-terminal login, the simpler mechanism (rides tonight's gate)
+
+Todd's aim: the auth gate must work in ONE terminal – the hosted
+console has no second window. His sketch (background setup, run
+claude, fg on exit) needs shell job control a child process doesn't
+own. The same intent, simpler: **setup spawns the vendor CLI itself,**
+inheriting the TTY – "Claude isn't logged in. Opening Claude now:
+log in, then type /exit to come back here." → `claude` runs
+interactively in place → on its exit setup re-probes and continues.
+No bg/fg, no second terminal, works over SSH and the hosted console
+alike. CCC verifies the right invocation against the shipped CLI (a
+direct login subcommand if one exists, else interactive + the /exit
+instruction) – verified, not assumed, per the FIXED_ARGV precedent.
+The Enter-to-recheck loop stays as the fallback when spawning
+interactive is unreliable (Windows conhost, say). Same for codex and
+ollama:cloud.

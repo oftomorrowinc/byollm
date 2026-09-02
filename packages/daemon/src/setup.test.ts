@@ -618,34 +618,68 @@ describe("a CLI that is there but cannot answer", () => {
       detail: "the claude CLI is not signed in",
     } as const);
 
-  it("says so, and says what to do about it", async () => {
-    const io = scripted(["a", "y", "n"]);
+  /**
+   * Never reached, and that is the point of injecting it.
+   *
+   * The default `login` spawns the vendor CLI's real sign-in with the TTY
+   * inherited. A test that fell through to it would open a browser on
+   * somebody's machine and wait — which is exactly what these two tests did
+   * for five seconds each before this was added, and why the suite stopped
+   * exiting.
+   */
+  const neverSignsIn = () => Promise.resolve(false);
+
+  it("says so, in the CLI's own words", async () => {
+    const io = scripted(["a", "n", "n", "n", "n"]);
     await runSetup(
       await paths(),
       io,
       machineWith(["claude-cli"]),
       noServers,
       cannotAnswer,
+      neverSignsIn,
     );
     const said = io.transcript();
     expect(said).toContain("cannot answer yet");
-    expect(said, "the person is not told what to run").toMatch(/sign(ing)? in/);
+    expect(
+      said,
+      "the backend's own sentence is the one that names the fix",
+    ).toContain("not signed in");
   });
 
-  /* Still written. A token that expires is a five-second fix, and a wizard
-     that refused to record the service would make somebody redo the whole
-     thing after running one command. Nothing routes to it until it answers. */
-  it("sets it up anyway, and says nothing will route yet", async () => {
-    const io = scripted(["a", "y", "n"]);
+  /**
+   * **Reversed on 2026-09-02, and the old expectation is worth keeping in
+   * writing.**
+   *
+   * This asserted `result.services` contained "claude" — "still written. A
+   * token that expires is a five-second fix, and a wizard that refused to
+   * record the service would make somebody redo the whole thing." The
+   * reasoning was sound and the ruling underneath is unchanged: the config is
+   * still correct, and nothing routes to a backend that cannot answer.
+   *
+   * What it got wrong is who the sentence was for. Two machines sat in "we
+   * thought it wasn't working" for days, because a logged-out CLI reached the
+   * person as a *note* inside a wizard that kept going and finished by saying
+   * it was done. The five-second fix is only five seconds if somebody knows
+   * to make it.
+   *
+   * So setup stops and offers to run the sign-in itself. Declining ends the
+   * wizard with the remedy as the last line, and writes nothing — which is
+   * safe because setup is idempotent and says so.
+   */
+  it("stops, rather than recording a service nothing can route to", async () => {
+    const io = scripted(["a", "n", "n", "n", "n"]);
     const result = await runSetup(
       await paths(),
       io,
       machineWith(["claude-cli"]),
       noServers,
       cannotAnswer,
+      neverSignsIn,
     );
-    expect(result.services).toContain("claude");
-    expect(io.transcript()).toMatch(/nothing will route to it/);
+    expect(result.wrote).toBe(false);
+    expect(result.services).toEqual([]);
+    expect(io.transcript()).toMatch(/is installed and not signed in/);
   });
 
   /* And a backend with no canary is not reported as broken. `undefined` is

@@ -191,18 +191,45 @@ describe("byollm connect — the whole path", () => {
     });
     withModelServer();
 
-    const controller = new AbortController();
-    const cli = runCli(["connect", origin], {
+    /**
+     * Two commands, because pairing stopped being a service — 2026-09-01.
+     *
+     * This ran `connect` and then waited for a job, which worked because
+     * `connect` ended by calling the run loop. It does not any more: pairing
+     * is a ceremony that finishes, and running is `run`'s job and
+     * `install`'s. A device paired in a terminal somebody then closed used to
+     * look identical to a healthy install.
+     *
+     * So the path this proves is the real one now — pair, then run — and it
+     * proves something it could not before: that the pairing `connect` wrote
+     * is still there for a *separate process* to pick up. The old shape kept
+     * everything in one long-lived call, so a pairing that only existed in
+     * memory would have passed.
+     */
+    const pairing = new AbortController();
+    const pairCli = runCli(["connect", origin], {
       paths,
       io: io(),
-      signal: controller.signal,
+      signal: pairing.signal,
     });
 
     // Approve as a signed-in user would, as soon as the code appears.
     const code = await waitForCode();
     await app.approvePairing({ userCode: code, owner: "alice" });
 
-    // The daemon should now be running; give it a job.
+    // It ends by itself. Awaited rather than aborted: that it *returns* is
+    // the ruling, and a test that killed it would pass either way.
+    expect(await pairCli).toBe(0);
+    expect(out).toContain("Paired.");
+
+    const controller = new AbortController();
+    const cli = runCli(["run", origin], {
+      paths,
+      io: io(),
+      signal: controller.signal,
+    });
+
+    // Now the daemon is running; give it a job.
     const job = await waitForJob();
     expect(job.outcome).toMatchObject({
       outcome: "ok",

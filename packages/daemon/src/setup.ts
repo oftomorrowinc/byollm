@@ -4,6 +4,7 @@ import { createInterface } from "node:readline/promises";
 import type { BackendId, JobKind } from "@byollm/protocol";
 import { createBackend } from "./backends/index.js";
 import { probeLocalServers, type LocalServer } from "./probe-local.js";
+import { loginCommandFor, runLogin, type LoginCommand } from "./login.js";
 import { DaemonConfig } from "./config.js";
 import type { DaemonPaths } from "./paths.js";
 
@@ -180,6 +181,81 @@ const yes = (answer: string, fallback: boolean): boolean => {
 export interface SetupResult {
   readonly wrote: boolean;
   readonly services: readonly string[];
+  /** Whether pairing ran and succeeded. Absent when setup stopped earlier. */
+  readonly connected?: boolean;
+  /** Whether the background service was installed. */
+  readonly running?: boolean;
+}
+
+/**
+ * The sign-in loop: offer to open it, run it, ask again.
+ *
+ * Two mechanisms, and the ruling names both. Spawning the vendor's own login
+ * is the good one — it works in a single terminal, which is the only kind a
+ * hosted console or an SSH session has, and it ends by itself when the login
+ * finishes. Enter-to-recheck is the fallback for where spawning interactive
+ * is unreliable, and it is also what somebody gets who would rather do it
+ * their own way in another window.
+ *
+ * The loop re-probes rather than trusting the exit code. `claude auth login`
+ * exiting 0 means the command finished, not that this machine can now answer
+ * a prompt — the same distinction as "installed" versus "answers", one level
+ * up, and believing the exit code would put the wizard's whole point back
+ * where it started.
+ *
+ * Bounded, because a person can be stuck: three rounds, then the caller's
+ * refusal. An unbounded prompt in a wizard is a wizard somebody Ctrl-Cs.
+ */
+async function signIn(input: {
+  cli: {
+    readonly id: BackendId;
+    readonly binary: string;
+    readonly model: string;
+  };
+  io: SetupIo;
+  verifier: (id: BackendId, model: string) => Promise<Detected>;
+  login: (command: LoginCommand) => Promise<boolean>;
+  ask: (question: string) => Promise<string>;
+}): Promise<Detected> {
+  const { cli, io, verifier, login, ask } = input;
+  const command = loginCommandFor(cli.id);
+  let proof: Detected = { installed: true, answers: false };
+
+  for (let round = 0; round < 3; round += 1) {
+    if (command !== undefined) {
+      const go = await ask(`  Sign in to ${cli.binary} now? [Y/n] `);
+      if (yes(go, true)) {
+        io.out(`  ${command.says}\n\n`);
+        // The terminal belongs to the child until it exits. Nothing is
+        // captured — capturing is exactly what breaks a browser handoff or a
+        // device code.
+        await login(command);
+        proof = await verifier(cli.id, cli.model);
+        if (proof.answers !== false) return proof;
+        io.out(
+          `\n  Still cannot answer.` +
+            (proof.detail === undefined ? "" : ` ${proof.detail}`) +
+            "\n",
+        );
+        continue;
+      }
+    }
+
+    // The fallback, and the door for somebody who wants to do it their way.
+    const again = await ask(
+      `  Sign in with \`${command?.argv.join(" ") ?? cli.binary}\` elsewhere, ` +
+        `then press Enter to re-check (n to skip): `,
+    );
+    if (/^n(o)?$/i.test(again.trim())) return proof;
+    proof = await verifier(cli.id, cli.model);
+    if (proof.answers !== false) return proof;
+    io.out(
+      `  Still cannot answer.` +
+        (proof.detail === undefined ? "" : ` ${proof.detail}`) +
+        "\n",
+    );
+  }
+  return proof;
 }
 
 export async function runSetup(
@@ -195,6 +271,23 @@ export async function runSetup(
    * so in four places before anything ran.
    */
   verifier: (id: BackendId, model: string) => Promise<Detected> = detect,
+  /**
+   * Running a vendor CLI's sign-in, with this terminal — 2026-09-02.
+   *
+   * Injected for the same reason `verifier` is, and more urgently: the real
+   * one hands the TTY to another program. A test that reached the default
+   * would sit waiting for somebody to complete an OAuth flow.
+   */
+  login: (command: LoginCommand) => Promise<boolean> = runLogin,
+  /**
+   * The wizard's own hands: `connect` and `install`, run as this process.
+   *
+   * Injected rather than imported so a test can watch what setup decided to
+   * do without pairing against a real hub or writing a launch agent. The
+   * default is supplied by the CLI, which owns those verbs — passing them in
+   * keeps this module from importing the command table that imports it.
+   */
+  run: (argv: readonly string[]) => Promise<number> = () => Promise.resolve(0),
 ): Promise<SetupResult> {
   if (!io.interactive) {
     io.err(
@@ -272,14 +365,44 @@ export async function runSetup(
      * Asked here rather than left to the first job, because this is the
      * moment somebody is sitting in front of a terminal ready to fix it.
      */
-    const proof = await verifier(cli.id, cli.model);
+    let proof = await verifier(cli.id, cli.model);
     if (proof.answers === false) {
+      /**
+       * Stopped, not annotated — 2026-09-02.
+       *
+       * This printed four lines and carried on. The config it then wrote was
+       * correct and the ruling underneath still stands: nothing routes until
+       * the backend answers. But two machines sat in "we thought it wasn't
+       * working" for days, because a logged-out CLI reached the person as a
+       * *note* in a wizard that kept going and finished by saying it was done.
+       *
+       * A note is the wrong shape for the one condition that stops every job,
+       * discovered at the one moment somebody is in front of a terminal ready
+       * to fix it.
+       */
       io.out(
         `  It is installed but cannot answer yet — it needs signing in.\n` +
-          `  Run \`${cli.binary}\` in a terminal, sign in, then rerun this.\n` +
-          `  Setting it up anyway; nothing will route to it until it can\n` +
-          `  answer, and \`byollm status\` will keep saying so.\n`,
+          (proof.detail === undefined ? "" : `  ${proof.detail}\n`),
       );
+      // Bound, not passed as a bare method: `io.ask` reads `this` in the
+      // terminal implementation, and handing the reference over detaches it.
+      proof = await signIn({
+        cli,
+        io,
+        verifier,
+        login,
+        ask: (question) => io.ask(question),
+      });
+      if (proof.answers === false) {
+        io.err(
+          `\nStopped: \`${cli.binary}\` is installed and not signed in, so\n` +
+            `nothing would route to it.\n\n` +
+            `  Sign in with \`${loginCommandFor(cli.id)?.argv.join(" ") ?? cli.binary}\`, ` +
+            `then run \`byollm setup\` again.\n` +
+            `  Nothing was written; setup is safe to re-run.\n`,
+        );
+        return { wrote: false, services: [] };
+      }
     }
     // The self-lock is spoken, not buried — byollm_015, and it is consent
     // wording, which is product law here: the moment of enablement is the
@@ -425,10 +548,76 @@ export async function runSetup(
 
   io.out(
     `\nWrote ${paths.config}\n` +
-      `  ${enabled.join(", ")} — your own jobs only\n\n` +
-      `Next: byollm connect --name ${JSON.stringify(deviceName)}\n`,
+      `  ${enabled.join(", ")} — your own jobs only\n`,
   );
-  return { wrote: true, services: enabled };
+
+  /**
+   * The wizard finishes the job — ruled 2026-09-01, after two onboardings.
+   *
+   * It ended with "Next: byollm connect --name …", which is a correct
+   * sentence and four verbs short of a working device. Both walks stopped
+   * there: one ran `connect` in a window they later closed, one never ran it
+   * at all. The gap is not knowledge — the line was on screen — it is that a
+   * wizard which stops one step from done reads as done.
+   *
+   * Two questions, both defaulting yes, both composing verbs that already
+   * exist. Nothing new is invented here; what changes is that the person is
+   * asked rather than instructed.
+   *
+   * The ending is still the ruled one: the true sentence, or the single
+   * command that finishes whatever was skipped. A `no` is a decision and gets
+   * the command, not a warning.
+   */
+  const doConnect = yes(
+    await io.ask("\n  Connect to byollm.cloud? [Y/n] "),
+    true,
+  );
+  if (!doConnect) {
+    io.out(
+      `\n  Not connected. This device is set up and unreachable — finish with:\n` +
+        `    byollm connect --name ${JSON.stringify(deviceName)}\n`,
+    );
+    return { wrote: true, services: enabled, connected: false, running: false };
+  }
+
+  const connected = await run(["connect", "--name", deviceName]);
+  if (connected !== 0) {
+    // Said plainly and not retried. Pairing can fail for reasons this wizard
+    // cannot fix — no network, a hub that is draining, a code that expired
+    // while somebody found their phone — and `connect` has already printed
+    // which. Re-running it is one line and is safe.
+    io.out(
+      `\n  Pairing did not finish. Nothing else was changed — try again with:\n` +
+        `    byollm connect --name ${JSON.stringify(deviceName)}\n`,
+    );
+    return { wrote: true, services: enabled, connected: false, running: false };
+  }
+
+  const doInstall = yes(await io.ask("\n  Run in background? [Y/n] "), true);
+  if (!doInstall) {
+    io.out(
+      `\n  Paired, and not running. Start it when you want it:\n` +
+        `    byollm install     keep it running in the background\n` +
+        `    byollm run         run in this terminal\n`,
+    );
+    return { wrote: true, services: enabled, connected: true, running: false };
+  }
+
+  const running = await run(["install"]);
+  if (running !== 0) {
+    io.out(
+      `\n  Paired, and could not install the background service. Either:\n` +
+        `    byollm install     try again — it says why when it cannot\n` +
+        `    byollm run         run in this terminal instead\n`,
+    );
+    return { wrote: true, services: enabled, connected: true, running: false };
+  }
+
+  io.out(
+    `\n  Done. This device is set up, paired, and running in the background.\n` +
+      `  Try it: open https://test.byollm.cloud and press the BYOLLM button.\n`,
+  );
+  return { wrote: true, services: enabled, connected: true, running: true };
 }
 
 async function readExisting(

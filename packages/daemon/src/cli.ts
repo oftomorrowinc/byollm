@@ -125,7 +125,7 @@ export async function runCli(
       io.out(formatVersion());
       return 0;
     case "setup":
-      return commandSetup(paths, io);
+      return commandSetup(paths, io, signal);
     case "connect":
       return commandConnect(paths, rest, io, signal);
     case "name":
@@ -382,7 +382,11 @@ async function labelFor(
  * Thin on purpose: the conversation lives in `setup.ts` so it can be driven by
  * a test that is not a terminal, and so this file stays a router.
  */
-async function commandSetup(paths: DaemonPaths, io: CliIo): Promise<ExitCode> {
+async function commandSetup(
+  paths: DaemonPaths,
+  io: CliIo,
+  signal?: AbortSignal,
+): Promise<ExitCode> {
   const result = await runSetup(
     paths,
     terminalIo(
@@ -393,6 +397,19 @@ async function commandSetup(paths: DaemonPaths, io: CliIo): Promise<ExitCode> {
         io.err(text);
       },
     ),
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    /**
+     * `connect` and `install`, run in this process — 2026-09-01.
+     *
+     * Through `runCli` rather than by spawning `byollm` again: a spawn would
+     * find whichever binary is on PATH, which on a machine mid-upgrade is not
+     * necessarily this one. The wizard finishing the job means *this* build
+     * doing it.
+     */
+    (argv) => runCli([...argv], { paths, io, ...(signal ? { signal } : {}) }),
   );
   return result.wrote || result.services.length > 0 ? 0 : 1;
 }
@@ -652,9 +669,29 @@ async function commandConnect(
         `   will arrive here, with its fingerprint, for you to see.\n`,
     );
   }
-  io.out(`\nNow running jobs for ${origin}. Ctrl-C to stop.\n\n`);
+  /**
+   * Pairing is a ceremony, not a service — ruled 2026-09-01.
+   *
+   * This ended by calling `runLoop`, so `byollm connect` pinned the keys and
+   * then sat in the foreground forever running jobs. Two costs, and the
+   * second is the one that mattered on a walk:
+   *
+   * Somebody who ran it in a terminal they then closed had a device that was
+   * paired and not running, with nothing on screen having said the two were
+   * different things. And somebody who left it open had a "daemon" that
+   * survived exactly as long as that window — no supervisor, no restart, no
+   * log — which looks identical to a healthy install until the laptop sleeps.
+   *
+   * Running is `run`'s job in the foreground and `install`'s as a service.
+   * So this ends, and says which of the two to do next.
+   */
+  io.out(
+    `\nPaired. Nothing is running yet — pairing and running are separate:\n` +
+      `  byollm install     keep it running in the background (recommended)\n` +
+      `  byollm run         run in this terminal, Ctrl-C to stop\n`,
+  );
 
-  return runLoop(paths, [result.pairing.origin], io, signal);
+  return 0;
 }
 
 // -- run ---------------------------------------------------------------------

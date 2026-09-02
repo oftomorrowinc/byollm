@@ -10,6 +10,7 @@ import {
 } from "@byollm/protocol";
 import { beforeAll, describe, expect, it } from "vitest";
 import { ByollmApp } from "./app.js";
+import { EnqueueRefused, RelayUnavailable } from "./cloud.js";
 import { generateSiteKeys } from "./keys.js";
 import { MemoryStore } from "./memory.js";
 import { PollingDelivery, type PollingDeliveryDeps } from "./delivery.js";
@@ -587,5 +588,121 @@ describe("audience on the cloud lane", () => {
       },
     });
     expect(handed?.availability).toBeDefined();
+  });
+});
+
+/**
+ * Which declines mean "your job was never queued".
+ *
+ * The rule was an allowlist of refusal codes, which made every code the relay
+ * might add next a breaking change for every client already deployed: an
+ * unknown one fell through to `RelayUnavailable`, so a site's `catch (error
+ * instanceof EnqueueRefused)` quietly stopped matching and a permanent
+ * refusal was retried forever.
+ *
+ * The status class is the key. A list of codes describes it.
+ */
+describe("a relay declining to queue a job", () => {
+  const refusing = (status: number, body: unknown): typeof fetch => {
+    return (input) => {
+      const url = new URL(input instanceof Request ? input.url : String(input));
+      if (url.pathname.endsWith("/enqueue")) {
+        return Promise.resolve(Response.json(body, { status }));
+      }
+      return Promise.resolve(Response.json({ jobs: [] }));
+    };
+  };
+
+  const enqueueAgainst = async (fetchImpl: typeof fetch): Promise<unknown> => {
+    const { app } = appWith(fetchImpl);
+    return app
+      .enqueue({
+        kind: "llm.generate",
+        owner: "someone",
+        payload: { prompt: "hi" },
+      })
+      .then(
+        () => null,
+        (error: unknown) => error,
+      );
+  };
+
+  it("refuses with a code this build knows", async () => {
+    const error = await enqueueAgainst(
+      refusing(409, {
+        error: "slot-unsatisfiable",
+        message: "Nothing is set up to answer this yet.",
+      }),
+    );
+    expect(error).toBeInstanceOf(EnqueueRefused);
+    expect((error as EnqueueRefused).code).toBe("slot-unsatisfiable");
+  });
+
+  /**
+   * The case the allowlist got wrong, and the reason this file exists.
+   *
+   * A relay that learns a new way to decline — a quota, a suspended site, a
+   * kind it has stopped routing — must not turn every deployed client's
+   * refusal handling off. The code travels unread: a site branching on one it
+   * does not recognise still learns the job was refused, which is the fact it
+   * needs to stop waiting.
+   */
+  it("refuses with a code this build has never heard of", async () => {
+    const error = await enqueueAgainst(
+      refusing(409, {
+        error: "quota-exhausted",
+        message: "This site has used its allowance for the month.",
+      }),
+    );
+    expect(error).toBeInstanceOf(EnqueueRefused);
+    expect((error as EnqueueRefused).code).toBe("quota-exhausted");
+  });
+
+  /**
+   * And the exception, which is why the status alone is not the key.
+   *
+   * The protocol overloads 409: `not-ready` is a draining pod saying come
+   * back. Reading that as a refusal would fail a job during an ordinary
+   * rollout — the two and a half minutes the edge watch exists to measure.
+   */
+  it("treats a draining relay as ask-me-later, not as a refusal", async () => {
+    const error = await enqueueAgainst(
+      refusing(409, { error: "not-ready", message: "draining" }),
+    );
+    expect(error).toBeInstanceOf(RelayUnavailable);
+    expect((error as RelayUnavailable).retryable).toBe(true);
+  });
+
+  /**
+   * A 409 somewhere else is not this at all.
+   *
+   * `too-late` is about a job that already exists, and it arrives on the
+   * result path. Keying on the class alone — without the endpoint that can
+   * only decline — would turn it into "your job was never queued", which is
+   * the opposite of true.
+   */
+  it("does not read a 409 from another endpoint as an enqueue refusal", async () => {
+    const { app } = appWith((input) => {
+      const url = new URL(input instanceof Request ? input.url : String(input));
+      if (url.pathname.endsWith("/enqueue")) {
+        return Promise.resolve(Response.json({ ok: true }));
+      }
+      return Promise.resolve(
+        Response.json(
+          { error: "too-late", message: "that job is finished" },
+          { status: 409 },
+        ),
+      );
+    });
+    await app.enqueue({
+      kind: "llm.generate",
+      owner: "someone",
+      payload: { prompt: "hi" },
+    });
+    const failure = await app.cloud?.pump().then(
+      () => null,
+      (error: unknown) => error,
+    );
+    expect(failure).not.toBeInstanceOf(EnqueueRefused);
   });
 });

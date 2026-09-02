@@ -112,11 +112,35 @@ export class EnqueueRefused extends Error {
   }
 }
 
-/** The refusals that mean "not queued", rather than "try again later". */
-const REFUSED_AT_ENQUEUE = new Set([
-  "purpose-not-declared",
-  "slot-unsatisfiable",
-]);
+/**
+ * The one code that means "ask me later" on the enqueue endpoint.
+ *
+ * Inverted on 2026-09-02, and the inversion is the point. This was an
+ * allowlist of *refusals* — `purpose-not-declared` and `slot-unsatisfiable` —
+ * which made every refusal code the relay might add next a breaking change
+ * for every client already deployed: an unknown code fell through to
+ * `RelayUnavailable`, so a site's `catch (error instanceof EnqueueRefused)`
+ * silently stopped matching and a permanent refusal was retried forever.
+ *
+ * The status class is the key; a list of codes is a description of it. A 409
+ * on enqueue means the relay declined to queue the job, and there is nothing
+ * to await and nothing to retry — whatever the code turns out to be.
+ *
+ * `409` alone is not the key, which is why this is not simply deleted: the
+ * protocol overloads it. `not-ready` is a draining pod saying come back, and
+ * `too-late` is about a job that already exists. Neither can reach the
+ * enqueue endpoint as a refusal, so the discriminator is the class *on this
+ * endpoint*, with the retryable code named because it is the exception.
+ *
+ * The direction of the default is deliberate. An unknown code treated as a
+ * refusal surfaces as an error somebody can see; treated as unavailable it
+ * becomes a silent retry against a condition that will never change — which
+ * is the shape of the afternoon Kevin lost.
+ */
+const RETRYABLE_AT_ENQUEUE = new Set(["not-ready"]);
+
+/** The endpoint where a decline means the job was never queued. */
+const ENQUEUE_ENDPOINT = "enqueue";
 
 export interface PumpReport {
   /** Jobs sealed to a claiming device this cycle. */
@@ -509,8 +533,14 @@ export class CloudLane {
       code === "not-ready" ||
       code === "server-error";
 
-    if (REFUSED_AT_ENQUEUE.has(code)) {
+    if (
+      endpoint === ENQUEUE_ENDPOINT &&
+      response.status === 409 &&
+      !RETRYABLE_AT_ENQUEUE.has(code)
+    ) {
       // No job exists, so there is nothing to await and nothing to retry.
+      // The code travels unread: a site branching on one it does not know
+      // still learns that its job was refused, which is the fact it needs.
       throw new EnqueueRefused(message, code);
     }
 

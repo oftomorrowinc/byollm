@@ -1,3 +1,5 @@
+import { backendVerifier, listModels, setModel, showModel } from "./model.js";
+import { createBackend } from "./backends/index.js";
 import { mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { hostname, userInfo } from "node:os";
 import { dirname } from "node:path";
@@ -50,6 +52,8 @@ const USAGE = `byollm — run an app's LLM jobs on your own models.
   byollm sites                which sites this device serves
   byollm forget <url>         drop a pairing
   byollm services             what is installed, healthy, advertised, withheld
+  byollm models               every service and the model it runs
+  byollm model <svc> <name>   check a model answers, then use it
   byollm install              keep running in the background, across restarts
   byollm uninstall            stop running in the background
 
@@ -154,6 +158,10 @@ export async function runCli(
       return commandForget(paths, rest, io);
     case "services":
       return commandServices(paths, io, service);
+    case "models":
+      return listModels(paths.config, io).then((r) => r.code);
+    case "model":
+      return commandModel(paths, rest, io);
     case "install":
       return commandInstall(paths, io, service);
     case "uninstall":
@@ -412,6 +420,40 @@ async function commandSetup(
     (argv) => runCli([...argv], { paths, io, ...(signal ? { signal } : {}) }),
   );
   return result.wrote || result.services.length > 0 ? 0 : 1;
+}
+
+/**
+ * `byollm model` — byollm_017 Phase 1.
+ *
+ * Three shapes, one verb: no service lists nothing useful and says so; a
+ * service alone reports what it runs and what its CLI is known to accept; a
+ * service and a name probes, then writes.
+ */
+async function commandModel(
+  paths: DaemonPaths,
+  args: readonly string[],
+  io: CliIo,
+): Promise<ExitCode> {
+  const [service, model] = args;
+  if (service === undefined) {
+    io.err(
+      "usage:\n" +
+        "  byollm models                    every service and its model\n" +
+        "  byollm model <service>           one service, and what it accepts\n" +
+        "  byollm model <service> <name>    check that model, then use it\n",
+    );
+    return 2;
+  }
+  if (model === undefined) {
+    const shown = await showModel(paths.config, service, io);
+    return shown.code;
+  }
+  const set = await setModel(
+    { configPath: paths.config, service, model },
+    io,
+    backendVerifier((id) => createBackend(id, {})),
+  );
+  return set.code;
 }
 
 async function commandConnect(

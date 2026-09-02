@@ -1,4 +1,5 @@
 import type { ServiceReport } from "./service-line.js";
+import { knownModelsFor } from "./known-models.js";
 import { outcomeForSite } from "./site-outcome.js";
 import {
   type Succession,
@@ -606,6 +607,15 @@ export class Runner {
         backendId: route.backendId,
         backendClass: route.backendClass,
         model: route.model,
+        // What this device's CLI knows, so the dashboard suggests from the
+        // machine rather than from a list the cloud last heard about —
+        // byollm_017 ruling 3. Omitted when there is nothing to suggest:
+        // absent is "nothing to offer", and `[]` on the wire would invite a
+        // reader to render "no models available" for a local server that
+        // serves whatever has been pulled onto it.
+        ...(knownModelsFor(route.backendId).length === 0
+          ? {}
+          : { knownModels: [...knownModelsFor(route.backendId)] }),
         offerScope: route.offerScope,
       });
     }

@@ -231,6 +231,26 @@ export const Capability = z
     backendId: BackendIdSchema,
     backendClass: BackendClass,
     model: z.string().min(1),
+    /**
+     * Models this device's CLI knows about — byollm_017 ruling 3.
+     *
+     * **Suggestions, not a vocabulary.** Free text is always allowed: the
+     * promise is that a model released this morning works this morning, and a
+     * frozen list anywhere a person picks from breaks that on the first day
+     * it matters. What makes free text safe is ruling 2 — a model is probed
+     * before it is stored, so "found is not works" is answered by the device
+     * rather than by a list.
+     *
+     * Announced with the capability rather than kept in the dashboard,
+     * because the answer is "what does THIS device's CLI know" and only the
+     * device can say. A list held cloud-side would be one more thing to
+     * update on release day, and wrong for anybody who had not upgraded.
+     *
+     * Optional, and empty is legal. A backend with nothing to suggest — a
+     * local server serving one model — is not a backend in an error state,
+     * and a reader must not render an absent list as "no models available".
+     */
+    knownModels: z.array(z.string().min(1)).optional(),
     offerScope: OfferScope,
   })
   .strict();

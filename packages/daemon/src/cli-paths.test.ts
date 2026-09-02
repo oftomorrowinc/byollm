@@ -144,6 +144,28 @@ describe("byollm run — when the pairing is missing", () => {
   });
 });
 
+describe("byollm model — the verb, through the router", () => {
+  it("shows the three shapes rather than guessing which was meant", async () => {
+    // `byollm model` alone is ambiguous between "list them" and "which
+    // service?", and guessing either would be wrong half the time. Usage,
+    // exit 2 — a bad argument, not a run that went wrong.
+    expect(await runCli(["model"], { paths, io: io() })).toBe(2);
+    expect(err).toContain("byollm models");
+    expect(err).toContain("byollm model <service> <name>");
+  });
+
+  it("says where to look when there is no config at all", async () => {
+    expect(await runCli(["models"], { paths, io: io() })).toBe(1);
+    expect(err).toContain("byollm setup");
+  });
+
+  it("is in help, where somebody would look for it", async () => {
+    await runCli(["--help"], { paths, io: io() });
+    expect(out).toContain("byollm models");
+    expect(out).toContain("byollm model");
+  });
+});
+
 describe("main", () => {
   it("returns an exit code rather than throwing", async () => {
     expect(await main(["--help"])).toBe(0);

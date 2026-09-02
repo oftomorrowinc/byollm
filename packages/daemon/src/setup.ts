@@ -421,6 +421,19 @@ export async function runSetup(
       kinds: [...BOTH_KINDS],
     };
     enabled.push(cli.binary);
+    /**
+     * The default, said out loud — byollm_017 ruling 6.
+     *
+     * The wizard does not grow a question for this. Three questions stays
+     * three, and a fourth ("which model?") would ask somebody to decide
+     * something they have no basis for on the day they install. What they
+     * need is to know a default was chosen on their behalf and that it is one
+     * line to change — which is a sentence, not a prompt.
+     */
+    io.out(
+      `  model: ${cli.model} — change any time with ` +
+        `\`byollm model ${cli.binary} <name>\`\n`,
+    );
   }
 
   // ── 3. local model servers, found by asking them ─────────────────────

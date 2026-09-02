@@ -6667,3 +6667,61 @@ the PUBLISHED daemon's wire shape against the DEPLOYED hub's validator
 in CI – "a protocol exists when both sides agree, and nothing asserted
 that." .69 stays halted until a real pair+report against the live hub
 goes green from Todd's machine.
+
+### 2026-09-02 (night) – P0 RESOLVED: one optional field under .strict(). The fleet reports again
+
+Root cause, proven not reasoned (both published protocols parsing the
+exact object runner.ts:604 builds, with a control): **`knownModels`**
+– byollm_017 ruling 3's field – joined Capability in the daemon while
+hub/package.json still pinned .65. Every wire object is `.strict()`,
+the capability matrix rides BOTH PairStartRequest and HeartbeatRequest,
+so one unrecognised key took out pairing and every heartbeat, once per
+ten seconds – hence 811. CCB's correction to my framing, accepted: not
+a deploy that failed to happen – **the pin was stale in git**; .65
+through .68 all published against a hub manifest nobody moved.
+
+Two laws minted, both CCB's words kept:
+- **Under `.strict()` there is no additive-and-optional. Every new
+  field is breaking – and it breaks on the side nobody upgraded, which
+  is never the side running the tests.**
+- **"A registry is a schema; an enum value is the contract" was one
+  noun short: a field NAME is the contract too.** The old gate
+  compared vocabularies (closed value sets) truthfully and passed;
+  nothing compared keys.
+
+Honest accounting against the overnight review: it FOUND this gun –
+M2, "hub pins everything .65 exact; nothing resolves .67" – and triage
+(mine) filed it under hygiene/icebox. Second MEDIUM this week that was
+a P0 wearing a chore (declareManifest was the first). Triage rule
+amended: **a stale version pin on a `.strict()` wire is never
+hygiene** – any finding that two sides of a strict protocol resolve
+different versions ranks as a lockstep hazard, not a sweep item.
+
+The guardrail, shipped: wire-shapes.ts walks the protocol's own
+exports into key paths; GET /wire serves them; the promotion gate
+compares, importing the hub's walker so the two sides cannot drift
+into answering different questions. Deliberately NOT on /healthz –
+that is the liveness probe, and a reporting fault there would wear a
+crash loop. Proven both ways against a stub hub (refuses .68 by name
+across six schemas when serving .65's keys; passes serving .68's) –
+without the second run it would be a gate that refuses forever and
+looks identical from the failing side. Fifth vacuous first fixture of
+the week caught by mutation (optional scalar → optional object, so
+the wrapper must actually open).
+
+Roll: clean – edge watched 143 probes over 301s, all 401; the e2e ran
+a sealed job, routed a purpose-named job, and refused an unmapped slot
+at enqueue, through the hub it had just deployed. Production accepts
+knownModels on all three paths; promotion gate green against live prod
+for .68. Exposure window: `latest` was .68 throughout, so ANY install
+since knownModels shipped paired-blind – Kevin's version should be
+confirmed (a .67/.68 daemon recovers on its own now; a pairing that
+never completed needs `byollm connect` re-run, which is Todd's own
+next command). .69 cuts when CI is green, per standing instruction.
+
+ALSO: two CI runs at action_required on "fix(daemon): trust Codex
+terminal events over exit status" – an OUTSIDE PR on the public repo.
+First outside contributor. Todd reads the diff BEFORE approving the
+workflow runs (action_required on a fork PR is a security gate, not a
+formality) – and the title suggests they found a real thing in
+exactly the territory this week's canary work lives in.

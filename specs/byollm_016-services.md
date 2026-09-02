@@ -6458,3 +6458,34 @@ Kevin and Eric install today, and it bites exactly the busy integrator
 (audience stub drop, Your Devices auth state) slides to .69. Same
 hotfix playbook, third use; `latest` follows once proven from the
 registry.
+
+### 2026-09-02 – Manifest shape RULED: object, kept, for reasons now written down
+
+Two people wrote the array form unprompted, so the question was asked
+properly and closed. Object stands: **the key is an identity, not a
+field** – on the left it is structurally not-casually-editable, in an
+array it looks as editable as `label` (and renaming a key deletes a
+purpose and unmaps everyone who chose for it); **uniqueness is
+structural** – an array admits two `books` entries and mappings are
+stored against (purpose, kind), so a duplicate is routing ambiguity,
+which an object cannot express; **Postgres enforces the object
+directly** (jsonb_object_keys / jsonb_each / `? 'default'`) where an
+array needs a hand-rolled uniqueness check a CHECK constraint can't
+hold; and the hot path is `Set(Object.keys()).has(purpose)` per
+enqueue. The array's one real advantage – author order – is discarded
+on purpose (slotsFor sorts by label everywhere).
+
+Riders: (1) the near-miss refusals now teach the three wrong envelopes
+and print the shape – shipped; (2) **the editor gains a raw-text
+duplicate-key scan BEFORE parse** – JSON.parse keeps the last
+duplicate silently, so a pasted manifest with two `fact-checker` keys
+loses one definition with no error unless the raw text is checked;
+the object shape can't express the duplicate, but the author's paste
+can contain it; (3) if the wrong envelope keeps arriving after the
+teaching, the answer is a FORM (label/description/kinds, key derived
+and shown fixed) – never a second accepted format; (4) **the docs
+manifest example is pulled forward from Batch C, now** – Kevin
+inferred the format from nothing, which is most of why he got it
+wrong; the example ships in the best-practice shape (site-named
+everyday purpose first). Ergonomics evidence recorded honestly: the
+format is right and it isn't obvious.

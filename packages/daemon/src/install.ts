@@ -121,7 +121,7 @@ export async function installService(
   }
 
   await mkdir(dirname(plan.unitPath), { recursive: true });
-  await writeFile(plan.unitPath, plan.unitContents, "utf8");
+  await writeUnit(plan.unitPath, plan.unitContents, plan.unitEncoding);
 
   for (const [index, command] of plan.activate.entries()) {
     const result = await run(command);
@@ -153,7 +153,11 @@ export async function installService(
           recursive: true,
         })
           .then(() =>
-            writeFile(fallback.unitPath, fallback.unitContents, "utf8"),
+            writeUnit(
+              fallback.unitPath,
+              fallback.unitContents,
+              fallback.unitEncoding,
+            ),
           )
           .then(
             () => true,
@@ -237,6 +241,29 @@ export async function uninstallService(
 
   await rm(plan.unitPath, { force: true });
 
+  /**
+   * And the fallback, which on Windows is the one that was actually there.
+   *
+   * This removed `plan.unitPath` only. Every Windows install had fallen to
+   * the Startup folder — see `writeUnit` for why — so uninstall deleted a
+   * task XML that had never registered, printed "Removed", and left the
+   * thing that starts the daemon exactly where it was. Next logon it came
+   * back.
+   *
+   * A daemon that restarts after its owner removed it is not a bug about
+   * supervisors. It is somebody's machine doing work they told it to stop
+   * doing, and being told it had stopped.
+   *
+   * Removed unconditionally rather than only when the fallback was used:
+   * uninstall's whole contract is that "it was not installed" and "it is now
+   * not installed" end the same way, and a machine that has been through
+   * several versions may carry both.
+   */
+  const fallbackPath = plan.fallback?.unitPath;
+  if (fallbackPath !== undefined) {
+    await rm(fallbackPath, { force: true });
+  }
+
   return {
     ok: true,
     plan,
@@ -286,3 +313,36 @@ export const spawnCommand: CommandRunner = async (command) => {
     });
   });
 };
+
+/**
+ * Write a unit file as the thing it says it is.
+ *
+ * This was `writeFile(path, contents, "utf8")` for every platform, and the
+ * Windows task XML declares `encoding="UTF-16"` on its own first line. MSXML
+ * refused the mismatch, so every `schtasks /create /xml` failed — on every
+ * Windows machine, with or without administrator rights — and fell to the
+ * Startup folder, which cannot restart a crashed daemon. Restart-on-failure
+ * has never shipped to a Windows user.
+ *
+ * The BOM is not decoration. `schtasks` identifies the encoding from it;
+ * UTF-16LE bytes without one are read as something else and refused just as
+ * firmly as the mismatch was. Node writes the code units and no mark, so it
+ * is prepended here.
+ *
+ * **Not verified on Windows from this machine.** The mismatch is provable
+ * from the source and the fix is the shape Task Scheduler's own export uses,
+ * but the thing that would settle it is a real `schtasks /create` — which is
+ * Kevin, and which is why the test below asserts the bytes rather than the
+ * outcome.
+ */
+async function writeUnit(
+  path: string,
+  contents: string,
+  encoding: "utf8" | "utf16le",
+): Promise<void> {
+  await writeFile(
+    path,
+    encoding === "utf16le" ? `\uFEFF${contents}` : contents,
+    encoding,
+  );
+}

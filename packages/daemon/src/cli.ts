@@ -1,3 +1,4 @@
+import { access } from "node:fs/promises";
 import { backendVerifier, listModels, setModel, showModel } from "./model.js";
 import { createBackend } from "./backends/index.js";
 import { mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
@@ -280,8 +281,31 @@ async function supervisionLine(
         `service: installed but NOT running (${state.detail}) — ` +
         `this device is on rosters and serving nothing. See ${plan.logPath}\n`
       );
-    case "absent":
+    case "absent": {
+      /**
+       * "Not installed" is wrong on a machine that autostarts — 2026-09-02.
+       *
+       * `serviceState` asks the supervisor. On Windows the supervisor is
+       * Task Scheduler, and every install had fallen to the Startup folder
+       * instead — so `schtasks` truthfully reported nothing, and this line
+       * told somebody whose daemon starts at every logon that jobs only run
+       * while a terminal is open.
+       *
+       * The file is the evidence the supervisor cannot give. It says less
+       * than a running check — a Startup entry means it will start, not that
+       * it is up — and saying less accurately beats saying more wrongly.
+       */
+      const fallback = plan.fallback;
+      if (fallback !== undefined && (await exists(fallback.unitPath))) {
+        return (
+          `service: starting from ${fallback.supervisor} at logon, not ` +
+          `under ${plan.supervisor}\n` +
+          `  ${fallback.caveat}\n` +
+          `  startup: ${fallback.unitPath}\n`
+        );
+      }
       return `service: not installed — jobs only run while \`byollm run\` is open (\`byollm install\` fixes that)\n`;
+    }
   }
 }
 
@@ -2285,4 +2309,12 @@ export async function main(argv: readonly string[]): Promise<ExitCode> {
     );
     return 1;
   }
+}
+
+/** Whether a path is there at all — the fallback leaves no other trace. */
+async function exists(path: string): Promise<boolean> {
+  return access(path).then(
+    () => true,
+    () => false,
+  );
 }

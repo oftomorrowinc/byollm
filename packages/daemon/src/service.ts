@@ -63,6 +63,21 @@ export interface ServicePlan {
   /** The file that defines the service — plist, unit, or task XML. */
   readonly unitPath: string;
   readonly unitContents: string;
+  /**
+   * How the unit file must be written — 2026-09-02.
+   *
+   * Every platform got `utf8`, hardcoded at the write. The Windows task XML
+   * declares `encoding="UTF-16"` in its own first line, so MSXML refused the
+   * mismatch and **every** Windows registration failed — admin or not, since
+   * alpha.44. Each one fell to the Startup folder, which cannot restart a
+   * crashed daemon, so restart-on-failure has never once shipped to a Windows
+   * user.
+   *
+   * A file that says what it is and is written as something else is a bug the
+   * file itself describes; the encoding belongs beside the contents rather
+   * than at the call that happens to write them.
+   */
+  readonly unitEncoding: "utf8" | "utf16le";
   /** Run these, in order, to make it live. */
   readonly activate: readonly (readonly string[])[];
   /** Run these, in order, to take it away. Tolerant of "already gone". */
@@ -92,6 +107,7 @@ export interface ServicePlan {
   readonly fallback?: {
     readonly unitPath: string;
     readonly unitContents: string;
+    readonly unitEncoding: "utf8" | "utf16le";
     readonly supervisor: string;
     /** What it does not do, in words, said at install time. */
     readonly caveat: string;
@@ -223,6 +239,7 @@ export function servicePlan(target: ServiceTarget): ServicePlan {
       platform: "darwin",
       unitPath,
       unitContents,
+      unitEncoding: "utf8",
       activate: [
         ["launchctl", "bootout", domain, unitPath],
         ["launchctl", "bootstrap", domain, unitPath],
@@ -274,6 +291,7 @@ WantedBy=default.target
       platform: "linux",
       unitPath,
       unitContents,
+      unitEncoding: "utf8",
       activate: [
         ["systemctl", "--user", "daemon-reload"],
         ["systemctl", "--user", "enable", "--now", `${SERVICE_LABEL}.service`],
@@ -324,6 +342,7 @@ WantedBy=default.target
     platform: "win32",
     unitPath,
     unitContents,
+    unitEncoding: "utf16le",
     activate: [
       ["schtasks", "/create", "/tn", SERVICE_LABEL, "/xml", unitPath, "/f"],
       ["schtasks", "/run", "/tn", SERVICE_LABEL],
@@ -346,6 +365,10 @@ WantedBy=default.target
      * reads a first quoted argument as the window title.
      */
     fallback: {
+      // A batch file, not XML. It declares no encoding and `cmd` reads it as
+      // bytes, so utf8 is right here — the mismatch above never applied to it,
+      // which is part of why every Windows machine quietly ended up on it.
+      unitEncoding: "utf8",
       unitPath: join(
         process.env["APPDATA"] ?? root,
         "Microsoft",

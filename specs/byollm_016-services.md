@@ -6175,3 +6175,36 @@ batch (small: two questions + composing existing verbs, per the
 The device page's new copy (website-sync, this date) leans on these two
 answers by name, so they ship before or with it. The curl|sh script
 drops to the backlog – npm plus setup-finishes-the-job covers the path.
+
+### 2026-09-01 – Kevin's second find: .65's own delivery loop calls the API .65 made refuse. Hotfix .66 RULED
+
+Kevin: runnerAvailability() now throws on the cloud lane, but
+PollingDelivery and supabaseRealtimeDelivery call deps.availability
+every poll – so job.result() throws at the first poll for any
+cloud-lane site. He guarded locally and proposed the package fix (deps
+wrapper treats the throw as "unknown, keep waiting").
+
+The law this earns: **when you make a function refuse, grep its
+callers first – a refusal aimed at outsiders that your own loop
+swallows is a crash wearing a principle.** We audited what branched on
+the untrusted flag and never audited runnerAvailability's internal
+callers. And the test that was missing is the consumer's ordinary
+loop: our proofs ran enqueue paths, never job.result() through a
+delivery on the cloud lane. A fixture that does exactly that ships
+with the fix.
+
+Fix shape – Kevin's intent, one notch cleaner: **delivery must not ask
+the question at all on the cloud lane.** Catching the refusal and
+calling it "unknown" is a swallowed error in costume, and a broad
+catch would eat real failures. The deps wrapper hands delivery no
+availability instrument on the cloud lane (or a typed
+"question-closed" answer); delivery skips the check when the
+instrument is absent. If CCC prefers the catch for wire-compat
+reasons, it catches ONLY the typed cloud-lane refusal, nothing wider.
+
+Release: **hotfix .66 now, same playbook as the RelayOptions hotfix**
+– this plus whatever is green, nothing pulled in; the stated .66
+manifest (Your Devices auth state, byollm_017, audience stub drop)
+slides to .67. `latest` moves with it after the fixture proves the
+loop. Kevin is two for two on finds our own walks could not make –
+worth saying to him.

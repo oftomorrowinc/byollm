@@ -6336,3 +6336,38 @@ instruction) – verified, not assumed, per the FIXED_ARGV precedent.
 The Enter-to-recheck loop stays as the fallback when spawning
 interactive is unreliable (Windows conhost, say). Same for codex and
 ollama:cloud.
+
+### 2026-09-02 – .67 published and green (CCB, overnight). Cuts made rightly; CI green first time since 08-29
+
+Shipped: setup finishes the job (two Y/n defaults-yes; install never
+offered before pairing succeeds – a background service for an unpaired
+device is a process with nothing to do and no way to say so); the auth
+gate with INVOCATIONS VERIFIED BY RUNNING THEM – `claude auth login`
+(claude login is not a command; guessing would have shipped a gate
+that always fails on the first-run path) and `codex login`, both
+direct subcommands, beating the spec's interactive-plus-/exit fallback
+outright; `byollm connect` exits; 017 Phase 1 proven against the
+registry (refusal shown, config byte-identical – the spec's headline
+test). /welcome verified: renders the lede only, already correct.
+
+Cut to .68, both rightly: the audience stub drop (stub.audience is the
+enforcement check keeping a private job off another owner's daemon on
+the direct lane – inert on cloud is the argument for removal AND the
+reason removal is a protocol change, not a 2am edit) and Your Devices
+auth state (spans daemon presence, hub store, dashboard – a partial
+landing would leave the page asserting what it can't support). The
+device page now names all THREE prompts including the auth gate's,
+pinned by test – an unnamed prompt met only when something is wrong
+reads as an error mid-walk. Dashboard batch (Developer Sites trio,
+post-consent flow) not started – rides today, after the walk.
+
+CCB's own mutation catches recorded: gate tests that passed with the
+gate removed (wrote:false true for a second reason), and two tests
+reaching the real runLogin – which spawns a browser sign-in and waits,
+which is why the suite had stopped exiting. byollm-cloud CI green for
+the first time since 2026-08-29; the PAT is the one blocked lane.
+
+Morning list (Todd): mint the PAT → `latest` .66 → .67, all six →
+the non-admin walk against what shipped (the walk notes which specced
+items are not yet walkable rather than counting them as failures) →
+tell Kevin: upgrade via latest, and setup now asks three things.

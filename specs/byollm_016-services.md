@@ -6725,3 +6725,37 @@ First outside contributor. Todd reads the diff BEFORE approving the
 workflow runs (action_required on a fork PR is a security gate, not a
 formality) – and the title suggests they found a real thing in
 exactly the territory this week's canary work lives in.
+
+### 2026-09-02 (night) – Re-pairing must update, never replace (ruled, Todd)
+
+Todd, on the live walk: re-running `byollm setup`/`byollm connect`
+asks for the full pairing ceremony every time – new code, new
+approval, a new device row on the dashboard, and the old row heads
+for the Revoked list. Pairing is replacing the device when it should
+be updating it.
+
+RULED:
+1. **The stored device credential IS the device.** On connect/setup,
+   present it FIRST. Hub recognizes it → reconnect and print
+   "Connected as <device-name> (paired <date>)" – no ceremony, no
+   new row. Only a missing, revoked, or refused credential enters
+   pairing. (Found is not works: present-and-probe, never assume –
+   but a credential that probes good is a session, not a ceremony.)
+2. **Same device, same row.** A re-pair of the same machine after a
+   credential loss may mint a new keypair, but a healthy re-run must
+   land on the existing dashboard row – never a revoked-row trail
+   from routine re-runs.
+3. Law minted: **a ceremony repeated becomes a habit, and a habit is
+   not a comparison.** The fingerprint check is load-bearing exactly
+   because it is rare. Asking on every run trains the person to
+   approve without looking; approval fatigue is a security
+   regression, not a UX blemish.
+4. Likely culprit is already boarded in Batch D: the config
+   migration that keeps only the services keys – the device
+   credential rides in config, so every migration-touching run
+   orphans it. PULLED FORWARD into the pairing-polish pass; CCB
+   confirms the actual cause either way.
+
+Acceptance: run `byollm setup` twice on a paired machine. The second
+run performs no ceremony, prints the connected-as line, and the
+dashboard shows one device row and nothing newly revoked.

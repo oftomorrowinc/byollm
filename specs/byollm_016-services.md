@@ -6582,3 +6582,43 @@ whose cost is a subscription – the ones whose credentials expire while
 the binary stays put), with a control against an empty enumeration; a
 third CLI next year is covered without anyone remembering the file.
 Mutation-verified by name.
+
+### 2026-09-02 (eve) – P0 IN PRODUCTION: deployed hub rejects .68 daemon reports on schema validation (lockstep)
+
+CCB halted the .69 cut, rightly. `pair` and every report since are
+rejected by the DEPLOYED hub for schema validation, from a .68 daemon
+installed off `latest`. This is the lockstep failure the audience-stub-
+drop entry warned about, arrived early and from a different seam:
+daemon and hub disagreeing about protocol shape IN PRODUCTION, so any
+customer who installed today has a daemon that cannot report. Kevin,
+Eric-to-be, Todd's own devices – all on latest, all affected.
+
+Priority: **this is the only thing that matters** – ahead of the
+canary, the cut, the walk's remaining stops, everything. It is worse
+than any Batch-A P0 because it is live and it silently breaks every
+new install. Diagnosis discipline (for CCB, before any fix):
+1. **Name the shape mismatch exactly** – which field, which direction,
+   which validator (hub-side zod? relay schema? protocol version
+   gate?). Capture the actual rejected payload and the actual
+   expectation, not a theory.
+2. **Which side moved** – did the hub deploy get ahead of the
+   published daemon, or a daemon change ship in a .6x that the live
+   hub predates? The digest in Pulumi.prod.yaml and the .68 daemon's
+   wire shape are the two facts; compare them, do not infer.
+3. **Fix on the side that is wrong, not the side that is easy** – if
+   the hub deploy is newer than what daemons run, the fix may be a hub
+   redeploy/rollback, not a daemon release; if a daemon shipped a
+   shape the live hub never learned, the hub needs the migration
+   first. **The lockstep law: a wire-shape change lands hub-first
+   (accept old AND new), then daemon; never daemon-first.**
+4. **Proof from outside** – a real `pair` + report against the
+   deployed hub goes green, same instrument the walk uses, before this
+   is called closed.
+5. **The missing guardrail is the finding** – nothing caught daemon
+   and hub diverging before customers did. A contract test that runs
+   the published daemon's wire shape against the deployed hub's
+   validator (or a shared schema both import and a check that they
+   match) is owed the moment the fire is out – this is the
+   satisfiability-unreachable lesson (a feature exists when its first
+   consumer runs it) one level up: a protocol exists when both sides
+   agree on it, and nothing asserted that.

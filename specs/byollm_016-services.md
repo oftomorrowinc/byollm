@@ -6230,3 +6230,7 @@ was itself the proof of success – the refusal-vs-redirect family; the
 verify step wants a retry window, queued. **.67 manifest:** Your
 Devices auth state · byollm_017 · audience stub drop. `latest` → .66
 is Todd's 2FA after his non-admin walk.
+
+Todd validated .66 on a real install (alpha install, byollm install,
+live calls), is moving `latest` → .66 and telling Kevin. CCC proceeds
+to the remaining queue.

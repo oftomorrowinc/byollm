@@ -127,8 +127,16 @@ class SupabaseRealtimeDelivery implements ResultDelivery {
       // running inside the awaited chain. A delivery adapter must not change
       // what a failure means.
       (async () => {
-        const availability = await this.#deps.availability(jobId);
-        if (availability.available || availability.blocked) {
+        // No instrument, no question — see `PollingDeliveryDeps`. On the
+        // cloud lane `runnerAvailability` refuses rather than reporting a
+        // zero it cannot see, and this timer used to reject the caller's
+        // `result()` with that refusal every two seconds.
+        const availability = await this.#deps.availability?.(jobId);
+        if (
+          availability === undefined ||
+          availability.available ||
+          availability.blocked
+        ) {
           noRunnerSince = null;
           return;
         }

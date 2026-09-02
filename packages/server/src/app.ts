@@ -179,37 +179,72 @@ export class ByollmApp {
             now: this.#now,
           });
 
+    /**
+     * The delivery's dependencies — and on the cloud lane, one fewer.
+     *
+     * `runnerAvailability` refuses on the cloud lane, deliberately: it counts
+     * runners in this site's own store, devices there pair with the relay
+     * instead, and it spent a release reporting `no-runner-paired` with
+     * confidence for every cloud-lane app that asked.
+     *
+     * The refusal shipped and this wrapper kept calling it. Delivery asks
+     * every 500ms, so `job.result()` threw on its first poll for every
+     * cloud-lane site — found by Kevin, on the ordinary consumer loop that
+     * none of our own proofs ran.
+     *
+     * **The law it earned: when you make a function refuse, grep its callers
+     * first.** We audited what branched on the untrusted flag and never
+     * audited this method's internal callers. A refusal aimed at outsiders
+     * that your own loop trips over is a crash wearing a principle.
+     *
+     * So the question is not asked. Delivery gets no availability instrument
+     * on a lane where nothing can answer, rather than an instrument that
+     * throws and a `catch` upstream pretending that means "keep waiting".
+     */
     const deps: PollingDeliveryDeps = {
       ...(options.noRunnerGraceMs === undefined
         ? {}
         : { graceMs: options.noRunnerGraceMs }),
       read: (jobId) => this.result(jobId),
-      availability: async (jobId) => {
-        const job = await this.#store.get(jobId);
-        if (!job)
-          return { available: false, reason: "unknown-job", blocked: false };
-        // A job waiting on a dependency is waiting, not unavailable.
-        if (job.claimableAt === null) {
-          return { available: true, blocked: true };
-        }
-        const availability = await this.runnerAvailability({
-          kind: job.kind,
-          owner: job.owner,
-          audience: job.audience,
-          ...(job.audienceAllow === undefined
-            ? {}
-            : { audienceAllow: job.audienceAllow }),
-        });
-        return {
-          available: availability.available,
-          ...(availability.reason === undefined
-            ? {}
-            : { reason: availability.reason }),
-          blocked: false,
-        };
-      },
+      ...(this.cloud !== undefined
+        ? {}
+        : { availability: this.#availabilityFor() }),
     };
     this.#delivery = options.delivery?.(deps) ?? new PollingDelivery(deps);
+  }
+
+  /**
+   * The no-runner instrument, for a lane that can actually see runners.
+   *
+   * A method rather than an inline closure so the branch above reads as one
+   * decision — whether this deployment has the instrument at all — instead of
+   * a conditional wrapped around thirty lines of body.
+   */
+  #availabilityFor() {
+    return async (jobId: string) => {
+      const job = await this.#store.get(jobId);
+      if (!job)
+        return { available: false, reason: "unknown-job", blocked: false };
+      // A job waiting on a dependency is waiting, not unavailable.
+      if (job.claimableAt === null) {
+        return { available: true, blocked: true };
+      }
+      const availability = await this.runnerAvailability({
+        kind: job.kind,
+        owner: job.owner,
+        audience: job.audience,
+        ...(job.audienceAllow === undefined
+          ? {}
+          : { audienceAllow: job.audienceAllow }),
+      });
+      return {
+        available: availability.available,
+        ...(availability.reason === undefined
+          ? {}
+          : { reason: availability.reason }),
+        blocked: false,
+      };
+    };
   }
 
   /**

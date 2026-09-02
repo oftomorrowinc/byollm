@@ -12,6 +12,7 @@ import { beforeAll, describe, expect, it } from "vitest";
 import { ByollmApp } from "./app.js";
 import { generateSiteKeys } from "./keys.js";
 import { MemoryStore } from "./memory.js";
+import { PollingDelivery, type PollingDeliveryDeps } from "./delivery.js";
 
 /**
  * The cloud lane's refusals.
@@ -100,31 +101,39 @@ describe("publishing a stub", () => {
   });
 });
 
+/**
+ * A device, and results genuinely sealed by it.
+ *
+ * At module scope since alpha.66: it was inside one describe, and the
+ * delivery fixture that belongs beside the availability tests could not
+ * reach it. A helper's scope deciding where a test may live is how a gap
+ * gets left in the easy place rather than the right one.
+ */
+const deviceKeys = generateKeys(1_800_000_000_000);
+const device: PublicIdentity = publicIdentityOf(deviceKeys);
+
+/** A result genuinely sealed by `deviceKeys`, for whatever job we name. */
+async function sealedResult(input: {
+  jobId: string;
+  siteIdentity: PublicIdentity;
+  siteEncryption: string;
+  outcome: unknown;
+}): Promise<SealedEnvelope> {
+  return seal({
+    plaintext: JSON.stringify(input.outcome),
+    senderKeys: deviceKeys,
+    recipientEncryptionPublic: input.siteEncryption,
+    context: {
+      jobId: input.jobId,
+      senderKeyId: keyId(device.identity),
+      recipientKeyId: keyId(input.siteIdentity.identity),
+      deadlineAt: Date.now() + ENVELOPE_MAX_AGE_MS,
+      direction: "result",
+    },
+  });
+}
+
 describe("what the site refuses to believe", () => {
-  const deviceKeys = generateKeys(1_800_000_000_000);
-  const device: PublicIdentity = publicIdentityOf(deviceKeys);
-
-  /** A result genuinely sealed by `deviceKeys`, for whatever job we name. */
-  async function sealedResult(input: {
-    jobId: string;
-    siteIdentity: PublicIdentity;
-    siteEncryption: string;
-    outcome: unknown;
-  }): Promise<SealedEnvelope> {
-    return seal({
-      plaintext: JSON.stringify(input.outcome),
-      senderKeys: deviceKeys,
-      recipientEncryptionPublic: input.siteEncryption,
-      context: {
-        jobId: input.jobId,
-        senderKeyId: keyId(device.identity),
-        recipientKeyId: keyId(input.siteIdentity.identity),
-        deadlineAt: Date.now() + ENVELOPE_MAX_AGE_MS,
-        direction: "result",
-      },
-    });
-  }
-
   it("refuses a disposition the sealed outcome contradicts", async () => {
     // The relay acted on the clear-text hint, which is its job. The site is
     // the only party that can check it, which is why this check lives here
@@ -437,5 +446,146 @@ describe("audience on the cloud lane", () => {
     await expect(
       app.runnerAvailability({ owner: "someone", kind: "llm.generate" }),
     ).rejects.toThrow(/cannot answer on the cloud lane/);
+  });
+
+  /**
+   * And nothing on this lane asks it — alpha.66, found by Kevin.
+   *
+   * The refusal above shipped in alpha.65 and was correct. What shipped with
+   * it was a delivery loop that called the refusing method every 500ms, so
+   * `job.result()` threw on its first poll for every cloud-lane site. The
+   * whole product, from the consumer's side, on the one call they make after
+   * `enqueue`.
+   *
+   * ## Why no proof caught it
+   *
+   * Every cloud test above drives an enqueue path — the stub, the metadata,
+   * the payload, the derived audience — and then inspects the *store*. None
+   * of them awaited a result. The ordinary consumer loop is `enqueue` then
+   * `result`, and the second half had no coverage on this lane at all, which
+   * is why a refusal added to a method nobody thought of as being on the hot
+   * path could sit through a release.
+   *
+   * So this test is the shape of the gap rather than of the bug: it runs the
+   * consumer's own two calls, in order, against the cloud lane.
+   */
+  it("delivers a result without asking a question nobody can answer", async () => {
+    // Filled after the enqueue, because the relay's answer has to name the
+    // job that actually exists — the handler reads this array per request.
+    const results: unknown[] = [];
+    const relay = fakeRelay({ results });
+    const { app, siteKeys } = appWith(relay.fetchImpl);
+
+    const job = await app.enqueue({
+      kind: "llm.generate",
+      owner: "someone",
+      payload: { prompt: "does result() work at all" },
+    });
+
+    results.push({
+      jobId: job.id,
+      envelope: await sealedResult({
+        jobId: job.id,
+        siteIdentity: publicIdentityOf(siteKeys),
+        siteEncryption: siteKeys.encryptionPublic,
+        // A real `SealedOutcome`: the outcome and the run metadata, both
+        // strict. A shape the site cannot parse arrives as a refusal, not as
+        // a result, which would have made this fixture pass for the wrong
+        // reason — it would still never have reached the availability call.
+        outcome: {
+          outcome: { outcome: "ok", text: "it ran" },
+          ran: { model: "qwen-14-4b", backendClass: "process", durationMs: 12 },
+        },
+      }),
+      disposition: "ok",
+      runnerId: "runner_1",
+      device,
+    });
+
+    /**
+     * `job.result()`, which is the delivery — not `app.result()`, which is a
+     * store read and never touches it.
+     *
+     * That distinction is the whole reason this gap existed. Every cloud test
+     * that looks like it checks a result reads the store, so the delivery
+     * loop had no cloud coverage while appearing to have some.
+     *
+     * The assertion is that it resolves. Before the fix it rejected on the
+     * first poll with "runnerAvailability cannot answer on the cloud lane" —
+     * a sentence written for a site developer calling it directly, arriving
+     * instead from inside our own wait.
+     */
+    /**
+     * The wait starts *before* the result exists, which is the whole point.
+     *
+     * The first version of this test pumped first and then awaited. It
+     * passed, and it passed with the fix removed: the job was already
+     * terminal, so the loop returned on its first `read` and never reached
+     * the availability call at all. A reproduction that never executes the
+     * line it is about.
+     *
+     * Waiting on a job that is still queued is what a consumer actually does
+     * — `enqueue`, then `result`, while a device is still working — and it is
+     * the only arrangement in which that first poll happens.
+     */
+    const waiting = job.result({ timeoutMs: 3_000 });
+    // Narrowed rather than asserted: `cloud` is optional on the type because
+    // the direct lane has none, and a `!` here would be this test agreeing to
+    // stop checking the one property that decides which lane it is on.
+    if (!app.cloud) throw new Error("this app is not on the cloud lane");
+    await app.cloud.pump();
+    const result = await waiting;
+    expect(result.state).toBe("ok");
+  });
+
+  /**
+   * The instrument is absent, not broken.
+   *
+   * Checked at the seam rather than by watching the loop, because "it did not
+   * throw" is also what a swallowed error looks like — and swallowing was the
+   * fix we did not take. The question is whether delivery was handed
+   * something that would throw, and the answer has to be that it was handed
+   * nothing.
+   */
+  it("hands delivery no availability instrument on this lane", () => {
+    const relay = fakeRelay({});
+    let handed: PollingDeliveryDeps | undefined;
+    const siteKeys = generateSiteKeys();
+    const app = new ByollmApp({
+      store: new MemoryStore(),
+      siteKeys,
+      lane: {
+        relayOrigin: "http://relay.test",
+        siteId: "site_1",
+        fetch: relay.fetchImpl,
+      },
+      delivery: (deps) => {
+        handed = deps;
+        return new PollingDelivery(deps);
+      },
+    });
+    expect(app.cloud).toBeDefined();
+    expect(handed?.availability).toBeUndefined();
+  });
+
+  /**
+   * And the direct lane keeps it, which is what stops the fix from being
+   * "delete the no-runner signal".
+   *
+   * `NO_RUNNER_SIGNAL` is a MUST. A version of this change that removed the
+   * instrument everywhere would pass every test above and quietly end the
+   * behaviour the conformance suite exists to check.
+   */
+  it("keeps the instrument on the direct lane", () => {
+    let handed: PollingDeliveryDeps | undefined;
+    new ByollmApp({
+      store: new MemoryStore(),
+      siteKeys: generateSiteKeys(),
+      delivery: (deps) => {
+        handed = deps;
+        return new PollingDelivery(deps);
+      },
+    });
+    expect(handed?.availability).toBeDefined();
   });
 });

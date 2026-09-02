@@ -71,8 +71,26 @@ export interface ResultDelivery {
 export interface PollingDeliveryDeps {
   /** Current state of the job, or null if unknown. */
   readonly read: (jobId: string) => Promise<DeliveredResult | null>;
-  /** Whether a runner could still take this job. */
-  readonly availability: (
+  /**
+   * Whether a runner could still take this job — **when there is anybody to
+   * ask.**
+   *
+   * Optional since alpha.66, and its absence is the answer rather than a
+   * missing dependency. On the cloud lane nothing writes runners into this
+   * site's store: devices pair with the relay, so the question has no local
+   * answer and `runnerAvailability` refuses to invent one.
+   *
+   * The refusal was correct and it landed in a loop that asked every 500ms.
+   * `job.result()` threw on its first poll for every cloud-lane site — a
+   * refusal aimed at outsiders that our own delivery tripped over.
+   *
+   * Not fixed by catching the throw here. That is a swallowed error in
+   * costume, and a catch wide enough to hold it would also eat a store that
+   * had genuinely gone away. The instrument is simply not handed over on a
+   * lane where it cannot see, and this loop does not ask a question nobody
+   * can answer.
+   */
+  readonly availability?: (
     jobId: string,
   ) => Promise<{ available: boolean; reason?: string; blocked: boolean }>;
   readonly sleep?: (ms: number) => Promise<void>;
@@ -132,8 +150,22 @@ export class PollingDelivery implements ResultDelivery {
       const current = await this.#deps.read(jobId);
       if (current && isTerminalState(current.state)) return current;
 
-      const availability = await this.#deps.availability(jobId);
-      if (availability.available || availability.blocked) {
+      /**
+       * The no-runner signal, when this deployment has one.
+       *
+       * With no instrument there is no sustained-absence signal and no
+       * `NoRunnerAvailableError` — the wait ends when the job reaches a
+       * terminal state or the timeout does. That is the honest behaviour on
+       * the cloud lane, where an unsatisfiable slot is refused at enqueue and
+       * a job with nowhere to run expires, both of which arrive through
+       * `read` as states rather than as guesses made here.
+       */
+      const availability = await this.#deps.availability?.(jobId);
+      if (
+        availability === undefined ||
+        availability.available ||
+        availability.blocked
+      ) {
         // `blocked` means the job is waiting on a dependency, which is not the
         // same event as "nobody can run this" ({@link MUSTS.NO_RUNNER_SIGNAL}).
         noRunnerSince = null;

@@ -6291,3 +6291,31 @@ open; values not counts; re-consent badge + save-time warning) →
 post-consent one-page setup flow (mapping only when mappable) →
 verify /welcome renders the ABOUT lede only → (a) or (b) above.
 Freeze-at-close and per-member bandwidth stay queued – walk-invisible.
+
+### 2026-09-02 – Setup gates on auth (Todd, ruled into tonight); FULL .67 approved for overnight
+
+Todd: after a yes to any subscription CLI, setup probes it (the .64
+canary – already there); if it cannot answer, setup must STOP the
+person, not annotate them – his laptop and Rob's machine both sat in
+"we thought it wasn't working" because logged-out only looked like a
+note. Ruled, one notch gentler than exit-and-rerun since setup is
+already idempotent:
+- On a failed probe, setup prints the remedy in Todd's shape –
+  "Claude is not logged in. Run `claude` in another terminal and log
+  in, then press Enter here to re-check (Ctrl-C to finish later and
+  re-run `byollm setup`)." – and WAITS. Enter re-probes; success
+  continues the ceremony. Declining exits nonzero with the same
+  remedy as the last line. Same for codex and ollama:cloud on a yes.
+- The stretch goal (auto-continue on login) is the Enter-loop's
+  cheaper cousin and is covered by it; a filesystem/keychain watcher
+  is NOT built.
+- The ruled .64 behaviour stands underneath: config is still written,
+  nothing routes until it answers – the gate changes what the PERSON
+  meets, not what the config records.
+**Full .67 approved for tonight** (Todd: nobody upgrades before
+morning; Kevin moves to `latest` going forward): Your Devices auth
+state (its two conditions), 017 Phase 1, audience stub drop,
+setup-finishes-the-job, this gate. Hotfix discipline still applies
+inside the night: whatever is not green by morning is cut, not
+waited for – the walk meets what shipped, and the device-page NOTE
+matches it either way.

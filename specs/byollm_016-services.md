@@ -6564,3 +6564,21 @@ undefined, never false – not-asked-is-not-no cuts both ways: a backend
 that CAN be asked must actually be asked). Then cut .69 so Kevin can
 re-run `byollm install` onto a real registration. byollm_019's draft
 follows – it is Batch C's spec work and C follows B.
+
+### 2026-09-02 (eve) – Codex canary green; the device-page sentence removal sequenced AFTER latest moves
+
+CCB's trace ratified: of the device page's prerequisite note, Node and
+have-a-model survive (setup finds, never installs); "run claude/codex
+first to confirm signed in" becomes the daemon's job – but that
+sentence is REDUNDANT for Claude and LOAD-BEARING for Codex until .69
+is `latest`, because the card says `npm i -g byollm@latest` and until
+the tag moves, followers get a daemon without the codex gate. Ruled
+sequence: coverage the canary's failure path (84.87% vs the 85% bar –
+cover it, never lower it, correct) → cut .69 → Todd moves latest →
+THEN the line comes off the page. Copy that outruns the installable
+daemon is the device-page NOTE bug again, avoided in advance this
+time. The canary itself: property-keyed on the REGISTRY (backends
+whose cost is a subscription – the ones whose credentials expire while
+the binary stays put), with a control against an empty enumeration; a
+third CLI next year is covered without anyone remembering the file.
+Mutation-verified by name.

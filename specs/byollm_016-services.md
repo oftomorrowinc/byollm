@@ -6537,3 +6537,30 @@ Sequencing: floor rides the next daemon release that touches connect
 (.69 candidate); updater ships WITH byollm_018 (hosted-on by design)
 and reaches personal devices the release after, behind the setup
 question. Spec-fit by CCB; this entry is the ruling.
+
+### 2026-09-02 (eve) – Batch B supervision trio done; corrections accepted; codex canary next
+
+CCB: the Windows task XML declared UTF-16 while writeFile wrote utf8
+for every platform – schtasks refused it on EVERY machine, so
+restart-on-failure has never once shipped to a Windows user, uninstall
+removed the never-registered XML and left the Startup entry ("a
+machine doing work its owner told it to stop, and being told it had
+stopped"), and status truthfully asked a supervisor that knew nothing.
+All three fixed; the tests assert the BYTES on disk (BOM, UTF-16LE
+NULs) because declaration-vs-write disagreeing is what broke – a
+declaration-only test would have passed throughout. Fourth vacuous
+first fixture of the week (uninstall test wrote into a nonexistent
+dir, caught by mutation). CCB's correction to the review ACCEPTED for
+the record: the fallback did print schtasks' own words; the framing
+invited the permissions reading, and the substantive harm was the
+unsupervised install – reviews get corrected by evidence like
+everything else. Also: model-server auto-start (three tiers) filed to
+the icebox top by Todd; detection-first stands.
+
+RULED on next: **codex canary first** – it completes Batch B and it is
+a hole in the auth gate itself (a signed-out Codex passes setup,
+connect and the model verb while every job fails; `answers` is
+undefined, never false – not-asked-is-not-no cuts both ways: a backend
+that CAN be asked must actually be asked). Then cut .69 so Kevin can
+re-run `byollm install` onto a real registration. byollm_019's draft
+follows – it is Batch C's spec work and C follows B.

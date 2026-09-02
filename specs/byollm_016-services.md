@@ -6407,3 +6407,38 @@ Audit:
   there a developer-facing usage surface? If not, it precedes Eric's
   onboarding as a small dashboard item, because he asked for exactly
   this.
+
+### 2026-09-02 – Ruled: the daemon watches its services; the owner is TOLD when one goes dark. And byollm_020 (dev mode) named
+
+**Service-loss notification (builds on .68's presence-carries-state).**
+The periodic probe already detects a service that stops answering
+(signed-out, gone, later quota-blocked via 019). Missing: telling the
+person. Ruled:
+- The hub, on a service transitioning answers → cannot-answer while
+  ANY live mapping points at it, notifies the OWNER: email (the
+  first-delivery-notice pattern exists), naming service, device,
+  reason and the fix ("claude on tood-mbp needs sign-in – run
+  `claude` in a terminal"). Transition-triggered with a debounce –
+  a flapping service sends one note, not forty; at most one
+  reminder/day while dark. Recovery sends nothing (the button's ⚠
+  clearing is enough).
+- Owner only, full reason. Sites see the class through existing
+  channels; the embed ⚠ (website-sync, this date) is the in-context
+  surface for the person.
+- Hosted Devices make the fix one click (console link in the email).
+Sequencing: needs .68's wire piece first; the notification is a hub
+feature after it. Rides with or after .68, before the open door.
+
+**byollm_020 candidate – dev mode ("your LLM wiring in minutes").**
+Todd's use case: connect BYOLLM in a local app during development and
+all model wiring – including trying different models – is done in
+minutes; push to the web and it keeps working. The bones exist: direct
+mode IS localhost-against-your-own-daemon (the product's origin
+story), and the cloud lane is the deploy shape. What's missing is the
+frictionless path: no site registration for localhost, no keys
+ceremony, one `dev: true` (or CLI: `npx @byollm/server dev`) that
+wires the local daemon with dev-scoped identity, jobs claimable ONLY
+by the developer's own devices, and API parity so the same code runs
+on both lanes – the switch is config, not code. Spec to write when
+called; positioning entry rides now (it is pitch #1's little sibling:
+"zero LLM wiring before you've picked a vendor").

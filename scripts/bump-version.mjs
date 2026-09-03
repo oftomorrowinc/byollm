@@ -43,25 +43,42 @@ const targets = [
   "packages/daemon/src/index.ts",
 ].filter((p) => existsSync(p));
 
+/** Replace the one live version declaration in a release target. */
+function replaceLiveVersion(path, text) {
+  return text
+    .split("\n")
+    .map((line) => {
+      const isManifestVersion =
+        path.endsWith("package.json") && /^\s*"version"\s*:/.test(line);
+      const isReadmeBanner =
+        path.endsWith("README.md") && /^\s*>\s*\*\*Alpha \(`/i.test(line);
+      const isSiteBanner =
+        path === "site/index.html" && /<b>Alpha \(/i.test(line);
+      const isDaemonVersion =
+        path.endsWith("packages/daemon/src/index.ts") &&
+        /^\s*export const DAEMON_VERSION\s*=/.test(line);
+
+      return isManifestVersion ||
+        isReadmeBanner ||
+        isSiteBanner ||
+        isDaemonVersion
+        ? line.split(current).join(next)
+        : line;
+    })
+    .join("\n");
+}
+
 let touched = 0;
 for (const path of targets) {
   const before = readFileSync(path, "utf8");
-  // Literal, not a regex over "any version": `docs/releasing.md` narrates past
-  // releases by number and must not be rewritten, which is why history files
-  // are not in `targets` at all.
+  // Only the declaration/banner in each target is live version state. README
+  // bodies are history too: marked release-note bodies span several lines,
+  // and package-specific breaking notes may be unmarked. Replacing every
+  // occurrence rewrites both kinds whenever their release equals `current`.
   //
-  // And release notes are left alone — cloud_008 §36. A note about alpha.19
-  // must still say alpha.19 after this runs, or the READMEs stop being a
-  // record and every "is this version mentioned?" check becomes ambiguous
-  // between the banner and the history. `release-note.mjs` marks them.
-  const after = before
-    .split("\n")
-    .map((line) =>
-      line.includes("<!-- release-note ")
-        ? line
-        : line.split(current).join(next),
-    )
-    .join("\n");
+  // Keep the path-aware rewrite in a pure helper so the history case stays
+  // executable in CI rather than depending on another real release to recur.
+  const after = replaceLiveVersion(path, before);
   if (after !== before) {
     writeFileSync(path, after);
     console.log(`  ${path}`);

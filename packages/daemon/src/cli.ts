@@ -12,6 +12,7 @@ import { fingerprint } from "@byollm/protocol";
 import { normalizeOrigin, UnusableOrigin } from "./origins.js";
 import { Budgets } from "./budgets.js";
 import { ClientError, ProtocolClient } from "./client.js";
+import { TEST_YOUR_DEVICE } from "./test-your-device.js";
 import { diagnoseRoute } from "./diagnose.js";
 import { DaemonConfig, loadConfig } from "./config.js";
 import { connect } from "./connect.js";
@@ -243,6 +244,15 @@ async function commandInstall(
     service.run,
   );
   for (const line of result.lines) (result.ok ? io.out : io.err)(`${line}\n`);
+  /**
+   * The same moment, reached the other way.
+   *
+   * `byollm setup` ends here for most people, but somebody who paired earlier
+   * and ran `byollm install` on its own has arrived at exactly the point where
+   * the device is running and the promise becomes true — and had nothing
+   * telling them so. One sentence, one definition, both callers.
+   */
+  if (result.ok) io.out(`\n${TEST_YOUR_DEVICE}\n`);
   return result.ok ? 0 : 1;
 }
 

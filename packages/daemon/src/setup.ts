@@ -6,6 +6,7 @@ import { createBackend } from "./backends/index.js";
 import { probeLocalServers, type LocalServer } from "./probe-local.js";
 import { loginCommandFor, runLogin, type LoginCommand } from "./login.js";
 import { DaemonConfig } from "./config.js";
+import { TEST_YOUR_DEVICE } from "./test-your-device.js";
 import type { DaemonPaths } from "./paths.js";
 
 /**
@@ -632,7 +633,7 @@ export async function runSetup(
 
   io.out(
     `\n  Done. This device is set up, paired, and running in the background.\n` +
-      `  Try it: open https://test.byollm.cloud and press the BYOLLM button.\n`,
+      `\n  ${TEST_YOUR_DEVICE}\n`,
   );
   return { wrote: true, services: enabled, connected: true, running: true };
 }

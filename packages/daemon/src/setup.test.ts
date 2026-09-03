@@ -3,6 +3,7 @@ import { PassThrough } from "node:stream";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { TEST_YOUR_DEVICE } from "./test-your-device.js";
 import {
   detectInstalled,
   runSetup,
@@ -815,5 +816,64 @@ describe("setting up over a config that has no services", () => {
     // The control: the wizard's own key is still written, so this is not
     // passing because nothing happened at all.
     expect(Object.keys(written.services).length).toBeGreaterThan(0);
+  });
+});
+
+/**
+ * The device is told to test itself at the moment that becomes true —
+ * ruled 2026-09-02.
+ *
+ * The dashboard's approved banner promised the device would start taking work
+ * within a few seconds. At the moment it rendered, `setup` had not yet asked
+ * "Run in background?" — install must never precede pairing — so the daemon
+ * might not be installed at all, and a test link there would have sent
+ * somebody to test a machine that was not running.
+ *
+ * A promise belongs to the party that can keep it. This process is the only
+ * one that watches the install succeed.
+ */
+describe("telling somebody to go and test it", () => {
+  it("says so once the service is actually running", async () => {
+    const p = await paths();
+    const io = scripted(["my laptop", "y", "y", "y"]);
+    const result = await runSetup(
+      p,
+      io,
+      machineWith(["claude-cli"]),
+      noServers,
+      answersFine,
+      // `login` sits before `run` in the signature — passed explicitly rather
+      // than skipped, because the first version of this test handed the run
+      // stub to the login slot and the install silently used its default.
+      () => Promise.resolve(true),
+      // Pairing and install both succeed, which is the one path where the
+      // sentence is true.
+      () => Promise.resolve(0),
+    );
+
+    expect(result.running).toBe(true);
+    expect(io.transcript()).toContain(TEST_YOUR_DEVICE);
+  });
+
+  it("stays quiet when the service did not start", async () => {
+    /* The control, and the whole point of the ruling. A pointer printed on
+       the failure path is the banner's bug moved into the terminal: it would
+       send somebody to test a device that is not running. */
+    const p = await paths();
+    const io = scripted(["my laptop", "y", "y", "y"]);
+    const result = await runSetup(
+      p,
+      io,
+      machineWith(["claude-cli"]),
+      noServers,
+      answersFine,
+      () => Promise.resolve(true),
+      // Pairing works; the background install does not.
+      (argv: readonly string[]) =>
+        Promise.resolve(argv[0] === "install" ? 1 : 0),
+    );
+
+    expect(result.running).toBe(false);
+    expect(io.transcript()).not.toContain(TEST_YOUR_DEVICE);
   });
 });

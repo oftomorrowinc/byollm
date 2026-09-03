@@ -1,6 +1,7 @@
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { TEST_YOUR_DEVICE } from "./test-your-device.js";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   refuseToSupervise,
@@ -336,9 +337,14 @@ describe("the CLI's own service commands", () => {
     const { runCli } = await import("./cli.js");
     const { daemonPaths } = await import("./paths.js");
     let err = "";
+    // `out` as well as `err`: the first version of the assertion below watched
+    // only stderr, and a mutant that printed the pointer unconditionally went
+    // to stdout and passed. A check pointed at one stream says nothing about
+    // the other.
+    let out = "";
     const code = await runCli(["install"], {
       paths: daemonPaths(join(home, ".byollm")),
-      io: { err: (text) => (err += text) },
+      io: { err: (text) => (err += text), out: (text) => (out += text) },
       service: {
         platform: "linux",
         execPath: "/usr/bin/node",
@@ -351,6 +357,17 @@ describe("the CLI's own service commands", () => {
 
     expect(code).toBe(1);
     expect(err).toContain("npm install -g byollm@alpha");
+    /**
+     * And it does not tell them to go and test a device that is not running —
+     * ruled 2026-09-02.
+     *
+     * This is the whole shape of the ruling in one assertion. The dashboard's
+     * approved banner promised the device would start taking work, at a moment
+     * when it might not be installed at all; the fix was to let the party that
+     * watches the install succeed be the one that speaks. A pointer printed
+     * here, on the refusal path, would move that same bug into the terminal.
+     */
+    expect(`${out}${err}`).not.toContain(TEST_YOUR_DEVICE);
   });
 
   it("installs and uninstalls through the CLI", async () => {
@@ -378,6 +395,10 @@ describe("the CLI's own service commands", () => {
       }),
     ).toBe(0);
     expect(out).toContain("systemd");
+    // Somebody who paired earlier and ran `byollm install` on its own has
+    // reached the same moment as the end of `byollm setup`, and had nothing
+    // telling them so.
+    expect(out).toContain(TEST_YOUR_DEVICE);
     expect(
       await readFile(
         servicePlan({ ...service, root: paths.root }).unitPath,

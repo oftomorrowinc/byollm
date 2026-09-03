@@ -26,6 +26,32 @@ export interface DaemonHealth {
   readonly lastError?: string;
   /** The origin it was talking to. */
   readonly origin?: string;
+  /**
+   * This device was revoked, and when — ruled 2026-09-03.
+   *
+   * `marks-never-destroys` exists so the surfaces can read the mark, and it
+   * had nowhere to live: the daemon stopped serving in memory and every
+   * process a person actually runs — `status`, `install`, the next `run` — is
+   * a different process that could not see it. Todd revoked a machine, and
+   * three surfaces told him three things, none of them "revoked".
+   *
+   * **A mark nobody renders is a destroy with extra steps.**
+   *
+   * Here rather than beside the pairing, because it is a fact about this
+   * device's conversation with an upstream, which is exactly what this file
+   * is. It survives a pairings file that is empty for any reason, which
+   * matters: the exit path has to tell empty-because-revoked from
+   * empty-because-never-paired, and those are different sentences with
+   * different remedies.
+   *
+   * Cleared by a successful pairing, because re-pairing is the remedy. A mark
+   * that outlived its own fix would be a device told it is revoked while it
+   * serves work.
+   */
+  readonly revoked?: {
+    readonly at: number;
+    readonly origin: string;
+  };
 }
 
 /**

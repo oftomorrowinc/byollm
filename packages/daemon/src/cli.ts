@@ -12,6 +12,12 @@ import { fingerprint } from "@byollm/protocol";
 import { normalizeOrigin, UnusableOrigin } from "./origins.js";
 import { Budgets } from "./budgets.js";
 import { ClientError, ProtocolClient } from "./client.js";
+import {
+  REVOKED_SENTENCE,
+  clearRevokedMark,
+  revokedMark,
+  revokedRemedy,
+} from "./revoked.js";
 import { TEST_YOUR_DEVICE } from "./test-your-device.js";
 import { diagnoseRoute } from "./diagnose.js";
 import { DaemonConfig, loadConfig } from "./config.js";
@@ -30,10 +36,12 @@ import {
   spawnCommand,
   uninstallService,
   type CommandRunner,
+  type ServiceState,
 } from "./install.js";
 import {
   serviceIsInstalled,
   servicePlan,
+  type ServicePlan,
   type ServicePlatform,
   type ServiceTarget,
 } from "./service.js";
@@ -279,7 +287,8 @@ async function commandInstall(
   const result = await installService(
     serviceTarget(paths, service),
     service.run,
-    ...(service.wait === undefined ? [] : ([service.wait] as const)),
+    service.wait ?? ((ms) => new Promise((r) => setTimeout(r, ms))),
+    (await revokedMark(paths.health)) !== undefined,
   );
   for (const line of result.lines) (result.ok ? io.out : io.err)(`${line}\n`);
   /**
@@ -316,11 +325,10 @@ async function commandUninstall(
  * one that looks fine from the dashboard and serves nothing.
  */
 async function supervisionLine(
-  paths: DaemonPaths,
-  service: ServiceIo,
+  plan: ServicePlan,
+  state: ServiceState,
+  revoked: boolean,
 ): Promise<string> {
-  const plan = servicePlan(serviceTarget(paths, service));
-  const state = await serviceState(plan, service.run);
   switch (state.state) {
     case "running":
       return `service: running under ${plan.supervisor}\n`;
@@ -339,6 +347,19 @@ async function supervisionLine(
        * is invisible from every surface here, and it is one `stat` away from
        * being the first thing this line says.
        */
+      /**
+       * A revoked device is not a broken install — ruled 2026-09-03.
+       *
+       * "on rosters and serving nothing. See <log>" is the right sentence for
+       * a daemon that will not start, and the wrong one for a daemon that has
+       * been told to stop: it sends somebody to read a log that says exactly
+       * what the line above already said, and it implies something on this
+       * machine needs fixing. Nothing here does. The headline has named the
+       * cause and the remedy, so this line stops competing with it.
+       */
+      if (revoked) {
+        return `service: installed, not serving — ${REVOKED_SENTENCE}.\n`;
+      }
       const program = await installedProgram(plan);
       const gone =
         program === null || program.exists
@@ -843,6 +864,20 @@ async function commandConnect(
   reportSkipped(pairings, io);
   await pairings.put(result.pairing);
 
+  /**
+   * The mark is cleared by the thing that fixes it.
+   *
+   * A revoked device that re-pairs is not revoked, and a mark that outlived
+   * its own remedy would be a machine told it cannot serve while it serves —
+   * the same class of lie as a status line that outlives the consent it
+   * reports.
+   *
+   * Written through the health file's own writer so the rest of the record
+   * survives: this clears one field, it does not reset what the daemon knows
+   * about its upstream.
+   */
+  await clearRevokedMark(paths.health);
+
   io.out(` paired as ${result.pairing.ownerLabel ?? result.pairing.owner}\n`);
   // The keys this machine just pinned, printed where somebody can still
   // compare them. The approval happened in a browser, so this is the first
@@ -940,8 +975,11 @@ async function commandRun(
       : [normalizeOrigin(target)];
 
   if (origins.length === 0) {
-    io.err("No apps are paired yet. Run `byollm connect <url>` first.\n");
-    return 2;
+    // The branch Todd's service log repeated all evening, for a machine that
+    // was paired and had been revoked. It is the *first* of two that can find
+    // nothing to serve, and it was the one being reached — which is why the
+    // decision lives in one function now rather than beside each `return`.
+    return nothingToServe(paths, io, signal);
   }
   return runLoop(paths, origins, io, signal);
 }
@@ -1035,11 +1073,92 @@ async function retireAllowlist(paths: DaemonPaths, io: CliIo): Promise<void> {
   await rm(paths.allowlist, { force: true });
 }
 
+/**
+ * There is nothing to serve, and why that is decides everything after it.
+ *
+ * Two call sites reach this — no pairings at all, and pairings that all
+ * skipped — and before tonight each wrote its own sentence. One of them said
+ * "No apps are paired yet" to a machine that was paired and revoked. Todd read
+ * it on repeat in his service log while launchd restarted the daemon behind
+ * it.
+ *
+ * ## Three decisions, and they are separable
+ *
+ * **What is true.** Empty-because-revoked and empty-because-never-paired are
+ * different facts. Both remedies happen to be `connect`, which is exactly why
+ * the wrong sentence survived so long: it sent people somewhere useful by
+ * luck, and read as "your setup never finished" to somebody whose setup
+ * finished weeks ago.
+ *
+ * **What to say.** The ruled sentence for the first, the connect instructions
+ * for the second.
+ *
+ * **Whether to exit.** Exiting invites a supervisor to start us again, and
+ * launchd obliges every ten seconds: boot, refused, exit, boot — each turn a
+ * request the hub answers only to say no again. Revocation is not transient
+ * and no backoff makes hammering it correct, so under a supervisor the
+ * process stays up, marked, serving nothing. Interactively it exits, because
+ * somebody who typed `byollm run` wants their prompt back and a command that
+ * hangs after explaining itself is its own small cruelty.
+ */
+async function nothingToServe(
+  paths: DaemonPaths,
+  io: CliIo,
+  signal?: AbortSignal,
+  supervised = !process.stdout.isTTY,
+): Promise<ExitCode> {
+  const mark = await revokedMark(paths.health);
+  if (mark === undefined) {
+    io.err(
+      "No app is paired, so there is nothing to serve — this device will " +
+        "appear on rosters and answer nothing.\n" +
+        "  byollm connect <url>   pair this device\n" +
+        "  byollm status          what this device believes right now\n",
+    );
+    return 2;
+  }
+
+  io.err(
+    `${REVOKED_SENTENCE}.\n` +
+      `  ${mark.origin} no longer accepts this device's credential, so ` +
+      `there is nothing to serve.\n` +
+      revokedRemedy(mark.origin),
+  );
+  if (!supervised) return 2;
+
+  // Marked and waiting. `byollm connect` ends it, which is the remedy anyway;
+  // so does stopping the service.
+  await new Promise<void>((resolve) => {
+    if (signal === undefined || signal.aborted) {
+      resolve();
+      return;
+    }
+    signal.addEventListener("abort", () => {
+      resolve();
+    });
+  });
+  return 0;
+}
+
 async function runLoop(
   paths: DaemonPaths,
   origins: readonly string[],
   io: CliIo,
   signal?: AbortSignal,
+  /**
+   * Is something restarting us if we exit?
+   *
+   * A TTY, because that is the difference that matters and it needs no
+   * configuration to be true on machines installed before this existed:
+   * launchd, systemd and Task Scheduler all run us without one, and a person
+   * at a prompt always has one. The cost is that `byollm run | tee log`
+   * interactively looks supervised — it would wait rather than return, on a
+   * revoked machine, which is the same thing the supervisor case wants and a
+   * Ctrl-C away from over.
+   *
+   * Injected so the tests can be either.
+   */
+  supervised = !process.stdout.isTTY,
 ): Promise<ExitCode> {
   const { loaded, ingress, budgets, spend, spentGrants } = await context(paths);
   const identity = new DeviceIdentity(paths.keys);
@@ -1182,25 +1301,10 @@ async function runLoop(
   }
 
   if (runners.length === 0) {
-    /**
-     * A sentence before it is an exit code — ruled 2026-09-03.
-     *
-     * This was a bare `return 2`. Under a supervisor that is the whole story
-     * anybody gets: launchd restarts it every ten seconds, `byollm status`
-     * reports "not running (last exit 2)", and `service.log` holds nothing at
-     * all, because nothing was ever printed. The walk spent an evening on a
-     * number.
-     *
-     * Every origin that got here was skipped for a reason already said out
-     * loud above; what was missing is the consequence.
-     */
-    io.err(
-      "No app is paired, so there is nothing to serve — this device will " +
-        "appear on rosters and answer nothing.\n" +
-        "  byollm connect <url>   pair this device\n" +
-        "  byollm status          what this device believes right now\n",
-    );
-    return 2;
+    // Every origin that got here was skipped for a reason already said out
+    // loud above; `nothingToServe` supplies the consequence and decides
+    // whether exiting would hand the supervisor a loop.
+    return nothingToServe(paths, io, signal, supervised);
   }
 
   // Leases are released on the way out, so the app sees work return to the
@@ -1407,9 +1511,49 @@ async function commandStatus(
   const health = await readHealth(paths.health);
   const failing =
     health !== undefined && health.consecutiveFailures >= FAILURES_BEFORE_ALARM;
+
+  /**
+   * The supervisor's answer, asked once and used twice — ruled 2026-09-03.
+   *
+   * `state:` printed `running` two lines above `service: installed but NOT
+   * running`. One display holding two truths, and a status that disagrees
+   * with itself teaches the reader to trust neither line.
+   *
+   * The cause was that this headline consulted the pause flag and the health
+   * file and never the supervisor, so it was answering a narrower question
+   * than the word `state` promises. It is meant to answer "is this device
+   * working", and a device whose service is dead is not working.
+   *
+   * `absent` does not demote it: no service registered is the ordinary shape
+   * of `byollm run` in a terminal, which is working fine.
+   */
+  const plan = servicePlan(serviceTarget(paths, service));
+  const supervision = await serviceState(plan, service.run);
+  const revoked = await revokedMark(paths.health);
+
   io.out(
-    `state: ${paused ? "PAUSED" : failing ? "NOT REPORTING" : "running"}\n`,
+    `state: ${
+      revoked !== undefined
+        ? "REVOKED"
+        : paused
+          ? "PAUSED"
+          : supervision.state === "installed"
+            ? "NOT RUNNING"
+            : failing
+              ? "NOT REPORTING"
+              : "running"
+    }\n`,
   );
+  if (revoked !== undefined) {
+    /* The ruled sentence, as the headline's own explanation. Everything below
+       it on this screen describes a device that is not going to serve
+       anything until it is paired again. */
+    io.out(
+      `  ${REVOKED_SENTENCE}.\n` +
+        `  ${revoked.origin} no longer accepts this device's credential.\n` +
+        revokedRemedy(revoked.origin),
+    );
+  }
   if (failing) {
     io.out(
       `  the hub has rejected this device's last ` +
@@ -1423,7 +1567,7 @@ async function commandStatus(
         `been told.\n`,
     );
   }
-  io.out(await supervisionLine(paths, service));
+  io.out(await supervisionLine(plan, supervision, revoked !== undefined));
   io.out("\n");
 
   io.out("paired apps\n");

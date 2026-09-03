@@ -1,4 +1,5 @@
 import { mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { REVOKED_SENTENCE } from "./revoked.js";
 import { dirname } from "node:path";
 import {
   refuseToSupervise,
@@ -213,6 +214,16 @@ export async function installService(
    */
   wait: (ms: number) => Promise<void> = (ms) =>
     new Promise((resolve) => setTimeout(resolve, ms)),
+  /**
+   * Has this device been revoked?
+   *
+   * Passed in rather than read here, because the health file is the CLI's to
+   * know about and this module's job is the service. What it changes is the
+   * *remedy*: a revoked daemon will not start no matter how many times the
+   * install is retried, and telling somebody to retry is sending them to run
+   * the same failure again.
+   */
+  revoked = false,
 ): Promise<InstallResult> {
   const plan = servicePlan(target);
 
@@ -324,38 +335,58 @@ export async function installService(
     return {
       ok: false,
       plan,
-      lines: [
-        `${plan.supervisor} accepted the service, and the daemon is not running.`,
-        "",
-        `  ${started.state === "absent" ? "the supervisor no longer knows it" : started.detail}`,
-        "",
-        // The log first, because it is the only place the run's own words
-        // are, and every other line here is a guess without it.
-        ...(await (async () => {
-          /* Named when we can name it. "last exit 2" is a number somebody has
+      lines: revoked
+        ? [
+            /**
+             * The cause, not the symptom — ruled 2026-09-03 (2).
+             *
+             * Todd revoked a machine and `install` told him "retry: byollm
+             * install". Honest about the failure and wrong about the fix: the
+             * daemon starts, is refused, and stops, and it will do that every
+             * time. A remedy must match the cause.
+             */
+            `${plan.supervisor} accepted the service, and the daemon is not running.`,
+            "",
+            `  ${REVOKED_SENTENCE}.`,
+            "",
+            `  re-pair:  byollm connect`,
+            `  then:     byollm install`,
+            "",
+            `Installing again will not change this — the refusal is the hub's,`,
+            `and it stands until this device is approved again.`,
+          ]
+        : [
+            `${plan.supervisor} accepted the service, and the daemon is not running.`,
+            "",
+            `  ${started.state === "absent" ? "the supervisor no longer knows it" : started.detail}`,
+            "",
+            // The log first, because it is the only place the run's own words
+            // are, and every other line here is a guess without it.
+            ...(await (async () => {
+              /* Named when we can name it. "last exit 2" is a number somebody has
              to interpret; "the node it was installed with is gone" is the
              whole answer, and it is the failure a version manager produces on
              an ordinary upgrade. */
-          const program = await installedProgram(plan);
-          return program === null || program.exists
-            ? []
-            : [
-                `  the program this service runs no longer exists:`,
-                `    ${program.path}`,
-                `  that happens when the node it was installed with was`,
-                `  removed or upgraded. Re-running install records the`,
-                `  current one.`,
-                "",
-              ];
-        })()),
-        `  log:      ${plan.logPath}`,
-        `  service:  ${plan.unitPath}`,
-        `  retry:    byollm install`,
-        `  instead:  byollm run     runs in this terminal, and prints why`,
-        "",
-        `Nothing is serving until this is sorted — this device will appear on`,
-        `rosters and answer nothing.`,
-      ],
+              const program = await installedProgram(plan);
+              return program === null || program.exists
+                ? []
+                : [
+                    `  the program this service runs no longer exists:`,
+                    `    ${program.path}`,
+                    `  that happens when the node it was installed with was`,
+                    `  removed or upgraded. Re-running install records the`,
+                    `  current one.`,
+                    "",
+                  ];
+            })()),
+            `  log:      ${plan.logPath}`,
+            `  service:  ${plan.unitPath}`,
+            `  retry:    byollm install`,
+            `  instead:  byollm run     runs in this terminal, and prints why`,
+            "",
+            `Nothing is serving until this is sorted — this device will appear on`,
+            `rosters and answer nothing.`,
+          ],
     };
   }
 

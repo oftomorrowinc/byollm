@@ -6796,3 +6796,22 @@ dashboard shows one device row and nothing newly revoked.
    on an already-paired machine. The re-pair update-not-replace
    ruling (09-02 night) stands as specced; this transcript is its
    evidence.
+
+Addendum, same night, after CCB's .70 report crossed this entry:
+CCB shipped the TEST pointer as one constant "printed only on
+success, both failure paths asserted" — and the walk transcript
+shows it printed for a service at last-exit-2. Both are true, which
+locates the bug precisely: the success predicate is wrong. It
+accepts launchctl's load, not the daemon's life — found is not
+works, one layer down. The probe must be the one `status` uses
+(which caught it), waiting for the running state, not the loader's
+exit. The double print now also has a shape: setup runs install,
+install prints the pointer, setup prints it again — when install
+runs inside setup, exactly one of them speaks. And a question for
+CCB on "the reconnect" shipped in .70: Todd's `byollm connect` on
+.70 still PRINTED the full ceremony (steps, code, fingerprint) and
+resolved to the SAME device uuid. If it auto-resolved without
+approval, the printed ceremony is theater — steps that resolve
+themselves teach people to ignore steps, on the page where one step
+is sacred. If it required approval, the reconnect didn't engage.
+Either answer is work.

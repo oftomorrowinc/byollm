@@ -553,6 +553,14 @@ here. `pnpm run typecheck` now builds first, so it is safe on its own;
 
 The bar is CI-enforced, not review-vigilance: strict TypeScript, ≥90% coverage on the server and ≥85% on the daemon, zero-warning lint, no dead code, and the conformance kit green against both the reference server and Supabase on every PR. `@byollm/protocol` is gated by the conformance kit rather than a line-coverage number, which on a types-and-schemas package is trivially met or gamed. The adversarial corpus is a separate blocking gate, and the demo in [`examples/`](examples) runs in CI so it can't rot. See [`docs/standards.md`](docs/standards.md) and the specs in [`specs/`](specs).
 
+## Thanks
+
+An alpha only gets bulletproof when people lend it their machines, their
+subscriptions, and their patience. Ours got that from Eric Marcoullier,
+David Sturgeon, Robertson Price, Kevin Samsoe, and Elisabeth Sampson —
+walking the rough edges, filing the bugs, and in more than one case
+finding the ones we're gladdest didn't reach you. This list grows.
+
 ## License
 
 MIT.

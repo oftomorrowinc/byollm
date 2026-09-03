@@ -1376,3 +1376,99 @@ describe("byollm models, handed arguments", () => {
     expect(err).not.toContain("takes no arguments");
   });
 });
+
+/**
+ * A pairing that succeeds is a pairing you still have — the walk, 2026-09-03.
+ *
+ * Todd's transcript, on .70, in this order and with nothing between them:
+ *
+ *   waiting for approval…. paired as ff34beda-05c3-…
+ *   ❯ byollm status
+ *   paired apps
+ *     (none — run `byollm connect <url>`)
+ *
+ * Every downstream symptom follows from that one fact. `byollm run` exits 2
+ * when it has no pairings — silently, from `runners.length === 0` — so launchd
+ * reported "last exit 2" and the device sat on rosters serving nothing, which
+ * is what `install` then cheerfully called Installed.
+ *
+ * End to end against a real local hub rather than a stubbed client, because
+ * the question is whether the thing `connect` writes is the thing `status`
+ * can read: a fake that returned the pairing from memory would pass while the
+ * file on disk stayed empty.
+ */
+describe("what connect writes, status reads", () => {
+  let hub: Server;
+  let origin: string;
+
+  beforeEach(async () => {
+    hub = createServer((req, res) => {
+      let raw = "";
+      req.on("data", (chunk: Buffer) => {
+        raw += chunk.toString("utf8");
+      });
+      req.on("end", () => {
+        const body = JSON.parse(raw || "{}") as { action?: string };
+        res.writeHead(200, { "content-type": "application/json" });
+        if (body.action === "start") {
+          res.end(
+            JSON.stringify({
+              deviceCode: "device-code-long-enough-to-pass",
+              userCode: "RGDY-YQE8",
+              verificationUrl: "https://dashboard.test/devices?pair=1",
+              expiresAt: Date.now() + 600_000,
+              // The schema's floor; the poll answers first time anyway.
+              pollIntervalMs: 500,
+            }),
+          );
+          return;
+        }
+        res.end(
+          JSON.stringify({
+            status: "approved",
+            runnerId: "runner-1",
+            owner: "ff34beda-05c3-4b85-8945-fbd45f126bf8",
+            sites: { [keyId(SITE.identity)]: SITE },
+          }),
+        );
+      });
+    });
+    await new Promise<void>((resolve) => hub.listen(0, "127.0.0.1", resolve));
+    origin = `http://127.0.0.1:${String((hub.address() as AddressInfo).port)}`;
+  });
+
+  afterEach(
+    async () =>
+      new Promise<void>((resolve) => {
+        hub.close(() => {
+          resolve();
+        });
+      }),
+  );
+
+  it("still knows about the pairing on the very next command", async () => {
+    const code = await run("connect", origin);
+    expect(code, err).toBe(0);
+    expect(out).toContain("paired as");
+
+    out = "";
+    expect(await run("status")).toBe(0);
+    expect(
+      out,
+      "status reported no pairing right after one succeeded",
+    ).toContain(origin);
+    expect(out).not.toContain("(none — run");
+  });
+
+  it("is on disk, not just in the process that wrote it", async () => {
+    /* The control that makes the case above mean something. `status` runs in
+       the same process here, so an in-memory pairing would satisfy it; the
+       file is what `byollm run` reads under launchd, and the file is what was
+       empty. */
+    await run("connect", origin);
+    const saved = JSON.parse(await readFile(paths.pairings, "utf8")) as {
+      pairings: { origin: string }[];
+    };
+    expect(saved.pairings.map((p) => p.origin)).toEqual([origin]);
+  });
+});

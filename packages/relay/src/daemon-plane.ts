@@ -537,7 +537,7 @@ export class DaemonPlane {
     // the daemon's answer to revocation is to delete its pairings file. One
     // bad push, every pin gone. `revokedOutright` asks for the evidence
     // instead: a revocation on record, and nothing left standing.
-    const revoked = this.#deps.projection.revokedOutright(known.owner);
+    const revoked = this.#deps.projection.revokedDevice(known.runnerId);
     if (revoked && options.allowRevoked !== true) {
       // Every endpoint, heartbeat included — V1-2. Heartbeat used to be
       // answerable by a revoked runner so it could be told through an empty

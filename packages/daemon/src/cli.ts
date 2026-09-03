@@ -1149,28 +1149,59 @@ async function runLoop(
         // Not awaited: an event handler that throws would take down a runner
         // that has already stopped, and a pairing file that cannot be written
         // is worth a message rather than a crash.
+        /**
+         * Mark, never destroy — ruled 2026-09-03.
+         *
+         * This deleted the pairing from disk. That turned a wrong server
+         * answer into local data loss, and the bug that produced this ruling
+         * is the proof that the answer can be wrong: an owner-scoped guard
+         * refused devices that had never been revoked, and each one deleted
+         * its own pairing on the way down. A device paired thirty seconds
+         * earlier lost its pins and its owner lost the evidence.
+         *
+         * Deleting bought no safety. Enforcement lives where the authority
+         * is: the hub refuses a revoked device whatever this file remembers,
+         * so the local copy protects nothing and its absence explains
+         * nothing. `byollm forget` still exists for somebody who means it.
+         *
+         * The runner has already stopped serving by the time this fires —
+         * `#revokedBy` sets `#stopped` and cancels everything — so what is
+         * left to do is say so.
+         */
         if (event.type === "revoked") {
-          void pairings
-            .remove(origin)
-            .then(() => {
-              io.out(
-                `${new URL(origin).host} pairing dropped — ` +
-                  "reconnect with `byollm connect`\n",
-              );
-            })
-            .catch((error: unknown) => {
-              io.err(
-                `could not drop the pairing for ${origin}: ` +
-                  `${error instanceof Error ? error.message : "unknown error"}\n`,
-              );
-            });
+          io.out(
+            `${new URL(origin).host} says this device was revoked. ` +
+              `It has stopped serving.\n` +
+              `  The pairing is kept, not deleted — re-pair to return:\n` +
+              `    byollm connect ${origin}\n`,
+          );
         }
       },
     });
     runners.push(runner);
   }
 
-  if (runners.length === 0) return 2;
+  if (runners.length === 0) {
+    /**
+     * A sentence before it is an exit code — ruled 2026-09-03.
+     *
+     * This was a bare `return 2`. Under a supervisor that is the whole story
+     * anybody gets: launchd restarts it every ten seconds, `byollm status`
+     * reports "not running (last exit 2)", and `service.log` holds nothing at
+     * all, because nothing was ever printed. The walk spent an evening on a
+     * number.
+     *
+     * Every origin that got here was skipped for a reason already said out
+     * loud above; what was missing is the consequence.
+     */
+    io.err(
+      "No app is paired, so there is nothing to serve — this device will " +
+        "appear on rosters and answer nothing.\n" +
+        "  byollm connect <url>   pair this device\n" +
+        "  byollm status          what this device believes right now\n",
+    );
+    return 2;
+  }
 
   // Leases are released on the way out, so the app sees work return to the
   // queue at once instead of waiting for a lease to lapse.

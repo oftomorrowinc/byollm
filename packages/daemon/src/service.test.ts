@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { TEST_YOUR_DEVICE } from "./test-your-device.js";
@@ -293,26 +293,55 @@ describe("installing", () => {
      * `install` records absolute paths to the node runtime that ran it. Under
      * a version manager those belong to one node version — install from a
      * shell on node 22, upgrade node, and the unit names a binary that is
-     * gone. launchd cannot spawn it, so the daemon never runs, the log stays
-     * empty of any error, and every surface says only "last exit 2".
+     * gone. launchd cannot spawn it, so the daemon never runs, nothing ever
+     * reaches the log, and every surface says only "last exit 2".
      *
-     * On the walk machine the unit pointed at an nvm path whose node version
-     * no longer existed; the manual re-install from a different shell wrote
-     * paths that did, which is exactly why the second attempt "just worked".
+     * The first version of this test used the shared `target()`, whose
+     * `execPath` is `/usr/local/bin/node` — a path that happens not to exist
+     * on my machine and happens to exist on CI's. It passed here and failed
+     * there, which is a test asserting a fact about the machine it runs on.
+     * Both paths are now inside the temp home, so the answer is ours to set.
      */
+    const missing = {
+      ...target("darwin"),
+      execPath: join(home, "node-that-was-removed"),
+    };
     const { run } = recording((command) =>
       command[1] === "print"
         ? { code: 0, output: "state = not running\n\tlast exit code = 2" }
         : { code: 0, output: "" },
     );
-    const result = await installService(target("darwin"), run, INSTANTLY);
-    expect(result.ok).toBe(false);
+    const result = await installService(missing, run, INSTANTLY);
 
+    expect(result.ok).toBe(false);
     const said = result.lines.join("\n");
-    // `target()` points at a path this test never creates, so the unit names
-    // a program that is not there — the shape of the real failure.
     expect(said).toContain("no longer exists");
-    expect(said).toMatch(/removed or upgraded/);
+    expect(said).toContain("removed or upgraded");
+  });
+
+  it("does not blame the program when the program is there", async () => {
+    /**
+     * The control, and the reason the case above cannot be a bare grep.
+     *
+     * A failed install has several causes and only one of them is a missing
+     * interpreter. Naming it every time would send somebody to reinstall node
+     * over a crash in our own code — the same defect as "(last exit 2)",
+     * pointed in a more confident direction.
+     */
+    const present = { ...target("darwin"), execPath: join(home, "node") };
+    await writeFile(present.execPath, "#!/bin/sh\nexit 0\n", "utf8");
+
+    const { run } = recording((command) =>
+      command[1] === "print"
+        ? { code: 0, output: "state = not running\n\tlast exit code = 2" }
+        : { code: 0, output: "" },
+    );
+    const result = await installService(present, run, INSTANTLY);
+
+    expect(result.ok).toBe(false);
+    // Still refuses — the daemon is not running — but says nothing about the
+    // binary, because there is nothing wrong with it.
+    expect(result.lines.join("\n")).not.toContain("no longer exists");
   });
 
   it("reports a supervisor's refusal instead of claiming success", async () => {

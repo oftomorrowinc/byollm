@@ -6759,3 +6759,40 @@ RULED:
 Acceptance: run `byollm setup` twice on a paired machine. The second
 run performs no ceremony, prints the connected-as line, and the
 dashboard shows one device row and nothing newly revoked.
+
+### 2026-09-03 – Walk findings, daemon half (Todd, on .70; transcript kept)
+
+1. **Install reported success while the service was dead (P0-class).**
+   Setup's "Run in background? [Y]" printed "Installed. launchd will
+   keep byollm running…" and TEST YOUR DEVICE — while `byollm status`
+   showed "service: installed but NOT running (not running (last exit
+   2)) — this device is on rosters and serving nothing." A manual
+   `byollm install` minutes later worked and took jobs. Every law
+   involved is already on the books: copy not behaviour; found is not
+   works; a promise belongs to the party that can keep it (the TEST
+   line printed for a dead service); the updater's boot-canary
+   principle applies equally to first install. RULED: install — the
+   setup step and the standalone verb — ends with the same probe
+   `status` uses and prints Installed + TEST YOUR DEVICE only when
+   the daemon is confirmed running; otherwise it prints the failure,
+   the last exit code, the log path, and the remedy. Separately:
+   root-cause the exit 2 on setup's install (a race with pairing
+   state written moments before? port still held?) — status knew, so
+   detection exists; install never asked.
+2. **TEST YOUR DEVICE printed twice** in setup — the install step's
+   own success print plus setup's completion print. One printer.
+3. **`byollm models claude fake` silently ignored its arguments** and
+   listed models as if called bare. A command handed arguments it
+   does not understand must refuse and point at the right verb
+   (`byollm model claude <name>`), never act like a different
+   command. Extra is not absent — the swallowed-argument cousin of
+   missing is not none.
+4. **An unlabeled second fingerprint** (BYOLLM-E2RN-…) prints after
+   "paired as <uuid>" in both setup and connect runs. Label what it
+   is or remove it — an unlabeled fingerprint invites a comparison
+   nobody defined, on the exact screen where one comparison is
+   sacred.
+5. Confirmed again on .70: setup AND connect run the full ceremony
+   on an already-paired machine. The re-pair update-not-replace
+   ruling (09-02 night) stands as specced; this transcript is its
+   evidence.

@@ -1,6 +1,7 @@
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { TEST_YOUR_DEVICE } from "./test-your-device.js";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   refuseToSupervise,
@@ -41,13 +42,33 @@ const target = (platform: ServicePlatform) => ({
   root: join(home, ".byollm"),
 });
 
+/**
+ * A supervisor that accepts everything and reports a live daemon.
+ *
+ * The default answers the liveness query — `state = running` for launchd,
+ * `active` for systemd, `Running` for schtasks — because since 2026-09-03
+ * `installService` asks it before claiming anything. A stub that answered ""
+ * to every command was describing a machine where the unit loaded and the
+ * daemon never started: the exact state the walk found, and not what these
+ * cases are about. Tests that *are* about it say so, below.
+ */
+const LIVE = (command: readonly string[]): string =>
+  command.includes("is-active")
+    ? "active"
+    : command.includes("/query")
+      ? "TaskName Status\nbyollm  Running"
+      : "state = running\n\tpid = 1234";
+
+/** No real delay between probes; the poll itself is still exercised. */
+const INSTANTLY = (): Promise<void> => Promise.resolve();
+
 const recording = (
   outcome: (command: readonly string[]) => {
     code: number;
     output: string;
-  } = () => ({
+  } = (command) => ({
     code: 0,
-    output: "",
+    output: LIVE(command),
   }),
 ): { commands: string[][]; run: CommandRunner } => {
   const commands: string[][] = [];
@@ -166,13 +187,16 @@ describe("refusing to supervise a copy that will vanish", () => {
 describe("installing", () => {
   it("writes the unit and activates it", async () => {
     const { commands, run } = recording();
-    const result = await installService(target("linux"), run);
+    const result = await installService(target("linux"), run, INSTANTLY);
 
     expect(result.ok).toBe(true);
     expect(await readFile(result.plan.unitPath, "utf8")).toContain(
       "Restart=always",
     );
-    expect(commands).toEqual([
+    /* The activation commands, which is what this case is about. The probe
+       that follows them is `installService` confirming the daemon actually
+       came up — asserted where that is the subject, not here. */
+    expect(commands.slice(0, 2)).toEqual([
       ["systemctl", "--user", "daemon-reload"],
       ["systemctl", "--user", "enable", "--now", `${SERVICE_LABEL}.service`],
     ]);
@@ -182,10 +206,142 @@ describe("installing", () => {
     const { run } = recording((command) =>
       command[1] === "bootout"
         ? { code: 3, output: "No such process" }
+        : { code: 0, output: LIVE(command) },
+    );
+    const result = await installService(target("darwin"), run, INSTANTLY);
+    expect(result.ok).toBe(true);
+  });
+
+  /**
+   * The walk's own transcript, as a test — ruled 2026-09-03.
+   *
+   * Setup printed "Installed. launchd will keep byollm running" and the TEST
+   * pointer, directly above `byollm status` reporting "installed but NOT
+   * running (last exit 2) — this device is on rosters and serving nothing".
+   *
+   * Both sentences were true, which is what located the bug: success meant
+   * `launchctl bootstrap` exited zero. That is the job being *loaded*, never
+   * the daemon being *alive* — found is not works, one layer down, on a
+   * command that already had the better probe sitting in the same file.
+   */
+  it("refuses to call a dead daemon installed", async () => {
+    const { run } = recording((command) =>
+      // Activation succeeds; the daemon is loaded and keeps exiting. This is
+      // launchd's own wording from the machine the walk ran on.
+      command[1] === "print"
+        ? { code: 0, output: "state = not running\n\tlast exit code = 2" }
         : { code: 0, output: "" },
     );
-    const result = await installService(target("darwin"), run);
+    const result = await installService(target("darwin"), run, INSTANTLY);
+
+    expect(result.ok).toBe(false);
+    const said = result.lines.join("\n");
+    // The exit code, because it is the one fact that distinguishes a crash
+    // loop from a slow start, and status had it all along.
+    expect(said).toContain("last exit 2");
+    // Where the run's own words are. Every other line is a guess without it.
+    expect(said).toContain(".byollm");
+    expect(said).toMatch(/byollm run/);
+    // And it says what the silence costs, which is the part the walk felt.
+    expect(said).toContain("rosters");
+  });
+
+  it("waits, rather than racing a daemon that is still starting", async () => {
+    /* The control for the case above. A probe fired once, immediately after
+       activation, would call every slow start a failure — the gate has to
+       tell "not yet" from "never", and only a clock does that. */
+    let asked = 0;
+    const { run } = recording((command) => {
+      if (command[1] !== "print") return { code: 0, output: "" };
+      asked++;
+      return asked < 3
+        ? { code: 0, output: "state = not running" }
+        : { code: 0, output: "state = running\n\tpid = 42" };
+    });
+    const result = await installService(target("darwin"), run, INSTANTLY);
     expect(result.ok).toBe(true);
+    expect(asked).toBeGreaterThan(2);
+  });
+
+  it("is not fooled by a daemon that is alive for an instant", async () => {
+    /**
+     * A boot crash is running, briefly. launchd starts it, it throws, and
+     * `ThrottleInterval` holds the restart for ten seconds — so a single
+     * probe landing in that first instant reports a healthy install about a
+     * process already on its way out.
+     *
+     * So the confirmation asks twice, and the second answer is the one that
+     * counts.
+     */
+    let asked = 0;
+    const { run } = recording((command) => {
+      if (command[1] !== "print") return { code: 0, output: "" };
+      asked++;
+      return asked === 1
+        ? { code: 0, output: "state = running\n\tpid = 42" }
+        : { code: 0, output: "state = not running\n\tlast exit code = 2" };
+    });
+    const result = await installService(target("darwin"), run, INSTANTLY);
+    expect(result.ok).toBe(false);
+    expect(result.lines.join("\n")).toContain("last exit 2");
+  });
+
+  it("names a program that is no longer on disk", async () => {
+    /**
+     * The root cause behind the walk's exit 2, made legible.
+     *
+     * `install` records absolute paths to the node runtime that ran it. Under
+     * a version manager those belong to one node version — install from a
+     * shell on node 22, upgrade node, and the unit names a binary that is
+     * gone. launchd cannot spawn it, so the daemon never runs, nothing ever
+     * reaches the log, and every surface says only "last exit 2".
+     *
+     * The first version of this test used the shared `target()`, whose
+     * `execPath` is `/usr/local/bin/node` — a path that happens not to exist
+     * on my machine and happens to exist on CI's. It passed here and failed
+     * there, which is a test asserting a fact about the machine it runs on.
+     * Both paths are now inside the temp home, so the answer is ours to set.
+     */
+    const missing = {
+      ...target("darwin"),
+      execPath: join(home, "node-that-was-removed"),
+    };
+    const { run } = recording((command) =>
+      command[1] === "print"
+        ? { code: 0, output: "state = not running\n\tlast exit code = 2" }
+        : { code: 0, output: "" },
+    );
+    const result = await installService(missing, run, INSTANTLY);
+
+    expect(result.ok).toBe(false);
+    const said = result.lines.join("\n");
+    expect(said).toContain("no longer exists");
+    expect(said).toContain("removed or upgraded");
+  });
+
+  it("does not blame the program when the program is there", async () => {
+    /**
+     * The control, and the reason the case above cannot be a bare grep.
+     *
+     * A failed install has several causes and only one of them is a missing
+     * interpreter. Naming it every time would send somebody to reinstall node
+     * over a crash in our own code — the same defect as "(last exit 2)",
+     * pointed in a more confident direction.
+     */
+    const present = { ...target("darwin"), execPath: join(home, "node") };
+    await writeFile(present.execPath, "#!/bin/sh\nexit 0\n", "utf8");
+
+    const { run } = recording((command) =>
+      command[1] === "print"
+        ? { code: 0, output: "state = not running\n\tlast exit code = 2" }
+        : { code: 0, output: "" },
+    );
+    const result = await installService(present, run, INSTANTLY);
+
+    expect(result.ok).toBe(false);
+    // Still refuses — the daemon is not running — but says nothing about the
+    // binary, because there is nothing wrong with it.
+    expect(result.lines.join("\n")).not.toContain("no longer exists");
   });
 
   it("reports a supervisor's refusal instead of claiming success", async () => {
@@ -194,7 +350,7 @@ describe("installing", () => {
         ? { code: 5, output: "Load failed: 5: Input/output error" }
         : { code: 0, output: "" },
     );
-    const result = await installService(target("darwin"), run);
+    const result = await installService(target("darwin"), run, INSTANTLY);
 
     expect(result.ok).toBe(false);
     // The failing command and the supervisor's own words: an install that
@@ -205,7 +361,7 @@ describe("installing", () => {
 
   it("tells a Linux user about lingering, and does not do it for them", async () => {
     const { commands, run } = recording();
-    const result = await installService(target("linux"), run);
+    const result = await installService(target("linux"), run, INSTANTLY);
     expect(result.lines.join("\n")).toContain("loginctl enable-linger");
     expect(commands.flat()).not.toContain("loginctl");
   });
@@ -214,7 +370,7 @@ describe("installing", () => {
 describe("uninstalling", () => {
   it("removes the unit and says the owner's data stayed", async () => {
     const { run } = recording();
-    await installService(target("darwin"), run);
+    await installService(target("darwin"), run, INSTANTLY);
     const result = await uninstallService(target("darwin"), run);
 
     await expect(readFile(result.plan.unitPath, "utf8")).rejects.toThrow();
@@ -336,21 +492,38 @@ describe("the CLI's own service commands", () => {
     const { runCli } = await import("./cli.js");
     const { daemonPaths } = await import("./paths.js");
     let err = "";
+    // `out` as well as `err`: the first version of the assertion below watched
+    // only stderr, and a mutant that printed the pointer unconditionally went
+    // to stdout and passed. A check pointed at one stream says nothing about
+    // the other.
+    let out = "";
     const code = await runCli(["install"], {
       paths: daemonPaths(join(home, ".byollm")),
-      io: { err: (text) => (err += text) },
+      io: { err: (text) => (err += text), out: (text) => (out += text) },
       service: {
         platform: "linux",
         execPath: "/usr/bin/node",
         scriptPath:
           "/home/t/.npm/_npx/ab12/node_modules/@byollm/daemon/dist/bin.js",
         run: () => Promise.resolve({ code: 0, output: "" }),
+        wait: () => Promise.resolve(),
         home,
       },
     });
 
     expect(code).toBe(1);
     expect(err).toContain("npm install -g byollm@alpha");
+    /**
+     * And it does not tell them to go and test a device that is not running —
+     * ruled 2026-09-02.
+     *
+     * This is the whole shape of the ruling in one assertion. The dashboard's
+     * approved banner promised the device would start taking work, at a moment
+     * when it might not be installed at all; the fix was to let the party that
+     * watches the install succeed be the one that speaks. A pointer printed
+     * here, on the refusal path, would move that same bug into the terminal.
+     */
+    expect(`${out}${err}`).not.toContain(TEST_YOUR_DEVICE);
   });
 
   it("installs and uninstalls through the CLI", async () => {
@@ -363,8 +536,16 @@ describe("the CLI's own service commands", () => {
       scriptPath: "/usr/lib/byollm/bin.js",
       run: (command: readonly string[]) => {
         commands.push([...command]);
-        return Promise.resolve({ code: 0, output: "" });
+        // `is-active` is what install now asks before it claims anything —
+        // ruled 2026-09-03. A stub that answered "" for every command was
+        // describing a machine where the unit loaded and the daemon never
+        // ran, which is the exact state the walk found and this gate exists
+        // to catch, so it has to answer the liveness question on purpose.
+        const active = command.includes("is-active");
+        return Promise.resolve({ code: 0, output: active ? "active" : "" });
       },
+      // Immediately, rather than the real half-second between probes.
+      wait: () => Promise.resolve(),
       home,
     };
     const paths = daemonPaths(join(home, ".byollm"));
@@ -378,6 +559,10 @@ describe("the CLI's own service commands", () => {
       }),
     ).toBe(0);
     expect(out).toContain("systemd");
+    // Somebody who paired earlier and ran `byollm install` on its own has
+    // reached the same moment as the end of `byollm setup`, and had nothing
+    // telling them so.
+    expect(out).toContain(TEST_YOUR_DEVICE);
     expect(
       await readFile(
         servicePlan({ ...service, root: paths.root }).unitPath,
@@ -487,7 +672,7 @@ describe("the states a supervisor reports, in its own words", () => {
         ? { code: 1, output: "" }
         : { code: 0, output: "" },
     );
-    const result = await installService(target("linux"), run);
+    const result = await installService(target("linux"), run, INSTANTLY);
     expect(result.ok).toBe(false);
     // No stray colon dangling where the supervisor said nothing.
     expect(result.lines.join("\n")).toContain("exit 1\n");
@@ -626,7 +811,7 @@ describe("windows, when the task will not register", () => {
 
   it("falls back to the Startup folder and succeeds", async () => {
     const { run } = recording(denied);
-    const result = await installService(target("win32"), run);
+    const result = await installService(target("win32"), run, INSTANTLY);
     expect(result.ok).toBe(true);
     expect(result.lines.join("\n")).toContain("Startup folder");
   });
@@ -636,7 +821,7 @@ describe("windows, when the task will not register", () => {
      have been told at install time that nothing was going to restart it. */
   it("says what the fallback does not do", async () => {
     const { run } = recording(denied);
-    const result = await installService(target("win32"), run);
+    const result = await installService(target("win32"), run, INSTANTLY);
     expect(result.lines.join("\n")).toContain("does not restart it");
   });
 
@@ -645,7 +830,7 @@ describe("windows, when the task will not register", () => {
      dead end into a sentence with a next step in it. */
   it("names the refusal rather than printing an exit code", () => {
     const { run } = recording(denied);
-    return installService(target("win32"), run).then((result) => {
+    return installService(target("win32"), run, INSTANTLY).then((result) => {
       const said = result.lines.join("\n");
       expect(said).toContain("will not let you register a scheduled task");
       expect(said).toContain("IT policy");
@@ -659,7 +844,7 @@ describe("windows, when the task will not register", () => {
       code: 1,
       output: "ERROR: The system cannot find the file specified.",
     }));
-    const result = await installService(target("win32"), run);
+    const result = await installService(target("win32"), run, INSTANTLY);
     expect(result.lines.join("\n")).not.toContain("administrator rights");
     expect(result.lines.join("\n")).toContain("cannot find the file");
   });

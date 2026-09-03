@@ -209,10 +209,19 @@ describe("an identified caller refused", () => {
     });
     disposers.push(daemon.dispose);
 
+    /* Device-scoped since 2026-09-03. This used to revoke a *route* and lean
+       on an owner-keyed guard, which is the shape that refused devices nobody
+       had revoked. The subject here is unchanged — a known caller refused
+       carries `revoked`, not `forbidden` — so it now revokes the device that
+       is actually asking. */
     relay.project({
       ...fixture,
       consents: [],
-      revoked: [{ owner: "alice", siteId: SITE_ID }],
+      devices: fixture.devices.map((record) =>
+        record.runnerId === daemon.runnerId
+          ? { ...record, revoked: true }
+          : record,
+      ),
     });
     const response = await daemon.signedFetch("claim", {
       capabilities: [],

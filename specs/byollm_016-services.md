@@ -6489,3 +6489,555 @@ inferred the format from nothing, which is most of why he got it
 wrong; the example ships in the best-practice shape (site-named
 everyday purpose first). Ergonomics evidence recorded honestly: the
 format is right and it isn't obvious.
+
+### 2026-09-02 – Auto-update RULED (Todd's ask, shaped): the floor and the updater are two features, both wanted
+
+Todd: ask at setup to auto-update byollm (default on for hosted);
+alternative = refuse outdated daemons with a printed remedy. Ruled:
+these are complements, not alternatives – **the FLOOR is correctness,
+the UPDATER is hygiene**, and the fleet needs both.
+
+1. **The floor (first – smallest, and the backstop).** The hub
+   declares a minimum supported daemon version on the channel that
+   already exists (the protocol-version machinery that refuses "0"
+   today). A too-old daemon is refused at connect/claim with the
+   remedy printed: "byollm X.Y is below the supported floor – run
+   `npm i -g byollm` then `byollm install`." Raising the floor is a
+   deliberate act with a spec note, never automatic.
+2. **The updater (no second runner).** The SUPERVISOR is the right
+   home: the daemon learns the current version on the channel it
+   already polls (no new phone-home), then DRAINS (finish the running
+   job, claim nothing), runs `npm i -g byollm@<exact version>` +
+   `byollm install`, restarts, and the boot canary must pass –
+   **an updater must be able to un-update**: previous version kept,
+   auto-rollback on a failed boot canary, and the failure reported on
+   the owner surfaces.
+3. **Consent posture:** setup asks "Keep byollm up to date
+   automatically? [Y/n]", default YES (consistent with the other
+   defaults-yes; owner's machine, owner's switch – `byollm config`
+   can flip it). Hosted Devices: ON and not asked – our box, stated
+   plainly on the provision page.
+4. **Version semantics:** during alpha, everything auto-applies (that
+   is what alpha means). From 1.0: patch/minor auto-apply; a MAJOR
+   applies after a grace window or when the hub raises the floor –
+   the floor is how stragglers are moved, never a silent major jump
+   on day one.
+5. **Staged rollout, honestly cheap:** the hosted fleet updates first
+   (we watch it – it is the canary cohort), personal devices follow
+   with jitter, never the whole fleet in one minute. A bad release
+   must not be able to take every device down simultaneously.
+6. **Named for the record – the trade:** an auto-updating daemon means
+   whoever controls the npm publish controls the fleet. The controls
+   are the existing 2FA on publish, exact-version installs (never
+   `@latest` inside the updater), the canary+rollback, and the staged
+   cohorts. This is the Chrome trade and it is the right one for a
+   protocol daemon; it is written down so nobody discovers it as a
+   surprise.
+Sequencing: floor rides the next daemon release that touches connect
+(.69 candidate); updater ships WITH byollm_018 (hosted-on by design)
+and reaches personal devices the release after, behind the setup
+question. Spec-fit by CCB; this entry is the ruling.
+
+### 2026-09-02 (eve) – Batch B supervision trio done; corrections accepted; codex canary next
+
+CCB: the Windows task XML declared UTF-16 while writeFile wrote utf8
+for every platform – schtasks refused it on EVERY machine, so
+restart-on-failure has never once shipped to a Windows user, uninstall
+removed the never-registered XML and left the Startup entry ("a
+machine doing work its owner told it to stop, and being told it had
+stopped"), and status truthfully asked a supervisor that knew nothing.
+All three fixed; the tests assert the BYTES on disk (BOM, UTF-16LE
+NULs) because declaration-vs-write disagreeing is what broke – a
+declaration-only test would have passed throughout. Fourth vacuous
+first fixture of the week (uninstall test wrote into a nonexistent
+dir, caught by mutation). CCB's correction to the review ACCEPTED for
+the record: the fallback did print schtasks' own words; the framing
+invited the permissions reading, and the substantive harm was the
+unsupervised install – reviews get corrected by evidence like
+everything else. Also: model-server auto-start (three tiers) filed to
+the icebox top by Todd; detection-first stands.
+
+RULED on next: **codex canary first** – it completes Batch B and it is
+a hole in the auth gate itself (a signed-out Codex passes setup,
+connect and the model verb while every job fails; `answers` is
+undefined, never false – not-asked-is-not-no cuts both ways: a backend
+that CAN be asked must actually be asked). Then cut .69 so Kevin can
+re-run `byollm install` onto a real registration. byollm_019's draft
+follows – it is Batch C's spec work and C follows B.
+
+### 2026-09-02 (eve) – Codex canary green; the device-page sentence removal sequenced AFTER latest moves
+
+CCB's trace ratified: of the device page's prerequisite note, Node and
+have-a-model survive (setup finds, never installs); "run claude/codex
+first to confirm signed in" becomes the daemon's job – but that
+sentence is REDUNDANT for Claude and LOAD-BEARING for Codex until .69
+is `latest`, because the card says `npm i -g byollm@latest` and until
+the tag moves, followers get a daemon without the codex gate. Ruled
+sequence: coverage the canary's failure path (84.87% vs the 85% bar –
+cover it, never lower it, correct) → cut .69 → Todd moves latest →
+THEN the line comes off the page. Copy that outruns the installable
+daemon is the device-page NOTE bug again, avoided in advance this
+time. The canary itself: property-keyed on the REGISTRY (backends
+whose cost is a subscription – the ones whose credentials expire while
+the binary stays put), with a control against an empty enumeration; a
+third CLI next year is covered without anyone remembering the file.
+Mutation-verified by name.
+
+### 2026-09-02 (eve) – P0 IN PRODUCTION: deployed hub rejects .68 daemon reports on schema validation (lockstep)
+
+CCB halted the .69 cut, rightly. `pair` and every report since are
+rejected by the DEPLOYED hub for schema validation, from a .68 daemon
+installed off `latest`. This is the lockstep failure the audience-stub-
+drop entry warned about, arrived early and from a different seam:
+daemon and hub disagreeing about protocol shape IN PRODUCTION, so any
+customer who installed today has a daemon that cannot report. Kevin,
+Eric-to-be, Todd's own devices – all on latest, all affected.
+
+Priority: **this is the only thing that matters** – ahead of the
+canary, the cut, the walk's remaining stops, everything. It is worse
+than any Batch-A P0 because it is live and it silently breaks every
+new install. Diagnosis discipline (for CCB, before any fix):
+1. **Name the shape mismatch exactly** – which field, which direction,
+   which validator (hub-side zod? relay schema? protocol version
+   gate?). Capture the actual rejected payload and the actual
+   expectation, not a theory.
+2. **Which side moved** – did the hub deploy get ahead of the
+   published daemon, or a daemon change ship in a .6x that the live
+   hub predates? The digest in Pulumi.prod.yaml and the .68 daemon's
+   wire shape are the two facts; compare them, do not infer.
+3. **Fix on the side that is wrong, not the side that is easy** – if
+   the hub deploy is newer than what daemons run, the fix may be a hub
+   redeploy/rollback, not a daemon release; if a daemon shipped a
+   shape the live hub never learned, the hub needs the migration
+   first. **The lockstep law: a wire-shape change lands hub-first
+   (accept old AND new), then daemon; never daemon-first.**
+4. **Proof from outside** – a real `pair` + report against the
+   deployed hub goes green, same instrument the walk uses, before this
+   is called closed.
+5. **The missing guardrail is the finding** – nothing caught daemon
+   and hub diverging before customers did. A contract test that runs
+   the published daemon's wire shape against the deployed hub's
+   validator (or a shared schema both import and a check that they
+   match) is owed the moment the fire is out – this is the
+   satisfiability-unreachable lesson (a feature exists when its first
+   consumer runs it) one level up: a protocol exists when both sides
+   agree on it, and nothing asserted that.
+
+### 2026-09-02 – Evidence + mitigation for the lockstep P0 (screenshots)
+
+`byollm status` on Todd's .68 (installed via `latest`, so latest=.68):
+- **daemon 0.1.0-alpha.68, protocol 1**; `state: NOT REPORTING`
+- **the hub has rejected this device's last 811 messages** – "running
+  and invisible"; error verbatim, both pair and report: **"request
+  failed schema validation"**.
+- Setup itself was clean – found claude, wrote config, offered connect;
+  the ONLY failure is the hub rejecting the wire shape. So config,
+  identity, service detection all fine; it is purely daemon↔hub schema.
+
+Bright spot, named: the status page told the whole truth unprompted –
+"anything below is what this device believes, not what the hub has
+been told." The failed-read-honesty and owner-surface laws paid off in
+the worst moment: the daemon that cannot report still says exactly why.
+
+**It is schema validation, NOT a protocol-version refusal** (protocol
+prints 1 and the version gate would name a remedy). So it is a
+field-shape disagreement WITHIN protocol 1 – a daemon-emitted shape
+the deployed hub's validator rejects. Given .65/.66/.67/.68 all
+shipped after the last hub deploy (satisfiability, 09-01, digest in
+Pulumi.prod.yaml), the leading hypothesis is **daemon got ahead of the
+hub**: a report/pair field changed in a recent daemon release and the
+live hub validates the older schema.
+
+**Decisive test for CCB (2 minutes, no deploy):** run a real .68
+pair/report payload against the CURRENT hub HEAD's validator locally.
+- **Green** → the code is already correct and the deployed hub is
+  simply STALE. Mitigation = **roll the hub forward** (deploy current
+  HEAD via roll.sh) – restores every device; this is a normal roll,
+  not a rollback, and needs no daemon release.
+- **Red** → the divergence is real in code: HEAD hub and .68 daemon
+  disagree. Then fix the SHAPE hub-first (accept old AND new), deploy,
+  and only then consider a daemon release. Never publish a daemon that
+  a deployed hub can't read again.
+
+Mitigation ranking is not the tidy fix, it is restore-reporting-now:
+every device on `latest` is invisible right now, so whichever branch,
+the hub side moves first because it is one deploy vs. thousands of
+reinstalls. The guardrail owed once green: a contract test that runs
+the PUBLISHED daemon's wire shape against the DEPLOYED hub's validator
+in CI – "a protocol exists when both sides agree, and nothing asserted
+that." .69 stays halted until a real pair+report against the live hub
+goes green from Todd's machine.
+
+### 2026-09-02 (night) – P0 RESOLVED: one optional field under .strict(). The fleet reports again
+
+Root cause, proven not reasoned (both published protocols parsing the
+exact object runner.ts:604 builds, with a control): **`knownModels`**
+– byollm_017 ruling 3's field – joined Capability in the daemon while
+hub/package.json still pinned .65. Every wire object is `.strict()`,
+the capability matrix rides BOTH PairStartRequest and HeartbeatRequest,
+so one unrecognised key took out pairing and every heartbeat, once per
+ten seconds – hence 811. CCB's correction to my framing, accepted: not
+a deploy that failed to happen – **the pin was stale in git**; .65
+through .68 all published against a hub manifest nobody moved.
+
+Two laws minted, both CCB's words kept:
+- **Under `.strict()` there is no additive-and-optional. Every new
+  field is breaking – and it breaks on the side nobody upgraded, which
+  is never the side running the tests.**
+- **"A registry is a schema; an enum value is the contract" was one
+  noun short: a field NAME is the contract too.** The old gate
+  compared vocabularies (closed value sets) truthfully and passed;
+  nothing compared keys.
+
+Honest accounting against the overnight review: it FOUND this gun –
+M2, "hub pins everything .65 exact; nothing resolves .67" – and triage
+(mine) filed it under hygiene/icebox. Second MEDIUM this week that was
+a P0 wearing a chore (declareManifest was the first). Triage rule
+amended: **a stale version pin on a `.strict()` wire is never
+hygiene** – any finding that two sides of a strict protocol resolve
+different versions ranks as a lockstep hazard, not a sweep item.
+
+The guardrail, shipped: wire-shapes.ts walks the protocol's own
+exports into key paths; GET /wire serves them; the promotion gate
+compares, importing the hub's walker so the two sides cannot drift
+into answering different questions. Deliberately NOT on /healthz –
+that is the liveness probe, and a reporting fault there would wear a
+crash loop. Proven both ways against a stub hub (refuses .68 by name
+across six schemas when serving .65's keys; passes serving .68's) –
+without the second run it would be a gate that refuses forever and
+looks identical from the failing side. Fifth vacuous first fixture of
+the week caught by mutation (optional scalar → optional object, so
+the wrapper must actually open).
+
+Roll: clean – edge watched 143 probes over 301s, all 401; the e2e ran
+a sealed job, routed a purpose-named job, and refused an unmapped slot
+at enqueue, through the hub it had just deployed. Production accepts
+knownModels on all three paths; promotion gate green against live prod
+for .68. Exposure window: `latest` was .68 throughout, so ANY install
+since knownModels shipped paired-blind – Kevin's version should be
+confirmed (a .67/.68 daemon recovers on its own now; a pairing that
+never completed needs `byollm connect` re-run, which is Todd's own
+next command). .69 cuts when CI is green, per standing instruction.
+
+ALSO: two CI runs at action_required on "fix(daemon): trust Codex
+terminal events over exit status" – an OUTSIDE PR on the public repo.
+First outside contributor. Todd reads the diff BEFORE approving the
+workflow runs (action_required on a fork PR is a security gate, not a
+formality) – and the title suggests they found a real thing in
+exactly the territory this week's canary work lives in.
+
+### 2026-09-02 (night) – Re-pairing must update, never replace (ruled, Todd)
+
+Todd, on the live walk: re-running `byollm setup`/`byollm connect`
+asks for the full pairing ceremony every time – new code, new
+approval, a new device row on the dashboard, and the old row heads
+for the Revoked list. Pairing is replacing the device when it should
+be updating it.
+
+RULED:
+1. **The stored device credential IS the device.** On connect/setup,
+   present it FIRST. Hub recognizes it → reconnect and print
+   "Connected as <device-name> (paired <date>)" – no ceremony, no
+   new row. Only a missing, revoked, or refused credential enters
+   pairing. (Found is not works: present-and-probe, never assume –
+   but a credential that probes good is a session, not a ceremony.)
+2. **Same device, same row.** A re-pair of the same machine after a
+   credential loss may mint a new keypair, but a healthy re-run must
+   land on the existing dashboard row – never a revoked-row trail
+   from routine re-runs.
+3. Law minted: **a ceremony repeated becomes a habit, and a habit is
+   not a comparison.** The fingerprint check is load-bearing exactly
+   because it is rare. Asking on every run trains the person to
+   approve without looking; approval fatigue is a security
+   regression, not a UX blemish.
+4. Likely culprit is already boarded in Batch D: the config
+   migration that keeps only the services keys – the device
+   credential rides in config, so every migration-touching run
+   orphans it. PULLED FORWARD into the pairing-polish pass; CCB
+   confirms the actual cause either way.
+
+Acceptance: run `byollm setup` twice on a paired machine. The second
+run performs no ceremony, prints the connected-as line, and the
+dashboard shows one device row and nothing newly revoked.
+
+### 2026-09-03 – Walk findings, daemon half (Todd, on .70; transcript kept)
+
+1. **Install reported success while the service was dead (P0-class).**
+   Setup's "Run in background? [Y]" printed "Installed. launchd will
+   keep byollm running…" and TEST YOUR DEVICE — while `byollm status`
+   showed "service: installed but NOT running (not running (last exit
+   2)) — this device is on rosters and serving nothing." A manual
+   `byollm install` minutes later worked and took jobs. Every law
+   involved is already on the books: copy not behaviour; found is not
+   works; a promise belongs to the party that can keep it (the TEST
+   line printed for a dead service); the updater's boot-canary
+   principle applies equally to first install. RULED: install — the
+   setup step and the standalone verb — ends with the same probe
+   `status` uses and prints Installed + TEST YOUR DEVICE only when
+   the daemon is confirmed running; otherwise it prints the failure,
+   the last exit code, the log path, and the remedy. Separately:
+   root-cause the exit 2 on setup's install (a race with pairing
+   state written moments before? port still held?) — status knew, so
+   detection exists; install never asked.
+2. **TEST YOUR DEVICE printed twice** in setup — the install step's
+   own success print plus setup's completion print. One printer.
+3. **`byollm models claude fake` silently ignored its arguments** and
+   listed models as if called bare. A command handed arguments it
+   does not understand must refuse and point at the right verb
+   (`byollm model claude <name>`), never act like a different
+   command. Extra is not absent — the swallowed-argument cousin of
+   missing is not none.
+4. **An unlabeled second fingerprint** (BYOLLM-E2RN-…) prints after
+   "paired as <uuid>" in both setup and connect runs. Label what it
+   is or remove it — an unlabeled fingerprint invites a comparison
+   nobody defined, on the exact screen where one comparison is
+   sacred.
+5. Confirmed again on .70: setup AND connect run the full ceremony
+   on an already-paired machine. The re-pair update-not-replace
+   ruling (09-02 night) stands as specced; this transcript is its
+   evidence.
+
+Addendum, same night, after CCB's .70 report crossed this entry:
+CCB shipped the TEST pointer as one constant "printed only on
+success, both failure paths asserted" — and the walk transcript
+shows it printed for a service at last-exit-2. Both are true, which
+locates the bug precisely: the success predicate is wrong. It
+accepts launchctl's load, not the daemon's life — found is not
+works, one layer down. The probe must be the one `status` uses
+(which caught it), waiting for the running state, not the loader's
+exit. The double print now also has a shape: setup runs install,
+install prints the pointer, setup prints it again — when install
+runs inside setup, exactly one of them speaks. And a question for
+CCB on "the reconnect" shipped in .70: Todd's `byollm connect` on
+.70 still PRINTED the full ceremony (steps, code, fingerprint) and
+resolved to the SAME device uuid. If it auto-resolved without
+approval, the printed ceremony is theater — steps that resolve
+themselves teach people to ignore steps, on the page where one step
+is sacred. If it required approval, the reconnect didn't engage.
+Either answer is work.
+
+Diagnostic lead (Todd, same night): the failed install ran INSIDE
+setup's interactive session; the manual one ran at a bare prompt.
+That difference shouldn't matter to launchd — which is exactly why
+it's a good lead if it does (environment captured into the plist at
+generation time, or the daemon starting against a config setup was
+still writing — a race the standalone run, seconds later against a
+finished config, wouldn't hit). The evidence is already on disk:
+/Users/toddsampson/.byollm/service.log from that window holds the
+exit-2 run's own words. Read the log before theorizing.
+
+### 2026-09-03 – The vanishing pairing: revocation ruled device-scoped (P0; ruling for CCB)
+
+CCB's diagnosis, corrected and anchored on the walk transcript: the
+pairing existed after setup and was gone by `byollm status`. Between
+them, install started the daemon; the daemon deletes its pairings
+file on one answer — 403 revoked — and `revokedOutright(owner)` is
+keyed on OWNER: any revocation on record + zero live site consents
+answers revoked for EVERY device the owner has, including one paired
+thirty seconds earlier. Todd had revoked devices all week. `byollm
+run` then exits 2 silently on runners.length === 0. One cause, all
+the symptoms — my earlier install-predicate framing was the symptom
+layer; this is the disease. (CCB also corrected two of my readings:
+"paired as ff34beda…" is the OWNER id, stable across pairings — my
+"same uuid proves the hub knew the device" inference was wrong,
+identity lives on the identity: line. And CCB withdrew its own first
+root cause after finding it had inspected a DIFFERENT Mac — .65,
+other identity. Lesson both ways: evidence belongs to a machine;
+read the identity line before the theory.)
+
+RULED:
+1. **Revocation is a fact about one device, never a mood about an
+   owner.** The guard answers for the device identity presented,
+   against revocation records for THAT device. The
+   `sitesFor(owner).length > 0` short-circuit goes: a guard whose
+   answer changes with unrelated state (site consents!) is not a
+   guard — enabling a site must never be what un-revokes a machine.
+2. **On "revoked" the daemon marks, never destroys.** Deleting the
+   pairings file turns a wrong server answer into local data loss —
+   and this bug just proved the server can be wrong. Enforcement
+   lives where the authority lives: the hub refuses a revoked device
+   whatever the daemon remembers, so local deletion adds no security
+   and destroys the evidence. The daemon stops serving, keeps the
+   file, and says: "this device was revoked — re-pair to return."
+3. **The daemon never exits silently.** runners.length === 0 is a
+   sentence before it is an exit code — name the reason, every exit.
+4. **REVOCATION_IMMEDIATE is unchanged.** Device-scoping does not
+   soften it: revoking device A still stops device A on the next
+   answer. It stops stopping devices B and C.
+5. **Prover: the three-device matrix**, property-shaped, in the same
+   file that has now been wrong in both directions (empty projection
+   cost every daemon its pins; owner-keyed guard killed fresh
+   pairings): owner with revoked A + active B + fresh C → A refused,
+   B and C served; empty projection → nobody loses pins; owner with
+   revocations and NO consents → a fresh pairing still serves.
+   CCB's vanishing-pairing regression guard joins this matrix.
+
+Order: this builds FIRST, before group bootstrap — the person it
+kills is exactly the new user who revokes an experiment and re-pairs
+before enabling a site, i.e. Eric next week. Bootstrap immediately
+after; both land before Todd's next walk session. Shipped meanwhile
+and recorded: install proves the daemon runs (double probe — a boot
+crash is alive for an instant), one TEST printer, `models` refuses
+unknown args, the stray fingerprints labelled as site keys.
+
+Addendum – the hub half, ruled (Todd's call relayed by CW, 09-03):
+**Option B.** The hub had no device-level revocation signal to ask —
+that absence is WHY the guard was owner-shaped, and the fix rides
+the lockstep discipline: DeviceRecord is .strict(), so `revoked`
+enters the wire relay-first (publish relay → bump hub pin → deploy),
+exactly the ordering the wire-shapes gate exists to prove.
+
+Ruling on the gap: enforcement never lapses, not even briefly — a
+revocation unenforced is worse than a revocation misnamed. So the
+one-line interim ships TODAY: revoked devices filtered out of the
+hub's projection; a revoked device becomes unknown and meets 401.
+The daemon's mark-never-destroy makes that safe — a 401 destroys
+nothing. Two conditions:
+1. The interim is dated and dies in the SAME deploy that lands the
+   projected `revoked` — never both, never neither. A filter that
+   outlives the projection would hide revoked devices from the 403
+   path forever and the ruled sentence would never print.
+2. The three-device matrix gains its hub half once .71 lands:
+   revoked A meets 403 and the ruled sentence; B and C serve.
+Then bootstrap, per the standing order.
+
+Addendum 2 – Option B RETRACTED; the widening ruled (09-03, CW after
+CCB's stop):
+CCB checked the schema before writing the filter: RLS policy
+hub_reader_reads_live_devices (migration 0002:124) has hidden
+revoked devices from the projection since day one — revocation was
+ALWAYS device-scoped at the database, a revoked device answers 401
+today, and there never was an enforcement gap. My Option B ruling
+was made on a false premise, and the filter it ordered is the exact
+"filter that outlives the projection" hazard its own condition
+named — two hiding places, and removing one would not restore the
+403 path. Retracted with the lesson: **check that the guard you are
+routing around is actually broken — a ruling inherits its premise's
+errors.** The owner-keyed fixture guard CCB removed was a redundant
+second guard that only ever produced false positives; the RLS
+policy, untouched, was the working one.
+
+The real gap is the ruled sentence: a revoked device today is
+unknown (401), never revoked (403), so the daemon cannot print
+"this device was revoked — re-pair to return." RULED — widen, with
+four conditions:
+1. Order: publish relay with `revoked` on DeviceRecord → bump the
+   hub pin → then ONE migration + deploy that BOTH widens
+   hub_reader_reads_live_devices to `approved_at is not null` AND
+   maps revoked_at → revoked in the projection. Atomic: a revoked
+   device visible but unmarked is worse than either end state
+   (CCB's step 5, adopted verbatim).
+2. Pending devices stay invisible — the approved_at clause is not
+   touched. The widening admits exactly one new row class, to the
+   same role, for one purpose.
+3. Provers age with the contract: hub_reader.test.sql's "1 of 3"
+   flips to the new truth — live AND revoked readable, revoked
+   carrying the flag, pending still hidden (2 of 3).
+4. The admin-widening conform check records this widening as a
+   ruled exception, dated — never a drift the checker learns to
+   ignore. New migration; the applied one is not edited.
+Proceed on CCB's proposed basis: cut the release, write the hub
+half gated behind the publish. Then bootstrap.
+
+### 2026-09-03 – The .71 revocation chain: CLOSED (evidence in the hub's own logs)
+
+latest = .71; hub pinned .71 and deployed; migrations 0054 + 0055
+applied. Closing evidence: the hub's projection log went devices=4
+→ devices=7 (revoked=1) when 0055 landed — three previously hidden
+revoked devices became visible — with ZERO skipped records: every
+row parsed against the .71 schema, the lockstep holding. Deploy ran
+grant → hub deploy → widen (three steps, not the ruled two) because
+hub_reader had never been granted revoked_at and a policy widened
+before the hub maps the flag would show revoked devices UNMARKED —
+and **visible-and-unmarked reads as live**, so revocation would
+have lapsed for the rollout. CCB's split honors the ruling's intent
+over its letter; adopted. approved_at untouched throughout.
+
+Recorded from CCB's report:
+- **Typecheck does not protect the lockstep.** The hub compiled
+  clean against the old relay — the failure lives in a runtime
+  safeParse that silently drops every record. A wire proven at
+  runtime needs a runtime guard: now a test parses the projection's
+  exact object against the schema the repo pins; reverting the pin
+  fails it by name.
+- Todd's staging question ("how do I deploy just 0054?") caught
+  both migrations sitting in one tree — the ordering is about what
+  is IN the tree to be run, not when a command runs. 0055 was held
+  out until the hub deployed.
+- CCB's own pattern flag stands as written: four CI runs, every
+  failure an assertion describing one machine rather than the
+  behaviour — a check-writing pattern, not three coincidences.
+
+OWED (boarded): gate the hub→relay direction of the lockstep — the
+wire-shapes gate covers daemon→hub only, and the reverse is the
+direction that drops every device at once; and enforce
+pin-and-projection-ride-one-commit with a check — today it is a
+rule living in one head. Remaining human step: one real revoke in
+the walk to see the ruled sentence — the one path no test reaches.
+
+### 2026-09-03 – The revoke walk: the sentence exists and no surface says it (acceptance FAILED; ruled)
+
+Todd revoked todd-mbp-2023 (the confirmation modal rendered the
+ruled copy verbatim — walk-verified), upgraded to .71, ran `byollm
+install`. What he saw: install honestly refused to claim success —
+"launchd accepted the service, and the daemon is not running · not
+running (last exit 2) · retry: byollm install" — and status showed
+"state: running" above "service: installed but NOT running", with
+no mention of revoked anywhere. The install-truth gate is PROVEN
+live (the same situation printed "Done. TEST YOUR DEVICE" a day
+ago). But the ruled sentence — "this device was revoked — re-pair
+to return" — surfaced on no surface a person reads. The one path
+no test could reach, and the human witness proved it unreachable.
+
+RULED:
+1. **The revoked mark must surface wherever the person looks.**
+   Marks-never-destroys exists precisely so the surfaces can read
+   the mark: `byollm status` prints the ruled sentence AS the
+   service line; `byollm install`'s failure print reads the mark
+   and says it; `byollm run` says it in the terminal. A mark nobody
+   renders is a destroy with extra steps.
+2. **A remedy must match the cause.** `retry:` lines print only for
+   retryable states. Revoked is not retryable; the named remedy is
+   re-pairing (`byollm connect`). Printing retry-install for a
+   revocation sends the person to run the same failure again.
+3. **status must not contradict itself.** "state: running" two
+   lines above "service: NOT running" is one display holding two
+   truths — define what `state:` means, rename it, or drop it. A
+   status that disagrees with itself teaches the reader to trust
+   neither line.
+4. **A revoked daemon must not crash-loop its supervisor.** Exit(2)
+   under launchd means boot → 403 → exit → restart, forever,
+   hammering the hub. On revoked: stay alive, marked, serving
+   nothing, backing off — the sentence is its status. Exiting
+   invites the supervisor to loop it.
+
+Acceptance re-armed: on a revoked machine, `status` and a failed
+`install` both name revoked + re-pair; `byollm connect` re-pairs
+back to ONE clean dashboard row; no restart-loop in launchd's view
+while revoked. Todd re-verifies in the walk, then continues.
+
+Log evidence (Todd, minutes later): service.log tail is "No apps
+are paired yet. Run `byollm connect <url>` first." repeated many
+times. Two confirmations and one sharpener:
+- The crash-loop is real (ruling 4): launchd is restarting a
+  revoked daemon forever, each boot printing the same line.
+- "No silent exits" (.71) works — the daemon says why it exits.
+  It says the WRONG why: this machine is not un-paired, it is
+  revoked, and the zero-serving-pairings branch never consults the
+  mark before choosing its sentence. Sharpener to ruling 1:
+  empty-because-never-paired and empty-because-revoked are
+  different facts and print different sentences with different
+  remedies (connect for the first; the ruled sentence + re-pair
+  for the second). A mark the exit path does not read is still a
+  destroy with extra steps.
+
+Todd's ruling, closing the thread: the acceptance is SATISFIED on
+the half that gates — enforcement (a revoked device cannot take
+jobs) and recovery (`byollm connect` re-pairs cleanly) are both
+walk-proven. The surfacing rulings above are DEMOTED from gate to
+Batch D riders: the misnamed sentence happens to print the right
+remedy (connect is the fix for revoked), so the failure is
+confusing-but-self-healing — not a gate. What rides D: backoff
+instead of crash-loop on revoked (real fleet cost), the status
+state-line contradiction, and the revoked-vs-never-paired sentence
+(one conditional at the same branch). The revoke chain is CLOSED.

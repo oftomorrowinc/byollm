@@ -3,6 +3,7 @@ import { PassThrough } from "node:stream";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { TEST_YOUR_DEVICE } from "./test-your-device.js";
 import {
   detectInstalled,
   runSetup,
@@ -766,5 +767,118 @@ describe("an existing config with no services", () => {
     );
     expect(result.wrote).toBe(false);
     expect(io.transcript()).toContain("Setup will not change it");
+  });
+});
+
+/**
+ * A config with no services still holds the owner's settings — Batch D,
+ * pulled forward 2026-09-02.
+ *
+ * The wizard read the existing file for its `services` count and then wrote
+ * `{ services, defaults }` over the top, so every other key the owner had —
+ * `concurrency`, the community and ingress blocks — was silently deleted by a
+ * command that never said it would touch them.
+ *
+ * It only bites on a config with **zero** services, because a config with any
+ * is refused outright, which is exactly why it survived this long: the path
+ * that loses somebody's work is the one taken by people whose config an older
+ * version already left empty.
+ */
+describe("setting up over a config that has no services", () => {
+  it("keeps the settings it did not ask about", async () => {
+    const p = await paths();
+    await mkdir(p.root, { recursive: true });
+    await writeFile(
+      p.config,
+      JSON.stringify({
+        services: {},
+        // Chosen deliberately by somebody, and not a question this wizard
+        // asks. That is the whole category at risk.
+        concurrency: 3,
+      }),
+      "utf8",
+    );
+
+    const result = await runSetup(
+      p,
+      scripted(["y", "my laptop", "y", "n"]),
+      machineWith(["claude-cli"]),
+      noServers,
+      answersFine,
+    );
+
+    expect(result.wrote).toBe(true);
+    const written = JSON.parse(await readFile(p.config, "utf8")) as {
+      concurrency?: number;
+      services: Record<string, unknown>;
+    };
+    expect(written.concurrency).toBe(3);
+    // The control: the wizard's own key is still written, so this is not
+    // passing because nothing happened at all.
+    expect(Object.keys(written.services).length).toBeGreaterThan(0);
+  });
+});
+
+/**
+ * Exactly one printer for the test pointer — ruled 2026-09-03.
+ *
+ * `TEST YOUR DEVICE` appeared twice in one setup: `install` printed it on
+ * success, and setup's completion line printed it again. Two tellings of one
+ * fact, three lines apart.
+ *
+ * `install` keeps it, and not arbitrarily: since the same ruling install waits
+ * for the daemon to actually be running before it claims anything, so it is
+ * the only step that knows the sentence is true. Setup knows only that install
+ * returned zero — the weaker fact that caused the original bug, where the
+ * pointer printed for a service sitting at last-exit-2.
+ *
+ * So what is asserted here is silence, and the matching noise is asserted in
+ * `service.test.ts`, where `install` is the thing under test.
+ */
+describe("telling somebody to go and test it", () => {
+  it("does not say it itself, even when everything worked", async () => {
+    const p = await paths();
+    const io = scripted(["my laptop", "y", "y", "y"]);
+    const ran: string[][] = [];
+    const result = await runSetup(
+      p,
+      io,
+      machineWith(["claude-cli"]),
+      noServers,
+      answersFine,
+      () => Promise.resolve(true),
+      (argv) => {
+        ran.push([...argv]);
+        return Promise.resolve(0);
+      },
+    );
+
+    expect(result.running).toBe(true);
+    // It ran install — so the sentence does get printed, by the step that
+    // earned the right to print it.
+    expect(ran.map((argv) => argv[0])).toContain("install");
+    expect(io.transcript()).not.toContain(TEST_YOUR_DEVICE);
+  });
+
+  it("stays quiet when the service did not start", async () => {
+    /* The control that keeps the assertion above honest. If setup printed the
+       pointer on *every* path, the check above would still pass on a build
+       where the sentence had simply been deleted — this one fails there too,
+       for the opposite reason, only if the pointer ever reappears here. */
+    const p = await paths();
+    const io = scripted(["my laptop", "y", "y", "y"]);
+    const result = await runSetup(
+      p,
+      io,
+      machineWith(["claude-cli"]),
+      noServers,
+      answersFine,
+      () => Promise.resolve(true),
+      (argv: readonly string[]) =>
+        Promise.resolve(argv[0] === "install" ? 1 : 0),
+    );
+
+    expect(result.running).toBe(false);
+    expect(io.transcript()).not.toContain(TEST_YOUR_DEVICE);
   });
 });

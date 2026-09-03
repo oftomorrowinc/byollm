@@ -269,6 +269,39 @@ export class CodexCliBackend implements Backend {
     return { healthy: true, models: [] };
   }
 
+  /**
+   * One real, tiny call — the half of the auth gate codex never had.
+   *
+   * `health()` runs `--version`, which answers "is the binary here" and was
+   * never the question. Without a `canary` the detector returns
+   * `answers: undefined` — *not asked* — and that is deliberately not `false`
+   * everywhere it is read, so a signed-out codex sailed through `byollm
+   * setup`, through `connect`, and through `byollm model`, and every job it
+   * was given failed.
+   *
+   * The gate that stops a logged-out Claude has named codex in its copy since
+   * the day it shipped. This is the method that makes the sentence true.
+   *
+   * Identical in shape to the claude backend's, and deliberately so: one
+   * definition of "can it answer", which is a real call and not a version
+   * string. It costs a handful of tokens against the owner's own
+   * subscription, at setup and at daemon start rather than per heartbeat.
+   */
+  async canary(model: string): Promise<BackendHealth> {
+    const result = await this.execute({
+      model,
+      prompt: "Reply with the single word: ok",
+      timeoutMs: 30_000,
+      // Enough for a word and a newline, and small enough that a chatty
+      // model's answer cannot make this expensive.
+      maxOutputBytes: 256,
+      signal: new AbortController().signal,
+    });
+    return result.ok
+      ? { healthy: true, models: [] }
+      : { healthy: false, models: [], detail: result.message };
+  }
+
   async execute(request: BackendRequest): Promise<BackendResult> {
     const started = Date.now();
     const result = await runProcessJob({

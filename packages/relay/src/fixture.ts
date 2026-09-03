@@ -179,6 +179,22 @@ export const DeviceRecord = z
     runnerId: z.string().min(1),
     /** The keys a human compared a fingerprint of before approving. */
     device: PublicIdentity,
+    /**
+     * Whether this device — this one — has been revoked.
+     *
+     * Optional because a control plane that predates it says nothing, and
+     * saying nothing must read as "not revoked": the alternative is a missing
+     * field stopping every device on the fleet, which is the failure mode this
+     * whole entry exists to end.
+     *
+     * Device-scoped by ruling (2026-09-03). Revocation used to be answered
+     * from the owner's route-revocation list, so an account with any
+     * revocation on record and no live site consents refused **every** device
+     * it owned — including one paired thirty seconds earlier, whose daemon
+     * then deleted its own pairings file. Revoking an experiment and pairing a
+     * replacement, which is the ordinary first hour, killed the replacement.
+     */
+    revoked: z.boolean().optional(),
   })
   .strict();
 export type DeviceRecord = z.infer<typeof DeviceRecord>;
@@ -357,28 +373,39 @@ export class Projection {
   }
 
   /**
-   * Has this owner's relationship *ended* — V1-2?
+   * Has *this device* been revoked — ruled 2026-09-03?
    *
-   * Not "is there nothing to serve". Those were one question until the pre-v1
-   * review pulled them apart, and the difference is a machine's pinned keys:
-   * an empty answer made the daemon stop, cancel everything and **delete its
-   * pairings file**, so a projection that arrived empty or half-written — one
-   * bad control-plane push — cost every daemon its pins and every user a
-   * re-pair they never asked for.
+   * This method has now been wrong in both directions, which is why it reads
+   * the way it does.
    *
-   * Revocation is a thing somebody did, and this asks for the evidence of it:
-   * a revocation record for this owner, and nothing left standing. A
-   * projection that simply knows nothing says nothing — the relay answers
-   * normally, the daemon serves nobody, and the pairing survives to be
-   * correct again when the next push lands.
+   * First it answered "is there nothing to serve", so an empty or half-written
+   * projection was indistinguishable from a human's decision and cost every
+   * daemon its pinned keys. The fix asked for evidence — a revocation on
+   * record — but asked it of the **owner**, and added
+   * `sitesFor(owner).length > 0` as a softener. That produced the opposite
+   * failure: an account with any revocation and no live consents refused every
+   * device it had, one paired seconds ago included.
    *
-   * The `revoked` list exists precisely for this and was consulted by
-   * nothing. Its own doc said why: "the row is gone" and "the row was
-   * revoked" are different answers, and only one of them is a decision.
+   * So: revocation is a fact about one device, never a mood about an owner.
+   * This looks up the device that signed the request and reports what the
+   * control plane says about *it*.
+   *
+   * The softener is gone with it. A guard whose answer changes with unrelated
+   * state is not a guard — enabling a site must never be the thing that
+   * un-revokes a machine, and under the old shape it was exactly that.
+   *
+   * A projection that knows nothing about a runner still says nothing here;
+   * `deviceFor` is what refuses an unknown one, with 401, which is a different
+   * sentence for a different situation.
+   *
+   * REVOCATION_IMMEDIATE is untouched: revoking device A still stops A on its
+   * next call. It stops stopping B and C.
    */
-  revokedOutright(owner: string): boolean {
-    if (this.sitesFor(owner).length > 0) return false;
-    return this.#fixture.revoked.some((record) => record.owner === owner);
+  revokedDevice(runnerId: string): boolean {
+    const device = this.#fixture.devices.find(
+      (record) => record.runnerId === runnerId,
+    );
+    return device?.revoked === true;
   }
 
   /** Whether this pair is consented and paused — what heartbeat reports. */

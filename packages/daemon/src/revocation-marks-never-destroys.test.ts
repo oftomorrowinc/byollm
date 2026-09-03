@@ -10,18 +10,27 @@ import { Pairings } from "./pairings.js";
 import { removeTemp } from "./test-support.js";
 
 /**
- * Revocation is durable on this side too — cloud_008 §2.3, finding 24.
+ * On "revoked" the daemon marks, never destroys — ruled 2026-09-03.
  *
- * The daemon stopped on revocation and said so, and left the pinned site key
- * on disk. `byollm run` came back tomorrow and tried to reconnect to a site
- * that had withdrawn consent — refused, correctly, but the machine still held
- * a key for a relationship that had ended, and `byollm list` still showed the
- * pairing. Revocation is the site saying it is over; only one side was
- * remembering that.
+ * This file used to assert the opposite, for a reason that read well:
+ * revocation is the upstream saying it is over, and a machine still holding a
+ * pinned key for a dead relationship is one side failing to remember.
+ *
+ * The walk proved what that costs. An owner-scoped guard in the relay answered
+ * 403 revoked to devices nobody had revoked — including one paired thirty
+ * seconds earlier — and every one of them deleted its own pairings file on the
+ * way down. A wrong server answer became local data loss, and the evidence
+ * went with it: `byollm status` said "paired apps (none)", the service exited
+ * 2, and nothing anywhere said why.
+ *
+ * Deleting bought no safety. Enforcement lives where the authority is — the
+ * hub refuses a revoked device whatever this file remembers — so the local
+ * copy protects nothing, and its absence explains nothing. The daemon stops
+ * serving, keeps the file, and says so. `byollm forget` still exists for
+ * somebody who means it.
  *
  * Driven through the CLI against a real server, because that is where the
- * wiring is. A unit test of `Pairings.remove` would have passed all along —
- * the method was always there, and nothing called it.
+ * wiring is.
  */
 
 let home: string;
@@ -114,7 +123,7 @@ describe("a revoked daemon", () => {
    * trimmed until it fits a default is a test that stops being able to notice
    * that again.
    */
-  it("drops the pairing rather than keeping a key for a dead relationship", async () => {
+  it("stops serving, keeps the pairing, and says which", async () => {
     await writeConfig();
     await revokingServer();
     const pairings = new Pairings(paths.pairings);
@@ -148,10 +157,16 @@ describe("a revoked daemon", () => {
     });
     const after = new Pairings(paths.pairings);
     await after.load();
-    expect(after.get(origin)).toBeUndefined();
-    // And the user is told what happened and how to undo it — a pairing that
-    // vanishes silently is indistinguishable from one that broke.
-    expect(out).toContain("pairing dropped");
+    // Kept. The server said stop; it did not say forget, and it is not
+    // always right — that is the whole ruling.
+    expect(
+      after.get(origin),
+      "a wrong server answer must not destroy local data",
+    ).toBeDefined();
+    // And the person is told what happened and how to come back. A device
+    // that goes quiet without a sentence is indistinguishable from one that
+    // broke.
+    expect(out).toContain("revoked");
     expect(out).toContain("byollm connect");
   }, 20_000);
 

@@ -390,9 +390,16 @@ describe("revocation does not wait for a heartbeat", () => {
     disposers.push(daemon.dispose);
 
     await connector.enqueue({ prompt: "after revocation", owner: "alice" });
+    /* The device itself, not a route the owner happens to have revoked —
+       ruled 2026-09-03. What this case is about is unchanged: revocation must
+       bite on a claim that arrives without a heartbeat first. */
     relay.project({
       ...fixture,
-      revoked: [{ owner: "alice", siteId: SITE_ID }],
+      devices: fixture.devices.map((record) =>
+        record.runnerId === daemon.runnerId
+          ? { ...record, revoked: true }
+          : record,
+      ),
     });
 
     // A claim signed correctly by a device whose consent was just withdrawn,

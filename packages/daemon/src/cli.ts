@@ -1,3 +1,4 @@
+import { access } from "node:fs/promises";
 import { backendVerifier, listModels, setModel, showModel } from "./model.js";
 import { createBackend } from "./backends/index.js";
 import { mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
@@ -11,6 +12,13 @@ import { fingerprint } from "@byollm/protocol";
 import { normalizeOrigin, UnusableOrigin } from "./origins.js";
 import { Budgets } from "./budgets.js";
 import { ClientError, ProtocolClient } from "./client.js";
+import {
+  REVOKED_SENTENCE,
+  clearRevokedMark,
+  revokedMark,
+  revokedRemedy,
+} from "./revoked.js";
+import { TEST_YOUR_DEVICE } from "./test-your-device.js";
 import { diagnoseRoute } from "./diagnose.js";
 import { DaemonConfig, loadConfig } from "./config.js";
 import { connect } from "./connect.js";
@@ -22,15 +30,18 @@ import { SpentGrants } from "./spent-grants.js";
 import { daemonPaths, type DaemonPaths } from "./paths.js";
 import { Runner, type RunnerEvent } from "./runner.js";
 import {
+  installedProgram,
   installService,
   serviceState,
   spawnCommand,
   uninstallService,
   type CommandRunner,
+  type ServiceState,
 } from "./install.js";
 import {
   serviceIsInstalled,
   servicePlan,
+  type ServicePlan,
   type ServicePlatform,
   type ServiceTarget,
 } from "./service.js";
@@ -159,6 +170,34 @@ export async function runCli(
     case "services":
       return commandServices(paths, io, service);
     case "models":
+      /**
+       * Extra is not absent — ruled 2026-09-03.
+       *
+       * `byollm models claude fake` listed every service's model and exited
+       * zero, exactly as if it had been called bare. The arguments were
+       * dropped on the floor, so a command that was asked to *set* a model
+       * answered by *listing* them, and reported success for work it never
+       * did.
+       *
+       * This is the swallowed-argument cousin of the family this project
+       * keeps meeting: `undefined` is not `false`, an unreadable answer is
+       * not a negative one, and a request nobody understood is not a request
+       * nobody made. A verb handed arguments it has no use for must say so
+       * and point at the verb that does — never quietly behave like a
+       * different command.
+       */
+      if (rest.length > 0) {
+        io.err(
+          `byollm models takes no arguments, and got ` +
+            `${rest.map((arg) => JSON.stringify(arg)).join(" ")}.\n\n` +
+            `  byollm models                  every service and its model\n` +
+            `  byollm model ${rest[0] ?? "<service>"}${
+              rest[1] === undefined ? "" : ` ${rest[1]}`
+            }   ` +
+            `${rest[1] === undefined ? "one service, and what it accepts" : "check that model, then use it"}\n`,
+        );
+        return 2;
+      }
       return listModels(paths.config, io).then((r) => r.code);
     case "model":
       return commandModel(paths, rest, io);
@@ -189,6 +228,14 @@ export interface ServiceIo {
   readonly run: CommandRunner;
   readonly home?: string;
   readonly uid?: number;
+  /**
+   * How install waits between probes while confirming the daemon came up.
+   *
+   * Injected for the same reason `run` is: the confirmation is a real poll
+   * with real delays, and a suite that spends six seconds proving it is a
+   * suite somebody starts skipping.
+   */
+  readonly wait?: (ms: number) => Promise<void>;
 }
 
 /**
@@ -240,8 +287,19 @@ async function commandInstall(
   const result = await installService(
     serviceTarget(paths, service),
     service.run,
+    service.wait ?? ((ms) => new Promise((r) => setTimeout(r, ms))),
+    (await revokedMark(paths.health)) !== undefined,
   );
   for (const line of result.lines) (result.ok ? io.out : io.err)(`${line}\n`);
+  /**
+   * The same moment, reached the other way.
+   *
+   * `byollm setup` ends here for most people, but somebody who paired earlier
+   * and ran `byollm install` on its own has arrived at exactly the point where
+   * the device is running and the promise becomes true — and had nothing
+   * telling them so. One sentence, one definition, both callers.
+   */
+  if (result.ok) io.out(`\n${TEST_YOUR_DEVICE}\n`);
   return result.ok ? 0 : 1;
 }
 
@@ -267,21 +325,79 @@ async function commandUninstall(
  * one that looks fine from the dashboard and serves nothing.
  */
 async function supervisionLine(
-  paths: DaemonPaths,
-  service: ServiceIo,
+  plan: ServicePlan,
+  state: ServiceState,
+  revoked: boolean,
 ): Promise<string> {
-  const plan = servicePlan(serviceTarget(paths, service));
-  const state = await serviceState(plan, service.run);
   switch (state.state) {
     case "running":
       return `service: running under ${plan.supervisor}\n`;
-    case "installed":
+    case "installed": {
+      /**
+       * And say *why*, when the file on disk can say it.
+       *
+       * "(last exit 2)" is a number somebody has to interpret, and the walk
+       * showed what that costs: a device on rosters, serving nothing, and a
+       * log full of routine lines because the failure was never in the log —
+       * launchd could not start the program at all.
+       *
+       * The unit records absolute paths to the node that installed it. Under
+       * a version manager those belong to one node version, so an ordinary
+       * node upgrade leaves a service pointing at a binary that is gone. That
+       * is invisible from every surface here, and it is one `stat` away from
+       * being the first thing this line says.
+       */
+      /**
+       * A revoked device is not a broken install — ruled 2026-09-03.
+       *
+       * "on rosters and serving nothing. See <log>" is the right sentence for
+       * a daemon that will not start, and the wrong one for a daemon that has
+       * been told to stop: it sends somebody to read a log that says exactly
+       * what the line above already said, and it implies something on this
+       * machine needs fixing. Nothing here does. The headline has named the
+       * cause and the remedy, so this line stops competing with it.
+       */
+      if (revoked) {
+        return `service: installed, not serving — ${REVOKED_SENTENCE}.\n`;
+      }
+      const program = await installedProgram(plan);
+      const gone =
+        program === null || program.exists
+          ? ""
+          : `\n  the program it runs is missing: ${program.path}\n` +
+            `  (the node it was installed with was removed or upgraded — ` +
+            `\`byollm install\` records the current one)\n`;
       return (
         `service: installed but NOT running (${state.detail}) — ` +
-        `this device is on rosters and serving nothing. See ${plan.logPath}\n`
+        `this device is on rosters and serving nothing. See ${plan.logPath}\n` +
+        gone
       );
-    case "absent":
+    }
+    case "absent": {
+      /**
+       * "Not installed" is wrong on a machine that autostarts — 2026-09-02.
+       *
+       * `serviceState` asks the supervisor. On Windows the supervisor is
+       * Task Scheduler, and every install had fallen to the Startup folder
+       * instead — so `schtasks` truthfully reported nothing, and this line
+       * told somebody whose daemon starts at every logon that jobs only run
+       * while a terminal is open.
+       *
+       * The file is the evidence the supervisor cannot give. It says less
+       * than a running check — a Startup entry means it will start, not that
+       * it is up — and saying less accurately beats saying more wrongly.
+       */
+      const fallback = plan.fallback;
+      if (fallback !== undefined && (await exists(fallback.unitPath))) {
+        return (
+          `service: starting from ${fallback.supervisor} at logon, not ` +
+          `under ${plan.supervisor}\n` +
+          `  ${fallback.caveat}\n` +
+          `  startup: ${fallback.unitPath}\n`
+        );
+      }
       return `service: not installed — jobs only run while \`byollm run\` is open (\`byollm install\` fixes that)\n`;
+    }
   }
 }
 
@@ -479,44 +595,36 @@ async function commandConnect(
   const origin = normalizeOrigin(connectTarget(args));
 
   /**
-   * Already paired? Say so before starting a ceremony — 2026-08-26.
+   * The stored credential IS the device — ruled 2026-09-02 (byollm_016).
    *
-   * `connect` mints a code, prints it, and polls for ten minutes. Todd ran it
-   * while already paired, read the docs, and typed the code after it had
-   * expired — a failure that was entirely avoidable, because he did not need
-   * to pair at all.
+   * This used to say "already paired with …" and then ask `Pair again?`, and
+   * a yes ran the whole ceremony: new code, new approval, new fingerprint
+   * compare. Two things were wrong with it.
    *
-   * The check has to *inform* rather than refuse: re-pairing is sometimes
-   * exactly right, and it is how a device that predates roster sync gets the
-   * control-plane key. So it says what this pairing already has, which is the
-   * question somebody is actually asking when they run this.
+   * The first is that the ceremony could not succeed. The dashboard inserts a
+   * device row keyed on the fingerprint of this machine's identity key, and
+   * that key is stable — `DeviceIdentity` mints one only when the file is
+   * absent. So re-pairing the same machine hits the unique index, comes back
+   * `23505`, and the screen says "that device's keys are already registered
+   * on an account". The daemon, meanwhile, polls until the code expires. The
+   * flow's happy path was a dead end.
+   *
+   * The second is worse and is why this is ruled rather than tidied: **a
+   * ceremony repeated becomes a habit, and a habit is not a comparison.** The
+   * fingerprint check is load-bearing precisely because it is rare. Asking
+   * for it on every routine re-run trains the person to approve without
+   * looking, which is a security regression wearing a UX complaint.
+   *
+   * So the credential is presented first. Found is not works, so it is
+   * *probed* rather than assumed — one real signed heartbeat, which is the
+   * same call this daemon makes every ten seconds anyway. The hub recognising
+   * it is a session, not a ceremony.
    */
   const existing = await (async () => {
     const pairings = new Pairings(paths.pairings);
     await pairings.load();
     return pairings.get(origin);
   })();
-  if (existing !== undefined) {
-    io.out(
-      `${wrap(
-        `This device is already paired with ${origin} as ` +
-          `${existing.ownerLabel ?? existing.owner}, serving ` +
-          `${String(Object.keys(existing.sites).length)} site(s).`,
-      )}\n\n` +
-        `${wrap(
-          existing.controlPlanePublic === undefined
-            ? "It holds no control-plane key, so it cannot take part in team " +
-                "routing. Re-pairing is how it gets one."
-            : "It already holds a control-plane key, so team routing works. " +
-                "Re-pairing will not change that.",
-        )}\n\n`,
-    );
-    const again = await io.confirm(`Pair with ${origin} again?`);
-    if (!again) {
-      io.out("Nothing changed.\n");
-      return 0;
-    }
-  }
 
   const { loaded, ingress, budgets, spend, spentGrants } = await context(paths);
 
@@ -589,6 +697,80 @@ async function commandConnect(
         "Pairing anyway — work starts arriving on its own once a service can\n" +
         "answer. `byollm status` says where each one stands.\n",
     );
+  }
+
+  /**
+   * Present the stored credential, and see whether the hub still knows it.
+   *
+   * Placed after detection so the heartbeat carries this device's real
+   * capabilities: a reconnect that also refreshes what the hub knows is worth
+   * more than one that only says hello, and `connect` has already paid for
+   * the probe by this point.
+   *
+   * The three outcomes are deliberately not two.
+   *
+   * - Accepted: a session. Print what it reconnected as and stop. Nothing on
+   *   the dashboard changes, and no fingerprint is compared, because nothing
+   *   about this device's identity is new.
+   * - Refused by name — revoked, or a runner this hub does not know: the
+   *   credential is genuinely spent, and pairing is the right next step. Said
+   *   out loud first, because "we are pairing again" needs a reason.
+   * - Could not ask: **not a refusal.** An unreachable hub, a timeout, a
+   *   clock too far off. Falling through to a ceremony here would ask
+   *   somebody to re-approve a machine over a wifi problem, and would mint a
+   *   pairing attempt that cannot land anyway. This is the same law as the
+   *   control plane's polls and the release gate's exit 4: an unreadable
+   *   answer is not a negative answer.
+   */
+  if (existing !== undefined) {
+    const identity = new DeviceIdentity(paths.keys);
+    const asStored = client.withIdentity({
+      runnerId: existing.runnerId,
+      sign: (input) => identity.signRequest(input),
+    });
+    io.out(`\nChecking this device's existing connection to ${origin}\n`);
+    try {
+      await asStored.heartbeat({
+        runnerId: existing.runnerId,
+        daemonVersion: DAEMON_VERSION,
+        capabilities,
+        activeLeases: [],
+        // Truthfully, never `false` for convenience: a probe that reported an
+        // unpaused device would silently resume routing to a machine whose
+        // owner had paused it.
+        paused: await isPaused(paths),
+      });
+      const when = new Date(existing.pairedAt).toISOString().slice(0, 10);
+      io.out(
+        `\n  Connected as ${await labelFor(paths, name)} (paired ${when}).\n` +
+          `  Nothing to approve — this device was already known here.\n`,
+      );
+      return 0;
+    } catch (error) {
+      const spent =
+        error instanceof ClientError &&
+        (error.kind === "revoked" || error.kind === "unauthorized");
+      if (!spent) {
+        const detail = error instanceof Error ? error.message : String(error);
+        io.err(
+          `\n  Could not check this device's connection to ${origin}.\n` +
+            `  ${detail}\n\n` +
+            `${wrap(
+              "  This device is still paired and nothing was changed. That is " +
+                "not the same as being refused, so it has not been re-paired: " +
+                "try again when the connection is back.",
+            )}\n`,
+        );
+        return 1;
+      }
+      io.out(
+        `\n${wrap(
+          `  This device's pairing with ${origin} is no longer accepted ` +
+            `(${error instanceof ClientError ? error.kind : "refused"}), so ` +
+            `it needs approving again.`,
+        )}\n`,
+      );
+    }
   }
 
   io.out(`\nConnecting to ${origin}\n`);
@@ -682,6 +864,20 @@ async function commandConnect(
   reportSkipped(pairings, io);
   await pairings.put(result.pairing);
 
+  /**
+   * The mark is cleared by the thing that fixes it.
+   *
+   * A revoked device that re-pairs is not revoked, and a mark that outlived
+   * its own remedy would be a machine told it cannot serve while it serves —
+   * the same class of lie as a status line that outlives the consent it
+   * reports.
+   *
+   * Written through the health file's own writer so the rest of the record
+   * survives: this clears one field, it does not reset what the daemon knows
+   * about its upstream.
+   */
+  await clearRevokedMark(paths.health);
+
   io.out(` paired as ${result.pairing.ownerLabel ?? result.pairing.owner}\n`);
   // The keys this machine just pinned, printed where somebody can still
   // compare them. The approval happened in a browser, so this is the first
@@ -697,8 +893,32 @@ async function commandConnect(
   // Derived from the pinned key rather than taken from the map key: the value
   // on screen should be computed from the material it describes, so what
   // somebody compares by eye is the key itself and not a label beside it.
-  for (const site of Object.values(result.pairing.sites)) {
-    io.out(`   ${fingerprint(site.identity)}\n`);
+  /**
+   * Labelled, and labelled as *not this device* — ruled 2026-09-03.
+   *
+   * These printed bare, indented, immediately under "paired as <id>". Todd
+   * read them as a second fingerprint for this machine and asked what he was
+   * meant to compare them against.
+   *
+   * Nothing, is the answer: they are the keys of the sites this pairing
+   * covers. But the question was the right one to ask, on the one screen
+   * where a fingerprint comparison is the whole security model. An unlabelled
+   * fingerprint there invites a comparison nobody defined, and a person who
+   * compares the wrong pair once and finds no match learns that the
+   * comparison is noise.
+   *
+   * `pinned:` is the word `byollm status` already uses for the same list —
+   * one vocabulary — and the heading says whose keys these are.
+   */
+  const pinned = Object.values(result.pairing.sites);
+  if (pinned.length > 0) {
+    io.out(
+      `   sites this pairing covers — site keys, not this device's ` +
+        `fingerprint:\n`,
+    );
+    for (const site of pinned) {
+      io.out(`     pinned: ${fingerprint(site.identity)}\n`);
+    }
   }
   /* Nothing pinned yet is the normal first install: you pair before you have
      connected anything, because there is nothing to connect a site to
@@ -755,8 +975,11 @@ async function commandRun(
       : [normalizeOrigin(target)];
 
   if (origins.length === 0) {
-    io.err("No apps are paired yet. Run `byollm connect <url>` first.\n");
-    return 2;
+    // The branch Todd's service log repeated all evening, for a machine that
+    // was paired and had been revoked. It is the *first* of two that can find
+    // nothing to serve, and it was the one being reached — which is why the
+    // decision lives in one function now rather than beside each `return`.
+    return nothingToServe(paths, io, signal);
   }
   return runLoop(paths, origins, io, signal);
 }
@@ -850,11 +1073,92 @@ async function retireAllowlist(paths: DaemonPaths, io: CliIo): Promise<void> {
   await rm(paths.allowlist, { force: true });
 }
 
+/**
+ * There is nothing to serve, and why that is decides everything after it.
+ *
+ * Two call sites reach this — no pairings at all, and pairings that all
+ * skipped — and before tonight each wrote its own sentence. One of them said
+ * "No apps are paired yet" to a machine that was paired and revoked. Todd read
+ * it on repeat in his service log while launchd restarted the daemon behind
+ * it.
+ *
+ * ## Three decisions, and they are separable
+ *
+ * **What is true.** Empty-because-revoked and empty-because-never-paired are
+ * different facts. Both remedies happen to be `connect`, which is exactly why
+ * the wrong sentence survived so long: it sent people somewhere useful by
+ * luck, and read as "your setup never finished" to somebody whose setup
+ * finished weeks ago.
+ *
+ * **What to say.** The ruled sentence for the first, the connect instructions
+ * for the second.
+ *
+ * **Whether to exit.** Exiting invites a supervisor to start us again, and
+ * launchd obliges every ten seconds: boot, refused, exit, boot — each turn a
+ * request the hub answers only to say no again. Revocation is not transient
+ * and no backoff makes hammering it correct, so under a supervisor the
+ * process stays up, marked, serving nothing. Interactively it exits, because
+ * somebody who typed `byollm run` wants their prompt back and a command that
+ * hangs after explaining itself is its own small cruelty.
+ */
+async function nothingToServe(
+  paths: DaemonPaths,
+  io: CliIo,
+  signal?: AbortSignal,
+  supervised = !process.stdout.isTTY,
+): Promise<ExitCode> {
+  const mark = await revokedMark(paths.health);
+  if (mark === undefined) {
+    io.err(
+      "No app is paired, so there is nothing to serve — this device will " +
+        "appear on rosters and answer nothing.\n" +
+        "  byollm connect <url>   pair this device\n" +
+        "  byollm status          what this device believes right now\n",
+    );
+    return 2;
+  }
+
+  io.err(
+    `${REVOKED_SENTENCE}.\n` +
+      `  ${mark.origin} no longer accepts this device's credential, so ` +
+      `there is nothing to serve.\n` +
+      revokedRemedy(mark.origin),
+  );
+  if (!supervised) return 2;
+
+  // Marked and waiting. `byollm connect` ends it, which is the remedy anyway;
+  // so does stopping the service.
+  await new Promise<void>((resolve) => {
+    if (signal === undefined || signal.aborted) {
+      resolve();
+      return;
+    }
+    signal.addEventListener("abort", () => {
+      resolve();
+    });
+  });
+  return 0;
+}
+
 async function runLoop(
   paths: DaemonPaths,
   origins: readonly string[],
   io: CliIo,
   signal?: AbortSignal,
+  /**
+   * Is something restarting us if we exit?
+   *
+   * A TTY, because that is the difference that matters and it needs no
+   * configuration to be true on machines installed before this existed:
+   * launchd, systemd and Task Scheduler all run us without one, and a person
+   * at a prompt always has one. The cost is that `byollm run | tee log`
+   * interactively looks supervised — it would wait rather than return, on a
+   * revoked machine, which is the same thing the supervisor case wants and a
+   * Ctrl-C away from over.
+   *
+   * Injected so the tests can be either.
+   */
+  supervised = !process.stdout.isTTY,
 ): Promise<ExitCode> {
   const { loaded, ingress, budgets, spend, spentGrants } = await context(paths);
   const identity = new DeviceIdentity(paths.keys);
@@ -964,28 +1268,44 @@ async function runLoop(
         // Not awaited: an event handler that throws would take down a runner
         // that has already stopped, and a pairing file that cannot be written
         // is worth a message rather than a crash.
+        /**
+         * Mark, never destroy — ruled 2026-09-03.
+         *
+         * This deleted the pairing from disk. That turned a wrong server
+         * answer into local data loss, and the bug that produced this ruling
+         * is the proof that the answer can be wrong: an owner-scoped guard
+         * refused devices that had never been revoked, and each one deleted
+         * its own pairing on the way down. A device paired thirty seconds
+         * earlier lost its pins and its owner lost the evidence.
+         *
+         * Deleting bought no safety. Enforcement lives where the authority
+         * is: the hub refuses a revoked device whatever this file remembers,
+         * so the local copy protects nothing and its absence explains
+         * nothing. `byollm forget` still exists for somebody who means it.
+         *
+         * The runner has already stopped serving by the time this fires —
+         * `#revokedBy` sets `#stopped` and cancels everything — so what is
+         * left to do is say so.
+         */
         if (event.type === "revoked") {
-          void pairings
-            .remove(origin)
-            .then(() => {
-              io.out(
-                `${new URL(origin).host} pairing dropped — ` +
-                  "reconnect with `byollm connect`\n",
-              );
-            })
-            .catch((error: unknown) => {
-              io.err(
-                `could not drop the pairing for ${origin}: ` +
-                  `${error instanceof Error ? error.message : "unknown error"}\n`,
-              );
-            });
+          io.out(
+            `${new URL(origin).host} says this device was revoked. ` +
+              `It has stopped serving.\n` +
+              `  The pairing is kept, not deleted — re-pair to return:\n` +
+              `    byollm connect ${origin}\n`,
+          );
         }
       },
     });
     runners.push(runner);
   }
 
-  if (runners.length === 0) return 2;
+  if (runners.length === 0) {
+    // Every origin that got here was skipped for a reason already said out
+    // loud above; `nothingToServe` supplies the consequence and decides
+    // whether exiting would hand the supervisor a loop.
+    return nothingToServe(paths, io, signal, supervised);
+  }
 
   // Leases are released on the way out, so the app sees work return to the
   // queue at once instead of waiting for a lease to lapse.
@@ -1191,9 +1511,49 @@ async function commandStatus(
   const health = await readHealth(paths.health);
   const failing =
     health !== undefined && health.consecutiveFailures >= FAILURES_BEFORE_ALARM;
+
+  /**
+   * The supervisor's answer, asked once and used twice — ruled 2026-09-03.
+   *
+   * `state:` printed `running` two lines above `service: installed but NOT
+   * running`. One display holding two truths, and a status that disagrees
+   * with itself teaches the reader to trust neither line.
+   *
+   * The cause was that this headline consulted the pause flag and the health
+   * file and never the supervisor, so it was answering a narrower question
+   * than the word `state` promises. It is meant to answer "is this device
+   * working", and a device whose service is dead is not working.
+   *
+   * `absent` does not demote it: no service registered is the ordinary shape
+   * of `byollm run` in a terminal, which is working fine.
+   */
+  const plan = servicePlan(serviceTarget(paths, service));
+  const supervision = await serviceState(plan, service.run);
+  const revoked = await revokedMark(paths.health);
+
   io.out(
-    `state: ${paused ? "PAUSED" : failing ? "NOT REPORTING" : "running"}\n`,
+    `state: ${
+      revoked !== undefined
+        ? "REVOKED"
+        : paused
+          ? "PAUSED"
+          : supervision.state === "installed"
+            ? "NOT RUNNING"
+            : failing
+              ? "NOT REPORTING"
+              : "running"
+    }\n`,
   );
+  if (revoked !== undefined) {
+    /* The ruled sentence, as the headline's own explanation. Everything below
+       it on this screen describes a device that is not going to serve
+       anything until it is paired again. */
+    io.out(
+      `  ${REVOKED_SENTENCE}.\n` +
+        `  ${revoked.origin} no longer accepts this device's credential.\n` +
+        revokedRemedy(revoked.origin),
+    );
+  }
   if (failing) {
     io.out(
       `  the hub has rejected this device's last ` +
@@ -1207,7 +1567,7 @@ async function commandStatus(
         `been told.\n`,
     );
   }
-  io.out(await supervisionLine(paths, service));
+  io.out(await supervisionLine(plan, supervision, revoked !== undefined));
   io.out("\n");
 
   io.out("paired apps\n");
@@ -2285,4 +2645,12 @@ export async function main(argv: readonly string[]): Promise<ExitCode> {
     );
     return 1;
   }
+}
+
+/** Whether a path is there at all — the fallback leaves no other trace. */
+async function exists(path: string): Promise<boolean> {
+  return access(path).then(
+    () => true,
+    () => false,
+  );
 }

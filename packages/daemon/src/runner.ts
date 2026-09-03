@@ -1306,6 +1306,21 @@ export class Runner {
     this.#revoked = true;
     this.#stopped = true;
     this.cancelAll();
+    /**
+     * Written down, because every surface that will be asked about this is a
+     * different process.
+     *
+     * The runner stops here and the person finds out somewhere else entirely
+     * — `byollm status` tomorrow morning, or a failed `install`. Neither can
+     * see this object. Not awaited for the reason the caller's handler gives:
+     * a file that cannot be written is worth a message rather than taking
+     * down a runner that has already stopped.
+     */
+    void this.#recordHealth().catch(() => {
+      // A health file that cannot be written is a diagnostic that failed, not
+      // a reason to take down a runner that has already stopped. The surfaces
+      // will fall back to saying less rather than saying something wrong.
+    });
     this.#options.onEvent?.({ type: "revoked" });
     return true;
   }
@@ -1349,6 +1364,14 @@ export class Runner {
         ? {}
         : { lastError: this.#lastUpstreamError }),
       origin: this.#options.client.origin,
+      ...(this.#revoked
+        ? {
+            revoked: {
+              at: this.#now(),
+              origin: this.#options.client.origin,
+            },
+          }
+        : {}),
     });
   }
 

@@ -6900,3 +6900,41 @@ nothing. Two conditions:
 2. The three-device matrix gains its hub half once .71 lands:
    revoked A meets 403 and the ruled sentence; B and C serve.
 Then bootstrap, per the standing order.
+
+Addendum 2 – Option B RETRACTED; the widening ruled (09-03, CW after
+CCB's stop):
+CCB checked the schema before writing the filter: RLS policy
+hub_reader_reads_live_devices (migration 0002:124) has hidden
+revoked devices from the projection since day one — revocation was
+ALWAYS device-scoped at the database, a revoked device answers 401
+today, and there never was an enforcement gap. My Option B ruling
+was made on a false premise, and the filter it ordered is the exact
+"filter that outlives the projection" hazard its own condition
+named — two hiding places, and removing one would not restore the
+403 path. Retracted with the lesson: **check that the guard you are
+routing around is actually broken — a ruling inherits its premise's
+errors.** The owner-keyed fixture guard CCB removed was a redundant
+second guard that only ever produced false positives; the RLS
+policy, untouched, was the working one.
+
+The real gap is the ruled sentence: a revoked device today is
+unknown (401), never revoked (403), so the daemon cannot print
+"this device was revoked — re-pair to return." RULED — widen, with
+four conditions:
+1. Order: publish relay with `revoked` on DeviceRecord → bump the
+   hub pin → then ONE migration + deploy that BOTH widens
+   hub_reader_reads_live_devices to `approved_at is not null` AND
+   maps revoked_at → revoked in the projection. Atomic: a revoked
+   device visible but unmarked is worse than either end state
+   (CCB's step 5, adopted verbatim).
+2. Pending devices stay invisible — the approved_at clause is not
+   touched. The widening admits exactly one new row class, to the
+   same role, for one purpose.
+3. Provers age with the contract: hub_reader.test.sql's "1 of 3"
+   flips to the new truth — live AND revoked readable, revoked
+   carrying the flag, pending still hidden (2 of 3).
+4. The admin-widening conform check records this widening as a
+   ruled exception, dated — never a drift the checker learns to
+   ignore. New migration; the applied one is not edited.
+Proceed on CCB's proposed basis: cut the release, write the hub
+half gated behind the publish. Then bootstrap.

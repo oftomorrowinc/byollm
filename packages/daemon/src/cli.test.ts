@@ -1326,3 +1326,53 @@ describe("offering a cloud-tagged service to a team", () => {
     }
   });
 });
+
+/**
+ * A verb handed arguments it does not understand refuses — ruled 2026-09-03.
+ *
+ * `byollm models claude fake` listed every service's model and exited zero,
+ * exactly as if called bare. The arguments were dropped, so a command asked to
+ * *set* a model answered by *listing* them and reported success for work it
+ * never did.
+ *
+ * The swallowed-argument cousin of a family this project keeps meeting:
+ * `undefined` is not `false`, an unreadable answer is not a negative one, and
+ * a request nobody understood is not a request nobody made.
+ */
+describe("byollm models, handed arguments", () => {
+  it("refuses rather than behaving like a different command", async () => {
+    expect(await run("models", "claude", "fake")).toBe(2);
+    // Names what it got back, so somebody can see their typo rather than
+    // wonder which word was wrong.
+    expect(err).toContain("claude");
+    expect(err).toContain("fake");
+    // And points at the verb that does the thing they asked for.
+    expect(err).toContain("byollm model claude fake");
+  });
+
+  it("still lists when asked bare", async () => {
+    /* The control, and it needs a real config: a `models` that refused
+       everything would pass the case above while breaking the command, and
+       an empty home makes `models` exit non-zero for its own good reason —
+       which would have made this control pass without proving anything. */
+    await mkdir(home, { recursive: true });
+    await writeFile(
+      paths.config,
+      JSON.stringify({
+        services: {
+          studio: {
+            type: "openai-http",
+            baseUrl: "http://127.0.0.1:8080/v1",
+            model: "qwen",
+            kinds: ["llm.generate"],
+          },
+        },
+      }),
+      "utf8",
+    );
+
+    expect(await run("models")).toBe(0);
+    expect(out).toContain("studio");
+    expect(err).not.toContain("takes no arguments");
+  });
+});

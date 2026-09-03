@@ -70,8 +70,17 @@ describe("the task file says what it is", () => {
      * writes code units and no mark, so it is prepended deliberately.
      */
     const plan = servicePlan(target("win32"));
-    await installService(target("win32"), () =>
-      Promise.resolve({ code: 0, output: "" }),
+    /* The liveness answer and an instant wait: since 2026-09-03 install
+       probes for a *running* daemon before it claims success, and this case
+       is about the bytes on disk rather than that gate. */
+    await installService(
+      target("win32"),
+      (command) =>
+        Promise.resolve({
+          code: 0,
+          output: command.includes("/query") ? "byollm  Running" : "",
+        }),
+      () => Promise.resolve(),
     );
 
     const bytes = await readFile(plan.unitPath);
@@ -125,8 +134,14 @@ describe("installing on a platform that writes a plain unit", () => {
     // Windows cases above and corrupt launchd and systemd.
     const plan = servicePlan(target("darwin"));
     expect(plan.unitEncoding).toBe("utf8");
-    const result = await installService(target("darwin"), () =>
-      Promise.resolve({ code: 0, output: "" }),
+    const result = await installService(
+      target("darwin"),
+      (command) =>
+        Promise.resolve({
+          code: 0,
+          output: command[1] === "print" ? "state = running\n\tpid = 7" : "",
+        }),
+      () => Promise.resolve(),
     );
     expect(result.ok).toBe(true);
     const written = await readFile(plan.unitPath, "utf8");

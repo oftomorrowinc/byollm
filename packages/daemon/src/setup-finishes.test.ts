@@ -187,10 +187,15 @@ describe("the two questions at the end", () => {
     expect(ran).toEqual([["connect", "--name", "studio"], ["install"]]);
     expect(result.connected).toBe(true);
     expect(result.running).toBe(true);
-    // The ending is a true sentence and somewhere to prove it, not a list of
-    // commands somebody has already been spared.
+    // The ending is a true sentence, not a list of commands somebody has
+    // already been spared.
     expect(out).toContain("paired, and running in the background");
-    expect(out).toContain("test.byollm.cloud");
+    /* And *not* the test pointer — one printer, ruled 2026-09-03. It printed
+       twice in a single setup: once from `install` and again here. `install`
+       keeps it, because since the same ruling install is the step that waits
+       for the daemon to actually be running, so it is the only one that knows
+       the sentence is true. Here `run` is a stub, so install never speaks. */
+    expect(out).not.toContain("test.byollm.cloud");
   });
 
   it("treats a no as a decision, and hands over the one command", async () => {

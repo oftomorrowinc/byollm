@@ -6,7 +6,6 @@ import { createBackend } from "./backends/index.js";
 import { probeLocalServers, type LocalServer } from "./probe-local.js";
 import { loginCommandFor, runLogin, type LoginCommand } from "./login.js";
 import { DaemonConfig } from "./config.js";
-import { TEST_YOUR_DEVICE } from "./test-your-device.js";
 import type { DaemonPaths } from "./paths.js";
 
 /**
@@ -631,9 +630,21 @@ export async function runSetup(
     return { wrote: true, services: enabled, connected: true, running: false };
   }
 
+  /**
+   * One printer — ruled 2026-09-03.
+   *
+   * `TEST YOUR DEVICE` appeared twice in a single setup: `install` printed it
+   * on its own success, and this line printed it again. Two tellings of one
+   * fact, three lines apart.
+   *
+   * `install` keeps it, and that is not a coin toss. Since the same ruling,
+   * install is the step that *probes* — it waits for the daemon to be running
+   * before it claims anything — so it is the only place that knows the
+   * sentence is true. This line knows only that install returned zero, which
+   * is precisely the weaker fact that caused the original bug.
+   */
   io.out(
-    `\n  Done. This device is set up, paired, and running in the background.\n` +
-      `\n  ${TEST_YOUR_DEVICE}\n`,
+    `\n  Done. This device is set up, paired, and running in the background.\n`,
   );
   return { wrote: true, services: enabled, connected: true, running: true };
 }

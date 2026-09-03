@@ -820,45 +820,51 @@ describe("setting up over a config that has no services", () => {
 });
 
 /**
- * The device is told to test itself at the moment that becomes true —
- * ruled 2026-09-02.
+ * Exactly one printer for the test pointer — ruled 2026-09-03.
  *
- * The dashboard's approved banner promised the device would start taking work
- * within a few seconds. At the moment it rendered, `setup` had not yet asked
- * "Run in background?" — install must never precede pairing — so the daemon
- * might not be installed at all, and a test link there would have sent
- * somebody to test a machine that was not running.
+ * `TEST YOUR DEVICE` appeared twice in one setup: `install` printed it on
+ * success, and setup's completion line printed it again. Two tellings of one
+ * fact, three lines apart.
  *
- * A promise belongs to the party that can keep it. This process is the only
- * one that watches the install succeed.
+ * `install` keeps it, and not arbitrarily: since the same ruling install waits
+ * for the daemon to actually be running before it claims anything, so it is
+ * the only step that knows the sentence is true. Setup knows only that install
+ * returned zero — the weaker fact that caused the original bug, where the
+ * pointer printed for a service sitting at last-exit-2.
+ *
+ * So what is asserted here is silence, and the matching noise is asserted in
+ * `service.test.ts`, where `install` is the thing under test.
  */
 describe("telling somebody to go and test it", () => {
-  it("says so once the service is actually running", async () => {
+  it("does not say it itself, even when everything worked", async () => {
     const p = await paths();
     const io = scripted(["my laptop", "y", "y", "y"]);
+    const ran: string[][] = [];
     const result = await runSetup(
       p,
       io,
       machineWith(["claude-cli"]),
       noServers,
       answersFine,
-      // `login` sits before `run` in the signature — passed explicitly rather
-      // than skipped, because the first version of this test handed the run
-      // stub to the login slot and the install silently used its default.
       () => Promise.resolve(true),
-      // Pairing and install both succeed, which is the one path where the
-      // sentence is true.
-      () => Promise.resolve(0),
+      (argv) => {
+        ran.push([...argv]);
+        return Promise.resolve(0);
+      },
     );
 
     expect(result.running).toBe(true);
-    expect(io.transcript()).toContain(TEST_YOUR_DEVICE);
+    // It ran install — so the sentence does get printed, by the step that
+    // earned the right to print it.
+    expect(ran.map((argv) => argv[0])).toContain("install");
+    expect(io.transcript()).not.toContain(TEST_YOUR_DEVICE);
   });
 
   it("stays quiet when the service did not start", async () => {
-    /* The control, and the whole point of the ruling. A pointer printed on
-       the failure path is the banner's bug moved into the terminal: it would
-       send somebody to test a device that is not running. */
+    /* The control that keeps the assertion above honest. If setup printed the
+       pointer on *every* path, the check above would still pass on a build
+       where the sentence had simply been deleted — this one fails there too,
+       for the opposite reason, only if the pointer ever reappears here. */
     const p = await paths();
     const io = scripted(["my laptop", "y", "y", "y"]);
     const result = await runSetup(
@@ -868,7 +874,6 @@ describe("telling somebody to go and test it", () => {
       noServers,
       answersFine,
       () => Promise.resolve(true),
-      // Pairing works; the background install does not.
       (argv: readonly string[]) =>
         Promise.resolve(argv[0] === "install" ? 1 : 0),
     );

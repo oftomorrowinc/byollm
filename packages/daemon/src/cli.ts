@@ -24,6 +24,7 @@ import { SpentGrants } from "./spent-grants.js";
 import { daemonPaths, type DaemonPaths } from "./paths.js";
 import { Runner, type RunnerEvent } from "./runner.js";
 import {
+  installedProgram,
   installService,
   serviceState,
   spawnCommand,
@@ -161,6 +162,34 @@ export async function runCli(
     case "services":
       return commandServices(paths, io, service);
     case "models":
+      /**
+       * Extra is not absent — ruled 2026-09-03.
+       *
+       * `byollm models claude fake` listed every service's model and exited
+       * zero, exactly as if it had been called bare. The arguments were
+       * dropped on the floor, so a command that was asked to *set* a model
+       * answered by *listing* them, and reported success for work it never
+       * did.
+       *
+       * This is the swallowed-argument cousin of the family this project
+       * keeps meeting: `undefined` is not `false`, an unreadable answer is
+       * not a negative one, and a request nobody understood is not a request
+       * nobody made. A verb handed arguments it has no use for must say so
+       * and point at the verb that does — never quietly behave like a
+       * different command.
+       */
+      if (rest.length > 0) {
+        io.err(
+          `byollm models takes no arguments, and got ` +
+            `${rest.map((arg) => JSON.stringify(arg)).join(" ")}.\n\n` +
+            `  byollm models                  every service and its model\n` +
+            `  byollm model ${rest[0] ?? "<service>"}${
+              rest[1] === undefined ? "" : ` ${rest[1]}`
+            }   ` +
+            `${rest[1] === undefined ? "one service, and what it accepts" : "check that model, then use it"}\n`,
+        );
+        return 2;
+      }
       return listModels(paths.config, io).then((r) => r.code);
     case "model":
       return commandModel(paths, rest, io);
@@ -191,6 +220,14 @@ export interface ServiceIo {
   readonly run: CommandRunner;
   readonly home?: string;
   readonly uid?: number;
+  /**
+   * How install waits between probes while confirming the daemon came up.
+   *
+   * Injected for the same reason `run` is: the confirmation is a real poll
+   * with real delays, and a suite that spends six seconds proving it is a
+   * suite somebody starts skipping.
+   */
+  readonly wait?: (ms: number) => Promise<void>;
 }
 
 /**
@@ -242,6 +279,7 @@ async function commandInstall(
   const result = await installService(
     serviceTarget(paths, service),
     service.run,
+    ...(service.wait === undefined ? [] : ([service.wait] as const)),
   );
   for (const line of result.lines) (result.ok ? io.out : io.err)(`${line}\n`);
   /**
@@ -286,11 +324,34 @@ async function supervisionLine(
   switch (state.state) {
     case "running":
       return `service: running under ${plan.supervisor}\n`;
-    case "installed":
+    case "installed": {
+      /**
+       * And say *why*, when the file on disk can say it.
+       *
+       * "(last exit 2)" is a number somebody has to interpret, and the walk
+       * showed what that costs: a device on rosters, serving nothing, and a
+       * log full of routine lines because the failure was never in the log —
+       * launchd could not start the program at all.
+       *
+       * The unit records absolute paths to the node that installed it. Under
+       * a version manager those belong to one node version, so an ordinary
+       * node upgrade leaves a service pointing at a binary that is gone. That
+       * is invisible from every surface here, and it is one `stat` away from
+       * being the first thing this line says.
+       */
+      const program = await installedProgram(plan);
+      const gone =
+        program === null || program.exists
+          ? ""
+          : `\n  the program it runs is missing: ${program.path}\n` +
+            `  (the node it was installed with was removed or upgraded — ` +
+            `\`byollm install\` records the current one)\n`;
       return (
         `service: installed but NOT running (${state.detail}) — ` +
-        `this device is on rosters and serving nothing. See ${plan.logPath}\n`
+        `this device is on rosters and serving nothing. See ${plan.logPath}\n` +
+        gone
       );
+    }
     case "absent": {
       /**
        * "Not installed" is wrong on a machine that autostarts — 2026-09-02.
@@ -797,8 +858,32 @@ async function commandConnect(
   // Derived from the pinned key rather than taken from the map key: the value
   // on screen should be computed from the material it describes, so what
   // somebody compares by eye is the key itself and not a label beside it.
-  for (const site of Object.values(result.pairing.sites)) {
-    io.out(`   ${fingerprint(site.identity)}\n`);
+  /**
+   * Labelled, and labelled as *not this device* — ruled 2026-09-03.
+   *
+   * These printed bare, indented, immediately under "paired as <id>". Todd
+   * read them as a second fingerprint for this machine and asked what he was
+   * meant to compare them against.
+   *
+   * Nothing, is the answer: they are the keys of the sites this pairing
+   * covers. But the question was the right one to ask, on the one screen
+   * where a fingerprint comparison is the whole security model. An unlabelled
+   * fingerprint there invites a comparison nobody defined, and a person who
+   * compares the wrong pair once and finds no match learns that the
+   * comparison is noise.
+   *
+   * `pinned:` is the word `byollm status` already uses for the same list —
+   * one vocabulary — and the heading says whose keys these are.
+   */
+  const pinned = Object.values(result.pairing.sites);
+  if (pinned.length > 0) {
+    io.out(
+      `   sites this pairing covers — site keys, not this device's ` +
+        `fingerprint:\n`,
+    );
+    for (const site of pinned) {
+      io.out(`     pinned: ${fingerprint(site.identity)}\n`);
+    }
   }
   /* Nothing pinned yet is the normal first install: you pair before you have
      connected anything, because there is nothing to connect a site to

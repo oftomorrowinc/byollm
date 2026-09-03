@@ -1,4 +1,4 @@
-import { mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import {
   refuseToSupervise,
@@ -83,6 +83,79 @@ export async function serviceState(
 }
 
 /**
+ * What the *installed* unit actually points at, and whether it still exists.
+ *
+ * Everything else in this file describes what an install would write, built
+ * from the running process. Nothing read back what is on disk — and that gap
+ * is where the walk's failure lived.
+ *
+ * `install` records absolute paths to the node runtime and the `byollm` script
+ * that ran it. Under a version manager those paths belong to one node version:
+ * install from a shell on node 22, upgrade node, and the unit still names a
+ * binary that is no longer there. launchd cannot spawn it, the service is
+ * "installed and not running", and every sentence anybody can reach — the
+ * install's own success line, `byollm status`, the dashboard — is about a
+ * device that is on rosters and answering nothing.
+ *
+ * Best-effort by design: it parses a file this program wrote, and a unit
+ * somebody hand-edited is theirs. `null` means "could not tell", which is
+ * printed as nothing rather than as a guess.
+ */
+export async function installedProgram(
+  plan: ServicePlan,
+): Promise<{ path: string; exists: boolean } | null> {
+  const unit = await readFile(plan.unitPath, "utf8").catch(() => null);
+  if (unit === null) return null;
+  // The first absolute path the unit names is the interpreter, on all three
+  // formats: `<string>…</string>`, `ExecStart=…`, `<Command>…</Command>`.
+  const found = /(?:^|[>=\s"])(\/[^\s"<]+)/m.exec(unit);
+  const path = found?.[1];
+  if (path === undefined) return null;
+  return {
+    path,
+    exists: await stat(path).then(
+      () => true,
+      () => false,
+    ),
+  };
+}
+
+/**
+ * Wait for the daemon to be running, and to still be running a moment later.
+ *
+ * Two probes rather than one, and the second is the point. A job that crashes
+ * on boot is alive for an instant, so a single probe fired immediately after
+ * `bootstrap` can catch it mid-life and report success about a process that is
+ * already on its way out. launchd then backs off — `ThrottleInterval` is ten
+ * seconds — so the visible state a moment later is the honest one.
+ *
+ * Bounded, because "not running yet" and "never going to run" look identical
+ * and only a clock tells them apart. On expiry it returns what it last saw,
+ * which is a state with a detail in it rather than a timeout with none.
+ */
+async function confirmRunning(
+  plan: ServicePlan,
+  run: CommandRunner,
+  wait: (ms: number) => Promise<void>,
+): Promise<ServiceState> {
+  const STEP_MS = 500;
+  const ATTEMPTS = 12;
+  let seen: ServiceState = { state: "installed", detail: "not started yet" };
+
+  for (let attempt = 0; attempt < ATTEMPTS; attempt++) {
+    await wait(STEP_MS);
+    seen = await serviceState(plan, run);
+    if (seen.state !== "running") continue;
+    // Alive once. Ask again after a beat: a boot crash is alive once too.
+    await wait(STEP_MS);
+    const again = await serviceState(plan, run);
+    if (again.state === "running") return again;
+    seen = again;
+  }
+  return seen;
+}
+
+/**
  * The refusal, named when we can name it.
  *
  * "exit 1" tells somebody nothing they can act on. Windows says "Access is
@@ -112,6 +185,13 @@ export interface InstallResult {
 export async function installService(
   target: ServiceTarget,
   run: CommandRunner,
+  /**
+   * How to wait between probes. Injected so the tests drive the real polling
+   * without spending real seconds — a check that takes ten seconds is a check
+   * somebody eventually stops running.
+   */
+  wait: (ms: number) => Promise<void> = (ms) =>
+    new Promise((resolve) => setTimeout(resolve, ms)),
 ): Promise<InstallResult> {
   const plan = servicePlan(target);
 
@@ -196,6 +276,66 @@ export async function installService(
         ],
       };
     }
+  }
+
+  /**
+   * Did it actually start? — ruled 2026-09-03, from the walk.
+   *
+   * This returned success the moment the supervisor's activate commands
+   * exited zero, and printed "Installed. launchd will keep byollm running"
+   * plus the TEST pointer. Todd's transcript has that text sitting directly
+   * above `byollm status` reporting "installed but NOT running (last exit 2)
+   * — this device is on rosters and serving nothing".
+   *
+   * Both were true, which is what locates the bug: the success predicate was
+   * asking the wrong question. `launchctl bootstrap` exiting zero means the
+   * job was *loaded*, never that the daemon is *alive* — found is not works,
+   * one layer down, on the same command that already knows the difference.
+   * `serviceState` is right here in this file, it reads for running rather
+   * than known, and `status` used it to catch what install had just claimed.
+   *
+   * So install asks it too, and waits: a job that will crash on boot has to
+   * be given long enough to do it, or the probe just races the failure and
+   * reports the wrong answer more slowly.
+   */
+  const started = await confirmRunning(plan, run, wait);
+  if (started.state !== "running") {
+    return {
+      ok: false,
+      plan,
+      lines: [
+        `${plan.supervisor} accepted the service, and the daemon is not running.`,
+        "",
+        `  ${started.state === "absent" ? "the supervisor no longer knows it" : started.detail}`,
+        "",
+        // The log first, because it is the only place the run's own words
+        // are, and every other line here is a guess without it.
+        ...(await (async () => {
+          /* Named when we can name it. "last exit 2" is a number somebody has
+             to interpret; "the node it was installed with is gone" is the
+             whole answer, and it is the failure a version manager produces on
+             an ordinary upgrade. */
+          const program = await installedProgram(plan);
+          return program === null || program.exists
+            ? []
+            : [
+                `  the program this service runs no longer exists:`,
+                `    ${program.path}`,
+                `  that happens when the node it was installed with was`,
+                `  removed or upgraded. Re-running install records the`,
+                `  current one.`,
+                "",
+              ];
+        })()),
+        `  log:      ${plan.logPath}`,
+        `  service:  ${plan.unitPath}`,
+        `  retry:    byollm install`,
+        `  instead:  byollm run     runs in this terminal, and prints why`,
+        "",
+        `Nothing is serving until this is sorted — this device will appear on`,
+        `rosters and answer nothing.`,
+      ],
+    };
   }
 
   const lines = [

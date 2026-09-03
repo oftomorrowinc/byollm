@@ -1,6 +1,7 @@
 import { readFileSync, readdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
+import { OFFER_SCOPES } from "./audience.js";
 import {
   MUSTS,
   MUST_IDS,
@@ -167,5 +168,27 @@ describe("the registry covers what the specs declare", () => {
       );
       expect(MUSTS, `${id} is both retired and live`).not.toHaveProperty(id);
     }
+  });
+
+  it("uses current wire literals in normative offer-scope statements", () => {
+    const liveScopes = new Set<string>(OFFER_SCOPES);
+    const claims = MUST_IDS.flatMap((id) =>
+      [...MUSTS[id].statement.matchAll(/\boffer scope MUST be '([^']+)'/g)].map(
+        (match) => ({ id, scope: match[1]! }),
+      ),
+    );
+
+    // A parser that finds nothing would certify any vocabulary. These are the
+    // two lock/default MUSTs today; the lower bound lets new statements join
+    // without turning their current count into another value that drifts.
+    expect(claims.length).toBeGreaterThanOrEqual(2);
+
+    const retired = claims
+      .filter(({ scope }) => !liveScopes.has(scope))
+      .map(({ id, scope }) => `${id}: ${scope}`);
+    expect(
+      retired,
+      `normative offer scopes absent from OfferScope: ${retired.join(", ")}`,
+    ).toEqual([]);
   });
 });

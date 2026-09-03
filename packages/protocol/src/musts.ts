@@ -342,7 +342,7 @@ export const MUSTS = Object.freeze({
   SUBSCRIPTION_SELF_LOCK: must({
     id: "SUBSCRIPTION_SELF_LOCK",
     statement:
-      "A subscription-class backend's offer scope MUST be 'self' and MUST NOT " +
+      "A subscription-class backend's offer scope MUST be 'private' and MUST NOT " +
       "be widened by configuration.",
     enforcedBy: "daemon",
     verifiedBy: "conformance",
@@ -351,7 +351,7 @@ export const MUSTS = Object.freeze({
   METERED_DEFAULTS_SELF: must({
     id: "METERED_DEFAULTS_SELF",
     statement:
-      "A metered backend's effective offer scope MUST be 'self' unless the " +
+      "A metered backend's effective offer scope MUST be 'private' unless the " +
       "owner has explicitly acknowledged spending money on others' work.",
     enforcedBy: "daemon",
     verifiedBy: "conformance",

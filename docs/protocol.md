@@ -162,10 +162,10 @@ admission wearing the costume of a wider setting. It was removed rather than
 deprecated, in direct mode as well as cloud. Every scope that remains asks the
 device a question.
 
-### 4.1 The subscription self-lock
+### 4.1 The subscription private lock
 
 A backend whose account class is `subscription` (the `claude` CLI, and any
-future vendor-account CLI) has an effective offer scope of `self`, always. It
+future vendor-account CLI) has an effective offer scope of `private`, always. It
 MUST NOT be widened by configuration `[SUBSCRIPTION_SELF_LOCK]`. One account
 executes one person's work. This is a protocol rule, not a setting, and it is
 applied at the single function both the config loader and the matcher call —
@@ -424,7 +424,7 @@ Every result carries provenance to the delivery seam
 { audience, runnerId, runnerOwner, backendClass, model, untrusted }
 ```
 
-`untrusted` is **derived** from the audience (`audience !== "self"`), never
+`untrusted` is **derived** from the audience (`audience !== "private"`), never
 supplied, so no caller can mark volunteer output as first-party. An app MUST
 NOT treat a result with `untrusted: true` as its own AI's answer: do not
 render it as trusted HTML, do not feed it to a privileged downstream step, and

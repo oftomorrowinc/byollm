@@ -7015,3 +7015,18 @@ Acceptance re-armed: on a revoked machine, `status` and a failed
 `install` both name revoked + re-pair; `byollm connect` re-pairs
 back to ONE clean dashboard row; no restart-loop in launchd's view
 while revoked. Todd re-verifies in the walk, then continues.
+
+Log evidence (Todd, minutes later): service.log tail is "No apps
+are paired yet. Run `byollm connect <url>` first." repeated many
+times. Two confirmations and one sharpener:
+- The crash-loop is real (ruling 4): launchd is restarting a
+  revoked daemon forever, each boot printing the same line.
+- "No silent exits" (.71) works — the daemon says why it exits.
+  It says the WRONG why: this machine is not un-paired, it is
+  revoked, and the zero-serving-pairings branch never consults the
+  mark before choosing its sentence. Sharpener to ruling 1:
+  empty-because-never-paired and empty-because-revoked are
+  different facts and print different sentences with different
+  remedies (connect for the first; the ruled sentence + re-pair
+  for the second). A mark the exit path does not read is still a
+  destroy with extra steps.

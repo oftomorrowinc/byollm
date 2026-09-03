@@ -6879,3 +6879,24 @@ after; both land before Todd's next walk session. Shipped meanwhile
 and recorded: install proves the daemon runs (double probe — a boot
 crash is alive for an instant), one TEST printer, `models` refuses
 unknown args, the stray fingerprints labelled as site keys.
+
+Addendum – the hub half, ruled (Todd's call relayed by CW, 09-03):
+**Option B.** The hub had no device-level revocation signal to ask —
+that absence is WHY the guard was owner-shaped, and the fix rides
+the lockstep discipline: DeviceRecord is .strict(), so `revoked`
+enters the wire relay-first (publish relay → bump hub pin → deploy),
+exactly the ordering the wire-shapes gate exists to prove.
+
+Ruling on the gap: enforcement never lapses, not even briefly — a
+revocation unenforced is worse than a revocation misnamed. So the
+one-line interim ships TODAY: revoked devices filtered out of the
+hub's projection; a revoked device becomes unknown and meets 401.
+The daemon's mark-never-destroy makes that safe — a 401 destroys
+nothing. Two conditions:
+1. The interim is dated and dies in the SAME deploy that lands the
+   projected `revoked` — never both, never neither. A filter that
+   outlives the projection would hide revoked devices from the 403
+   path forever and the ruled sentence would never print.
+2. The three-device matrix gains its hub half once .71 lands:
+   revoked A meets 403 and the ruled sentence; B and C serve.
+Then bootstrap, per the standing order.

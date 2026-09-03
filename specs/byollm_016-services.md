@@ -7079,3 +7079,60 @@ included, and never strip. CCB's two prose-stripping checks are
 correct if and only if they are vocabulary or behaviour checks;
 any check in the disclosure class keeps full-text matching, and a
 new check declares its class when it is written.
+
+### 2026-09-03 – The ledger fail-open, CONFIRMED; this entry is the build spec (credit: Robertson Price / vibewrk)
+
+Reporter confirmed CW's verification is the exact finding, and agrees
+with the severity framing: accidental fail-open safety failure, not
+remotely exploitable. The chain, verbatim from the report and checked
+against source: SpendLedger.load catches every read/JSON failure AND
+routes schema-safeParse failure to the same empty-object path, prunes,
+sets loaded=true — so with a configured cap, hasReachedCeiling
+evaluates 0 >= cap as false and opens the metered-work gate.
+Budgets.load has the same shape (corrupt file → zero accepted → check
+ok). Both record() methods write the live file directly, so an
+interrupted write CREATES the malformed input that takes those
+recovery paths on restart. The existing tests make it unusually
+literal: "reads a corrupt ledger as empty" BLESSES the bug, and the
+safety test covers only the undefined-ceiling case, which is closed
+for a separate reason. Two laws, previously minted, in one place:
+missing is not none; the prover aged with the wrong contract.
+
+RULED — CCB builds to the reporter's matrix, adopted whole:
+1. **Fail-closed with a scope.** ENOENT alone is fresh state. Malformed
+   JSON, wrong schema/version, or any non-ENOENT read failure marks the
+   ledger UNTRUSTED and closes only the applicable community/metered
+   gate — the owner's own private work is never braked by a bookkeeping
+   failure. Spend: a defined cap reads as reached while untrusted.
+   Budgets: reject before reconstructing counts from an empty array.
+2. **The latch holds.** record() must not overwrite an untrusted live
+   ledger; the latch clears only on a clean load or explicit owner
+   recovery.
+3. **The owner is told.** status/operator output names the unreadable
+   ledger and that sharing is braked — without printing ledger content.
+4. **Atomic writes, both files.** Randomized temp in the same
+   directory, mode 0600, write/close, rename; fsync where crash
+   durability (not just atomic visibility) is wanted, directory fsync
+   where supported. Reuse the identity/pairing write patterns already
+   in-repo. Prove: seeded valid file + simulated temp-write/sync/rename
+   failure leaves the old live file valid with counts intact after
+   restart; interrupted writes may leave a disposable temp, never
+   partial bytes at the live path.
+5. **The blessing test flips.** The corrupt-reads-as-empty test becomes
+   the configured-cap assertion that exposes the open gate; keep the
+   reporter's two tiny reproducers as the regression seeds.
+Credit Robertson Price in changelog and fix commit. Reporter has
+offered to review the diff — take it; he declined to race us with a
+competing patch, which is the collaboration precedent we want.
+
+Recorded, not scheduled: the reporter's separate observation stands —
+signed provenance proves the device asserted route.model (routing
+intent), and nothing attests the provider's actually-resolved model;
+BackendResult carries no provider-attested field. Our approved copy
+claims nothing to the contrary (checked). It joins the lean-provenance
+discussion whenever that opens, not before.
+
+Outside PRs now three: #8 (Codex terminal events, synced at 528f6cb),
+#9 (private-scope vocabulary + drift test), #10 (version-bump history
+preservation + regression fixture). Todd reads each diff, then
+approves CI — per the standing gate.

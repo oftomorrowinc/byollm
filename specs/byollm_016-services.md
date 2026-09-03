@@ -6815,3 +6815,13 @@ approval, the printed ceremony is theater — steps that resolve
 themselves teach people to ignore steps, on the page where one step
 is sacred. If it required approval, the reconnect didn't engage.
 Either answer is work.
+
+Diagnostic lead (Todd, same night): the failed install ran INSIDE
+setup's interactive session; the manual one ran at a bare prompt.
+That difference shouldn't matter to launchd — which is exactly why
+it's a good lead if it does (environment captured into the plist at
+generation time, or the daemon starting against a config setup was
+still writing — a race the standalone run, seconds later against a
+finished config, wouldn't hit). The evidence is already on disk:
+/Users/toddsampson/.byollm/service.log from that window holds the
+exit-2 run's own words. Read the log before theorizing.

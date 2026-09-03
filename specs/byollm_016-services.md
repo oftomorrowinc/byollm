@@ -7030,3 +7030,14 @@ times. Two confirmations and one sharpener:
   remedies (connect for the first; the ruled sentence + re-pair
   for the second). A mark the exit path does not read is still a
   destroy with extra steps.
+
+Todd's ruling, closing the thread: the acceptance is SATISFIED on
+the half that gates — enforcement (a revoked device cannot take
+jobs) and recovery (`byollm connect` re-pairs cleanly) are both
+walk-proven. The surfacing rulings above are DEMOTED from gate to
+Batch D riders: the misnamed sentence happens to print the right
+remedy (connect is the fix for revoked), so the failure is
+confusing-but-self-healing — not a gate. What rides D: backoff
+instead of crash-loop on revoked (real fleet cost), the status
+state-line contradiction, and the revoked-vs-never-paired sentence
+(one conditional at the same branch). The revoke chain is CLOSED.

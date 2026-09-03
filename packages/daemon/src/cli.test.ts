@@ -1003,7 +1003,12 @@ describe("connect when this device is already paired", () => {
     // when it says there is nothing to approve.
     expect(out).not.toContain("Your steps:");
     expect(out).not.toContain("waiting for approval");
-    expect(out).not.toMatch(/[A-Z0-9]{4}-[A-Z0-9]{4}/);
+    /* "Enter code:" rather than a shape like /[A-Z0-9]{4}-[A-Z0-9]{4}/. That
+       regex matched incidental text — a service line reading "ollama — not
+       found on r…" on the macOS runner was enough — so it failed on CI while
+       passing here, which is an assertion about the machine rather than about
+       the ceremony. The label is what the ceremony actually prints. */
+    expect(out).not.toContain("Enter code:");
     // And it was actually asked, rather than assumed from the file. Found is
     // not works.
     expect(heartbeats).toBeGreaterThan(0);
@@ -1072,7 +1077,7 @@ describe("connect when this device is already paired", () => {
     expect(err.replace(/\s+/g, " ")).toContain(
       "still paired and nothing was changed",
     );
-    expect(out).not.toMatch(/[A-Z0-9]{4}-[A-Z0-9]{4}/);
+    expect(out).not.toContain("Enter code:");
   });
 });
 

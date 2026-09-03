@@ -7041,3 +7041,41 @@ confusing-but-self-healing — not a gate. What rides D: backoff
 instead of crash-loop on revoked (real fleet cost), the status
 state-line contradiction, and the revoked-vs-never-paired sentence
 (one conditional at the same branch). The revoke chain is CLOSED.
+
+### 2026-09-03 (morning) – .72 reviewed before latest moves; one rider; the check-surface law
+
+CW read the .71→.72 diff (revoked.ts, health.ts, runner.ts, cli.ts,
+install.ts). The work is right: one REVOKED_SENTENCE definition
+because three surfaces disagreed once already; the mark lives in
+the health file so every process can read it; status consults the
+supervisor once and answers the question `state:` actually promises
+(REVOKED > PAUSED > NOT RUNNING > NOT REPORTING > running, with
+`absent` correctly not demoting a terminal run); install's revoked
+branch says "Installing again will not change this"; the parked
+daemon returns the prompt interactively and waits under a
+supervisor. Latest → .72: GO.
+
+ONE RIDER (found in review, not blocking): **the parked daemon does
+not notice the remedy.** A revoked daemon under launchd waits on
+its abort signal; `byollm connect` in another process clears the
+mark, but nothing wakes the waiter — the machine stays dark until a
+manual `byollm install`/restart, while connect has just said
+"paired". install's revoked message includes "then: byollm
+install"; the status/run remedy prints connect alone. Fix either
+way or both: the remedy line everywhere gains the restart step, and
+the parked daemon polls the mark slowly and promotes itself to
+serving when the mark clears and a pairing exists — a poll may
+promote, never demote, applied to the daemon's own state.
+
+RULED, the check-surface law (CCB asked after twelve prose
+matches): **a check reads exactly the surface its law governs.**
+Vocabulary laws govern what users read — they match rendered
+strings and literals, never comments; stripping prose there is not
+"reading less", it is reading the right thing. Behaviour laws
+govern what executes — match the token stream or AST; commented
+code does not run. Disclosure laws (secrets, tokens, PII) govern
+every byte that can leave — they read EVERYTHING, comments
+included, and never strip. CCB's two prose-stripping checks are
+correct if and only if they are vocabulary or behaviour checks;
+any check in the disclosure class keeps full-text matching, and a
+new check declares its class when it is written.

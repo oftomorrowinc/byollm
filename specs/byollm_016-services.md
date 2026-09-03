@@ -6974,3 +6974,44 @@ direction that drops every device at once; and enforce
 pin-and-projection-ride-one-commit with a check — today it is a
 rule living in one head. Remaining human step: one real revoke in
 the walk to see the ruled sentence — the one path no test reaches.
+
+### 2026-09-03 – The revoke walk: the sentence exists and no surface says it (acceptance FAILED; ruled)
+
+Todd revoked todd-mbp-2023 (the confirmation modal rendered the
+ruled copy verbatim — walk-verified), upgraded to .71, ran `byollm
+install`. What he saw: install honestly refused to claim success —
+"launchd accepted the service, and the daemon is not running · not
+running (last exit 2) · retry: byollm install" — and status showed
+"state: running" above "service: installed but NOT running", with
+no mention of revoked anywhere. The install-truth gate is PROVEN
+live (the same situation printed "Done. TEST YOUR DEVICE" a day
+ago). But the ruled sentence — "this device was revoked — re-pair
+to return" — surfaced on no surface a person reads. The one path
+no test could reach, and the human witness proved it unreachable.
+
+RULED:
+1. **The revoked mark must surface wherever the person looks.**
+   Marks-never-destroys exists precisely so the surfaces can read
+   the mark: `byollm status` prints the ruled sentence AS the
+   service line; `byollm install`'s failure print reads the mark
+   and says it; `byollm run` says it in the terminal. A mark nobody
+   renders is a destroy with extra steps.
+2. **A remedy must match the cause.** `retry:` lines print only for
+   retryable states. Revoked is not retryable; the named remedy is
+   re-pairing (`byollm connect`). Printing retry-install for a
+   revocation sends the person to run the same failure again.
+3. **status must not contradict itself.** "state: running" two
+   lines above "service: NOT running" is one display holding two
+   truths — define what `state:` means, rename it, or drop it. A
+   status that disagrees with itself teaches the reader to trust
+   neither line.
+4. **A revoked daemon must not crash-loop its supervisor.** Exit(2)
+   under launchd means boot → 403 → exit → restart, forever,
+   hammering the hub. On revoked: stay alive, marked, serving
+   nothing, backing off — the sentence is its status. Exiting
+   invites the supervisor to loop it.
+
+Acceptance re-armed: on a revoked machine, `status` and a failed
+`install` both name revoked + re-pair; `byollm connect` re-pairs
+back to ONE clean dashboard row; no restart-loop in launchd's view
+while revoked. Todd re-verifies in the walk, then continues.

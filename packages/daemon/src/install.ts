@@ -104,13 +104,34 @@ export async function serviceState(
 export async function installedProgram(
   plan: ServicePlan,
 ): Promise<{ path: string; exists: boolean } | null> {
-  const unit = await readFile(plan.unitPath, "utf8").catch(() => null);
-  if (unit === null) return null;
-  // The first absolute path the unit names is the interpreter, on all three
-  // formats: `<string>…</string>`, `ExecStart=…`, `<Command>…</Command>`.
-  const found = /(?:^|[>=\s"])(\/[^\s"<]+)/m.exec(unit);
-  const path = found?.[1];
-  if (path === undefined) return null;
+  const raw = await readFile(plan.unitPath).catch(() => null);
+  if (raw === null) return null;
+  // Decoded the way it was written. The Windows task file is UTF-16LE, and
+  // reading it as utf8 yields a string with a NUL between every character —
+  // which matches nothing, so this returned `null` and said nothing rather
+  // than saying something wrong. Quieter than a bug, and still a bug.
+  const unit = raw.toString(plan.unitEncoding);
+
+  /**
+   * Per format, because "the first absolute path" is not a format.
+   *
+   * The first version looked for the first `/`-prefixed token, which reads a
+   * plist and a systemd unit correctly and reads a Windows task file's
+   * doctype URL instead of its `<Command>`. It passed on two runners and
+   * failed on the third, claiming a program was missing on the one platform
+   * where it had not looked at the program at all.
+   */
+  const found =
+    plan.platform === "darwin"
+      ? /<key>ProgramArguments<\/key>\s*<array>\s*<string>([^<]+)<\/string>/.exec(
+          unit,
+        )
+      : plan.platform === "linux"
+        ? /^ExecStart=(\S+)/m.exec(unit)
+        : /<Command>([^<]+)<\/Command>/.exec(unit);
+
+  const path = found?.[1]?.trim();
+  if (path === undefined || path === "") return null;
   return {
     path,
     exists: await stat(path).then(

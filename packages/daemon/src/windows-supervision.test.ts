@@ -4,6 +4,7 @@ import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { installService, uninstallService } from "./install.js";
 import { servicePlan } from "./service.js";
+import { installedProgram } from "./install.js";
 import { removeTemp } from "./test-support.js";
 
 /**
@@ -146,5 +147,42 @@ describe("installing on a platform that writes a plain unit", () => {
     expect(result.ok).toBe(true);
     const written = await readFile(plan.unitPath, "utf8");
     expect(written).toContain("<?xml");
+  });
+});
+
+/**
+ * The task file is read back in the encoding it was written in.
+ *
+ * `installedProgram` exists to say "the program this service runs is gone" —
+ * the failure a version manager produces on an ordinary node upgrade, and the
+ * one that turns "(last exit 2)" into an answer.
+ *
+ * Its first version looked for the first `/`-prefixed token in the unit. That
+ * reads a plist and a systemd unit correctly, and on Windows reads the
+ * doctype URL instead of `<Command>` — so it reported a missing program on the
+ * one platform where it had not looked at the program at all. It also read the
+ * file as utf8, and this one is UTF-16LE: every character separated by a NUL,
+ * matching nothing, returning `null`, saying nothing. Quieter than a bug and
+ * still a bug.
+ */
+describe("reading back what the Windows task file points at", () => {
+  it("finds the command, through the byte-order mark and the NULs", async () => {
+    const plan = servicePlan(target("win32"));
+    await installService(
+      target("win32"),
+      (command) =>
+        Promise.resolve({
+          code: 0,
+          output: command.includes("/query") ? "byollm  Running" : "",
+        }),
+      () => Promise.resolve(),
+    );
+
+    const program = await installedProgram(plan);
+    expect(program, "the task file was unreadable").not.toBeNull();
+    // The interpreter the unit actually names — not the doctype URL, which is
+    // what the first version returned.
+    expect(program?.path).toBe(target("win32").execPath);
+    expect(program?.path.startsWith("http")).toBe(false);
   });
 });

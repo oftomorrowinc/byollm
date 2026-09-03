@@ -6938,3 +6938,39 @@ four conditions:
    ignore. New migration; the applied one is not edited.
 Proceed on CCB's proposed basis: cut the release, write the hub
 half gated behind the publish. Then bootstrap.
+
+### 2026-09-03 – The .71 revocation chain: CLOSED (evidence in the hub's own logs)
+
+latest = .71; hub pinned .71 and deployed; migrations 0054 + 0055
+applied. Closing evidence: the hub's projection log went devices=4
+→ devices=7 (revoked=1) when 0055 landed — three previously hidden
+revoked devices became visible — with ZERO skipped records: every
+row parsed against the .71 schema, the lockstep holding. Deploy ran
+grant → hub deploy → widen (three steps, not the ruled two) because
+hub_reader had never been granted revoked_at and a policy widened
+before the hub maps the flag would show revoked devices UNMARKED —
+and **visible-and-unmarked reads as live**, so revocation would
+have lapsed for the rollout. CCB's split honors the ruling's intent
+over its letter; adopted. approved_at untouched throughout.
+
+Recorded from CCB's report:
+- **Typecheck does not protect the lockstep.** The hub compiled
+  clean against the old relay — the failure lives in a runtime
+  safeParse that silently drops every record. A wire proven at
+  runtime needs a runtime guard: now a test parses the projection's
+  exact object against the schema the repo pins; reverting the pin
+  fails it by name.
+- Todd's staging question ("how do I deploy just 0054?") caught
+  both migrations sitting in one tree — the ordering is about what
+  is IN the tree to be run, not when a command runs. 0055 was held
+  out until the hub deployed.
+- CCB's own pattern flag stands as written: four CI runs, every
+  failure an assertion describing one machine rather than the
+  behaviour — a check-writing pattern, not three coincidences.
+
+OWED (boarded): gate the hub→relay direction of the lockstep — the
+wire-shapes gate covers daemon→hub only, and the reverse is the
+direction that drops every device at once; and enforce
+pin-and-projection-ride-one-commit with a check — today it is a
+rule living in one head. Remaining human step: one real revoke in
+the walk to see the ruled sentence — the one path no test reaches.

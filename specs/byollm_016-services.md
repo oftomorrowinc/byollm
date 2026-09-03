@@ -6825,3 +6825,57 @@ still writing — a race the standalone run, seconds later against a
 finished config, wouldn't hit). The evidence is already on disk:
 /Users/toddsampson/.byollm/service.log from that window holds the
 exit-2 run's own words. Read the log before theorizing.
+
+### 2026-09-03 – The vanishing pairing: revocation ruled device-scoped (P0; ruling for CCB)
+
+CCB's diagnosis, corrected and anchored on the walk transcript: the
+pairing existed after setup and was gone by `byollm status`. Between
+them, install started the daemon; the daemon deletes its pairings
+file on one answer — 403 revoked — and `revokedOutright(owner)` is
+keyed on OWNER: any revocation on record + zero live site consents
+answers revoked for EVERY device the owner has, including one paired
+thirty seconds earlier. Todd had revoked devices all week. `byollm
+run` then exits 2 silently on runners.length === 0. One cause, all
+the symptoms — my earlier install-predicate framing was the symptom
+layer; this is the disease. (CCB also corrected two of my readings:
+"paired as ff34beda…" is the OWNER id, stable across pairings — my
+"same uuid proves the hub knew the device" inference was wrong,
+identity lives on the identity: line. And CCB withdrew its own first
+root cause after finding it had inspected a DIFFERENT Mac — .65,
+other identity. Lesson both ways: evidence belongs to a machine;
+read the identity line before the theory.)
+
+RULED:
+1. **Revocation is a fact about one device, never a mood about an
+   owner.** The guard answers for the device identity presented,
+   against revocation records for THAT device. The
+   `sitesFor(owner).length > 0` short-circuit goes: a guard whose
+   answer changes with unrelated state (site consents!) is not a
+   guard — enabling a site must never be what un-revokes a machine.
+2. **On "revoked" the daemon marks, never destroys.** Deleting the
+   pairings file turns a wrong server answer into local data loss —
+   and this bug just proved the server can be wrong. Enforcement
+   lives where the authority lives: the hub refuses a revoked device
+   whatever the daemon remembers, so local deletion adds no security
+   and destroys the evidence. The daemon stops serving, keeps the
+   file, and says: "this device was revoked — re-pair to return."
+3. **The daemon never exits silently.** runners.length === 0 is a
+   sentence before it is an exit code — name the reason, every exit.
+4. **REVOCATION_IMMEDIATE is unchanged.** Device-scoping does not
+   soften it: revoking device A still stops device A on the next
+   answer. It stops stopping devices B and C.
+5. **Prover: the three-device matrix**, property-shaped, in the same
+   file that has now been wrong in both directions (empty projection
+   cost every daemon its pins; owner-keyed guard killed fresh
+   pairings): owner with revoked A + active B + fresh C → A refused,
+   B and C served; empty projection → nobody loses pins; owner with
+   revocations and NO consents → a fresh pairing still serves.
+   CCB's vanishing-pairing regression guard joins this matrix.
+
+Order: this builds FIRST, before group bootstrap — the person it
+kills is exactly the new user who revokes an experiment and re-pairs
+before enabling a site, i.e. Eric next week. Bootstrap immediately
+after; both land before Todd's next walk session. Shipped meanwhile
+and recorded: install proves the daemon runs (double probe — a boot
+crash is alive for an instant), one TEST printer, `models` refuses
+unknown args, the stray fingerprints labelled as site keys.

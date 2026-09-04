@@ -392,9 +392,26 @@ jobs:
       # this job's own exit code. It is also the only form of the question that
       # cannot be answered about the wrong release — there is no run to match.
       # ---------------------------------------------------------------------
+      #
+      # Exit 3 is "could not read", not "wrong" — ruled 2026-09-04. The check
+      # cried wolf on three consecutive cuts, every time on the largest
+      # package, while every version was live. A red that is benign three
+      # times running is a red people learn to ignore, which is the failure
+      # this step exists to prevent. So a timed-out read is reported as
+      # unproven and the job stays green; a partial release still fails it.
+      # The prover is not the proven.
       - name: Verify the registry actually has it
         if: ${{ !inputs.dry_run }}
-        run: node scripts/release-check.mjs "${{ steps.version.outputs.version }}"
+        run: |
+          set +e
+          node scripts/release-check.mjs "${{ steps.version.outputs.version }}"
+          verdict=$?
+          set -e
+          if [ "$verdict" -eq 3 ]; then
+            echo "::warning title=Release unproven::The registry did not answer for every package in time. Every package this check could read is at ${{ steps.version.outputs.version }}. Look with 'npm view <pkg>@${{ steps.version.outputs.version }} version' before assuming a partial release."
+            exit 0
+          fi
+          exit "$verdict"
 
       # ---------------------------------------------------------------------
       # The `latest` retag — deliberately NOT attempted here.

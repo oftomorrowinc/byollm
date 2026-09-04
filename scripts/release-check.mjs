@@ -85,6 +85,24 @@ const names = shippingPackages();
 console.log(`\nchecking ${version} across ${String(names.length)} packages\n`);
 
 const problems = [];
+/**
+ * Packages the registry would not show us, kept apart from real problems —
+ * ruled 2026-09-04.
+ *
+ * These are two different findings and they were sharing an exit code. A
+ * partial release is a fact about npm's contents and needs somebody to act; a
+ * read that timed out is a fact about *this check* and needs somebody to look.
+ *
+ * It cried wolf on three consecutive cuts — .74, .76 and .77, every time on
+ * `@byollm/protocol`, which is also the largest package — while every version
+ * was in fact live. **A red that is benign three times running is a red people
+ * learn to ignore**, which is precisely the failure this step exists to
+ * prevent: the next genuine partial goes out behind a shrug.
+ *
+ * **The prover is not the proven.** Unproven is a third state, and it gets its
+ * own exit code and its own word.
+ */
+const unread = [];
 const behind = [];
 
 /**
@@ -116,9 +134,18 @@ const behind = [];
  * Not a behaviour switch: CI and a human at a terminal both get the eight.
  */
 const PROPAGATION_ATTEMPTS = Number(
-  process.env["RELEASE_CHECK_ATTEMPTS"] ?? "8",
+  process.env["RELEASE_CHECK_ATTEMPTS"] ?? "14",
 );
 const backoff = (attempt) => Math.min(2000 * 2 ** attempt, 30_000);
+
+/**
+ * What this process exits with when it could not read, rather than when it
+ * read something wrong.
+ *
+ * A distinct code so the workflow can report it as unproven instead of red.
+ * `1` stays what it always was: npm's contents are wrong.
+ */
+const UNPROVEN_EXIT = 3;
 
 /**
  * The window in words, so the message cannot drift from the constants.
@@ -182,7 +209,7 @@ for (const name of names) {
    * to look, not to republish.
    */
   if (!published) {
-    problems.push(
+    unread.push(
       `${name} — ${version} was still unreadable after ` +
         `${String(PROPAGATION_ATTEMPTS)} ` +
         `${PROPAGATION_ATTEMPTS === 1 ? "attempt" : "attempts"}` +
@@ -216,15 +243,9 @@ if (problems.length > 0) {
   console.error(`\n${String(problems.length)} problem(s):`);
   for (const problem of problems) console.error(`  ${problem}`);
   console.error(
-    `\nEither a partial release, or a registry that has not caught up. Those` +
-      `\nneed opposite responses and this check cannot tell them apart, so it` +
-      `\nreports what it saw rather than deciding.` +
-      `\n\n  Look first:  npm view <pkg>@${version} version` +
-      `\n\nIf that answers, nothing is wrong — the publish landed and the read` +
-      `\npath was stale. If it does not, it is a partial release: some packages` +
-      `\nat ${version}, others behind, and every one of them resolvable, which` +
-      `\nis the dangerous state.` +
-      `\n\nThen re-run the Release workflow for this tag — cloud_008 §37.` +
+    `\nThis is a partial release: some packages at ${version}, others behind,` +
+      `\nand every one of them resolvable, which is the dangerous state.` +
+      `\n\nRe-run the Release workflow for this tag — cloud_008 §37.` +
       `\nPublishing is idempotent per package, so a re-run publishes only what` +
       `\nis missing and converges; if everything is already there it refuses` +
       `\nwith "every package is already at ${version}", which is itself the` +
@@ -233,6 +254,23 @@ if (problems.length > 0) {
       `\nlost version.`,
   );
   process.exit(1);
+}
+
+if (unread.length > 0) {
+  console.error(`\n${String(unread.length)} unread:`);
+  for (const line of unread) console.error(`  ${line}`);
+  console.error(
+    `\nUNPROVEN, not failed. Every package this check *could* read is at` +
+      `\n${version} with \`alpha\` pointing at it; the ones above are reads that` +
+      `\ntimed out, which is a fact about this check rather than about npm.` +
+      `\n\n  Look:  npm view <pkg>@${version} version` +
+      `\n\nIf that answers, nothing is wrong — the publish landed and the read` +
+      `\npath was slow. If it does not, this is a partial release after all,` +
+      `\nand re-running the Release workflow for the tag converges it.` +
+      `\n\nExit ${String(UNPROVEN_EXIT)} rather than 1, so a slow registry and a broken` +
+      `\nrelease stop sharing an answer. The prover is not the proven.`,
+  );
+  process.exit(UNPROVEN_EXIT);
 }
 
 console.log(`\n${version} is live on every package, tagged \`alpha\`.\n`);

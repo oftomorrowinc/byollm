@@ -38,6 +38,42 @@ describe("when emphasis is allowed", () => {
     expect(emphasisAllowed({ tty: false, env: { FORCE_COLOR: "1" } })).toBe(
       true,
     );
+    expect(emphasisAllowed({ tty: false, env: { FORCE_COLOR: "3" } })).toBe(
+      true,
+    );
+  });
+
+  it("treats FORCE_COLOR=0 as off, because that is what it means", () => {
+    /**
+     * The two variables are different kinds of statement, and reading both as
+     * presence broke the one that carries a level.
+     *
+     * `FORCE_COLOR=0` means off to every tool that reads it. Read as mere
+     * presence it forced emphasis *on* — so the setting a person uses to keep
+     * escapes out of a pipeline produced escapes inside the code they were
+     * about to paste. The empty string goes the same way: `FORCE_COLOR=` is
+     * how a shell unsets-by-emptying, and nobody means "force" by it.
+     */
+    expect(emphasisAllowed({ tty: true, env: { FORCE_COLOR: "0" } })).toBe(
+      false,
+    );
+    expect(emphasisAllowed({ tty: false, env: { FORCE_COLOR: "0" } })).toBe(
+      false,
+    );
+    expect(emphasisAllowed({ tty: true, env: { FORCE_COLOR: "" } })).toBe(
+      false,
+    );
+  });
+
+  it("drives the real output, not just the predicate", () => {
+    /* The predicate and the wrapper are two functions, and only one of them
+       is what a person pastes. A rule proved on the first and assumed on the
+       second is a rule with a gap exactly where it matters. */
+    const off = { tty: true, env: { FORCE_COLOR: "0" } };
+    expect(emphasise("P7ZT-BR2S", off)).toBe("P7ZT-BR2S");
+    expect(emphasise("P7ZT-BR2S", { tty: true, env: { NO_COLOR: "1" } })).toBe(
+      "P7ZT-BR2S",
+    );
   });
 
   it("puts NO_COLOR ahead of FORCE_COLOR", () => {

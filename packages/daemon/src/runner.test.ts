@@ -985,6 +985,29 @@ describe("what leaves the machine when a backend fails", () => {
     expect(written).toHaveLength(1);
   });
 
+  it("tries again after a write that failed", async () => {
+    /* Marking the attempt rather than the success made a failed write
+       permanent: the comparison matched on every later pass and never tried
+       again, so one unwritable moment left `status` reading a state the
+       daemon had long since left. */
+    let failing = true;
+    const written: string[] = [];
+    const { runner } = await makeRunner({
+      onServiceStates: (states) => {
+        if (failing) return Promise.reject(new Error("disk said no"));
+        written.push([...states.keys()].join(","));
+        return Promise.resolve();
+      },
+    });
+
+    await runner.detectCapabilities({});
+    // Let the rejection settle before the next pass reads the marker.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    failing = false;
+    await runner.detectCapabilities({});
+    expect(written).toHaveLength(1);
+  });
+
   it("writes when a service signs out mid-run", async () => {
     /* The other half of S-2. This path never got the treatment at all, so a
        mid-run sign-out was invisible to status: the surface said the service
@@ -1001,6 +1024,16 @@ describe("what leaves the machine when a backend fails", () => {
 
     await runner.runJob(job());
     expect(written).toEqual(["signed-out"]);
+
+    /* And it survives the next pass — tick-1 rider. The map is emptied every
+       time and a withdrawn service skips the probe that would refill it, so
+       this state was visible for one heartbeat and then erased: `status`
+       showing a fault once and going quiet, about a service still refusing
+       every job. A SECOND pass is the assertion, because the first proves
+       nothing about a rebuild. */
+    await runner.detectCapabilities({});
+    await runner.detectCapabilities({});
+    expect(runner.serviceStates.get("primary")?.state.kind).toBe("signed-out");
   });
 
   it("keeps a signed-out service withdrawn, clock or no clock", async () => {
@@ -1085,7 +1118,12 @@ describe("what leaves the machine when a backend fails", () => {
       answers.add(JSON.stringify([outcome.code, outcome.retryable]));
     }
 
+    /* Pinned to the value, not merely to agreement — tick-1 rider. Asserting
+       uniformity alone is green when all five are flipped back to `false`,
+       which is the regression that broke transient retries in the first
+       place. */
     expect(answers.size, [...answers].join(" vs ")).toBe(1);
+    expect([...answers][0]).toBe(JSON.stringify(["service_unavailable", true]));
   });
 
   it("still tells a site a timeout is worth retrying", async () => {

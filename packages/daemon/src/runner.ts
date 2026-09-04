@@ -397,6 +397,8 @@ export class Runner {
    * service was blocked.
    */
   readonly #blockedReport = new Map<string, ServiceReport>();
+  /** Signed-out services' reports, kept for the same reason blocked ones are. */
+  readonly #withdrawnReport = new Map<string, ServiceReport>();
   /** What was last handed to the writer, so an unchanged pass writes nothing. */
   #lastWritten: string | undefined;
 
@@ -592,7 +594,21 @@ export class Runner {
       // Withdrawn on an auth failure, before the backend is asked anything.
       // The probe would say healthy — `--version` needs no credentials — which
       // is the whole reason this set exists.
-      if (this.#unauthenticated.has(route.service)) continue;
+      if (this.#unauthenticated.has(route.service)) {
+        /*
+         * Carried across the rebuild, like the block — tick-1 rider.
+         *
+         * `serviceStates` is emptied at the top of every pass and a withdrawn
+         * service skips the probe that would fill its entry, so the
+         * signed-out state was visible for exactly one heartbeat and then
+         * erased. `status` would show the fault once and go quiet, about a
+         * service still refusing every job — which is worse than never having
+         * shown it, because the silence reads as recovery.
+         */
+        const kept = this.#withdrawnReport.get(route.service);
+        if (kept !== undefined) this.serviceStates.set(route.service, kept);
+        continue;
+      }
       /*
        * Blocked until the clock says otherwise, and then advertised again
        * with nobody lifting a finger — 019 §3.2.
@@ -1306,12 +1322,18 @@ export class Runner {
            This path never got the treatment the quota path did, so a mid-run
            sign-out was invisible to `byollm status`: the surface said the
            service was answering while every job it took was refused. */
-        this.#noteServiceState(route.service, {
+        /* Spread over what is already there, so the backend's `signIn`
+           remedy survives — tick-1 rider. Replacing the whole report drops
+           the one field that tells the owner what to run, on the state whose
+           entire purpose is to tell them what to run. */
+        const withdrawn = this.#noteServiceState(route.service, {
+          ...this.serviceStates.get(route.service),
           state: {
             kind: "signed-out",
             detail: result.message,
           },
         });
+        this.#withdrawnReport.set(route.service, withdrawn);
         this.#options.onEvent?.({
           type: "service-not-signed-in",
           service: route.service,
@@ -1511,9 +1533,28 @@ export class Runner {
      */
     const now = JSON.stringify([...this.serviceStates]);
     if (now === this.#lastWritten) return;
-    this.#lastWritten = now;
     const noted = this.#options.onServiceStates?.(this.serviceStates);
-    if (noted !== undefined) void noted.catch(() => undefined);
+    if (noted === undefined) {
+      this.#lastWritten = now;
+      return;
+    }
+    /*
+     * Marked written only once it was — tick-1 rider.
+     *
+     * Recording the attempt rather than the success made a failed write
+     * permanent: the comparison would match on every later pass and never try
+     * again, so one unwritable moment left `status` reading a state the
+     * daemon had long since left. A retry costs one file write on the next
+     * heartbeat; not retrying costs the truth until a restart.
+     */
+    void noted.then(
+      () => {
+        this.#lastWritten = now;
+      },
+      () => {
+        this.#lastWritten = undefined;
+      },
+    );
   }
 
   /**

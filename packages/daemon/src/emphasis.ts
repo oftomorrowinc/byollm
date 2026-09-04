@@ -38,7 +38,21 @@ export function emphasisAllowed(context: EmphasisContext): boolean {
   // Set to anything, including the empty string — the convention is presence,
   // not value, and reading it as a boolean would ignore `NO_COLOR=`.
   if (context.env["NO_COLOR"] !== undefined) return false;
-  if (context.env["FORCE_COLOR"] !== undefined) return true;
+  /*
+   * `FORCE_COLOR` is read by value, and that is not an inconsistency.
+   *
+   * The two variables are different kinds of statement. `NO_COLOR` exists to
+   * be *set*, and its convention is explicitly presence-not-value.
+   * `FORCE_COLOR` carries a level, and `FORCE_COLOR=0` means **off** to every
+   * tool that reads it — so treating it as presence turned the one variable a
+   * person uses to disable colour in a pipeline into a switch that forced it
+   * on. That is escapes inside a code somebody is about to paste, produced by
+   * the setting they used to prevent exactly that.
+   *
+   * Anything else set is a level, and any level is on.
+   */
+  const forced = context.env["FORCE_COLOR"];
+  if (forced !== undefined) return forced !== "0" && forced !== "";
   return context.tty;
 }
 

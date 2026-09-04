@@ -125,8 +125,22 @@ describe("byollm connect — when it cannot", () => {
   });
 });
 
-describe("byollm run — when the pairing is missing", () => {
-  it("names the origin it is not paired with", async () => {
+describe("byollm run — no url to give it", () => {
+  it("refuses an argument rather than guessing what it meant", async () => {
+    /**
+     * `run <url>` is gone — byollm_020.
+     *
+     * It meant "serve only this one app", which nobody wanted and everybody
+     * misread: the url in `connect <url>` is where you pair, and the same
+     * shape here reads as "point the daemon at this address". Two commands
+     * taking a url, one of which does not mean what it looks like, is what
+     * the audit is for.
+     *
+     * Refused rather than ignored, and pointing at the command that does
+     * take a url. **A verb handed an argument it has no use for must say so
+     * and name the verb that does** — the ruling `models` earned, applied to
+     * the other command that had the same hole.
+     */
     const pairings = new Pairings(paths.pairings);
     await pairings.load();
     await pairings.put({
@@ -140,7 +154,9 @@ describe("byollm run — when the pairing is missing", () => {
     expect(
       await runCli(["run", "https://not-paired.test"], { paths, io: io() }),
     ).toBe(2);
-    expect(err).toContain("not paired with https://not-paired.test");
+    expect(err).toContain("byollm run takes no arguments");
+    // The url belongs to `connect`, and the message says so with theirs in it.
+    expect(err).toContain("byollm connect https://not-paired.test");
   });
 });
 
@@ -150,7 +166,7 @@ describe("byollm model — the verb, through the router", () => {
     // service?", and guessing either would be wrong half the time. Usage,
     // exit 2 — a bad argument, not a run that went wrong.
     expect(await runCli(["model"], { paths, io: io() })).toBe(2);
-    expect(err).toContain("byollm models");
+    expect(err).toContain("byollm services");
     expect(err).toContain("byollm model <service> <name>");
   });
 
@@ -161,8 +177,13 @@ describe("byollm model — the verb, through the router", () => {
 
   it("is in help, where somebody would look for it", async () => {
     await runCli(["--help"], { paths, io: io() });
-    expect(out).toContain("byollm models");
+    /* `models` left the surface in byollm_020 — its listing is a column of
+       `services` now, because "services" is the ruled word and two lists of
+       one table is what the audit exists to remove. The setter stays: it
+       names a real thing somebody is choosing. */
+    expect(out).toContain("byollm services");
     expect(out).toContain("byollm model");
+    expect(out).not.toContain("byollm models");
   });
 });
 

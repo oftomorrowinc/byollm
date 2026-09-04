@@ -145,7 +145,9 @@ describe("a revoked daemon", () => {
     setTimeout(() => {
       stop.abort();
     }, 300);
-    await runCli(["run", origin], {
+    /* No url — `run` serves every pairing now (byollm_020), and this device
+       has exactly the one. */
+    await runCli(["run"], {
       signal: stop.signal,
       paths,
       io: {

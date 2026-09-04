@@ -129,6 +129,6 @@ describe("byollm approve — the tombstone", () => {
     // A refusal with nothing to do about it is noise. The device gave up the
     // per-site yes; it kept `pause` and `forget`, and the message says so.
     await runCli(["approve", "--all"], { paths, io: io() });
-    expect(err).toContain("byollm pause");
+    expect(err).toContain("byollm stop");
   });
 });

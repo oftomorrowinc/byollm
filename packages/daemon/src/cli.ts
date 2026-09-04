@@ -54,24 +54,64 @@ const USAGE = `byollm — run an app's LLM jobs on your own models.
 
   byollm setup                answer three questions instead of editing JSON
   byollm connect [<url>]      pair with an app and start running its jobs
+  byollm forget <url>         drop a pairing
   byollm name [<name>]        what this device calls itself when it pairs
-  byollm run [url]            run jobs for a paired app (or all of them)
+  byollm start                run in the background, across restarts
+  byollm stop                 stop running in the background
+  byollm run                  run here in the foreground, and watch the log
   byollm status               what is connected, what is running, what it cost
   byollm log [--full] [-n N]  every prompt that has run on this device
-  byollm pause                stop claiming new work
-  byollm resume               start claiming again
+  byollm services             each service: health, who it is offered to, model
+  byollm model <svc> <name>   check a model answers, then use it
   byollm offer <service> <scope>  who a service is offered to (private|team)
   byollm sites                which sites this device serves
-  byollm forget <url>         drop a pairing
-  byollm services             what is installed, healthy, advertised, withheld
-  byollm models               every service and the model it runs
-  byollm model <svc> <name>   check a model answers, then use it
-  byollm install              keep running in the background, across restarts
-  byollm uninstall            stop running in the background
 
 Config lives in ~/.byollm/config.json. Everything this daemon has ever run is
 in ~/.byollm/ingress.log — it is yours to read and yours to delete.
 `;
+
+/**
+ * Commands that moved, and what they moved to — byollm_020.
+ *
+ * Kept working for a window rather than deleted, because Kevin, Casul and
+ * Rob have these in their shells and their notes today. A rename that
+ * answers "unknown command" is a rename that costs somebody their afternoon
+ * for no reason: the old word still does the right thing, and says once what
+ * to type next time.
+ *
+ * `pause`/`resume` fold into `stop`/`start` rather than aliasing something
+ * subtly different. The temporary-idle nuance was a third state nobody asked
+ * for, and two words for one act is the thing this audit exists to remove.
+ */
+const RENAMED: Readonly<Record<string, string>> = {
+  install: "start",
+  uninstall: "stop",
+  pause: "stop",
+  resume: "start",
+  models: "services",
+};
+
+/**
+ * One line, on stderr, saying what to type next time.
+ *
+ * On stderr rather than stdout: somebody piping `byollm services` into a
+ * script should get the list and nothing else, and a deprecation notice that
+ * lands in a pipeline is a rename that breaks the thing it was trying not to
+ * break.
+ */
+function renamedNotice(was: string): string {
+  return (
+    `note: \`byollm ${was}\` is now \`byollm ${RENAMED[was] ?? was}\` — ` +
+    `the old name still works for now.\n`
+  );
+}
+
+/** "one app" / "3 apps", so the line reads as a sentence either way. */
+function describeOrigins(origins: readonly string[]): string {
+  return origins.length === 1
+    ? `paired with ${origins[0] ?? "one app"}`
+    : `paired with ${String(origins.length)} apps`;
+}
 
 /** Exit codes: 0 fine, 1 a real failure, 2 the user asked for something wrong. */
 export type ExitCode = 0 | 1 | 2;
@@ -173,10 +213,10 @@ export async function runCli(
       return commandStatus(paths, io, service);
     case "log":
       return commandLog(paths, rest, io);
-    case "pause":
-      return commandPause(paths, true, io);
-    case "resume":
-      return commandPause(paths, false, io);
+    case "start":
+      return commandInstall(paths, io, service);
+    case "stop":
+      return commandUninstall(paths, io, service);
     case "allow":
       return commandRetiredAdmission("allow", io);
     case "disallow":
@@ -212,7 +252,7 @@ export async function runCli(
         io.err(
           `byollm models takes no arguments, and got ` +
             `${rest.map((arg) => JSON.stringify(arg)).join(" ")}.\n\n` +
-            `  byollm models                  every service and its model\n` +
+            `  byollm services                every service, and the model it runs\n` +
             `  byollm model ${rest[0] ?? "<service>"}${
               rest[1] === undefined ? "" : ` ${rest[1]}`
             }   ` +
@@ -220,13 +260,53 @@ export async function runCli(
         );
         return 2;
       }
+      /**
+       * Still lists exactly what it listed — byollm_020.
+       *
+       * `models` leaves the documented surface because the model is already
+       * a column of `services`, and two lists of one table is what this
+       * audit removes. But **a deprecation alias should do the same thing
+       * under a new name**: routing it at `services` would change what
+       * somebody sees, and on a fresh machine would swap a "run `byollm
+       * setup`" for a bare failure. That is a behaviour change wearing an
+       * alias's clothes — the same trap `pause` presents, and refused there
+       * for the same reason.
+       */
+      io.err(renamedNotice("models"));
       return listModels(paths.config, io).then((r) => r.code);
     case "model":
       return commandModel(paths, rest, io);
+    /* The renamed verbs, still working and saying so once — byollm_020. */
     case "install":
+      io.err(renamedNotice(command));
       return commandInstall(paths, io, service);
     case "uninstall":
+      io.err(renamedNotice(command));
       return commandUninstall(paths, io, service);
+    /**
+     * `pause` and `resume` keep doing what they did — flagged for CW/Todd.
+     *
+     * The spec folds them into `stop`/`start`, and they are gone from the
+     * documented surface accordingly. What they are *not* is aliases for
+     * those commands, because the two do materially different things:
+     * `pause` writes a flag so a running daemon stops claiming, and `stop`
+     * unregisters supervision. Somebody who typed `pause` expecting to
+     * resume in an hour would find their service no longer starts at logon.
+     *
+     * **A deprecation alias should do the same thing under a new name.** One
+     * that quietly does something more destructive is the failure this audit
+     * exists to remove, arriving through the fix for it. So they are
+     * undocumented and they point at the new words, and they still only
+     * pause and resume. Deleting the pause flag entirely is a separate
+     * decision — it is the only way to idle a device without giving up
+     * startup — and it is Todd's, not this commit's.
+     */
+    case "pause":
+      io.err(renamedNotice(command));
+      return commandPause(paths, true, io);
+    case "resume":
+      io.err(renamedNotice(command));
+      return commandPause(paths, false, io);
     default:
       io.err(`unknown command: ${command}\n\n${USAGE}`);
       return 2;
@@ -589,7 +669,7 @@ async function commandModel(
   if (service === undefined) {
     io.err(
       "usage:\n" +
-        "  byollm models                    every service and its model\n" +
+        "  byollm services                  every service and the model it runs\n" +
         "  byollm model <service>           one service, and what it accepts\n" +
         "  byollm model <service> <name>    check that model, then use it\n",
     );
@@ -1008,6 +1088,26 @@ async function commandRun(
   pollMs = PARK_POLL_MS,
   supervised = !process.stdout.isTTY,
 ): Promise<ExitCode> {
+  /**
+   * No url — byollm_020.
+   *
+   * `run <url>` meant "serve only this one app", which nobody wanted and
+   * everybody misread: the url in `connect <url>` is where you pair, and the
+   * same shape here read as "point the daemon at this address". Two commands
+   * taking a url, one of which does not mean what it looks like, is the
+   * confusion this audit is for. Serving every paired app is the whole job.
+   */
+  if (args.length > 0) {
+    io.err(
+      `byollm run takes no arguments, and got ` +
+        `${args.map((arg) => JSON.stringify(arg)).join(" ")}.\n\n` +
+        `  byollm run                 serve every app this device is paired with\n` +
+        `  byollm connect ${args[0] ?? "<url>"}   pair with an app\n` +
+        `  byollm sites               which sites this device serves\n`,
+    );
+    return 2;
+  }
+
   /*
    * Re-entered, not run once, so that re-pairing can end a park.
    *
@@ -1021,11 +1121,7 @@ async function commandRun(
     await pairings.load();
     reportSkipped(pairings, io);
 
-    const target = args[0];
-    const origins =
-      target === undefined
-        ? pairings.list().map((pairing) => pairing.origin)
-        : [normalizeOrigin(target)];
+    const origins = pairings.list().map((pairing) => pairing.origin);
 
     const outcome =
       origins.length === 0
@@ -1487,6 +1583,27 @@ async function runLoop(
     process.on("SIGTERM", stop);
   }
 
+  /**
+   * Say it is working, on the surface where nobody else will — B037.
+   *
+   * `byollm run` printed nothing at all on start. On Windows especially,
+   * where it is the path that reliably works, a person ran it and watched an
+   * empty terminal: no way to tell "serving" from "hung" from "silently
+   * failed", so the honest reaction was to assume the worst and stop.
+   *
+   * The supervised daemon has always logged its state; this is the same
+   * sentence on the foreground path, which is the one somebody is actually
+   * looking at. It names the device because that is the word the dashboard
+   * uses, and says where the enabling happens, because the next question
+   * after "is it running" is always "then why is nothing arriving".
+   */
+  io.out(
+    `serving as ${await labelFor(paths, undefined)} — ` +
+      `${describeOrigins(origins)}.\n` +
+      `Which sites may send work is enabled from your dashboard. ` +
+      `Ctrl-C to stop.\n`,
+  );
+
   await ingress.applyRetention(Date.now());
   await Promise.all(runners.map((runner) => runner.run(controller.signal)));
   await Promise.all(runners.map((runner) => runner.shutdown("shutdown")));
@@ -1620,7 +1737,7 @@ function report(origin: string, event: RunnerEvent, io: CliIo): void {
       io.out(
         `${at} ${host} now serving ${event.site}, enabled from your ` +
           `dashboard.\n    fingerprint: ${event.fingerprint}\n` +
-          `    Not expected? \`byollm pause\` stops all work, and ` +
+          `    Not expected? \`byollm stop\` stops all work, and ` +
           `\`byollm forget\` drops the pairing.\n`,
       );
       break;
@@ -2610,7 +2727,7 @@ function commandRetiredApprove(io: CliIo): 2 {
       `${wrap(
         "This device still refuses work no grant was signed for, still " +
           "refuses a site key that changes under an id it pinned, and still " +
-          "stops entirely on `byollm pause`.",
+          "stops entirely on `byollm stop`.",
       )}\n`,
   );
   return 2;
@@ -2623,6 +2740,15 @@ async function commandServices(
   io: CliIo,
   service: ServiceIo,
 ): Promise<ExitCode> {
+  /**
+   * A fresh machine gets a next step, not an error — byollm_020.
+   *
+   * `services` is the only list now, and on a machine with no config it used
+   * to fall through to a config read that fails. The command it replaced said
+   * "run `byollm setup`", which is the one useful thing to say to somebody
+   * who has just installed this and typed the obvious command. Losing that
+   * sentence in a rename would be the rename costing a first impression.
+   */
   const { loaded, ingress, budgets, spend, spentGrants } = await context(paths);
   const pairings = new Pairings(paths.pairings);
   await pairings.load();

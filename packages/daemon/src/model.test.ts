@@ -145,7 +145,7 @@ describe("setting a model", () => {
       accepts,
     );
     expect(result.code).toBe(1);
-    expect(err).toContain("byollm models");
+    expect(err).toContain("byollm services");
   });
 });
 
@@ -189,7 +189,7 @@ describe("when there is nothing to read", () => {
     const result = await showModel(config, "clawed", io);
     expect(result.code).toBe(1);
     expect(err).toContain('"clawed"');
-    expect(err).toContain("byollm models");
+    expect(err).toContain("byollm services");
   });
 
   it("does not invent a config to write into", async () => {

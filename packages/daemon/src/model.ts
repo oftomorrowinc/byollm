@@ -50,7 +50,7 @@ async function readConfig(path: string): Promise<ConfigShape | undefined> {
 }
 
 /**
- * Every service and the model it runs — `byollm models`.
+ * Every service and the model it runs — a column of `byollm services`.
  *
  * The plural verb exists because the singular one needs a service name, and
  * somebody who has just been told to run `byollm model <service> <model>` may
@@ -96,7 +96,7 @@ export async function showModel(
   if (entry === undefined) {
     io.err(
       `No service called ${JSON.stringify(service)} in ${configPath}.\n` +
-        "Run `byollm models` to see what this device has.\n",
+        "Run `byollm services` to see what this device has.\n",
     );
     return { changed: false, code: 1 };
   }
@@ -172,7 +172,7 @@ export async function setModel(
   if (entry === undefined) {
     io.err(
       `No service called ${JSON.stringify(input.service)}.\n` +
-        "Run `byollm models` to see what this device has.\n",
+        "Run `byollm services` to see what this device has.\n",
     );
     return { changed: false, code: 1 };
   }

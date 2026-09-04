@@ -856,7 +856,7 @@ describe("telling somebody to go and test it", () => {
     expect(result.running).toBe(true);
     // It ran install — so the sentence does get printed, by the step that
     // earned the right to print it.
-    expect(ran.map((argv) => argv[0])).toContain("install");
+    expect(ran.map((argv) => argv[0])).toContain("start");
     expect(io.transcript()).not.toContain(TEST_YOUR_DEVICE);
   });
 
@@ -874,8 +874,7 @@ describe("telling somebody to go and test it", () => {
       noServers,
       answersFine,
       () => Promise.resolve(true),
-      (argv: readonly string[]) =>
-        Promise.resolve(argv[0] === "install" ? 1 : 0),
+      (argv: readonly string[]) => Promise.resolve(argv[0] === "start" ? 1 : 0),
     );
 
     expect(result.running).toBe(false);

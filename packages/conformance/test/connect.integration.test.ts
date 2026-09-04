@@ -223,7 +223,9 @@ describe("byollm connect — the whole path", () => {
     expect(out).toContain("Paired.");
 
     const controller = new AbortController();
-    const cli = runCli(["run", origin], {
+    /* No url — `run` serves every pairing now (byollm_020), and this
+       device has exactly the one it just paired with. */
+    const cli = runCli(["run"], {
       paths,
       io: io(),
       signal: controller.signal,

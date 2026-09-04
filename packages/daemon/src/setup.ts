@@ -610,21 +610,29 @@ export async function runSetup(
     return { wrote: true, services: enabled, connected: false, running: false };
   }
 
-  const doInstall = yes(await io.ask("\n  Run in background? [Y/n] "), true);
+  /* Names what it does rather than where it goes — byollm_020. "Run in
+     background" left "and after I reboot?" unanswered, which is the whole
+     question the command exists to settle. */
+  const doInstall = yes(
+    await io.ask(
+      "\n  Start byollm now and keep it running across restarts? [Y/n] ",
+    ),
+    true,
+  );
   if (!doInstall) {
     io.out(
       `\n  Paired, and not running. Start it when you want it:\n` +
-        `    byollm install     keep it running in the background\n` +
-        `    byollm run         run in this terminal\n`,
+        `    byollm start       keep it running, across restarts\n` +
+        `    byollm run         run in this terminal and watch it\n`,
     );
     return { wrote: true, services: enabled, connected: true, running: false };
   }
 
-  const running = await run(["install"]);
+  const running = await run(["start"]);
   if (running !== 0) {
     io.out(
-      `\n  Paired, and could not install the background service. Either:\n` +
-        `    byollm install     try again — it says why when it cannot\n` +
+      `\n  Paired, and could not start the background service. Either:\n` +
+        `    byollm start       try again — it says why when it cannot\n` +
         `    byollm run         run in this terminal instead\n`,
     );
     return { wrote: true, services: enabled, connected: true, running: false };

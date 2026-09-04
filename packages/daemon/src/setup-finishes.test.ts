@@ -184,7 +184,7 @@ describe("the two questions at the end", () => {
       },
     );
 
-    expect(ran).toEqual([["connect", "--name", "studio"], ["install"]]);
+    expect(ran).toEqual([["connect", "--name", "studio"], ["start"]]);
     expect(result.connected).toBe(true);
     expect(result.running).toBe(true);
     // The ending is a true sentence, not a list of commands somebody has
@@ -243,7 +243,7 @@ describe("the two questions at the end", () => {
     expect(result.connected).toBe(true);
     expect(result.running).toBe(false);
     expect(out).toContain("Paired, and not running");
-    expect(out).toContain("byollm install");
+    expect(out).toContain("byollm start");
     expect(out).toContain("byollm run");
   });
 
@@ -263,12 +263,12 @@ describe("the two questions at the end", () => {
       noServers,
       working,
       () => Promise.resolve(true),
-      (argv) => Promise.resolve(argv[0] === "install" ? 1 : 0),
+      (argv) => Promise.resolve(argv[0] === "start" ? 1 : 0),
     );
 
     expect(result.connected).toBe(true);
     expect(result.running).toBe(false);
-    expect(out).toContain("Paired, and could not install");
+    expect(out).toContain("Paired, and could not start");
   });
 
   it("does not offer to run in the background before it is paired", async () => {

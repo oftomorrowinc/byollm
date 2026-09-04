@@ -46,7 +46,7 @@ import {
   type ServicePlatform,
   type ServiceTarget,
 } from "./service.js";
-import { authNote, renderServices } from "./service-line.js";
+import { authNote, renderServices, serviceLine } from "./service-line.js";
 import { readServiceStates, writeServiceStates } from "./service-states.js";
 import { DAEMON_VERSION, formatVersion } from "./index.js";
 
@@ -414,8 +414,53 @@ async function commandInstall(
    * the device is running and the promise becomes true — and had nothing
    * telling them so. One sentence, one definition, both callers.
    */
-  if (result.ok) io.out(`\n${TEST_YOUR_DEVICE}\n`);
+  if (result.ok) {
+    /**
+     * A service that cannot sign in is named here, where somebody is looking
+     * — B036.
+     *
+     * Kevin's daemon started cleanly and served nothing, because `claude` was
+     * signed out. Everything was working: the task registered, the process
+     * ran, `status` was honest, and the one screen he was actually watching
+     * said the install had succeeded. He found out by noticing that no work
+     * arrived.
+     *
+     * The daemon writes what it learned from its start-up probe, and this is
+     * the moment to read it back. It is not a failure — the service is
+     * running and the rest of it works — so it is said alongside the success
+     * rather than instead of it, with the remedy the backend itself supplies.
+     */
+    for (const line of await signedOutLines(paths)) io.err(`${line}\n`);
+    io.out(`\n${TEST_YOUR_DEVICE}\n`);
+  }
   return result.ok ? 0 : 1;
+}
+
+/**
+ * What the daemon's own probe found signed out, if anything.
+ *
+ * Read from the file rather than probed again: a canary spends a real call,
+ * and the daemon has just spent one. Absent or unreadable is nothing to say —
+ * a machine that has not probed yet is not a machine with a problem, and
+ * inventing a warning from silence is the mistake the tri-state exists to
+ * prevent.
+ */
+async function signedOutLines(paths: DaemonPaths): Promise<string[]> {
+  const states = await readServiceStates(paths.serviceStates);
+  const device = await labelFor(paths, undefined);
+  const lines: string[] = [];
+  for (const [service, report] of states) {
+    if (report.state.kind !== "signed-out") continue;
+    const said = serviceLine({
+      service,
+      device,
+      state: report.state,
+      ...(report.signIn === undefined ? {} : { signIn: report.signIn }),
+    });
+    lines.push(`\n  ${said.line}`);
+    if (said.detail !== undefined) lines.push(`    ${said.detail}`);
+  }
+  return lines;
 }
 
 async function commandUninstall(

@@ -103,6 +103,8 @@ const problems = [];
  * own exit code and its own word.
  */
 const unread = [];
+/** Packages this run did confirm, so the message can name the asymmetry. */
+const readable = [];
 const behind = [];
 
 /**
@@ -138,14 +140,26 @@ const PROPAGATION_ATTEMPTS = Number(
 );
 const backoff = (attempt) => Math.min(2000 * 2 ** attempt, 30_000);
 
-/**
- * What this process exits with when it could not read, rather than when it
- * read something wrong.
+/*
+ * There is no third exit code any more — reopened and re-ruled 2026-09-04.
  *
- * A distinct code so the workflow can report it as unproven instead of red.
- * `1` stays what it always was: npm's contents are wrong.
+ * The first fix for the wolf-crying gave "could not read" its own exit and
+ * reported it as unproven. That was the wrong trade and the review caught it:
+ * **a package that was never published and a package the registry is slow to
+ * serve are the same empty read**, so making unread benign made a real
+ * partial release report green. Trading a false alarm for a false all-clear
+ * is the wrong direction for a check whose whole job is catching the
+ * dangerous state.
+ *
+ * What actually fixed the crying wolf was the window, not the exit code. The
+ * three cuts that went red were one package — the largest — taking about two
+ * minutes against a window of about two. The window is five now, and the
+ * observed case never reaches a verdict at all.
+ *
+ * So after the window, unread fails. What the message does instead of
+ * softening the verdict is say which shape it is looking at, because those
+ * need different next steps from the person reading it.
  */
-const UNPROVEN_EXIT = 3;
 
 /**
  * The window in words, so the message cannot drift from the constants.
@@ -221,6 +235,7 @@ for (const name of names) {
       `${name} — published, but \`alpha\` points at ${tags["alpha"] ?? "nothing"}`,
     );
   }
+  if (published && alphaOk) readable.push(name);
   if (published && alphaOk && tags["latest"] !== version) {
     behind.push(`${name} (latest: ${tags["latest"] ?? "none"})`);
   }
@@ -257,20 +272,43 @@ if (problems.length > 0) {
 }
 
 if (unread.length > 0) {
-  console.error(`\n${String(unread.length)} unread:`);
+  /**
+   * Asymmetry is the tell, and it is the diagnosis rather than the verdict.
+   *
+   * A partial release is *by definition* asymmetric: some packages at the new
+   * version, others not, and every one of them resolvable. Nothing published
+   * at all is a different animal and would have failed the publish step
+   * loudly. So a mix says "partial", and a clean sweep of silence says "the
+   * registry is not answering" — same exit code, because in both cases we
+   * could not confirm the release, and opposite first moves for whoever looks.
+   */
+  const asymmetric = readable.length > 0;
+  console.error(
+    `\n${String(unread.length)} package(s) could not be confirmed:`,
+  );
   for (const line of unread) console.error(`  ${line}`);
   console.error(
-    `\nUNPROVEN, not failed. Every package this check *could* read is at` +
-      `\n${version} with \`alpha\` pointing at it; the ones above are reads that` +
-      `\ntimed out, which is a fact about this check rather than about npm.` +
-      `\n\n  Look:  npm view <pkg>@${version} version` +
-      `\n\nIf that answers, nothing is wrong — the publish landed and the read` +
-      `\npath was slow. If it does not, this is a partial release after all,` +
-      `\nand re-running the Release workflow for the tag converges it.` +
-      `\n\nExit ${String(UNPROVEN_EXIT)} rather than 1, so a slow registry and a broken` +
-      `\nrelease stop sharing an answer. The prover is not the proven.`,
+    asymmetric
+      ? `\nSome packages answered and these did not, which is the shape of a` +
+          `\npartial release: some at ${version}, others behind, and every one` +
+          `\nof them resolvable by anyone who installs. That is the dangerous` +
+          `\nstate this check exists for.` +
+          `\n\n  Confirmed live:  ${readable.join(", ")}` +
+          `\n\n  Look:  npm view <pkg>@${version} version` +
+          `\n\nIf they all answer, the registry was merely slow past a five-minute` +
+          `\nwindow and nothing is wrong. If they do not, re-run the Release` +
+          `\nworkflow for this tag — cloud_008 §37. Publishing is idempotent per` +
+          `\npackage, so a re-run publishes only what is missing and converges.`
+      : `\nNo package answered, which is not the shape of a partial release —` +
+          `\na publish that failed outright fails the step above. It is the` +
+          `\nshape of a registry that is not serving reads.` +
+          `\n\n  Look:  npm view ${names[0] ?? "<pkg>"}@${version} version` +
+          `\n\nIf that answers, the read path here was slow past a five-minute` +
+          `\nwindow. If nothing answers, wait for npm and re-run this check` +
+          `\nrather than the release — the versions are either there or they` +
+          `\nare not, and republishing cannot tell you which.`,
   );
-  process.exit(UNPROVEN_EXIT);
+  process.exit(1);
 }
 
 console.log(`\n${version} is live on every package, tagged \`alpha\`.\n`);

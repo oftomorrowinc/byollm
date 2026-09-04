@@ -393,25 +393,18 @@ jobs:
       # cannot be answered about the wrong release — there is no run to match.
       # ---------------------------------------------------------------------
       #
-      # Exit 3 is "could not read", not "wrong" — ruled 2026-09-04. The check
-      # cried wolf on three consecutive cuts, every time on the largest
-      # package, while every version was live. A red that is benign three
-      # times running is a red people learn to ignore, which is the failure
-      # this step exists to prevent. So a timed-out read is reported as
-      # unproven and the job stays green; a partial release still fails it.
-      # The prover is not the proven.
+      # Any package this cannot confirm fails the job — re-ruled 2026-09-04.
+      #
+      # A previous version of this step let a timed-out read report green, to
+      # stop the check crying wolf. That was the wrong trade: a package that
+      # was never published and a package the registry is slow to serve are
+      # the same empty read, so making unread benign made a real partial
+      # release pass. What actually fixed the crying wolf was widening the
+      # propagation window from two minutes to five — the three cuts that
+      # went red were one package taking about two.
       - name: Verify the registry actually has it
         if: ${{ !inputs.dry_run }}
-        run: |
-          set +e
-          node scripts/release-check.mjs "${{ steps.version.outputs.version }}"
-          verdict=$?
-          set -e
-          if [ "$verdict" -eq 3 ]; then
-            echo "::warning title=Release unproven::The registry did not answer for every package in time. Every package this check could read is at ${{ steps.version.outputs.version }}. Look with 'npm view <pkg>@${{ steps.version.outputs.version }} version' before assuming a partial release."
-            exit 0
-          fi
-          exit "$verdict"
+        run: node scripts/release-check.mjs "${{ steps.version.outputs.version }}"
 
       # ---------------------------------------------------------------------
       # The `latest` retag — deliberately NOT attempted here.

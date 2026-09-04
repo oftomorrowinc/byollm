@@ -335,30 +335,26 @@ describe("the loop", () => {
     expect(events.some((e) => e.type === "serving-nothing")).toBe(true);
   });
 
-  it("hands back a job the upstream says it has never heard of", async () => {
-    /**
-     * The stuck-daemon loop — B038, reported live on a real user's Windows
-     * machine.
-     *
-     * A claimed job came back "unknown job", the daemon abandoned it **without
-     * releasing the lease**, the hub re-offered it, and the same daemon
-     * re-claimed the same id every twenty seconds forever. The device looked
-     * wedged and the log spammed claim, unknown job, reclaim, while fresh jobs
-     * on a live site still ran fine — job-specific, not total, which is what
-     * made it look like a mystery.
-     *
-     * Both exits leaked. A terminal error threw out of the handler into the
-     * background `catch`; the give-up-at-deadline path returned null into an
-     * early return. Neither released anything, and the comment on that
-     * `catch` explains why it read as fine: letting the lease lapse *is* the
-     * protocol's recovery — for a transient failure. For a permanent one it is
-     * an invitation to be offered the same job again.
-     *
-     * `refused` is the fix and it needed nothing new on the wire: the relay
-     * already defines it as a permanent decline, meaning the job is never
-     * offered to this device again.
-     */
-    const released: { reason?: string; leases?: unknown }[] = [];
+  /**
+   * A 404 on fetch, and what it does *not* mean — B038, corrected.
+   *
+   * The reported bug: a claimed job came back "unknown job", the daemon
+   * abandoned it without releasing the lease, the hub re-offered it, and the
+   * same daemon re-claimed the same id every twenty seconds forever.
+   *
+   * The first fix refused on the first 404, which over-corrected. A bare 404
+   * does not mean the job is gone: when a site takes longer than the relay's
+   * sealing window, the relay requeues the unsealed claim and clears the
+   * holder, so this device's next fetch is a 404 for a job that is alive and
+   * about to be sealed. Refusing there made a transient slow-seal permanent —
+   * and on a sole-runner deployment the owner's own request then never ran at
+   * all, silently, until deadline. **The loop was loud; that was quiet.**
+   *
+   * So: patience first, terminal after. Both halves are asserted, because
+   * either one alone is a bug — the first version of this test asserted only
+   * the refusal and passed while the over-correction shipped.
+   */
+  function relayThatCannotSeal(released: { reason?: string }[]) {
     const stub = {
       id: "job_1",
       kind: "llm.generate" as const,
@@ -367,15 +363,14 @@ describe("the loop", () => {
       site: TEST_SITE_ID,
       sizeClass: "small" as const,
       streaming: false,
-      deadlineAt: Date.now() + 60_000,
+      deadlineAt: Date.now() + 600_000,
       lease: {
         id: "lease_test",
         runnerId: "runner_1",
-        expiresAt: Date.now() + 60_000,
+        expiresAt: Date.now() + 600_000,
       },
     };
-
-    const runner = await makeRunner((input, init) => {
+    return (input: Parameters<typeof fetch>[0], init?: RequestInit) => {
       const url = String(input instanceof Request ? input.url : input);
       const endpoint = url.split("/").pop() ?? "";
       const json = (value: unknown, status = 200) =>
@@ -385,24 +380,20 @@ describe("the loop", () => {
             headers: { "content-type": "application/json" },
           }),
         );
-
       if (endpoint === "fetch") {
-        // What the wedged daemon actually met.
+        // What a requeued-but-alive job and a genuinely gone one both look
+        // like from here. The daemon cannot tell them apart on the wire.
         return json({ error: "not-found", message: "unknown job" }, 404);
       }
       if (endpoint === "release") {
-        /* Read only when it is the string this client sends. A body that is
-           a stream would stringify to `[object Object]` and this would
-           silently record nothing, which is the shape of a test that passes
-           by not looking. */
         const body = typeof init?.body === "string" ? init.body : "";
         expect(body, "the release body was not a string").not.toBe("");
         released.push(JSON.parse(body) as { reason?: string });
         return json({ released: [] });
       }
-      const body =
+      return json(
         endpoint === "claim"
-          ? { jobs: [stub], leaseMs: 60_000 }
+          ? { jobs: [stub], leaseMs: 600_000 }
           : endpoint === "heartbeat"
             ? {
                 sites: HEARTBEAT_SITES,
@@ -411,21 +402,111 @@ describe("the loop", () => {
                 lost: [],
                 serverTime: Date.now(),
               }
-            : { accepted: true, state: "ok" };
-      return json(body);
-    });
+            : { accepted: true, state: "ok" },
+      );
+    };
+  }
+
+  it("lets the lease lapse the first time, so a slow seal can still land", async () => {
+    /* The half the over-correction broke. A site slower than the sealing
+       window gets its job back and another chance; refusing here is what made
+       the owner's own request vanish. */
+    const released: { reason?: string }[] = [];
+    const runner = await makeRunner(relayThatCannotSeal(released));
 
     await runner.tick();
-    // The handler runs detached from the tick, so let it finish.
     await new Promise((resolve) => setTimeout(resolve, 50));
 
     expect(
       released,
-      "a job the upstream has never heard of must be handed back, not " +
-        "silently abandoned — abandoning is what made this a loop",
-    ).toHaveLength(1);
+      "refusing on the first 404 makes a transient slow-seal permanent",
+    ).toEqual([]);
+  });
+
+  it("gives up for good once the job keeps failing to arrive", async () => {
+    /* The half that ends the loop. Patience is not the same as forever: a
+       job that never hands over its payload is refused, which is what stops
+       the hub offering it to this device again. */
+    const released: { reason?: string }[] = [];
+    const runner = await makeRunner(relayThatCannotSeal(released));
+
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      await runner.tick();
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+
+    expect(released).toHaveLength(1);
     expect(released[0]?.reason).toBe("refused");
-    // And it never reached a backend: there was nothing to run.
+    expect(backend.seen).toEqual([]);
+  });
+
+  it("gives up on a payload that never seals, and says so", async () => {
+    /**
+     * The other terminal exit, which had no test at all — CW's note that the
+     * mutation survived.
+     *
+     * Here the relay keeps answering "not ready" rather than 404: the site
+     * has claimed the job and never sealed. The daemon polls to its deadline
+     * and stops. That exit leaked the lease exactly as the 404 one did, and
+     * it is reached by a different door, so a test of one proves nothing
+     * about the other.
+     *
+     * The lease here expires almost immediately, which is what makes the
+     * give-up reachable in a test rather than in thirty seconds.
+     */
+    const stub = {
+      id: "job_1",
+      kind: "llm.generate" as const,
+      audience: "private" as const,
+      owner: "me",
+      site: TEST_SITE_ID,
+      sizeClass: "small" as const,
+      streaming: false,
+      deadlineAt: Date.now() + 600_000,
+      // Already at its end: the first backoff overshoots it.
+      lease: { id: "lease_test", runnerId: "runner_1", expiresAt: Date.now() },
+    };
+    const runner = await makeRunner((input) => {
+      const url = String(input instanceof Request ? input.url : input);
+      const endpoint = url.split("/").pop() ?? "";
+      const json = (value: unknown, status = 200) =>
+        Promise.resolve(
+          new Response(JSON.stringify(value), {
+            status,
+            headers: { "content-type": "application/json" },
+          }),
+        );
+      if (endpoint === "fetch") {
+        // 409 — the relay holds it and has nothing to hand over yet.
+        return json({ error: "not-ready", message: "no payload yet" }, 409);
+      }
+      return json(
+        endpoint === "claim"
+          ? { jobs: [stub], leaseMs: 600_000 }
+          : endpoint === "heartbeat"
+            ? {
+                sites: HEARTBEAT_SITES,
+                awaitingConsent: [],
+                cancel: [],
+                lost: [],
+                serverTime: Date.now(),
+              }
+            : { released: [] },
+      );
+    });
+
+    await runner.tick();
+    await new Promise((resolve) => setTimeout(resolve, 100));
+
+    /* Asserted on the event, not on the absence of a backend call: nothing
+       having run is also true of a daemon that did nothing at all, which is
+       the shape of a test that passes by not looking. */
+    expect(
+      events
+        .filter((e) => e.type === "error")
+        .map((e) => (e as { message: string }).message)
+        .join(" | "),
+    ).toContain("gave up waiting for the payload");
     expect(backend.seen).toEqual([]);
   });
 

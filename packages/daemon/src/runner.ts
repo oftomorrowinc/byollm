@@ -323,6 +323,21 @@ export type RunnerEvent =
  * does not conclude the remedy failed, long enough not to fork a child every
  * ten seconds forever on a machine whose owner is asleep.
  */
+/**
+ * How many times a job may fail to hand over its payload before this device
+ * treats it as gone — B038, corrected.
+ *
+ * One was too few: a site slower than the relay's sealing window produces a
+ * 404 for a job that is alive, and refusing on the first made a transient
+ * failure permanent. Unbounded was the original bug. Three gives a slow site
+ * several fresh sealing windows — each attempt costs a lease lapse, so this
+ * is minutes of patience, not milliseconds — and still ends a poison job.
+ */
+const FETCH_ATTEMPTS_BEFORE_GONE = 3;
+
+/** How long a give-up is remembered. Past this the job cannot be offered. */
+const GAVE_UP_TTL_MS = 10 * 60_000;
+
 const AUTH_RECHECK_MS = 60_000;
 
 const DEFAULT_HEARTBEAT_MS = 10_000;
@@ -423,6 +438,17 @@ export class Runner {
   readonly #withdrawnReport = new Map<string, ServiceReport>();
   /** Earliest moment each withdrawn service may be asked again — T2-S1. */
   readonly #authRecheckAt = new Map<string, number>();
+  /**
+   * Jobs whose payload this device could not fetch, and how often.
+   *
+   * Bounded by pruning on use: an entry only matters while the job it names
+   * could still be offered again, and a daemon that met one bad job a year
+   * ago should not still be carrying it.
+   */
+  readonly #gaveUpFetching = new Map<
+    string,
+    { attempts: number; at: number }
+  >();
   /** What was last handed to the writer, so an unchanged pass writes nothing. */
   #lastWritten: string | undefined;
 
@@ -1884,13 +1910,60 @@ export class Runner {
     const fetched = await this.#fetchWhenSealed(job);
     if (!fetched) return;
     if ("gone" in fetched) {
-      /* Terminal for this device: hand the lease back rather than sitting on
-         it. `refused` is what stops the hub re-offering, which is the whole
-         of the fix — a silent abandon is what made this a loop. */
+      /**
+       * Terminal *after a few tries*, not on the first — corrected
+       * 2026-09-04 after the first fix over-corrected.
+       *
+       * A bare 404 does not mean what it looks like. When a site takes longer
+       * than `AWAITING_PAYLOAD_MS` to seal, the relay requeues the unsealed
+       * claim and clears the holder — so this device's next fetch is a 404
+       * for a job that is perfectly alive and about to be sealed. Refusing on
+       * the first one made a transient slow-seal permanent: on a sole-runner
+       * deployment the owner's own request then never ran at all, silently,
+       * until its deadline. The loop I removed was loud; this was quiet,
+       * which is worse.
+       *
+       * The relay offers three outcomes and a daemon release can only ask for
+       * two of them: `refused` is forever, and any other reason requeues
+       * immediately and stays claimable by this device — a spin. The middle
+       * ground it actually needs, "ask again later", is `retryAfter`, which
+       * only the relay sets.
+       *
+       * So the middle ground here is to do nothing and let the lease lapse,
+       * which is exactly what self-healed for this system's whole life before
+       * yesterday. It costs the lease's remaining time and asks for no reason
+       * that would be untrue on the wire. Only once a job has done this
+       * repeatedly is it treated as genuinely gone.
+       */
+      /* Forget anything old enough that its job cannot be offered again.
+         Done here rather than on a timer: this is the only place that learns
+         a give-up happened, and a map nobody prunes is the shape of the
+         presence-set leak this project has already fixed once. */
+      for (const [id, entry] of this.#gaveUpFetching) {
+        if (this.#now() - entry.at > GAVE_UP_TTL_MS) {
+          this.#gaveUpFetching.delete(id);
+        }
+      }
+      const seen = this.#gaveUpFetching.get(job.id);
+      const attempts = (seen?.attempts ?? 0) + 1;
+      this.#gaveUpFetching.set(job.id, { attempts, at: this.#now() });
       this.#options.onEvent?.({
         type: "error",
-        message: `${job.id} is not ours to run: ${fetched.gone}`,
+        message:
+          `could not fetch ${job.id} (${fetched.gone}) — attempt ` +
+          `${String(attempts)} of ${String(FETCH_ATTEMPTS_BEFORE_GONE)}`,
       });
+
+      if (attempts < FETCH_ATTEMPTS_BEFORE_GONE) {
+        // The lease lapses and the relay offers it again. If the site was
+        // merely slow, the next claim gets a fresh sealing window.
+        return;
+      }
+
+      /* Now it is gone. `refused` is what stops the hub re-offering to this
+         device, which is what ends the loop — a silent abandon is what made
+         it one. */
+      this.#gaveUpFetching.delete(job.id);
       await this.#safely(() =>
         this.#options.client.release({
           runnerId: this.#options.runnerId,
@@ -1900,6 +1973,8 @@ export class Runner {
       );
       return;
     }
+    // It arrived. Whatever this job did before, it is not a poison job.
+    this.#gaveUpFetching.delete(job.id);
     const payload = await this.#openPayload(job, fetched.envelope);
 
     // The grant's resolution, carried into the opened job. A relayed job runs

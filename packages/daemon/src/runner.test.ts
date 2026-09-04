@@ -1008,22 +1008,171 @@ describe("what leaves the machine when a backend fails", () => {
     expect(written).toHaveLength(1);
   });
 
-  it("writes when a service signs out mid-run", async () => {
-    /* The other half of S-2. This path never got the treatment at all, so a
-       mid-run sign-out was invisible to status: the surface said the service
-       was answering while every job it took was refused. */
+  it("comes back when the owner does what the remedy said", async () => {
+    /**
+     * T2-S1, and the whole point of a remedy — 2026-09-04.
+     *
+     * `#unauthenticated` had `add` and `has` and no `delete`. The skip at the
+     * probe was unconditional, so the promise that a withdrawn service stays
+     * withdrawn "until a probe says otherwise" described a probe that could
+     * never run: the owner followed the sign-in remedy, signed in, and the
+     * daemon kept the service withdrawn — and, after the persistence change,
+     * kept accusing it in `services.json` — until the process restarted.
+     *
+     * **A remedy that cannot be completed is worse than no remedy.** It sends
+     * somebody to do a thing and then ignores that they did it.
+     *
+     * The full loop, because each half alone proves nothing: it must withdraw,
+     * and it must return.
+     */
+    let signedIn = false;
+    let now = 1_000;
+    const events: string[] = [];
     const written: (string | undefined)[] = [];
+
+    const backend = {
+      health: () => Promise.resolve({ healthy: true, models: [] }),
+      canary: () =>
+        Promise.resolve(
+          signedIn
+            ? { healthy: true, models: [] }
+            : { healthy: false, models: [], detail: "not signed in" },
+        ),
+      execute: () =>
+        Promise.resolve(
+          signedIn
+            ? { ok: true as const, text: "ok", durationMs: 1 }
+            : {
+                ok: false as const,
+                code: "unauthorized" as const,
+                message: "the claude CLI is not signed in",
+                durationMs: 1,
+              },
+        ),
+    } as unknown as Backend;
+
     const { runner } = await makeRunner({
-      backendFactory: () =>
-        failing("the claude CLI is not signed in", "unauthorized"),
+      now: () => now,
+      backendFactory: () => backend,
+      onEvent: (event) => {
+        if (
+          event.type === "service-not-signed-in" ||
+          event.type === "service-signed-in"
+        ) {
+          events.push(event.type);
+        }
+      },
       onServiceStates: (states) => {
         written.push(states.get("primary")?.state.kind ?? "absent");
         return Promise.resolve();
       },
     });
 
+    // Signed out: one job proves it, and the service stops being advertised.
     await runner.runJob(job());
-    expect(written).toEqual(["signed-out"]);
+    expect(events).toEqual(["service-not-signed-in"]);
+    expect(
+      (await runner.detectCapabilities({})).map((c) => c.service),
+    ).not.toContain("primary");
+
+    // The owner signs in. Nothing tells the daemon; it has to ask.
+    signedIn = true;
+    now += 60_000;
+    const after = await runner.detectCapabilities({});
+
+    expect(after.map((c) => c.service)).toContain("primary");
+    expect(events).toEqual(["service-not-signed-in", "service-signed-in"]);
+
+    /* A SECOND pass, because the first proves nothing about the set.
+       The `has` check happens at the top of the iteration, so a service that
+       lifts mid-pass is advertised by that pass whether or not it was ever
+       removed — and without the removal the next pass withdraws it again.
+       This is the same shape as the tick-1 persistence rider: the state that
+       matters is the one after a rebuild. */
+    now += 10_000;
+    const later = await runner.detectCapabilities({});
+    expect(later.map((c) => c.service)).toContain("primary");
+    expect(events).toEqual(["service-not-signed-in", "service-signed-in"]);
+    // And the file stops accusing a service that is answering.
+    expect(runner.serviceStates.get("primary")?.state.kind).not.toBe(
+      "signed-out",
+    );
+    expect(written.at(-1)).not.toBe("signed-out");
+  });
+
+  it("does not spawn a probe on every heartbeat while it stays signed out", async () => {
+    /* A failed canary spends no tokens — a signed-out CLI fails before it
+       reaches a model — but it is still a process spawn, and the loop runs
+       every ten seconds forever on a machine whose owner is asleep. */
+    let asked = 0;
+    let now = 1_000;
+    const backend = {
+      health: () => Promise.resolve({ healthy: true, models: [] }),
+      canary: () => {
+        asked += 1;
+        return Promise.resolve({ healthy: false, models: [] });
+      },
+      execute: () =>
+        Promise.resolve({
+          ok: false as const,
+          code: "unauthorized" as const,
+          message: "the claude CLI is not signed in",
+          durationMs: 1,
+        }),
+    } as unknown as Backend;
+
+    const { runner } = await makeRunner({
+      now: () => now,
+      backendFactory: () => backend,
+    });
+    await runner.runJob(job());
+
+    await runner.detectCapabilities({});
+    now += 10_000;
+    await runner.detectCapabilities({});
+    now += 10_000;
+    await runner.detectCapabilities({});
+    expect(asked).toBe(1);
+
+    now += 60_000;
+    await runner.detectCapabilities({});
+    expect(asked).toBe(2);
+  });
+
+  it("writes when a service signs out mid-run", async () => {
+    /* The other half of S-2. This path never got the treatment at all, so a
+       mid-run sign-out was invisible to status: the surface said the service
+       was answering while every job it took was refused. */
+    const written: (string | undefined)[] = [];
+    /* Carrying a remedy, so the spread has something to lose — T2-S3.
+       The first version of this used a backend with no `signIn`, so deleting
+       the spread that preserves it stayed green: a test shaped exactly like
+       the defect it was written for, one rider over. */
+    const withRemedy = {
+      ...(failing(
+        "the claude CLI is not signed in",
+        "unauthorized",
+      ) as unknown as Record<string, unknown>),
+      signIn: "run `claude` in a terminal",
+      health: () => Promise.resolve({ healthy: true, models: [] }),
+    } as unknown as Backend;
+
+    const { runner } = await makeRunner({
+      backendFactory: () => withRemedy,
+      onServiceStates: (states) => {
+        written.push(states.get("primary")?.state.kind ?? "absent");
+        return Promise.resolve();
+      },
+    });
+
+    // The probe learns the remedy first, which is what the sign-out report
+    // must not throw away.
+    await runner.detectCapabilities({});
+    await runner.runJob(job());
+    expect(written.at(-1)).toBe("signed-out");
+    expect(runner.serviceStates.get("primary")?.signIn).toBe(
+      "run `claude` in a terminal",
+    );
 
     /* And it survives the next pass — tick-1 rider. The map is emptied every
        time and a withdrawn service skips the probe that would refill it, so

@@ -1563,6 +1563,16 @@ function report(origin: string, event: RunnerEvent, io: CliIo): void {
           `\`byollm run\` re-checks on start.\n`,
       );
       break;
+    case "service-signed-in":
+      /* The other half of the sign-in notice. Somebody was sent to a
+         terminal; this is the daemon saying it noticed they went. Without it
+         the only evidence the remedy worked is work quietly starting to
+         flow, which is not evidence anybody can see. */
+      io.err(
+        `${at} ${host} ${event.service} is signed in again — it is taking ` +
+          `work.\n`,
+      );
+      break;
     case "service-out-of-quota":
       /*
        * Names no command, because there is not one — 019 §3.2.

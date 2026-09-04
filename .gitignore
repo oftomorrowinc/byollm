@@ -16,3 +16,8 @@ byollm.config.json
 dist-tarballs/
 *.tgz
 .verified
+
+# The same directory at the repository root. The rule above names it inside
+# .git, which is where it is not: an ignore that does not match is an ignore
+# that reads as coverage.
+_stale_locks/

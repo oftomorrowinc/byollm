@@ -228,6 +228,17 @@ export type RunnerEvent =
    * owner reads them; an event carries only what a surface needs to say that
    * something changed and when it changes back.
    */
+  /**
+   * A withdrawn service answered again, so it is being advertised — T2-S1.
+   *
+   * The counterpart to `service-not-signed-in`, and the reason that one is
+   * not the end of the story: somebody was told to go and sign in, and this
+   * is the daemon noticing that they did.
+   */
+  | {
+      readonly type: "service-signed-in";
+      readonly service: string;
+    }
   | {
       readonly type: "service-out-of-quota";
       readonly service: string;
@@ -302,6 +313,17 @@ export type RunnerEvent =
    */
   | { readonly type: "serving-nothing" }
   | { readonly type: "error"; readonly message: string };
+
+/**
+ * How often a withdrawn service is asked whether it can answer again — T2-S1.
+ *
+ * A failed canary costs nothing: a signed-out CLI fails before it reaches a
+ * model. What it does cost is a process spawn, so this is a minute rather
+ * than every heartbeat — short enough that somebody who has just signed in
+ * does not conclude the remedy failed, long enough not to fork a child every
+ * ten seconds forever on a machine whose owner is asleep.
+ */
+const AUTH_RECHECK_MS = 60_000;
 
 const DEFAULT_HEARTBEAT_MS = 10_000;
 
@@ -399,6 +421,8 @@ export class Runner {
   readonly #blockedReport = new Map<string, ServiceReport>();
   /** Signed-out services' reports, kept for the same reason blocked ones are. */
   readonly #withdrawnReport = new Map<string, ServiceReport>();
+  /** Earliest moment each withdrawn service may be asked again — T2-S1. */
+  readonly #authRecheckAt = new Map<string, number>();
   /** What was last handed to the writer, so an unchanged pass writes nothing. */
   #lastWritten: string | undefined;
 
@@ -605,9 +629,56 @@ export class Runner {
          * service still refusing every job — which is worse than never having
          * shown it, because the silence reads as recovery.
          */
-        const kept = this.#withdrawnReport.get(route.service);
-        if (kept !== undefined) this.serviceStates.set(route.service, kept);
-        continue;
+        /**
+         * And asked again, because the remedy has to work — T2-S1.
+         *
+         * The set had `add` and `has` and no `delete` anywhere. The skip was
+         * unconditional, so the promise that a withdrawn service "stays
+         * withdrawn until a probe says otherwise" described a probe that
+         * could never run: the owner followed the sign-in remedy, signed in,
+         * and the daemon kept the service withdrawn — and, after the last
+         * change, kept saying so in `services.json` — until the process was
+         * restarted. **A remedy that cannot be completed is worse than no
+         * remedy**, because it sends somebody to do a thing and then ignores
+         * that they did it.
+         *
+         * Asking is nearly free here, and that is what makes it affordable on
+         * the polling loop where the canary is otherwise forbidden: a
+         * signed-out CLI fails its canary *before* reaching a model, so the
+         * call that discovers "still signed out" spends no tokens. Only the
+         * one that discovers "back" costs anything, and it costs it once.
+         *
+         * Spaced anyway, because each attempt is a process spawn.
+         */
+        const recheckAt = this.#authRecheckAt.get(route.service) ?? 0;
+        const backend = this.#backendFor(route);
+        const lifted =
+          this.#now() >= recheckAt &&
+          backend.canary !== undefined &&
+          (await backend.canary(route.model)).healthy;
+
+        if (!lifted) {
+          if (this.#now() >= recheckAt) {
+            this.#authRecheckAt.set(
+              route.service,
+              this.#now() + AUTH_RECHECK_MS,
+            );
+          }
+          const kept = this.#withdrawnReport.get(route.service);
+          if (kept !== undefined) this.serviceStates.set(route.service, kept);
+          continue;
+        }
+
+        // Signed back in. Everything that made it withdrawn is forgotten, and
+        // the pass below fills its entry from a live probe rather than from
+        // the memory of a fault it no longer has.
+        this.#unauthenticated.delete(route.service);
+        this.#withdrawnReport.delete(route.service);
+        this.#authRecheckAt.delete(route.service);
+        this.#options.onEvent?.({
+          type: "service-signed-in",
+          service: route.service,
+        });
       }
       /*
        * Blocked until the clock says otherwise, and then advertised again

@@ -41,6 +41,14 @@ describe("when emphasis is allowed", () => {
     expect(emphasisAllowed({ tty: false, env: { FORCE_COLOR: "3" } })).toBe(
       true,
     );
+    /* Driven through the real output, like the negatives — T2-M. The cell was
+       predicate-only, so `FORCE_COLOR=1` in an undetected terminal could
+       silently lose the highlight: the same predicate/output gap as the
+       negatives, opposite polarity, and the polarity is why it reads as
+       harmless until somebody sets it deliberately and gets nothing. */
+    expect(
+      emphasise("P7ZT-BR2S", { tty: false, env: { FORCE_COLOR: "1" } }),
+    ).toContain(ESC);
   });
 
   it("treats FORCE_COLOR=0 as off, because that is what it means", () => {

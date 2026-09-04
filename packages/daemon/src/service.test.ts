@@ -40,6 +40,9 @@ const target = (platform: ServicePlatform) => ({
   scriptPath: "/usr/local/lib/node_modules/@byollm/daemon/dist/bin.js",
   home,
   root: join(home, ".byollm"),
+  /* Not the machine's own. Without this the Windows fallback tests write a
+     real byollm.cmd into whoever ran the suite — see ServiceTarget.appData. */
+  appData: join(home, "AppData", "Roaming"),
 });
 
 /**

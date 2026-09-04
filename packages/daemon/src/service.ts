@@ -143,6 +143,25 @@ export interface ServiceTarget {
    * `Principal` in the task XML.
    */
   readonly user?: string;
+  /**
+   * Windows' per-user application data root, for the Startup fallback.
+   *
+   * Injected rather than read from `process.env` where it is used — found by
+   * CI on 2026-09-04, and it was not a test problem. Every `installService`
+   * test that exercised the Windows fallback wrote a real `byollm.cmd` into
+   * the **ambient** Startup folder: on the Windows runner, into
+   * `C:\Users\runneradmin\...\Startup`, and on any Windows machine that
+   * ran the suite, into that person's. A unit test that installs a startup
+   * entry on whoever runs it is the same defect `ServiceIo` exists to
+   * prevent — the suite already refuses to shell out to a real `launchctl`,
+   * and this was the one path that reached the host anyway.
+   *
+   * `home`-relative would be wrong for the product: APPDATA is where Windows
+   * actually keeps this and a roaming profile moves it. So it stays ambient
+   * by default and becomes part of the target, which is the thing tests
+   * already build.
+   */
+  readonly appData?: string;
 }
 
 /** XML-escape a path — a home directory can contain `&` and an apostrophe. */
@@ -409,7 +428,7 @@ WantedBy=default.target
       // which is part of why every Windows machine quietly ended up on it.
       unitEncoding: "utf8",
       unitPath: join(
-        process.env["APPDATA"] ?? root,
+        target.appData ?? process.env["APPDATA"] ?? root,
         "Microsoft",
         "Windows",
         "Start Menu",

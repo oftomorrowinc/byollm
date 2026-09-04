@@ -34,6 +34,9 @@ const target = (platform: "win32" | "darwin") => ({
   scriptPath: "/usr/local/lib/node_modules/@byollm/daemon/dist/bin.js",
   home,
   root: join(home, ".byollm"),
+  /* Not the machine's own. Without this the Windows fallback tests write a
+     real byollm.cmd into whoever ran the suite — see ServiceTarget.appData. */
+  appData: join(home, "AppData", "Roaming"),
 });
 
 beforeEach(async () => {
@@ -149,6 +152,10 @@ describe("when Windows refuses the task anyway", () => {
     const plan = servicePlan(target("win32"));
     const blocked = plan.fallback?.unitPath;
     expect(blocked).toBeDefined();
+    /* Inside this test's own home, which `appData` now guarantees — the
+       first version of this reached the real Start Menu and CI, correctly,
+       refused. */
+    expect(blocked!.startsWith(home)).toBe(true);
     await mkdir(dirname(dirname(dirname(dirname(blocked!)))), {
       recursive: true,
     });
@@ -170,6 +177,43 @@ describe("when Windows refuses the task anyway", () => {
     expect(text).toContain("Run as administrator");
     expect(text).toContain("byollm run");
     expect(text).toContain("ERROR: Access is denied.");
+  });
+});
+
+describe("the Startup fallback writes where it is told", () => {
+  /**
+   * The seam that stopped the suite installing itself on the host.
+   *
+   * CI found this: every Windows-fallback test wrote a real `byollm.cmd`
+   * into the ambient Startup folder — the runner's, or the developer's. The
+   * product must still use the ambient one (a roaming profile moves it, so
+   * home-relative would be wrong), which is exactly why the override belongs
+   * on the target rather than in the environment at the point of use.
+   */
+  it("uses the target's appData when it has one", () => {
+    const plan = servicePlan({ ...target("win32"), appData: join(home, "AD") });
+    expect(plan.fallback?.unitPath.startsWith(join(home, "AD"))).toBe(true);
+  });
+
+  it("falls back to the machine's own when the target says nothing", () => {
+    /* The control. Without this the assertion above passes just as well
+       against a version that ignored the environment entirely, which would
+       put the fallback in the wrong place on every real Windows machine. */
+    const bare = { ...target("win32") } as Record<string, unknown>;
+    delete bare["appData"];
+    const previous = process.env["APPDATA"];
+    process.env["APPDATA"] = join(home, "AmbientRoaming");
+    try {
+      const plan = servicePlan(
+        bare as unknown as Parameters<typeof servicePlan>[0],
+      );
+      expect(
+        plan.fallback?.unitPath.startsWith(join(home, "AmbientRoaming")),
+      ).toBe(true);
+    } finally {
+      if (previous === undefined) delete process.env["APPDATA"];
+      else process.env["APPDATA"] = previous;
+    }
   });
 });
 

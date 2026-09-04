@@ -491,6 +491,13 @@ export interface ServiceIo {
   /** Windows only: who the scheduled task belongs to, so it needs no admin. */
   readonly user?: string;
   /**
+   * Windows only: where the Startup fallback is written.
+   *
+   * Here so a test can point it somewhere disposable. See
+   * {@link ServiceTarget.appData} — the suite was writing into the real one.
+   */
+  readonly appData?: string;
+  /**
    * How install waits between probes while confirming the daemon came up.
    *
    * Injected for the same reason `run` is: the confirmation is a real poll
@@ -541,6 +548,7 @@ function serviceTarget(paths: DaemonPaths, service: ServiceIo): ServiceTarget {
     ...(service.home === undefined ? {} : { home: service.home }),
     ...(service.uid === undefined ? {} : { uid: service.uid }),
     ...(service.user === undefined ? {} : { user: service.user }),
+    ...(service.appData === undefined ? {} : { appData: service.appData }),
     root: paths.root,
   };
 }

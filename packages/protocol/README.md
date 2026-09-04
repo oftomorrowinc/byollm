@@ -1,5 +1,5 @@
 > [!WARNING]
-> **Alpha (`0.1.0-alpha.79`) — under active development. Don't use this yet.**
+> **Alpha (`0.1.0-alpha.80`) — under active development. Don't use this yet.**
 >
 > Install it deliberately: `npm install @byollm/protocol@alpha`.
 >

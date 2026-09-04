@@ -7197,3 +7197,24 @@ schedule that breaks it, never by running enough iterations to feel
 lucky. Sibling of "a ceremony repeated becomes a habit, and a habit
 is not a comparison" - green-by-coincidence is the same disease
 with a scheduler for a dealer.
+
+## Law: a fix has two failure directions — test the one you didn't just create (CW, 2026-09-04)
+
+Three times in two days a fix for a "does the dangerous thing" bug
+introduced a "refuses the safe thing" bug, and the review, not the
+build, caught it each time:
+- B004: cry-wolf (benign reds) fixed into cry-nothing (a real partial
+  release reported green).
+- B038: an infinite reclaim loop fixed into a permanent refusal that
+  strands the owner's own job when a site is merely slow to seal.
+- B009: a role-change guard that missed the status-change door — the
+  same stranded-group harm through the column the fix didn't cover.
+
+The law: every fix moves along an axis with a failure at each end.
+Fixing the end you were staring at is half the work; the fix is not
+done until it is tested against the OTHER end — the one you just
+created room for. Fail-open fixed to fail-closed must prove it doesn't
+now refuse the legitimate case; a guard widened on one column must
+prove the adjacent column isn't the new hole. Sibling of "each brake
+covers exactly what its ledger ever protected": a correction is scoped
+by BOTH what it must now catch and what it must still let through.

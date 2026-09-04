@@ -280,3 +280,60 @@ Riders on this reopen:
   If H1 holds, the upgrade line changes accordingly (one elevated
   registration, or "this is the standard-account way" with no false
   promise that elevation is exceptional).
+
+### The Tuesday patch — Kevin's three reports, one cut before he takes over (Todd committed in Discord, 09-04 eve)
+
+Todd to Kevin: "I will push a patch with the three things you reported
+and you can take it from there on Tuesday." Kevin — at his own machine,
+on Windows — is finding the sign-in fix himself after this patch lands:
+our first outside contributor. The three things, each with what the
+evidence says:
+
+**(1) The sign-in spawn is broken on Windows, and CW can name the
+mechanism (verify on the box).** Kevin's setup transcript: three rounds
+of "Sign in to claude now? [Y/n] y" -> "Opening Claude's sign-in now"
+-> "Still cannot answer", then the honest stop. Nothing visibly opened.
+login.ts spawns `claude` via `spawn(file, args, {stdio: "inherit"})` —
+no `shell: true`. On Windows, an npm-installed `claude` is `claude.cmd`,
+and Node cannot spawn a `.cmd` without a shell: since the CVE-2024-27980
+fix (Node 18.20/20.12) it throws EINVAL synchronously, and before that
+it was ENOENT. runLogin is BUILT to swallow both ("it never throws...
+the same outcome to the caller"), so the loop asks again with no error
+ever shown. Two design choices, each defensible alone, compose into
+three silent retries.
+  - The fix per Todd's B047 ruling: on Windows, do not spawn — print
+    the login command prominently and continue. This transcript is the
+    ruling's field proof: the spawn path cannot work as written there.
+  - RIDER, same law as refusalOf twice in one day: the swallowed spawn
+    error had words (EINVAL/ENOENT) and nobody printed them. Keep the
+    never-throws contract, but SAY what failed on stderr before falling
+    back to asking. An interpretation is not the evidence, and neither
+    is silence.
+
+**(2) The buried admin remedy** — already specced as the B036-reopen UX
+rider: outcome first, upgrade path second on its own line, mechanics
+last. Rides this patch.
+
+**(3) "uninstall isn't actually uninstall."** Kevin ran `byollm
+uninstall` expecting removal; it unscheduled the daemon and said so.
+Todd in Discord: "That is literally why I wanted the terms removed
+since it wasn't uninstalling before--just unscheduling the background
+job" — the B040/B044 renames, vindicated by the first person to meet
+them cold. Interim fix for the patch: `stop` (and the uninstall shim)
+gains one line — "To remove byollm from this machine entirely:
+`npm uninstall -g byollm`" — so the person who wanted removal is told
+the true command instead of being left correct-but-unsatisfied. The
+shim and its notice still die at 0.1.0 (B044); this line lives in
+`stop` and survives.
+
+**Also in scope if cheap:** B047's start/run preflight is the fourth
+thing Kevin reported (yesterday's silence after sign-out); if CCB can
+carry it in the same cut, the whole sign-in story lands at once —
+otherwise it follows and Tuesday-Kevin only needs setup+messages fixed.
+
+**Process note (CW -> Todd):** Kevin iterating "from there" means fork
+-> branch -> PR against oftomorrowinc/byollm. The B022 drafts
+(CONTRIBUTING "how work is chosen", the 0.1.0 milestone text) have been
+sitting ready; posting at least CONTRIBUTING before Tuesday gives his
+first PR a documented path and makes him the contributing flow's first
+real test. Todd's call, as B022 always was.

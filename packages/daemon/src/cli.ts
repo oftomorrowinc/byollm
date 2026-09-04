@@ -1,6 +1,8 @@
 import { access } from "node:fs/promises";
 import { emphasise, terminalContext } from "./emphasis.js";
 import { backendVerifier, listModels, setModel, showModel } from "./model.js";
+import { preflight } from "./preflight.js";
+import { runLogin, type LoginCommand } from "./login.js";
 import { createBackend } from "./backends/index.js";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { hostname, userInfo } from "node:os";
@@ -8,6 +10,7 @@ import { dirname } from "node:path";
 import { createInterface } from "node:readline/promises";
 import { FAILURES_BEFORE_ALARM, readHealth } from "./health.js";
 import { runSetup, terminalIo } from "./setup.js";
+import type { BackendId } from "@byollm/protocol";
 import { backendDescriptor, backendName, classifyCost } from "@byollm/protocol";
 import { fingerprint } from "@byollm/protocol";
 import { normalizeOrigin, UnusableOrigin } from "./origins.js";
@@ -46,7 +49,7 @@ import {
   type ServicePlatform,
   type ServiceTarget,
 } from "./service.js";
-import { authNote, renderServices, serviceLine } from "./service-line.js";
+import { authNote, renderServices } from "./service-line.js";
 import { readServiceStates, writeServiceStates } from "./service-states.js";
 import { DAEMON_VERSION, formatVersion } from "./index.js";
 
@@ -176,6 +179,83 @@ const defaultIo: CliIo = {
 };
 
 /** Run one command. Exported so the tests drive the same code a user does. */
+/**
+ * One service's backend, built the way the daemon builds it.
+ *
+ * `baseUrl` is not optional decoration for an HTTP-class transport — the
+ * constructor throws without it. Building backends from the id alone crashed
+ * `byollm run` for every Ollama user, and the test that caught it was one
+ * about revocation, which is the kind of luck not to rely on twice.
+ */
+function backendFor(config: {
+  readonly type: BackendId;
+  readonly baseUrl?: string | undefined;
+}) {
+  return createBackend(
+    config.type,
+    config.baseUrl === undefined ? {} : { baseUrl: config.baseUrl },
+  );
+}
+
+/**
+ * The preflight's dependencies, defaulted to the real ones — B047.
+ *
+ * Built here rather than inside each command so that `start` and `run` ask
+ * the same question the same way. Two implementations of one rule is the
+ * defect this whole audit keeps finding.
+ */
+async function preflightFor(
+  paths: DaemonPaths,
+  io: CliIo,
+  interactive: boolean,
+  options: {
+    platform?: NodeJS.Platform;
+    verify?: (config: {
+      readonly type: BackendId;
+      readonly model: string;
+      readonly baseUrl?: string | undefined;
+    }) => Promise<{
+      readonly answers: boolean | undefined;
+      readonly detail?: string | undefined;
+    }>;
+    login?: (command: LoginCommand) => Promise<boolean>;
+    ask?: (question: string) => Promise<string>;
+  },
+): Promise<void> {
+  const loaded = await loadConfig(paths.config);
+  await preflight({
+    loaded,
+    device: await labelFor(paths, undefined),
+    io,
+    interactive,
+    ask:
+      options.ask ??
+      (async (question) => {
+        const rl = createInterface({
+          input: process.stdin,
+          output: process.stderr,
+        });
+        try {
+          return await rl.question(question);
+        } finally {
+          rl.close();
+        }
+      }),
+    platform: options.platform ?? process.platform,
+    verify:
+      options.verify ??
+      ((config) =>
+        backendVerifier(() => backendFor(config))(config.type, config.model)),
+    login:
+      options.login ??
+      ((command) =>
+        runLogin(command, (text) => {
+          io.err(text);
+        })),
+    signInFor: (config) => backendFor(config).signIn,
+  });
+}
+
 export async function runCli(
   argv: readonly string[],
   options: {
@@ -208,6 +288,36 @@ export async function runCli(
      * person at a prompt — which is the other branch entirely.
      */
     supervised?: boolean;
+    /**
+     * Which machine this is, and how a backend is checked and signed in —
+     * B047's seams.
+     *
+     * The preflight spends a real canary and can hand the terminal to a
+     * vendor CLI. Both are injected so a test can drive the whole shape
+     * without spending money or opening a browser, and so the Windows branch
+     * is reachable from the machines we own.
+     */
+    platform?: NodeJS.Platform;
+    /**
+     * Is a person here to answer? Defaults to "is stdout a terminal".
+     *
+     * Separate from `supervised`, which asks whether something restarts us.
+     * They usually agree and they are not the same question, and the
+     * preflight turns on this one: a canary costs money and a login prompt
+     * needs somebody to type.
+     */
+    interactive?: boolean;
+    verify?: (config: {
+      readonly type: BackendId;
+      readonly model: string;
+      readonly baseUrl?: string | undefined;
+    }) => Promise<{
+      readonly answers: boolean | undefined;
+      readonly detail?: string | undefined;
+    }>;
+    login?: (command: LoginCommand) => Promise<boolean>;
+    /** How the preflight asks. Injected so tests are not a TTY. */
+    ask?: (question: string) => Promise<string>;
   } = {},
 ): Promise<ExitCode> {
   const [command, ...rest] = argv;
@@ -246,13 +356,29 @@ export async function runCli(
         signal,
         options.parkPollMs,
         options.supervised,
+        options.interactive,
+        {
+          ...(options.platform === undefined
+            ? {}
+            : { platform: options.platform }),
+          ...(options.verify === undefined ? {} : { verify: options.verify }),
+          ...(options.login === undefined ? {} : { login: options.login }),
+          ...(options.ask === undefined ? {} : { ask: options.ask }),
+        },
       );
     case "status":
       return commandStatus(paths, io, service);
     case "log":
       return commandLog(paths, rest, io);
     case "start":
-      return commandInstall(paths, io, service);
+      return commandInstall(paths, io, service, options.interactive, {
+        ...(options.platform === undefined
+          ? {}
+          : { platform: options.platform }),
+        ...(options.verify === undefined ? {} : { verify: options.verify }),
+        ...(options.login === undefined ? {} : { login: options.login }),
+        ...(options.ask === undefined ? {} : { ask: options.ask }),
+      });
     case "stop":
       return commandUninstall(paths, io, service);
     case "allow":
@@ -317,7 +443,19 @@ export async function runCli(
     /* The renamed verbs, still working and saying so once — byollm_020. */
     case "install":
       io.err(renamedNotice(command));
-      return commandInstall(paths, io, service);
+      return commandInstall(
+        paths,
+        io,
+        service,
+        options.supervised === true ? false : undefined,
+        {
+          ...(options.platform === undefined
+            ? {}
+            : { platform: options.platform }),
+          ...(options.verify === undefined ? {} : { verify: options.verify }),
+          ...(options.login === undefined ? {} : { login: options.login }),
+        },
+      );
     case "uninstall":
       io.err(renamedNotice(command));
       return commandUninstall(paths, io, service);
@@ -418,6 +556,20 @@ async function commandInstall(
   paths: DaemonPaths,
   io: CliIo,
   service: ServiceIo,
+  interactive = process.stdout.isTTY,
+  preflightOptions: {
+    platform?: NodeJS.Platform;
+    verify?: (config: {
+      readonly type: BackendId;
+      readonly model: string;
+      readonly baseUrl?: string | undefined;
+    }) => Promise<{
+      readonly answers: boolean | undefined;
+      readonly detail?: string | undefined;
+    }>;
+    login?: (command: LoginCommand) => Promise<boolean>;
+    ask?: (question: string) => Promise<string>;
+  } = {},
 ): Promise<ExitCode> {
   const result = await installService(
     serviceTarget(paths, service),
@@ -445,42 +597,20 @@ async function commandInstall(
      * said the install had succeeded. He found out by noticing that no work
      * arrived.
      *
-     * The daemon writes what it learned from its start-up probe, and this is
-     * the moment to read it back. It is not a failure — the service is
-     * running and the rest of it works — so it is said alongside the success
-     * rather than instead of it, with the remedy the backend itself supplies.
+     * That line read services.json — what the daemon's last probe recorded —
+     * and Kevin then signed out and ran `start` and got nothing. B047: the
+     * install waits for the daemon to be ALIVE, not for its first probe to
+     * have landed, so the file is from before the sign-out on a used machine
+     * and absent on a new one, and "absent is not signed-out" correctly says
+     * nothing about either.
+     *
+     * So it asks now, and REPLACES the read-back rather than joining it. Two
+     * answers to one question on one screen is how they come to disagree.
      */
-    for (const line of await signedOutLines(paths)) io.err(`${line}\n`);
+    await preflightFor(paths, io, interactive, preflightOptions);
     io.out(`\n${TEST_YOUR_DEVICE}\n`);
   }
   return result.ok ? 0 : 1;
-}
-
-/**
- * What the daemon's own probe found signed out, if anything.
- *
- * Read from the file rather than probed again: a canary spends a real call,
- * and the daemon has just spent one. Absent or unreadable is nothing to say —
- * a machine that has not probed yet is not a machine with a problem, and
- * inventing a warning from silence is the mistake the tri-state exists to
- * prevent.
- */
-async function signedOutLines(paths: DaemonPaths): Promise<string[]> {
-  const states = await readServiceStates(paths.serviceStates);
-  const device = await labelFor(paths, undefined);
-  const lines: string[] = [];
-  for (const [service, report] of states) {
-    if (report.state.kind !== "signed-out") continue;
-    const said = serviceLine({
-      service,
-      device,
-      state: report.state,
-      ...(report.signIn === undefined ? {} : { signIn: report.signIn }),
-    });
-    lines.push(`\n  ${said.line}`);
-    if (said.detail !== undefined) lines.push(`    ${said.detail}`);
-  }
-  return lines;
 }
 
 async function commandUninstall(
@@ -1154,6 +1284,20 @@ async function commandRun(
   signal?: AbortSignal,
   pollMs = PARK_POLL_MS,
   supervised = !process.stdout.isTTY,
+  interactive = process.stdout.isTTY,
+  preflightOptions: {
+    platform?: NodeJS.Platform;
+    verify?: (config: {
+      readonly type: BackendId;
+      readonly model: string;
+      readonly baseUrl?: string | undefined;
+    }) => Promise<{
+      readonly answers: boolean | undefined;
+      readonly detail?: string | undefined;
+    }>;
+    login?: (command: LoginCommand) => Promise<boolean>;
+    ask?: (question: string) => Promise<string>;
+  } = {},
 ): Promise<ExitCode> {
   /**
    * No url — byollm_020.
@@ -1174,6 +1318,19 @@ async function commandRun(
     );
     return 2;
   }
+
+  /**
+   * Asked before anything serves — B047, the half `run` did not have at all.
+   *
+   * `signedOutLines` had exactly one caller and it was `start`, so somebody
+   * running the foreground daemon — which on Windows is the path that
+   * reliably works — got no signed-out surface whatsoever. Kevin ran it
+   * signed out and watched a serving line for services that could not serve.
+   *
+   * Outside the loop: the loop re-enters on re-pairing, and asking again
+   * there would be asking a question nobody's answer had changed.
+   */
+  await preflightFor(paths, io, interactive, preflightOptions);
 
   /*
    * Re-entered, not run once, so that re-pairing can end a park.

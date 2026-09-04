@@ -52,7 +52,7 @@ export default defineConfig({
         resolve: { alias: sourceAliases },
         test: {
           name: "unit",
-          include: ["packages/*/src/**/*.test.ts"],
+          include: ["packages/*/src/**/*.test.ts", "scripts/**/*.test.mjs"],
           environment: "node",
         },
       },

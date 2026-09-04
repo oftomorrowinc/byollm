@@ -1,6 +1,6 @@
 {
   "name": "@byollm/control-plane",
-  "version": "0.1.0-alpha.75",
+  "version": "0.1.0-alpha.76",
   "type": "module",
   "description": "The reference control plane: resolves a user's mapping and authors one signed grant per job, against a policy store it does not own.",
   "license": "MIT",

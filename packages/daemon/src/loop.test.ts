@@ -440,21 +440,29 @@ describe("the loop", () => {
     expect(backend.seen).toEqual([]);
   });
 
-  it("gives up on a payload that never seals, and says so", async () => {
+  it("counts a payload that never seals, and eventually gives it up for good", async () => {
     /**
-     * The other terminal exit, which had no test at all — CW's note that the
-     * mutation survived.
+     * The other terminal exit — and asserted on its **consequence**, not on
+     * its log line.
      *
-     * Here the relay keeps answering "not ready" rather than 404: the site
-     * has claimed the job and never sealed. The daemon polls to its deadline
-     * and stops. That exit leaked the lease exactly as the 404 one did, and
-     * it is reached by a different door, so a test of one proves nothing
-     * about the other.
+     * Here the relay keeps answering "not ready": the job is claimed and the
+     * site never seals. The daemon polls to its deadline and stops. That exit
+     * leaked the lease exactly as the 404 one did, through a different door,
+     * so a test of the 404 proves nothing about it.
      *
-     * The lease here expires almost immediately, which is what makes the
-     * give-up reachable in a test rather than in thirty seconds.
+     * The first version of this asserted only that "gave up waiting for the
+     * payload" was logged — which is emitted *before* the return, so
+     * restoring the silent-abandon shape kept the whole suite green. **A test
+     * that watches the announcement instead of the effect passes the moment
+     * the effect is removed.** Verified: reverting that exit to `return null`
+     * left 26 of 26 passing.
+     *
+     * So this asserts what actually changes: the give-up is counted like any
+     * other failure to fetch, and a job that keeps doing it is refused, which
+     * is the thing that stops the hub re-offering it.
      */
-    const stub = {
+    const released: { reason?: string }[] = [];
+    const stub = () => ({
       id: "job_1",
       kind: "llm.generate" as const,
       audience: "private" as const,
@@ -463,10 +471,12 @@ describe("the loop", () => {
       sizeClass: "small" as const,
       streaming: false,
       deadlineAt: Date.now() + 600_000,
-      // Already at its end: the first backoff overshoots it.
+      // Already at its end, so the first backoff overshoots and the give-up
+      // is reachable in a test rather than in thirty seconds.
       lease: { id: "lease_test", runnerId: "runner_1", expiresAt: Date.now() },
-    };
-    const runner = await makeRunner((input) => {
+    });
+
+    const runner = await makeRunner((input, init) => {
       const url = String(input instanceof Request ? input.url : input);
       const endpoint = url.split("/").pop() ?? "";
       const json = (value: unknown, status = 200) =>
@@ -480,9 +490,15 @@ describe("the loop", () => {
         // 409 — the relay holds it and has nothing to hand over yet.
         return json({ error: "not-ready", message: "no payload yet" }, 409);
       }
+      if (endpoint === "release") {
+        const body = typeof init?.body === "string" ? init.body : "";
+        expect(body, "the release body was not a string").not.toBe("");
+        released.push(JSON.parse(body) as { reason?: string });
+        return json({ released: [] });
+      }
       return json(
         endpoint === "claim"
-          ? { jobs: [stub], leaseMs: 600_000 }
+          ? { jobs: [stub()], leaseMs: 600_000 }
           : endpoint === "heartbeat"
             ? {
                 sites: HEARTBEAT_SITES,
@@ -491,22 +507,30 @@ describe("the loop", () => {
                 lost: [],
                 serverTime: Date.now(),
               }
-            : { released: [] },
+            : { accepted: true, state: "ok" },
       );
     });
 
+    // Patience first: a site that is merely slow keeps its job.
     await runner.tick();
-    await new Promise((resolve) => setTimeout(resolve, 100));
-
-    /* Asserted on the event, not on the absence of a backend call: nothing
-       having run is also true of a daemon that did nothing at all, which is
-       the shape of a test that passes by not looking. */
+    await new Promise((resolve) => setTimeout(resolve, 60));
     expect(
-      events
-        .filter((e) => e.type === "error")
-        .map((e) => (e as { message: string }).message)
-        .join(" | "),
-    ).toContain("gave up waiting for the payload");
+      released,
+      "a first give-up must let the lease lapse, not refuse the job",
+    ).toEqual([]);
+
+    // And then, for good.
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      await runner.tick();
+      await new Promise((resolve) => setTimeout(resolve, 60));
+    }
+
+    expect(
+      released,
+      "a payload that never arrives must end in a refusal, or the hub keeps " +
+        "offering the job and the daemon keeps waiting out its deadline",
+    ).toHaveLength(1);
+    expect(released[0]?.reason).toBe("refused");
     expect(backend.seen).toEqual([]);
   });
 

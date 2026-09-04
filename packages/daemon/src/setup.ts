@@ -4,7 +4,12 @@ import { createInterface } from "node:readline/promises";
 import type { BackendId, JobKind } from "@byollm/protocol";
 import { createBackend } from "./backends/index.js";
 import { probeLocalServers, type LocalServer } from "./probe-local.js";
-import { loginCommandFor, runLogin, type LoginCommand } from "./login.js";
+import {
+  loginCommandFor,
+  loginPlan,
+  runLogin,
+  type LoginCommand,
+} from "./login.js";
 import { DaemonConfig } from "./config.js";
 import type { DaemonPaths } from "./paths.js";
 
@@ -216,13 +221,22 @@ async function signIn(input: {
   verifier: (id: BackendId, model: string) => Promise<Detected>;
   login: (command: LoginCommand) => Promise<boolean>;
   ask: (question: string) => Promise<string>;
+  platform: NodeJS.Platform;
 }): Promise<Detected> {
-  const { cli, io, verifier, login, ask } = input;
+  const { cli, io, verifier, login, ask, platform } = input;
   const command = loginCommandFor(cli.id);
+  /* Windows cannot spawn an npm `.cmd` — see login.ts. The offer to open it
+     is withdrawn there rather than made and silently failed. */
+  const plan = command === undefined ? undefined : loginPlan(command, platform);
   let proof: Detected = { installed: true, answers: false };
 
   for (let round = 0; round < 3; round += 1) {
-    if (command !== undefined) {
+    if (command !== undefined && plan?.kind === "print") {
+      /* Told once, not offered three times: the command is the answer here,
+         and asking [Y/n] again would be asking whether to do the thing this
+         platform has already said it cannot do. */
+      if (round === 0) io.out(`\n${plan.say}\n`);
+    } else if (command !== undefined) {
       const go = await ask(`  Sign in to ${cli.binary} now? [Y/n] `);
       if (yes(go, true)) {
         io.out(`  ${command.says}\n\n`);
@@ -278,7 +292,10 @@ export async function runSetup(
    * one hands the TTY to another program. A test that reached the default
    * would sit waiting for somebody to complete an OAuth flow.
    */
-  login: (command: LoginCommand) => Promise<boolean> = runLogin,
+  login: (command: LoginCommand) => Promise<boolean> = (command) =>
+    runLogin(command, (text) => {
+      io.err(text);
+    }),
   /**
    * The wizard's own hands: `connect` and `install`, run as this process.
    *
@@ -288,6 +305,14 @@ export async function runSetup(
    * keeps this module from importing the command table that imports it.
    */
   run: (argv: readonly string[]) => Promise<number> = () => Promise.resolve(0),
+  /**
+   * Which machine this is — last, for the same reason `verifier` was last.
+   *
+   * Injected rather than read from `process` at the point of use so the
+   * Windows path is testable on the machines we actually have. The bug it
+   * exists for was found on a box none of us own.
+   */
+  platform: NodeJS.Platform = process.platform,
 ): Promise<SetupResult> {
   if (!io.interactive) {
     io.err(
@@ -392,6 +417,7 @@ export async function runSetup(
         verifier,
         login,
         ask: (question) => io.ask(question),
+        platform,
       });
       if (proof.answers === false) {
         io.err(

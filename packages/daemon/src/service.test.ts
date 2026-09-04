@@ -863,14 +863,61 @@ describe("windows, when the task will not register", () => {
   });
 
   /* "exit 1" is not something anybody can act on. Windows says "Access is
-     denied" for the two cases that actually happen, and naming which turns a
-     dead end into a sentence with a next step in it. */
+     denied" for the cases that actually happen, and naming that turns a dead
+     end into a sentence with a next step in it. */
   it("names the refusal rather than printing an exit code", () => {
     const { run } = recording(denied);
     return installService(target("win32"), run, INSTANTLY).then((result) => {
       const said = result.lines.join("\n");
-      expect(said).toContain("will not let you register a scheduled task");
-      expect(said).toContain("IT policy");
+      expect(said).toContain("would not register the scheduled task");
+      expect(said).not.toContain("exit 1");
+    });
+  });
+
+  /**
+   * And keeps the words it was reading — B049's rider on the B036 reopen.
+   *
+   * The old message replaced schtasks's output with our reading of it, so
+   * the one field report we have came back without the line that separates
+   * "this account may not create tasks" from "this trigger type needs
+   * elevation" from "policy". A day of hypotheses, and the evidence had been
+   * overwritten by the interpretation before it left the machine.
+   */
+  it("keeps what the supervisor actually said, under the reading of it", () => {
+    const { run } = recording(denied);
+    return installService(target("win32"), run, INSTANTLY).then((result) => {
+      const said = result.lines.join("\n");
+      expect(said).toContain("ERROR: Access is denied.");
+      expect(said).toContain("would not register the scheduled task");
+    });
+  });
+
+  /**
+   * Kevin, the first person to meet this cold: the remedy "is there, but its
+   * buried in the middle of the text and easy to miss, it should be the
+   * primary thing it tells you since its going to be the solution 99% of the
+   * time."
+   *
+   * Asserting the ORDER, not the presence — presence is what it already had.
+   * A later edit that adds a paragraph above the remedy puts it back where he
+   * found it, and nothing else here would notice.
+   */
+  it("puts the way out above the mechanics, not in the middle of them", () => {
+    const { run } = recording(denied);
+    return installService(target("win32"), run, INSTANTLY).then((result) => {
+      const said = result.lines.join("\n");
+      const remedy = said.indexOf("Run as administrator");
+      const raw = said.indexOf("ERROR: Access is denied.");
+      const paths = said.indexOf("startup:");
+      expect(remedy).toBeGreaterThan(-1);
+      expect(remedy).toBeLessThan(raw);
+      expect(remedy).toBeLessThan(paths);
+      /* And it is on its own line rather than trailing a sentence about
+         something else — the shape of "buried". */
+      const line = said
+        .split("\n")
+        .find((l) => l.includes("Run as administrator"));
+      expect(line?.trim().startsWith("terminal opened with")).toBe(true);
     });
   });
 

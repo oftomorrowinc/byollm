@@ -187,30 +187,33 @@ async function confirmRunning(
 function refusalOf(
   command: readonly string[],
   result: { code: number; output: string },
-): string {
+): readonly string[] {
   const said = result.output.trim();
   const denied = /access is denied|requires elevation|0x80070005/i.test(said);
   /*
-   * Names what to do, not only what happened — B036.
+   * The interpretation **and** the words it was made from — B049 rider.
    *
-   * This sentence used to end at "no administrator rights, or IT policy",
-   * which is a diagnosis and not a next step. Two people met it and neither
-   * was told that an elevated shell would get them past it.
+   * This used to return the interpretation instead of the raw output when
+   * the denied pattern matched. It cost a day: Kevin's field report came
+   * back with our sentence and not schtasks's, and our sentence is the one
+   * thing in the exchange that cannot distinguish "this account may not
+   * create tasks" from "this trigger type needs elevation" from "policy".
+   * We had written over the only evidence that separates the hypotheses.
    *
-   * It should also be rarer now. The task asks for no elevation any more —
-   * it names its user and runs at least privilege — so an Access-denied here
-   * means the machine refuses task creation outright rather than merely
-   * refusing an unscoped one, and elevation is the thing left to try.
+   * So the reading goes first, because it is what most people need, and the
+   * raw line goes under it, because it is what anybody debugging needs and
+   * it costs one line to keep.
    */
-  return denied
-    ? `${command.join(" ")} — this machine will not let you register a ` +
-        `scheduled task (no administrator rights, or IT policy).\n` +
-        `    Try again from a terminal opened with "Run as administrator". ` +
-        `If your\n` +
-        `    workplace blocks scheduled tasks outright, the fallback below ` +
-        `is what\n    you get, and \`byollm run\` always works.`
-    : `${command.join(" ")} — exit ${String(result.code)}` +
-        (said === "" ? "" : `: ${said}`);
+  if (!denied) {
+    return [
+      `${command.join(" ")} — exit ${String(result.code)}` +
+        (said === "" ? "" : `: ${said}`),
+    ];
+  }
+  return [
+    `${command.join(" ")} — Windows would not register the scheduled task.`,
+    ...(said === "" ? [] : [`    it said: ${said}`]),
+  ];
 }
 
 export interface InstallResult {
@@ -292,21 +295,41 @@ export async function installService(
             () => false,
           );
         if (fell) {
+          /**
+           * Outcome, then the way out, then the mechanics — Kevin's finding,
+           * quoted on the row: the "Run as administrator" line "is there, but
+           * its buried in the middle of the text and easy to miss, it should
+           * be the primary thing it tells you since its going to be the
+           * solution 99% of the time."
+           *
+           * He is the first person to meet this message cold, and he read it
+           * the way it was ordered: the sentence that resolves his problem sat
+           * below two other paragraphs, so it read as background.
+           *
+           * The upgrade line is written to be true either way we land on why
+           * Windows refused. It does not say elevation is unusual and it does
+           * not promise the elevated attempt succeeds — the one open question
+           * (whether a logon trigger needs elevation regardless of how the
+           * task is scoped) changes the reason and not the instruction.
+           */
           return {
             ok: true,
             plan,
             lines: [
-              `${plan.supervisor} would not register the task, so byollm is`,
-              `set to start from ${fallback.supervisor} instead.`,
+              `byollm will start when you log in, from ${fallback.supervisor}.`,
+              "",
+              `  To get the stronger setup, run \`byollm start\` once from a`,
+              `  terminal opened with "Run as administrator". Or stay on this`,
+              `  one — it works, with the limit below.`,
               "",
               `  ${fallback.caveat}`,
               "",
-              `  ${refusalOf(command, result)}`,
+              ...refusalOf(command, result).map((line) => `  ${line}`),
               "",
               `  startup:  ${fallback.unitPath}`,
               `  log:      ${plan.logPath}`,
               `  check:    byollm status`,
-              `  remove:   byollm uninstall`,
+              `  remove:   byollm stop`,
             ],
           };
         }
@@ -315,12 +338,29 @@ export async function installService(
         ok: false,
         plan,
         lines: [
-          `wrote ${plan.unitPath}, but ${plan.supervisor} refused it:`,
+          /**
+           * Nothing is starting byollm on this machine — the branch where
+           * even the fallback could not be written.
+           *
+           * Ordered the same way as the fallback message above (B049,
+           * Kevin's finding): what happened, then the way out on its own
+           * line, then the evidence, then what works right now. The remedy
+           * used to live inside refusalOf's denied sentence, which is where
+           * it was buried; moving it up there must not drop it here, where
+           * the person has less, not more.
+           */
+          `${plan.supervisor} refused the task, and the fallback could not be`,
+          `written either. Nothing is starting byollm at login.`,
           "",
-          `  ${refusalOf(command, result)}`,
+          `  To get past this, run \`byollm start\` once from a terminal opened`,
+          `  with "Run as administrator".`,
           "",
-          `The daemon is not supervised. \`byollm run\` still works in a terminal,`,
-          `and is the way to keep serving until this is sorted.`,
+          ...refusalOf(command, result).map((line) => `  ${line}`),
+          "",
+          `\`byollm run\` still works in a terminal, and is the way to keep`,
+          `serving until this is sorted.`,
+          "",
+          `  wrote ${plan.unitPath}`,
         ],
       };
     }
@@ -478,6 +518,23 @@ export async function uninstallService(
     lines: [
       `Removed. ${plan.supervisor} is no longer running byollm.`,
       `Your pairings, allowlist and logs are untouched in ~/.byollm.`,
+      "",
+      /**
+       * Because the first person to meet the old verb read it the way it was
+       * written — B049 item 3.
+       *
+       * Kevin ran `byollm uninstall` to get byollm off his machine. It
+       * unscheduled the daemon and said "Removed", which was true about the
+       * supervisor and not about the thing he asked for. Todd, on the rename:
+       * "that is literally why I wanted the terms removed since it wasn't
+       * uninstalling before — just unscheduling the background job."
+       *
+       * The rename fixes the word. It does not answer the question he
+       * actually had, and the answer is one line, so it goes here rather
+       * than in a doc he would have to know to look for. It lives in `stop`
+       * and outlives the shim, which dies at 0.1.0 with the other aliases.
+       */
+      `To remove byollm from this machine entirely: \`npm uninstall -g byollm\``,
       ...(failures.length === 0
         ? []
         : [

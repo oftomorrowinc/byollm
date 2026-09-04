@@ -29,6 +29,7 @@ describe("running a vendor CLI's sign-in", () => {
     expect(claude).toBeDefined();
     const ok = await runLogin(
       claude!,
+      () => undefined,
       fakeSpawn((child) => child.emit("close", 0)),
     );
     expect(ok).toBe(true);
@@ -38,6 +39,7 @@ describe("running a vendor CLI's sign-in", () => {
     // Ctrl-C in the middle of a browser handoff. Not an error — a decision.
     const ok = await runLogin(
       claude!,
+      () => undefined,
       fakeSpawn((child) => child.emit("close", 130)),
     );
     expect(ok).toBe(false);
@@ -47,19 +49,35 @@ describe("running a vendor CLI's sign-in", () => {
     // ENOENT arrives as an `error` event rather than an exception. A wizard
     // that crashed here would lose a config somebody had just answered five
     // questions to build.
+    const said: string[] = [];
     const ok = await runLogin(
       claude!,
+      (text) => said.push(text),
       fakeSpawn((child) => child.emit("error", new Error("ENOENT"))),
     );
     expect(ok).toBe(false);
+    /* The rider, B049: the caller still gets `false` and the person still
+       gets the words. Three rounds of silence on Kevin's box were three
+       EINVALs nobody printed. */
+    expect(said.join("")).toContain("ENOENT");
+    expect(said.join("")).toContain("claude auth login");
   });
 
   it("is false when spawn itself throws", async () => {
     // The synchronous path — a bad argv, a platform that refuses. Same
     // outcome to the caller: they are not signed in, so ask them.
-    const ok = await runLogin(claude!, () => {
-      throw new Error("EPERM");
-    });
+    const said: string[] = [];
+    const ok = await runLogin(
+      claude!,
+      (text) => said.push(text),
+      () => {
+        throw new Error("EPERM");
+      },
+    );
     expect(ok).toBe(false);
+    /* The synchronous half of the same rider. This is the branch Windows
+       actually takes: spawning a `.cmd` without a shell throws EINVAL
+       rather than emitting an error event. */
+    expect(said.join("")).toContain("EPERM");
   });
 });

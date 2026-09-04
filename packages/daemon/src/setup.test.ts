@@ -683,6 +683,64 @@ describe("a CLI that is there but cannot answer", () => {
     expect(io.transcript()).toMatch(/is installed and not signed in/);
   });
 
+  /**
+   * Windows, where the offer could never be kept — B049 item 1.
+   *
+   * Kevin's transcript, three times: "Sign in to claude now? [Y/n] y" ->
+   * "Opening Claude's sign-in now" -> "Still cannot answer". Nothing opened.
+   * An npm-installed `claude` on Windows is `claude.cmd`, which Node will not
+   * spawn without a shell, and runLogin is built to swallow that — so the
+   * wizard promised to open something, failed silently, and asked again.
+   *
+   * Todd ruled: on Windows, print the command instead. The assertion that
+   * matters is the negative one — the promise is not made — because making it
+   * and failing is the whole defect.
+   */
+  it("on Windows hands over the command instead of promising to open it", async () => {
+    const io = scripted(["a", "n", "n", "n", "n"]);
+    let spawned = 0;
+    await runSetup(
+      await paths(),
+      io,
+      machineWith(["claude-cli"]),
+      noServers,
+      cannotAnswer,
+      () => {
+        spawned += 1;
+        return Promise.resolve(false);
+      },
+      () => Promise.resolve(0),
+      "win32",
+    );
+    const said = io.transcript();
+    expect(spawned, "nothing may be spawned on Windows").toBe(0);
+    expect(said).not.toContain("Opening Claude's sign-in now");
+    expect(said).toContain("claude auth login");
+    expect(said).toContain("Windows cannot open it for you");
+  });
+
+  /* The control, and the reason the test above is not vacuous: everywhere
+     else the offer still stands and is still taken. */
+  it("still offers to open it everywhere else", async () => {
+    const io = scripted(["a", "y", "n", "n", "n", "n"]);
+    let spawned = 0;
+    await runSetup(
+      await paths(),
+      io,
+      machineWith(["claude-cli"]),
+      noServers,
+      cannotAnswer,
+      () => {
+        spawned += 1;
+        return Promise.resolve(false);
+      },
+      () => Promise.resolve(0),
+      "darwin",
+    );
+    expect(spawned).toBeGreaterThan(0);
+    expect(io.transcript()).toContain("Opening Claude's sign-in now");
+  });
+
   /* And a backend with no canary is not reported as broken. `undefined` is
      "not asked", which is a third thing, and rendering it as `false` would
      tell everybody with a local model server that it cannot answer. */

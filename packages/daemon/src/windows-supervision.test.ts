@@ -119,15 +119,57 @@ describe("when Windows refuses the task anyway", () => {
     );
 
     const text = said.lines.join("\n");
-    /* The refusal is reported in our words rather than schtasks' — that is
-       deliberate and predates this. What was missing is the next step. */
-    expect(text).toContain("will not let you register a scheduled task");
+    /* Our reading of the refusal AND the words it was read from — B049's
+       rider reversed the old "in our words rather than schtasks'" choice,
+       which cost us the only line that could tell the hypotheses apart. */
+    expect(text).toContain("would not register the scheduled task");
+    expect(text).toContain("ERROR: Access is denied.");
     expect(text, "a diagnosis with no next step is a dead end").toContain(
       "Run as administrator",
     );
-    /* And the two things that still work are named, because "elevate" is not
-       available to everybody and this must not be the end of the road. */
+    /* `byollm run` is deliberately NOT here any more. This is the branch
+       where the Startup fallback succeeded, so something already starts
+       byollm at login, and offering a third path re-buries the one remedy
+       Kevin said should lead. It is named in the branch that needs it —
+       below, where nothing supervises at all. */
+    expect(text).not.toContain("byollm run");
+  });
+
+  it("still names a way to serve when even the fallback fails", async () => {
+    /**
+     * The other side of moving the remedy: this branch has less than the
+     * fallback branch, not more, and it must not lose what that one gained.
+     * A person here has nothing starting byollm at all.
+     */
+    /* A real filesystem refusal rather than an injected one: a FILE where
+       the Startup folder's parent directory has to be, so the recursive
+       mkdir fails the way a locked-down profile would. There is no seam to
+       stub here, and adding one to test the branch would be testing the
+       seam. */
+    const plan = servicePlan(target("win32"));
+    const blocked = plan.fallback?.unitPath;
+    expect(blocked).toBeDefined();
+    await mkdir(dirname(dirname(dirname(dirname(blocked!)))), {
+      recursive: true,
+    });
+    await writeFile(dirname(dirname(dirname(blocked!))), "not a directory");
+
+    const said = await installService(
+      target("win32"),
+      (command) =>
+        Promise.resolve(
+          command.includes("/create")
+            ? { code: 1, output: "ERROR: Access is denied." }
+            : { code: 0, output: "" },
+        ),
+      () => Promise.resolve(),
+    );
+
+    const text = said.lines.join("\n");
+    expect(said.ok).toBe(false);
+    expect(text).toContain("Run as administrator");
     expect(text).toContain("byollm run");
+    expect(text).toContain("ERROR: Access is denied.");
   });
 });
 

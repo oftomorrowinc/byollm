@@ -134,8 +134,29 @@ function classifyFailure(message: string): {
   readonly code: BackendErrorCode;
   readonly retryable: boolean;
 } {
-  // A provider rate-limit is not necessarily a spent subscription. Keep this
-  // narrow: false exhaustion would hide capacity that still exists.
+  /*
+   * PENDING OBSERVED CORPUS — these three patterns are provisional.
+   *
+   * Only the first is known to match something a real CLI printed. The other
+   * two are plausible English that no observed message has confirmed, and
+   * they are kept narrow on purpose: a false `quota-exhausted` withdraws
+   * capacity the owner still has, which is worse than failing to name a
+   * limit that was really reached.
+   *
+   * What one probe of codex-cli 0.149.1 did show is that the shape here is
+   * not prose. A provider failure arrives as the HTTP error *stringified
+   * whole* into `message`:
+   *
+   *   {"type":"error","status":400,"error":{"type":"invalid_request_error",
+   *    "message":"The '...' model is not supported ..."}}
+   *
+   * So these regexes read JSON text, and a machine-readable code is the more
+   * likely carrier of a real exhaustion signal than any sentence. A snake
+   * case code such as `usage_limit_reached` would defeat `\busage limit\b`
+   * today. Widen this only against collected messages, never against guesses
+   * about how the sentence probably goes — and add each observed message to
+   * `codex-outcome.test.ts` as it is collected, so the corpus is the test.
+   */
   if (
     /\busage limit\b/iu.test(message) ||
     /\bout of (?:credits?|quota)\b/iu.test(message) ||
@@ -292,9 +313,20 @@ export class CodexCliBackend implements Backend {
       model,
       prompt: "Reply with the single word: ok",
       timeoutMs: 30_000,
-      // Enough for a word and a newline, and small enough that a chatty
-      // model's answer cannot make this expensive.
-      maxOutputBytes: 256,
+      /*
+       * Enough for the answer *and the envelope it arrives in*, and small
+       * enough that a chatty model cannot make this expensive.
+       *
+       * This number is coupled to `FIXED_ARGV`, which is why it is not 256
+       * any more. Under `--json` the CLI spends about 340 bytes saying "ok":
+       * a thread id, two turn rows and a usage record wrap a two-character
+       * answer. A budget overrun is not a truncated answer here — the child
+       * is killed and the call returns `output-too-large`, which this canary
+       * would read as "cannot answer" and report against a machine that
+       * answers fine. Anything that changes the output format has to revisit
+       * this line.
+       */
+      maxOutputBytes: 8 * 1024,
       signal: new AbortController().signal,
     });
     return result.ok

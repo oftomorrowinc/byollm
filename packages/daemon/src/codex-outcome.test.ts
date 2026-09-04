@@ -135,6 +135,32 @@ describe("codex terminal outcomes", () => {
     });
   });
 
+  /* Observed, not imagined: codex-cli 0.149.1, asked for a model a ChatGPT
+     account cannot use. Recorded verbatim because it is the only sample of
+     the real failure shape we hold — the provider's HTTP error stringified
+     whole into `message` — and because it must stay a plain backend error.
+     It is a refusal of one model, not a statement about the subscription. */
+  it("keeps an observed provider refusal out of the quota class", () => {
+    const observed = JSON.stringify({
+      type: "error",
+      status: 400,
+      error: {
+        type: "invalid_request_error",
+        message:
+          "The 'gpt-5-codex' model is not supported when using Codex with a ChatGPT account.",
+      },
+    });
+
+    expect(
+      parseCodexOutput(
+        stream(
+          { type: "error", message: observed },
+          { type: "turn.failed", error: { message: observed } },
+        ),
+      ),
+    ).toMatchObject({ ok: false, code: "backend-error", retryable: false });
+  });
+
   it("never classifies model prose as a provider failure", () => {
     expect(
       parseCodexOutput(

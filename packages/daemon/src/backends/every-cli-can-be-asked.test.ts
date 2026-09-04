@@ -96,14 +96,42 @@ process.stdout.write("Not logged in \\u00b7 Please run /login\\n");
 process.exit(1);
 `;
 
+/*
+ * Signed in and answering. The `--json` branch is a transcript of codex-cli
+ * 0.149.1 answering the canary's own prompt, kept whole — thread id, turn
+ * rows and the usage record included — because its *size* is the thing under
+ * test as much as its shape.
+ *
+ * A trimmed stand-in hid a real outage: `--json` costs about 340 bytes to say
+ * "ok", the canary's output budget was 256, and a budget overrun is a killed
+ * child and an unhealthy verdict. Every signed-in codex would have reported
+ * itself unable to answer. A stand-in slimmer than the CLI it stands in for
+ * proves the parser and nothing about the call.
+ */
 const SIGNED_IN = `#!/usr/bin/env node
 if (process.argv.includes("--version")) { console.log("1.2.3"); process.exit(0); }
 if (process.argv.includes("--json")) {
-  console.log(JSON.stringify({
-    type: "item.completed",
-    item: { type: "agent_message", text: "ok" },
-  }));
-  console.log(JSON.stringify({ type: "turn.completed" }));
+  process.stdout.write([
+    JSON.stringify({
+      type: "thread.started",
+      thread_id: "01a06a20-e1d8-7fe0-b5eb-35946179e9da",
+    }),
+    JSON.stringify({ type: "turn.started" }),
+    JSON.stringify({
+      type: "item.completed",
+      item: { id: "item_0", type: "agent_message", text: "ok" },
+    }),
+    JSON.stringify({
+      type: "turn.completed",
+      usage: {
+        input_tokens: 14066,
+        cached_input_tokens: 9984,
+        cache_write_input_tokens: 0,
+        output_tokens: 5,
+        reasoning_output_tokens: 0,
+      },
+    }),
+  ].join("\\n") + "\\n");
 } else {
   process.stdout.write("ok\\n");
 }

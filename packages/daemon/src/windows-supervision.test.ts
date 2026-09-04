@@ -93,6 +93,44 @@ describe("the task file says what it is", () => {
   });
 });
 
+describe("when Windows refuses the task anyway", () => {
+  it("says what to do, not only what happened", async () => {
+    /**
+     * B036, the half that is a sentence rather than a schema.
+     *
+     * `install` told two people "no administrator rights, or IT policy" and
+     * stopped there. That is a diagnosis, and neither of them was told that
+     * an elevated shell gets past it — so both read it as a dead end.
+     *
+     * It should also be rarer now: the task names its user and runs at least
+     * privilege, so it asks for no elevation. An Access-denied here means the
+     * machine refuses task creation outright, and elevation is the thing left
+     * to try.
+     */
+    const said = await installService(
+      target("win32"),
+      (command) =>
+        Promise.resolve(
+          command.includes("/create")
+            ? { code: 1, output: "ERROR: Access is denied." }
+            : { code: 0, output: command.includes("/query") ? "" : "" },
+        ),
+      () => Promise.resolve(),
+    );
+
+    const text = said.lines.join("\n");
+    /* The refusal is reported in our words rather than schtasks' — that is
+       deliberate and predates this. What was missing is the next step. */
+    expect(text).toContain("will not let you register a scheduled task");
+    expect(text, "a diagnosis with no next step is a dead end").toContain(
+      "Run as administrator",
+    );
+    /* And the two things that still work are named, because "elevate" is not
+       available to everybody and this must not be the end of the road. */
+    expect(text).toContain("byollm run");
+  });
+});
+
 describe("uninstall removes what was actually installed", () => {
   it("deletes the Startup fallback, not only the task file", async () => {
     /**

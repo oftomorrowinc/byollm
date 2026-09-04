@@ -190,9 +190,25 @@ function refusalOf(
 ): string {
   const said = result.output.trim();
   const denied = /access is denied|requires elevation|0x80070005/i.test(said);
+  /*
+   * Names what to do, not only what happened — B036.
+   *
+   * This sentence used to end at "no administrator rights, or IT policy",
+   * which is a diagnosis and not a next step. Two people met it and neither
+   * was told that an elevated shell would get them past it.
+   *
+   * It should also be rarer now. The task asks for no elevation any more —
+   * it names its user and runs at least privilege — so an Access-denied here
+   * means the machine refuses task creation outright rather than merely
+   * refusing an unscoped one, and elevation is the thing left to try.
+   */
   return denied
     ? `${command.join(" ")} — this machine will not let you register a ` +
-        `scheduled task (no administrator rights, or IT policy).`
+        `scheduled task (no administrator rights, or IT policy).\n` +
+        `    Try again from a terminal opened with "Run as administrator". ` +
+        `If your\n` +
+        `    workplace blocks scheduled tasks outright, the fallback below ` +
+        `is what\n    you get, and \`byollm run\` always works.`
     : `${command.join(" ")} — exit ${String(result.code)}` +
         (said === "" ? "" : `: ${said}`);
 }

@@ -105,6 +105,43 @@ describe("what gets written, per platform", () => {
     expect(linux.unitContents).toContain("Restart=always");
     expect(linux.unitContents).not.toContain("Restart=on-failure");
 
+    const perUser = servicePlan({ ...target("win32"), user: "ACME\\kevin" });
+    /**
+     * Why Windows needed administrator rights, and does not now — B036.
+     *
+     * The XML had no `Principal` and a `LogonTrigger` with no `UserId`. That
+     * is not a per-user task: one that fires when *anybody* logs on is
+     * machine-wide, and registering it needs elevation. `schtasks /create`
+     * answered "Access is denied" on a standard account — which is most
+     * accounts — and two users hit it before the cause was named.
+     *
+     * The ruling on Kevin's report was that **supervision must not require
+     * admin**. Naming the user, with an interactive token and least
+     * privilege, is what makes it the per-user task it was always meant to
+     * be: one program, as the person, when that person logs in.
+     */
+    expect(perUser.unitContents).toContain("<Principals>");
+    expect(perUser.unitContents).toContain("<UserId>ACME\\kevin</UserId>");
+    expect(perUser.unitContents).toContain(
+      "<LogonType>InteractiveToken</LogonType>",
+    );
+    expect(perUser.unitContents).toContain(
+      "<RunLevel>LeastPrivilege</RunLevel>",
+    );
+    /* And nothing asks for elevation. `HighestAvailable` is the value that
+       would quietly put the admin prompt back. */
+    expect(perUser.unitContents).not.toContain("HighestAvailable");
+    /* The action runs as that principal rather than as the default one. */
+    expect(perUser.unitContents).toContain('<Actions Context="byollm">');
+
+    /* A machine that cannot tell us who it is keeps the old shape rather
+       than inventing an identity — the fallback still catches it. */
+    const anonymous = servicePlan(target("win32"));
+    expect(anonymous.unitContents).not.toContain("<UserId>");
+    expect(anonymous.unitContents).toContain(
+      "<LogonType>InteractiveToken</LogonType>",
+    );
+
     const win = servicePlan(target("win32"));
     expect(win.unitContents).toContain("<RestartOnFailure>");
   });

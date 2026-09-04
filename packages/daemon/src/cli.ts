@@ -250,6 +250,8 @@ export interface ServiceIo {
   readonly run: CommandRunner;
   readonly home?: string;
   readonly uid?: number;
+  /** Windows only: who the scheduled task belongs to, so it needs no admin. */
+  readonly user?: string;
   /**
    * How install waits between probes while confirming the daemon came up.
    *
@@ -280,6 +282,16 @@ export function defaultServiceIo(): ServiceIo {
     run: spawnCommand,
     // `getuid` is absent on Windows, where nothing reads it.
     uid: process.getuid?.() ?? 0,
+    /* Who the Windows task belongs to — B036. `USERDOMAIN` is absent on a
+       machine that is not domain-joined, where the bare name is what
+       `schtasks` wants anyway. Only Windows reads this. */
+    ...(process.env["USERNAME"] === undefined
+      ? {}
+      : {
+          user: process.env["USERDOMAIN"]
+            ? `${process.env["USERDOMAIN"]}\\${process.env["USERNAME"]}`
+            : process.env["USERNAME"],
+        }),
   };
 }
 
@@ -290,6 +302,7 @@ function serviceTarget(paths: DaemonPaths, service: ServiceIo): ServiceTarget {
     scriptPath: service.scriptPath,
     ...(service.home === undefined ? {} : { home: service.home }),
     ...(service.uid === undefined ? {} : { uid: service.uid }),
+    ...(service.user === undefined ? {} : { user: service.user }),
     root: paths.root,
   };
 }

@@ -135,6 +135,14 @@ export interface ServiceTarget {
    * plan, and no command here needs a shell now.
    */
   readonly uid?: number;
+  /**
+   * Who Windows should register the task for — B036.
+   *
+   * `DOMAIN\\user`, or a bare username. Only Windows reads it, and reading
+   * it is what makes supervision work without administrator rights: see the
+   * `Principal` in the task XML.
+   */
+  readonly user?: string;
 }
 
 /** XML-escape a path — a home directory can contain `&` and an apostrophe. */
@@ -306,6 +314,25 @@ WantedBy=default.target
     };
   }
 
+  /**
+   * Whose task this is — B036, and the whole of why `install` needed admin.
+   *
+   * The XML had no `Principal` and a `LogonTrigger` with no `UserId`. That is
+   * not a per-user task: a task that fires when *anybody* logs on is a
+   * machine-wide one, and registering it needs administrator rights. So
+   * `schtasks /create` answered "Access is denied" on a standard account,
+   * which is most accounts — and the ruling on Kevin's report was that
+   * **supervision must not require admin.**
+   *
+   * Naming the user, with `InteractiveToken` and `LeastPrivilege`, is what
+   * makes it the per-user task it was always meant to be. Nothing here wants
+   * elevation: it runs one program, as the person, when that person logs in.
+   *
+   * Absent on a machine that cannot tell us, which leaves the old shape
+   * rather than inventing an identity — and the fallback still catches it.
+   */
+  const who = target.user;
+
   // Windows has no user-level service, so this is a scheduled task at logon.
   // Registered from XML rather than `schtasks /create /sc onlogon`, because
   // the flag form cannot express restart-on-failure — and a task that starts
@@ -318,7 +345,11 @@ WantedBy=default.target
     <Description>byollm — run an app's LLM jobs on your own models</Description>
   </RegistrationInfo>
   <Triggers>
-    <LogonTrigger><Enabled>true</Enabled></LogonTrigger>
+    <LogonTrigger>
+      <Enabled>true</Enabled>${
+        who === undefined ? "" : `\n      <UserId>${xml(who)}</UserId>`
+      }
+    </LogonTrigger>
   </Triggers>
   <Settings>
     <MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>
@@ -330,7 +361,15 @@ WantedBy=default.target
       <Count>999</Count>
     </RestartOnFailure>
   </Settings>
-  <Actions>
+  <Principals>
+    <Principal id="byollm">${
+      who === undefined ? "" : `\n      <UserId>${xml(who)}</UserId>`
+    }
+      <LogonType>InteractiveToken</LogonType>
+      <RunLevel>LeastPrivilege</RunLevel>
+    </Principal>
+  </Principals>
+  <Actions Context="byollm">
     <Exec>
       <Command>${xml(execPath)}</Command>
       <Arguments>"${xml(scriptPath)}" run</Arguments>

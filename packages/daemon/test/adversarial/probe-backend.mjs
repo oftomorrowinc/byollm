@@ -13,7 +13,10 @@
  * flooding) are separate binaries for exactly that reason — which is itself a
  * small demonstration that the allowlist works.
  *
- * Output is a single JSON object on stdout.
+ * Output is a single JSON object on stdout for a prose backend. When the argv
+ * asks for Codex JSONL, the same report is the agent message in a completed
+ * event stream — so the adapter's real parser is exercised without changing
+ * what this syscall-boundary probe observes.
  */
 import { readFileSync } from "node:fs";
 
@@ -33,6 +36,17 @@ try {
   stdin = "";
 }
 
-process.stdout.write(
-  JSON.stringify({ argv, env: process.env, cwd: process.cwd(), stdin }),
-);
+const report = JSON.stringify({
+  argv,
+  env: process.env,
+  cwd: process.cwd(),
+  stdin,
+});
+if (argv.includes("--json")) {
+  process.stdout.write(
+    `${JSON.stringify({ type: "item.completed", item: { type: "agent_message", text: report } })}\n` +
+      `${JSON.stringify({ type: "turn.completed" })}\n`,
+  );
+} else {
+  process.stdout.write(report);
+}

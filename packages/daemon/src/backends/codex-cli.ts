@@ -1,9 +1,10 @@
 import { execFile } from "node:child_process";
 import type { BackendClass, BackendId } from "@byollm/protocol";
 import { childEnv, resolveCliLaunch } from "./claude-cli.js";
-import { runProcessJob } from "./process-backend.js";
+import { isAuthFailure, runProcessJob } from "./process-backend.js";
 import type {
   Backend,
+  BackendErrorCode,
   BackendHealth,
   BackendRequest,
   BackendResult,
@@ -35,6 +36,8 @@ import type {
  * that check runnable rather than a memory.
  *
  * - `exec` — the non-interactive subcommand; answers and exits.
+ * - `--json` — a terminal event decides the outcome. Codex can report
+ *   `turn.failed` and still exit zero, so process status is not success.
  * - `--skip-git-repo-check` — **required**, not hygiene. Codex refuses to run
  *   outside a trusted git directory, and byollm_004 §2 requires the child's cwd
  *   be an empty scratch dir, which never is one. Without this every job fails
@@ -50,6 +53,7 @@ import type {
  */
 const FIXED_ARGV = Object.freeze([
   "exec",
+  "--json",
   "--skip-git-repo-check",
   "-s",
   "read-only",
@@ -86,6 +90,122 @@ const FIXED_ARGV = Object.freeze([
 /** The argv for one call, model included. Frozen, and never payload-derived. */
 export function codexArgv(model: string): readonly string[] {
   return Object.freeze([...FIXED_ARGV, "--model", model]);
+}
+
+/** The meaning of one complete `codex exec --json` stream. */
+export type CodexOutput =
+  | { readonly ok: true; readonly text: string }
+  | {
+      readonly ok: false;
+      readonly code: BackendErrorCode;
+      readonly message: string;
+      readonly retryable: boolean;
+    };
+
+function record(value: unknown): Record<string, unknown> | undefined {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : undefined;
+}
+
+/** One bounded line from a provider diagnostic, for the device owner only. */
+function diagnostic(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const text = Array.from(value, (character) => {
+    const codeUnit = character.charCodeAt(0);
+    return codeUnit <= 31 || codeUnit === 127 ? " " : character;
+  })
+    .join("")
+    .trim()
+    .slice(0, 2_000);
+  return text === "" ? undefined : text;
+}
+
+function failureMessage(event: Record<string, unknown>): string {
+  const error = record(event["error"]);
+  return (
+    diagnostic(event["message"]) ??
+    diagnostic(error?.["message"]) ??
+    "codex reported an error"
+  );
+}
+
+function classifyFailure(message: string): {
+  readonly code: BackendErrorCode;
+  readonly retryable: boolean;
+} {
+  // A provider rate-limit is not necessarily a spent subscription. Keep this
+  // narrow: false exhaustion would hide capacity that still exists.
+  if (
+    /\busage limit\b/iu.test(message) ||
+    /\bout of (?:credits?|quota)\b/iu.test(message) ||
+    /\b(?:credits?|quota) (?:is |are )?exhausted\b/iu.test(message)
+  ) {
+    return { code: "quota-exhausted", retryable: true };
+  }
+  if (isAuthFailure(message)) {
+    return { code: "unauthorized", retryable: false };
+  }
+  return { code: "backend-error", retryable: false };
+}
+
+/**
+ * Interpret Codex's JSONL stream without trusting its process exit status.
+ *
+ * Codex can emit `error` and `turn.failed` and still exit zero. Treating that
+ * status as success hands the provider's failure text to the site as though it
+ * were a model answer. A run succeeds only when the stream contains
+ * `turn.completed`; a terminal error wins when it appears first.
+ *
+ * Unknown and malformed rows are inert. Model prose is read only from
+ * `item.completed` and is never searched for error words, so an answer that
+ * discusses a usage limit cannot withdraw working capacity.
+ */
+export function parseCodexOutput(output: string): CodexOutput {
+  const messages: string[] = [];
+
+  for (const line of output.split(/\r?\n/u)) {
+    if (line.trim() === "") continue;
+
+    let event: Record<string, unknown> | undefined;
+    try {
+      event = record(JSON.parse(line) as unknown);
+    } catch {
+      continue;
+    }
+    if (event === undefined) continue;
+
+    const type = event["type"];
+    if (type === "item.completed") {
+      const item = record(event["item"]);
+      if (item?.["type"] === "agent_message") {
+        const text = item["text"] ?? item["message"];
+        if (typeof text === "string" && text !== "") messages.push(text);
+      }
+      continue;
+    }
+
+    if (type === "error" || type === "turn.failed") {
+      const detail = failureMessage(event);
+      const classified = classifyFailure(detail);
+      return {
+        ok: false,
+        ...classified,
+        message: `the codex CLI failed: ${detail}`,
+      };
+    }
+
+    if (type === "turn.completed") {
+      return { ok: true, text: messages.join("\n") };
+    }
+  }
+
+  return {
+    ok: false,
+    code: "backend-error",
+    message: "the codex CLI ended without a terminal event",
+    retryable: false,
+  };
 }
 
 /**
@@ -184,7 +304,7 @@ export class CodexCliBackend implements Backend {
 
   async execute(request: BackendRequest): Promise<BackendResult> {
     const started = Date.now();
-    return runProcessJob({
+    const result = await runProcessJob({
       launch: resolveCliLaunch(this.#binary, "@openai/codex"),
       argv: codexArgv(request.model),
       env: childEnv(),
@@ -192,5 +312,9 @@ export class CodexCliBackend implements Backend {
       request,
       started,
     });
+    if (!result.ok) return result;
+
+    const outcome = parseCodexOutput(result.text);
+    return { ...outcome, durationMs: result.durationMs };
   }
 }

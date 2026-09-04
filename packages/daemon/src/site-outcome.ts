@@ -50,6 +50,10 @@ const FOR_SITE: Readonly<
     code: "service_unavailable",
     message: SERVICE_UNAVAILABLE,
   },
+  "quota-exhausted": {
+    code: "service_unavailable",
+    message: SERVICE_UNAVAILABLE,
+  },
   unauthorized: {
     code: "service_unavailable",
     message: SERVICE_UNAVAILABLE,

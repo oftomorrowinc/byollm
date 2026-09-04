@@ -98,7 +98,15 @@ process.exit(1);
 
 const SIGNED_IN = `#!/usr/bin/env node
 if (process.argv.includes("--version")) { console.log("1.2.3"); process.exit(0); }
-process.stdout.write("ok\\n");
+if (process.argv.includes("--json")) {
+  console.log(JSON.stringify({
+    type: "item.completed",
+    item: { type: "agent_message", text: "ok" },
+  }));
+  console.log(JSON.stringify({ type: "turn.completed" }));
+} else {
+  process.stdout.write("ok\\n");
+}
 process.exit(0);
 `;
 

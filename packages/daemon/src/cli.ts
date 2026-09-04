@@ -1551,6 +1551,26 @@ function report(origin: string, event: RunnerEvent, io: CliIo): void {
           `\`byollm run\` re-checks on start.\n`,
       );
       break;
+    case "service-out-of-quota":
+      /*
+       * Names no command, because there is not one — 019 §3.2.
+       *
+       * Every other notice on this stream ends in something to run. Ending
+       * this one that way would be inventing a remedy: the account is fine,
+       * the credentials are fine, and the only thing that fixes it is a
+       * clock. So it says when, and says the machine handles the rest, which
+       * is true — the service is re-advertised on its own.
+       */
+      io.err(
+        `${at} ${host} ${event.service} is out of quota — it has stopped ` +
+          `taking work.\n` +
+          (event.until === undefined
+            ? `    Nothing to fix and nothing to sign in to. It will be ` +
+              `offered again once it answers.\n`
+            : `    Back around ${new Date(event.until).toLocaleTimeString()}` +
+              `. It will be offered again on its own.\n`),
+      );
+      break;
     case "now-serving":
       /**
        * The mitigation for site policy moving to the account — Amendment K.

@@ -2,6 +2,7 @@ import { execFile } from "node:child_process";
 import type { BackendClass, BackendId } from "@byollm/protocol";
 import { childEnv, resolveCliLaunch } from "./claude-cli.js";
 import { isAuthFailure, runProcessJob } from "./process-backend.js";
+import { quotaBlock } from "./quota.js";
 import type {
   Backend,
   BackendErrorCode,
@@ -135,33 +136,24 @@ function classifyFailure(message: string): {
   readonly retryable: boolean;
 } {
   /*
-   * PENDING OBSERVED CORPUS — these three patterns are provisional.
+   * Quota first, and from the shared corpus rather than from patterns typed
+   * here — byollm_019 §3.1, ruled 2026-09-03.
    *
-   * Only the first is known to match something a real CLI printed. The other
-   * two are plausible English that no observed message has confirmed, and
-   * they are kept narrow on purpose: a false `quota-exhausted` withdraws
-   * capacity the owner still has, which is worse than failing to name a
-   * limit that was really reached.
+   * This function shipped with three patterns: one met on a real machine and
+   * two that were plausible English nobody had seen. The ruling is that the
+   * corpus admits observed strings only and that an empty corpus is legal,
+   * because the failure modes are not symmetric — a phrase we have not met
+   * changes nothing, and a phrase we invented withdraws a service that works.
+   * The two guesses are gone; the observed one moved to `quota.ts`, where
+   * both CLIs read it and where an addition carries its date and version.
    *
-   * What one probe of codex-cli 0.149.1 did show is that the shape here is
-   * not prose. A provider failure arrives as the HTTP error *stringified
-   * whole* into `message`:
-   *
-   *   {"type":"error","status":400,"error":{"type":"invalid_request_error",
-   *    "message":"The '...' model is not supported ..."}}
-   *
-   * So these regexes read JSON text, and a machine-readable code is the more
-   * likely carrier of a real exhaustion signal than any sentence. A snake
-   * case code such as `usage_limit_reached` would defeat `\busage limit\b`
-   * today. Widen this only against collected messages, never against guesses
-   * about how the sentence probably goes — and add each observed message to
-   * `codex-outcome.test.ts` as it is collected, so the corpus is the test.
+   * Gated on Codex's *own* definition of failure, which is what this whole
+   * file exists to establish: a terminal `error` or `turn.failed` event, not
+   * the exit status. A quota block that exits zero — the shape this adapter
+   * was written for — would be invisible to the machinery built for it if
+   * this read the exit code.
    */
-  if (
-    /\busage limit\b/iu.test(message) ||
-    /\bout of (?:credits?|quota)\b/iu.test(message) ||
-    /\b(?:credits?|quota) (?:is |are )?exhausted\b/iu.test(message)
-  ) {
+  if (quotaBlock(message, Date.now()) !== undefined) {
     return { code: "quota-exhausted", retryable: true };
   }
   if (isAuthFailure(message)) {

@@ -110,6 +110,8 @@ async function makeRunner(
     backendFactory?: (route: ResolvedRoute) => Backend;
     /** Events the runner emits, for the cases that are about a notice. */
     onEvent?: (event: RunnerEvent) => void;
+    /** The clock, for the cases that are about one — see the quota block. */
+    now?: () => number;
   } = {},
 ) {
   const loaded = resolveConfig(
@@ -156,6 +158,7 @@ async function makeRunner(
     spend,
     ingress,
     backendFactory: options.backendFactory ?? (() => backend),
+    ...(options.now === undefined ? {} : { now: options.now }),
     ...(options.onEvent === undefined ? {} : { onEvent: options.onEvent }),
   });
   return { runner, ingress, budgets };
@@ -749,6 +752,24 @@ describe("which service runs a job — byollm_016 Phase B", () => {
  * error path because nobody was watching the error path.
  */
 describe("what leaves the machine when a backend fails", () => {
+  const failingUntil = (
+    message: string,
+    code: BackendErrorCode,
+    until: number,
+  ) =>
+    ({
+      execute: () =>
+        Promise.resolve({
+          ok: false as const,
+          code,
+          message,
+          retryable: true,
+          durationMs: 1,
+          until,
+        }),
+      health: () => Promise.resolve({ healthy: true, models: [] }),
+    }) as unknown as Backend;
+
   const failing = (message: string, code: BackendErrorCode = "backend-error") =>
     ({
       execute: () =>
@@ -813,6 +834,90 @@ describe("what leaves the machine when a backend fails", () => {
       message: SERVICE_UNAVAILABLE,
     });
     expect(JSON.stringify(outcome)).not.toMatch(/codex|usage|quota/i);
+  });
+
+  it("stops advertising a blocked service, and brings it back on its own", async () => {
+    /**
+     * The fast failover, at the seam that makes it fast — byollm_019 §3.2.
+     *
+     * Left advertised, the next job is claimed by this device, fails the same
+     * way, and the site learns nothing until the job's TTL expires. That is
+     * the slow path the whole change exists to close: the fallback Todd
+     * promised Eric cannot fire, because the site was never told anything to
+     * fall back from.
+     *
+     * And it comes back **with nobody doing anything**, which is the reason
+     * this is not folded into the signed-out set. A signed-out service waits
+     * for a person; a blocked one waits for a clock.
+     */
+    const until = 2_000;
+    let now = 1_000;
+    const { runner } = await makeRunner({
+      now: () => now,
+      backendFactory: () =>
+        failingUntil(
+          "the codex CLI failed: You've hit your usage limit",
+          "quota-exhausted",
+          until,
+        ),
+    });
+
+    await runner.runJob(job());
+
+    const blocked = await runner.detectCapabilities({});
+    expect(blocked.map((c) => c.service)).not.toContain("primary");
+
+    // Still inside the window: still withdrawn.
+    now = until - 1;
+    const during = await runner.detectCapabilities({});
+    expect(during.map((c) => c.service)).not.toContain("primary");
+
+    // Past it: offered again, unasked.
+    now = until;
+    const after = await runner.detectCapabilities({});
+    expect(after.map((c) => c.service)).toContain("primary");
+  });
+
+  it("keeps a signed-out service withdrawn, clock or no clock", async () => {
+    /* The control. If the two sets had been folded, the release above would
+       let a signed-out service back in after a couple of seconds — which is
+       the opposite of what its own ruling says, and would be invisible in the
+       test above. */
+    let now = 1_000;
+    const { runner } = await makeRunner({
+      now: () => now,
+      backendFactory: () =>
+        failing("the claude CLI is not signed in", "unauthorized"),
+    });
+
+    await runner.runJob(job());
+    now = 10_000_000;
+    const after = await runner.detectCapabilities({});
+    expect(after.map((c) => c.service)).not.toContain("primary");
+  });
+
+  it("tells the owner a time, and never a thing to sign in to", async () => {
+    const seen: unknown[] = [];
+    const { runner } = await makeRunner({
+      backendFactory: () =>
+        failingUntil(
+          "the codex CLI failed: You've hit your usage limit",
+          "quota-exhausted",
+          9_999,
+        ),
+      onEvent: (event) => {
+        if (event.type === "service-out-of-quota") seen.push(event);
+        // The wrong notice for this cause. A person told to sign in to an
+        // account that is working perfectly goes looking for a fault there
+        // is not.
+        if (event.type === "service-not-signed-in") seen.push("wrong notice");
+      },
+    });
+
+    await runner.runJob(job());
+    expect(seen).toEqual([
+      { type: "service-out-of-quota", service: "primary", until: 9_999 },
+    ]);
   });
 
   /* And the owner keeps everything. The text is theirs — it is their machine,

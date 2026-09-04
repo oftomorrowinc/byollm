@@ -72,21 +72,27 @@ describe("codex terminal outcomes", () => {
     ).toMatchObject({ ok: false, code: "backend-error", retryable: false });
   });
 
-  it.each(["out of credits", "quota is exhausted"])(
-    "recognizes an exhausted-capacity diagnostic: %s",
-    (message) => {
-      expect(
-        parseCodexOutput(
-          stream({ type: "error", message: `\u0000 ${message}\u007f` }),
-        ),
-      ).toMatchObject({
-        ok: false,
-        code: "quota-exhausted",
-        message: `the codex CLI failed: ${message}`,
-        retryable: true,
-      });
-    },
-  );
+  it("recognizes the diagnostic somebody actually met", () => {
+    /* The observed one, and the only one. This test used to run a table of
+       three: "usage limit", met on a real machine, and two plausible English
+       phrases nobody had seen. Ruled 2026-09-03 — the corpus admits observed
+       strings only, and an empty corpus is legal, because a phrase we have
+       not met changes nothing while a phrase we invented withdraws a service
+       that works. The control characters are here because the diagnostic is
+       sanitised before it is read. */
+    expect(
+      parseCodexOutput(
+        stream({
+          type: "error",
+          message: "\u0000 You've hit your usage limit.\u007f",
+        }),
+      ),
+    ).toMatchObject({
+      ok: false,
+      code: "quota-exhausted",
+      retryable: true,
+    });
+  });
 
   it("ignores non-events and accepts the agent-message compatibility field", () => {
     expect(

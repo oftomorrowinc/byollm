@@ -31,6 +31,11 @@ const Stored = z.record(
         detail: z.string().optional(),
       }),
       z.object({ kind: z.literal("missing") }),
+      z.object({
+        kind: z.literal("blocked"),
+        detail: z.string().optional(),
+        until: z.number().int().positive().optional(),
+      }),
       z.object({ kind: z.literal("unknown"), model: z.string() }),
     ]),
     signIn: z.string().optional(),

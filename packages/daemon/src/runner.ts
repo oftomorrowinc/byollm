@@ -202,6 +202,25 @@ export type RunnerEvent =
       readonly detail: string;
     }
   /**
+   * A service is out of quota, so it is no longer advertised — 019 §3.2.
+   *
+   * Its own event rather than a variant of the one above, because the two
+   * sentences a surface writes from them are opposite: one names something to
+   * go and do, and this one names a time to come back. A notice telling
+   * somebody to sign in when their account is simply busy is the
+   * remedy-must-match-the-cause failure in a new place.
+   *
+   * No detail field. The CLI's own words are on the service line, where the
+   * owner reads them; an event carries only what a surface needs to say that
+   * something changed and when it changes back.
+   */
+  | {
+      readonly type: "service-out-of-quota";
+      readonly service: string;
+      /** Epoch ms, when the CLI said so. */
+      readonly until?: number | undefined;
+    }
+  /**
    * A grant arrived and was not honoured — Amendment J.
    *
    * Loud, because the consequence is a job that did not run and the cause is
@@ -343,6 +362,17 @@ export class Runner {
    * observed it.
    */
   readonly #unauthenticated = new Set<string>();
+  /**
+   * Services out of quota, and when each expects to be back — 019 §3.2.
+   *
+   * Kept apart from `#unauthenticated` because the two states recover
+   * differently, and folding them would make one of them wrong. A signed-out
+   * service waits for a person and stays withdrawn until a probe says
+   * otherwise. A blocked one waits for a clock, and must come back **without
+   * anybody doing anything** — which is the whole promise of classifying it
+   * separately.
+   */
+  readonly #blocked = new Map<string, number | undefined>();
 
   /**
    * The key grants are checked against — from the pairing, or adopted later.
@@ -537,6 +567,22 @@ export class Runner {
       // The probe would say healthy — `--version` needs no credentials — which
       // is the whole reason this set exists.
       if (this.#unauthenticated.has(route.service)) continue;
+      /*
+       * Blocked until the clock says otherwise, and then advertised again
+       * with nobody lifting a finger — 019 §3.2.
+       *
+       * A block whose end time is unknown is released here too, on the next
+       * detection pass. That is deliberate: without a time the only
+       * alternatives are to guess one or to withdraw the service until a
+       * restart, and a service that never comes back is a worse failure than
+       * one job that discovers the block is still on. One job re-establishes
+       * it, which is the same cost the auth path pays.
+       */
+      const blockedUntil = this.#blocked.get(route.service);
+      if (this.#blocked.has(route.service)) {
+        if (blockedUntil !== undefined && this.#now() < blockedUntil) continue;
+        this.#blocked.delete(route.service);
+      }
       let usable = probed.get(route.service);
       if (usable === undefined) {
         const backend = this.#backendFor(route);
@@ -1192,6 +1238,38 @@ export class Runner {
           type: "service-not-signed-in",
           service: route.service,
           detail: result.message,
+        });
+      }
+
+      /**
+       * A service out of quota stops being advertised, after one job — 019
+       * §3.2.
+       *
+       * The same one-failure rule the auth path states, for the same reason:
+       * a CLI reporting a quota block is not flaky, it is telling us a fact
+       * that will hold until a clock says otherwise, and every further job
+       * spent rediscovering it is somebody's work refused for a reason we
+       * already knew.
+       *
+       * Withdrawing is what lets the site fail fast. Left advertised, the
+       * next job is claimed by this device, fails the same way, and the site
+       * learns nothing until the job's TTL expires — which is the slow path
+       * this whole change exists to close.
+       */
+      if (!result.ok && result.code === "quota-exhausted") {
+        this.#blocked.set(route.service, result.until);
+        this.serviceStates.set(route.service, {
+          ...this.serviceStates.get(route.service),
+          state: {
+            kind: "blocked",
+            detail: result.message,
+            ...(result.until === undefined ? {} : { until: result.until }),
+          },
+        });
+        this.#options.onEvent?.({
+          type: "service-out-of-quota",
+          service: route.service,
+          ...(result.until === undefined ? {} : { until: result.until }),
         });
       }
 

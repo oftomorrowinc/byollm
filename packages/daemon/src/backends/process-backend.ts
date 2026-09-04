@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import { quotaBlock } from "./quota.js";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -203,23 +204,51 @@ function spawnIn(job: ProcessJob, scratch: string): Promise<BackendResult> {
         // An agentic CLI that cannot authenticate exits non-zero and says so
         // in prose. Recognising that turns a generic `backend-error` into the
         // one typed failure the runner can act on — see {@link isAuthFailure}.
-        const authFailed = isAuthFailure(`${stdout}\n${stderr}`);
+        const said = `${stdout}\n${stderr}`;
+        /*
+         * Quota before auth — byollm_019 §3.1.
+         *
+         * Both are prose from the same stream, and the order decides which
+         * remedy the owner is given. A quota block needs time and nothing
+         * else; being told to sign in when the account is merely busy until
+         * 7pm is the remedy-must-match-the-cause failure in a new place.
+         *
+         * Read here, on this adapter's own definition of failure — a non-zero
+         * exit is what "failed" means for a CLI that reports it honestly.
+         * Codex does not, which is why its adapter decides for itself from a
+         * terminal event and calls the same corpus.
+         *
+         * The corpus is observed-only, so on every machine that has not met
+         * one of these strings this branch is never taken and behaviour is
+         * exactly what it was.
+         */
+        const blocked = quotaBlock(said, Date.now());
+        const authFailed = blocked === undefined && isAuthFailure(said);
         finish({
           ok: false,
-          code: authFailed ? "unauthorized" : "backend-error",
-          message: authFailed
-            ? `${displayName} is not signed in`
-            : stderr.trim() !== ""
-              ? `${displayName} failed: ${firstLine(stderr)}`
-              : /* Nothing on stderr does not mean nothing was said. An
+          code:
+            blocked !== undefined
+              ? "quota-exhausted"
+              : authFailed
+                ? "unauthorized"
+                : "backend-error",
+          ...(blocked?.until === undefined ? {} : { until: blocked.until }),
+          message:
+            blocked !== undefined
+              ? `${displayName} is out of quota for now`
+              : authFailed
+                ? `${displayName} is not signed in`
+                : stderr.trim() !== ""
+                  ? `${displayName} failed: ${firstLine(stderr)}`
+                  : /* Nothing on stderr does not mean nothing was said. An
                    agentic CLI writes its errors to stdout — that is where
                    "Failed to authenticate" arrived — and reporting a bare
                    exit code while holding the explanation is the one thing a
                    diagnostic must not do. No new exposure: stdout already
                    goes to the site on success. */
-                stdout.trim() !== ""
-                ? `${displayName} failed: ${firstLine(stdout)}`
-                : `${displayName} exited with status ${String(code)}`,
+                    stdout.trim() !== ""
+                    ? `${displayName} failed: ${firstLine(stdout)}`
+                    : `${displayName} exited with status ${String(code)}`,
           retryable: false,
           durationMs,
         });

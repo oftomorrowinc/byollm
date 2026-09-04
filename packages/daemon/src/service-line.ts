@@ -20,6 +20,20 @@ export type ServiceState =
   /** The config names a binary this machine does not have. */
   | { readonly kind: "missing" }
   /**
+   * Signed in, healthy, and out of quota until further notice — 019 §3.2.
+   *
+   * Its own state because its remedy is the opposite of signed-out's: this
+   * one needs **time and nothing else**, and there is nothing for the owner
+   * to go and do. Rendering it as "needs sign-in" would send somebody to a
+   * terminal to fix an account that is working perfectly.
+   */
+  | {
+      readonly kind: "blocked";
+      readonly detail?: string | undefined;
+      /** Epoch ms the CLI expects to be back, when it said so. */
+      readonly until?: number | undefined;
+    }
+  /**
    * Nobody asked, because there was nothing to ask with.
    *
    * Not a failure and not a success. A backend with no canary — an HTTP model
@@ -86,7 +100,41 @@ export function serviceLine(input: {
         line: `${service} — not found on ${device}: install it, or ${remove}`,
       };
     }
+    case "blocked": {
+      /* No remedy, because there is not one — and saying so is the point.
+         Every other sentence here ends in something to run. This one ends in
+         a time, or in nothing, and both are more use than an instruction that
+         cannot help. */
+      const when =
+        state.until === undefined
+          ? "it needs time, not a fix"
+          : `back around ${clockTime(state.until)}`;
+      return {
+        line: `${service} — out of quota on ${device}: ${when}`,
+        ...(state.detail === undefined ? {} : { detail: state.detail }),
+      };
+    }
   }
+}
+
+/**
+ * A time somebody can act on, in their own timezone.
+ *
+ * Local because this line is read by one person on one machine, and the CLI
+ * that produced the time meant the same clock they are looking at. No date
+ * unless it is not today: "back around 8:28 AM" is what somebody needs when
+ * the block lifts this afternoon, and a full timestamp is noise around it.
+ */
+function clockTime(at: number): string {
+  const when = new Date(at);
+  const time = when.toLocaleTimeString(undefined, {
+    hour: "numeric",
+    minute: "2-digit",
+  });
+  const today = new Date().toDateString() === when.toDateString();
+  return today
+    ? time
+    : `${when.toLocaleDateString(undefined, { month: "short", day: "numeric" })}, ${time}`;
 }
 
 /**

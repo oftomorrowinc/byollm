@@ -29,6 +29,24 @@ export type BackendResult =
       readonly message: string;
       readonly retryable: boolean;
       readonly durationMs: number;
+      /**
+       * When the backend expects to be usable again — byollm_019 §3.2.
+       *
+       * Epoch ms, and only when the CLI actually said so. Carried on the
+       * result rather than looked up later because the sentence that names
+       * the time is the failure diagnostic itself, and it is gone by the time
+       * anything else could ask.
+       *
+       * **A reason without a clock turns "wait" into "give up."** Somebody
+       * told their service is blocked, and not told for how long, cannot tell
+       * an hour from a week and reaches for the remedy that always looks
+       * available: turning it off.
+       *
+       * Owner-only, like every other diagnostic here. It never reaches a
+       * site: a duration leaks which block was hit, and which block was hit
+       * is a fact about how much somebody has been working today.
+       */
+      readonly until?: number | undefined;
     };
 
 /**

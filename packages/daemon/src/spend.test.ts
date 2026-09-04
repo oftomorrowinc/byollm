@@ -168,14 +168,23 @@ describe("a ledger that cannot be trusted brakes rather than opens", () => {
     expect(l.hasReachedCeiling("gpt", 100, NOW)).toBe(true);
   });
 
-  it("reads a well-formed but wrong-shaped ledger as empty", async () => {
+  it("brakes on a well-formed ledger of the wrong shape", async () => {
+    /* The third arm, and it was still blessing the bug after the other two
+       were flipped — CW's rolling review, 2026-09-03.
+
+       A file that parses as JSON and fails the schema is not a lesser
+       failure than one that will not parse: a future version's ledger, a
+       half-migrated file, a `version: 2` we do not understand. What is in it
+       is unknown, and unknown is exactly the state the brake is for. */
     await writeFile(
       join(dir, "spend.json"),
       JSON.stringify({ version: 2, entries: { gpt: "lots" } }),
     );
     const l = ledger();
     await l.load(NOW);
-    expect(l.spentTodayCents("gpt", NOW)).toBe(0);
+
+    expect(l.untrustedReason()).toMatch(/not a ledger this version can read/);
+    expect(l.hasReachedCeiling("gpt", 100, NOW)).toBe(true);
   });
 
   it("drops a backend whose every entry has aged out, and keeps the rest", async () => {

@@ -1603,7 +1603,7 @@ async function commandStatus(
   io: CliIo,
   service: ServiceIo,
 ): Promise<ExitCode> {
-  const { loaded, ingress, budgets, spend } = await context(paths);
+  const { loaded, ingress, budgets, spend, spentGrants } = await context(paths);
   const pairings = new Pairings(paths.pairings);
   await pairings.load();
   reportSkipped(pairings, io);
@@ -1905,20 +1905,45 @@ async function commandStatus(
    * never quoted — it is a record of what this machine did for other people,
    * and that does not belong in a screenshot or a support thread.
    */
+  const grantsBlocked = spentGrants.blockedReason(now);
   const untrusted = [
     ["community work", budgets.untrustedReason()],
     ["metered spend", spend.untrustedReason()],
+    ["used grants", grantsBlocked],
   ].filter((row): row is [string, string] => row[1] !== undefined);
   if (untrusted.length > 0) {
     io.out("\nbookkeeping this device cannot read\n");
     for (const [what, why] of untrusted) {
       io.out(`  ${what}: ${why}\n`);
     }
-    io.out(
-      "  it is refusing work for other people until this is fixed. Your own " +
-        "work is unaffected.\n" +
-        "  move the named file aside and this clears on the next start.\n",
-    );
+    /*
+     * Two different brakes, two different sentences — CW's rolling review.
+     *
+     * The first draft said "your own work is unaffected" for whatever was
+     * unreadable, which is true of the two ledgers that count what this
+     * machine did for other people and false of the third. The used-grants
+     * record guards the wire: while it is unreadable this device refuses
+     * every relayed job, the owner's own site work included, because a
+     * duplicate of your own metered job is still your money.
+     *
+     * Saying the reassuring one over the strict one would have somebody
+     * reading "your own work is unaffected" on the exact screen explaining
+     * why their own work had stopped.
+     */
+    if (grantsBlocked === undefined) {
+      io.out(
+        "  it is refusing work for other people until this is fixed. Your " +
+          "own work is unaffected.\n",
+      );
+    } else {
+      io.out(
+        "  it is refusing every job that arrives through a site, including " +
+          "your own, until this is fixed.\n" +
+          "  that lasts about two minutes from the last start — long enough " +
+          "that nothing it forgot could still be replayed.\n",
+      );
+    }
+    io.out("  move the named file aside and this clears on the next start.\n");
   }
 
   const spentToday = spend.summary(now);

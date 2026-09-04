@@ -1,4 +1,6 @@
 import { mkdir, mkdtemp, readFile, readdir, writeFile } from "node:fs/promises";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { CLOCK_SKEW_WARN_MS, GRANT_MAX_AGE_MS } from "@byollm/protocol";
@@ -127,6 +129,112 @@ describe("a torn write, a restart, and the same grant twice", () => {
       name.endsWith(".tmp"),
     );
     expect(leftovers).toEqual([]);
+  });
+});
+
+/**
+ * End to end over a real filesystem, and **not** the proof.
+ *
+ * These two reproduce on a laptop — twenty-five concurrent records left
+ * twenty-one on disk — and they pass under the runner with the fix removed,
+ * because the interleaving that loses entries did not happen there. Kept
+ * because they exercise the whole path a record actually takes, and labelled
+ * because a green here says nothing about whether writes are serialised.
+ *
+ * The property is proved in `ledger-writer.test.ts`, against an injected
+ * sink, where the ordering is made to happen rather than waited for.
+ */
+describe("concurrent records, over a real filesystem", () => {
+  it("loses none of them", async () => {
+    const path = join(dir, "spend.json");
+    const ledger = new SpendLedger(path);
+    await ledger.load(NOW);
+
+    await Promise.all(
+      Array.from({ length: 25 }, (_unused, index) =>
+        ledger.record(`backend-${String(index)}`, 1, NOW),
+      ),
+    );
+
+    const written = JSON.parse(await readFile(path, "utf8")) as {
+      entries: Record<string, unknown[]>;
+    };
+    expect(Object.keys(written.entries)).toHaveLength(25);
+  });
+
+  it("keeps a budget's count of what it accepted", async () => {
+    // The same defect, the same fix, the other file — asserted rather than
+    // assumed, because the two write paths are separate code.
+    const path = join(dir, "budgets.json");
+    const budgets = new Budgets(path, LIMITS);
+    await budgets.load(NOW);
+
+    await Promise.all(
+      Array.from({ length: 25 }, (_unused, index) =>
+        budgets.record(NOW + index),
+      ),
+    );
+
+    const written = JSON.parse(await readFile(path, "utf8")) as {
+      accepted: number[];
+    };
+    expect(written.accepted).toHaveLength(25);
+  });
+});
+
+describe("the latch, asserted on each ledger directly", () => {
+  it("will not let a budget overwrite what it could not read", async () => {
+    /* Held only through `check` until now — a rider from the rolling review.
+       The latch is a property of the write, so it is worth asking the write. */
+    const path = join(dir, "budgets.json");
+    await writeFile(path, "{ torn");
+    const budgets = new Budgets(path, LIMITS);
+    await budgets.load(NOW);
+
+    await budgets.record(NOW);
+
+    expect(await readFile(path, "utf8")).toBe("{ torn");
+    expect(budgets.untrustedReason()).toBeDefined();
+    expect(budgets.check(NOW, 10)).toMatchObject({
+      ok: false,
+      refusal: "ledger-untrusted",
+    });
+  });
+
+  it("lets a trusted budget write normally", async () => {
+    // The control: the latch must not be a permanent brake on a good file.
+    const path = join(dir, "budgets.json");
+    const budgets = new Budgets(path, LIMITS);
+    await budgets.load(NOW);
+    await budgets.record(NOW);
+
+    expect(await readFile(path, "utf8")).toContain('"accepted"');
+  });
+});
+
+describe("what the owner is told", () => {
+  it("does not promise that own work is unaffected when it is", () => {
+    /*
+     * CW's rolling review. The reassurance is true of the two ledgers that
+     * count what this machine did for other people, and false of the one
+     * that guards the wire — which refuses the owner's own site jobs too.
+     * Printed over each other, somebody would read "your own work is
+     * unaffected" on the screen explaining why their own work had stopped.
+     */
+    const cli = readFileSync(
+      fileURLToPath(new URL("./cli.ts", import.meta.url)),
+      "utf8",
+    );
+    const block = cli.slice(
+      cli.indexOf("bookkeeping this device cannot read"),
+      cli.indexOf("move the named file aside"),
+    );
+
+    expect(block).toContain("grantsBlocked === undefined");
+    expect(block).toContain("including");
+    // The strict sentence must not be the one carrying the reassurance.
+    const strict = block.slice(block.indexOf("} else {"));
+    expect(strict).not.toContain("own work is unaffected");
   });
 });
 

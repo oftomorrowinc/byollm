@@ -188,3 +188,53 @@ function syncDirectorySync(path: string): void {
     // As above.
   }
 }
+
+/**
+ * One writer per ledger, so a slow rename cannot land on a fast one.
+ *
+ * Found by CW's rolling review, and it reproduces: twenty-five concurrent
+ * `record()` calls left twenty-one on disk. Nothing here is thread-unsafe —
+ * the loss is in the awaits. Each call serialises its own snapshot and then
+ * suspends across `open`, `write`, `sync` and `rename`, so two calls can
+ * finish out of order and the *earlier* snapshot wins. The entries between
+ * them are gone.
+ *
+ * That is a brake under-counting what it was built to count, which is the
+ * unsafe direction.
+ *
+ * The body is a thunk rather than a string, and that is the other half: taken
+ * after the previous write has landed, so a queued write serialises current
+ * state rather than the state its caller saw. A queue of stale snapshots
+ * would order the writes and still lose the entries.
+ */
+export class LedgerWriter {
+  readonly #path: string;
+  readonly #sink: (path: string, body: string) => Promise<void>;
+  #tail: Promise<unknown> = Promise.resolve();
+
+  /**
+   * The write itself is injectable, and only the tests pass one.
+   *
+   * Not decoration: the first test written for this asserted the *symptom* —
+   * twenty-five concurrent records, twenty-five entries on disk — and passed
+   * with the serialisation removed. It reproduces on a real filesystem and it
+   * did not reproduce under the runner, which makes it a test that would have
+   * gone green in CI on the broken code. A seam that cannot be driven can
+   * only be tested by luck.
+   */
+  constructor(
+    path: string,
+    sink: (path: string, body: string) => Promise<void> = writeLedger,
+  ) {
+    this.#path = path;
+    this.#sink = sink;
+  }
+
+  write(body: () => string): Promise<void> {
+    const next = this.#tail.then(() => this.#sink(this.#path, body()));
+    // The chain must survive a failed write, or one rejection stops every
+    // later one. Callers still see their own failure through `next`.
+    this.#tail = next.catch(() => undefined);
+    return next;
+  }
+}

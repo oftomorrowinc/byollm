@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { readLedger, writeLedger } from "./ledger.js";
+import { LedgerWriter, readLedger } from "./ledger.js";
 
 const SpendFile = z
   .object({
@@ -31,9 +31,11 @@ export class SpendLedger {
   #entries: Record<string, { at: number; cents: number }[]> = {};
   #loaded = false;
   #untrusted: string | undefined;
+  readonly #writer: LedgerWriter;
 
   constructor(path: string) {
     this.#path = path;
+    this.#writer = new LedgerWriter(path);
   }
 
   /**
@@ -107,8 +109,7 @@ export class SpendLedger {
     if (this.#untrusted !== undefined) return;
     (this.#entries[backendKey] ??= []).push({ at: now, cents });
     this.#prune(now);
-    await writeLedger(
-      this.#path,
+    await this.#writer.write(() =>
       JSON.stringify({ version: 1, entries: this.#entries }),
     );
   }

@@ -1,6 +1,6 @@
 import { z } from "zod";
 import type { CommunityBudget } from "./config.js";
-import { readLedger, writeLedger } from "./ledger.js";
+import { LedgerWriter, readLedger } from "./ledger.js";
 
 const BudgetFile = z
   .object({
@@ -36,10 +36,12 @@ export class Budgets {
   #accepted: number[] = [];
   #loaded = false;
   #untrusted: string | undefined;
+  readonly #writer: LedgerWriter;
 
   constructor(path: string, limits: CommunityBudget) {
     this.#path = path;
     this.#limits = limits;
+    this.#writer = new LedgerWriter(path);
   }
 
   /**
@@ -121,8 +123,7 @@ export class Budgets {
     if (this.#untrusted !== undefined) return;
     this.#accepted.push(now);
     this.#prune(now);
-    await writeLedger(
-      this.#path,
+    await this.#writer.write(() =>
       JSON.stringify({ version: 1, accepted: this.#accepted }),
     );
   }

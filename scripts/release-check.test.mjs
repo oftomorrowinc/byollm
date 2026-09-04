@@ -1,51 +1,78 @@
 import { execFileSync } from "node:child_process";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 
 /**
  * A read that timed out is not a broken release — ruled 2026-09-04.
  *
- * This check reported failure on three consecutive cuts — .74, .76 and .77,
- * every time on `@byollm/protocol`, which is also the largest package — while
- * every version was in fact live. **A red that is benign three times running
- * is a red people learn to ignore**, which is precisely the failure the step
- * exists to prevent: the next genuine partial release goes out behind a shrug
- * from somebody who has learned that this one cries wolf.
+ * The check reported failure on three consecutive cuts — .74, .76 and .77,
+ * every time on `@byollm/protocol`, the largest package — while every version
+ * was live. **A red that is benign three times running is a red people learn
+ * to ignore**, which is the failure this step exists to prevent.
  *
- * So the two findings stop sharing an answer. A partial release is a fact
- * about npm's contents and still fails. A read this check could not complete
- * is a fact about *this check*, exits 3, and is reported unproven.
+ * The first fix gave unread its own exit code and reported it green. That was
+ * the wrong trade and the review caught it: a package that was never
+ * published and one the registry is slow to serve are the same empty read, so
+ * making unread benign made a real partial release pass. What actually fixed
+ * the crying wolf was the window — two minutes against a package that took
+ * two. It is five now, and after it, anything unconfirmed fails.
  *
- * **The prover is not the proven**, and unproven is a third state.
+ * ## Why these run against fixtures
  *
- * Driven against the real registry with the window forced to one attempt,
- * which is what the override exists for: the giving-up path costs five
- * minutes to reach honestly, and a failure message that expensive to
- * reproduce is a failure message nobody has ever read.
+ * The first version of this file drove the live registry. Six packages,
+ * several reads each, three platforms — **Windows CI spent thirty minutes and
+ * then failed on a slow read**, which says nothing whatever about whether
+ * this logic is right. A test that needs the network to say what a function
+ * does is a test that reports the network.
  *
- * The partial case uses a version that is *actually* partial on npm today
- * rather than a fixture, so the shape under test is one the registry really
- * serves.
- *
- * The file is `.mjs` because that is what the suite globs under `scripts/`. A
- * `.ts` sibling here is a test nothing runs, which the first version of this
- * was for about a minute.
+ * The real registry is still exercised: this script does its actual job on
+ * every release, and both branches were rehearsed against it by hand before
+ * shipping — `0.1.0-alpha.10` is genuinely partial on npm (control-plane
+ * first appears at alpha.58 while its siblings go back to alpha.0) and
+ * reported the asymmetry; a version npm has never seen reported silence.
+ * What the suite proves is the reasoning, in milliseconds.
  */
 const script = fileURLToPath(new URL("./release-check.mjs", import.meta.url));
 
-/*
- * `execFileSync`, not `spawnSync` — byollm_004 §2 bans the shell-invoking
- * APIs and the lint is absolute about it. A fixed argv array either way; what
- * changes is that a non-zero exit arrives as a throw, so the code has to be
- * read off the error rather than off a result.
- */
-function run(version, attempts) {
+const NAMES = [
+  "byollm",
+  "@byollm/protocol",
+  "@byollm/relay",
+  "@byollm/server",
+  "@byollm/control-plane",
+  "@byollm/conformance",
+];
+
+let dir;
+
+afterEach(() => {
+  if (dir) rmSync(dir, { recursive: true, force: true });
+  dir = undefined;
+});
+
+/** A registry that holds `version` for every package named in `present`. */
+function registry(version, present) {
+  const entry = (has) => ({
+    versions: has ? [version] : [],
+    "dist-tags": has ? { alpha: version, latest: version } : {},
+  });
+  return Object.fromEntries(NAMES.map((n) => [n, entry(present.includes(n))]));
+}
+
+function run(version, present, attempts = "1") {
+  dir = mkdtempSync(join(tmpdir(), "release-check-"));
+  const path = join(dir, "registry.json");
+  writeFileSync(path, JSON.stringify(registry(version, present)), "utf8");
   const options = {
     encoding: "utf8",
     stdio: ["ignore", "pipe", "pipe"],
     env: {
       ...process.env,
-      ...(attempts === undefined ? {} : { RELEASE_CHECK_ATTEMPTS: attempts }),
+      RELEASE_CHECK_ATTEMPTS: attempts,
+      RELEASE_CHECK_FIXTURE: path,
     },
   };
   try {
@@ -63,60 +90,48 @@ function run(version, attempts) {
   }
 }
 
+const V = "0.1.0-alpha.999";
+
 describe("the release read-back", () => {
-  it("fails, and sees the asymmetry, on a genuinely partial version", () => {
-    /**
-     * A real partial state from the real registry — no fixture.
-     *
-     * `@byollm/control-plane` first appears at `alpha.58`; every other
-     * package goes back to `alpha.0`. So at `0.1.0-alpha.10` five packages
-     * are present and one has never existed, which is the shape the whole
-     * check is for: some at the version, others not, and every one of them
-     * resolvable by anyone who installs.
-     *
-     * This is the exit-1 path, and until now it had no test at all — the one
-     * branch that matters most was the one never exercised.
-     */
-    const seen = run("0.1.0-alpha.10", "1");
+  it("fails a partial release, and names what did answer", () => {
+    /* The dangerous state: some packages at the version, others not, and
+       every one of them resolvable by anyone who installs. This is the path
+       that had no test at all — the branch the whole check exists for. */
+    const seen = run(
+      V,
+      NAMES.filter((n) => n !== "@byollm/control-plane"),
+    );
 
     expect(seen.status).toBe(1);
-    /* The asymmetry itself: the absent package reads as unconfirmed while
-       its siblings do not. An old version also fails the `alpha` dist-tag
-       check, which is correct and is not what this asserts. */
+    /* Asserted on phrases that do not span a line break — the message is
+       hand-wrapped, and "the shape of a partial release" is split across two
+       lines in the source. */
+    expect(seen.stderr).toContain("Some packages answered and these did not");
+    expect(seen.stderr).toContain("Confirmed live:");
+    expect(seen.stderr).toContain("@byollm/protocol");
     expect(seen.stdout).toMatch(/UNREAD\s+@byollm\/control-plane/u);
-    expect(seen.stdout).not.toMatch(/UNREAD\s+@byollm\/protocol/u);
-    expect(seen.stderr).toContain("partial release");
-  }, 120_000);
+  });
 
   it("does not call a total silence a partial release", () => {
-    /**
-     * The other shape, and the reason the message branches.
-     *
-     * A version npm has never seen for anything answers for nothing. That is
-     * not a partial — a publish that failed outright fails the step above —
-     * it is a registry not serving reads, and the first move is different:
-     * wait, rather than republish. Same exit code, because either way the
-     * release could not be confirmed.
-     */
-    const seen = run("0.1.0-alpha.9999", "1");
+    /* A publish that failed outright fails the step above, so nothing
+       answering is a registry not serving reads. Same exit code — the release
+       is unconfirmed either way — and a different first move: wait, rather
+       than republish. */
+    const seen = run(V, []);
 
     expect(seen.status).toBe(1);
     expect(seen.stderr).toContain("No package answered");
-    /* The tell that it is not claiming asymmetry. Asserted on the half that
-       only appears in the partial branch — the first version of this test
-       looked for "shape of a partial release", which the uniform message
-       also contains, in the sentence saying it is not one. */
     expect(seen.stderr).not.toContain("Confirmed live:");
     expect(seen.stderr).toContain("re-run this check");
-  }, 120_000);
+  });
 
-  it("exits 0 for a version that is genuinely live", () => {
+  it("exits 0 when every package is there", () => {
     /* The control. Everything above is satisfied by a script that never
        succeeds, and a release check that always complains is one nobody
        keeps. */
-    const seen = run("0.1.0-alpha.77");
+    const seen = run(V, NAMES);
 
     expect(seen.status).toBe(0);
     expect(seen.stdout).toContain("is live on every package");
-  }, 300_000);
+  });
 });

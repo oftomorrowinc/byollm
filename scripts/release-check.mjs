@@ -70,7 +70,42 @@ const version =
   JSON.parse(readFileSync(join(PACKAGES, "protocol", "package.json"), "utf8"))
     .version;
 
+/**
+ * What the registry says, or what a fixture says it says.
+ *
+ * `RELEASE_CHECK_FIXTURE` names a JSON file of
+ * `{ "<package>": { "versions": [...], "dist-tags": {...} } }` and replaces
+ * the npm calls entirely. It exists because the tests for this file used to
+ * hit the live registry from CI: six packages, several reads each, on three
+ * platforms — Windows took **thirty minutes** and then failed on a slow read
+ * that says nothing about whether this logic is right.
+ *
+ * A test that needs the network to say what a function does is a test that
+ * reports the network. The real registry is still exercised, by this script
+ * doing its actual job on every release; what the suite proves is the
+ * reasoning, and it proves it in milliseconds.
+ */
+const fixturePath = process.env["RELEASE_CHECK_FIXTURE"];
+const fixture = fixturePath
+  ? JSON.parse(readFileSync(fixturePath, "utf8"))
+  : undefined;
+
 const npm = (args) => {
+  if (fixture !== undefined) {
+    /* `npm view <name> versions --json` puts the name second;
+       `npm dist-tag ls <name>` puts it third. Reading it from one position
+       gave every package empty tags and turned a fixture of six healthy
+       packages into six BAD TAGs — a shim that lies uniformly is a test
+       harness that proves the wrong thing quietly. */
+    const command = args[0];
+    const name = command === "view" ? args[1] : args[2];
+    const entry = fixture[name ?? ""];
+    if (entry === undefined) return "";
+    if (command === "view") return JSON.stringify(entry.versions ?? []);
+    return Object.entries(entry["dist-tags"] ?? {})
+      .map(([tag, at]) => `${tag}: ${at}`)
+      .join("\n");
+  }
   try {
     return execFileSync("npm", args, {
       encoding: "utf8",

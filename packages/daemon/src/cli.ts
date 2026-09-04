@@ -1,4 +1,5 @@
 import { access } from "node:fs/promises";
+import { emphasise, terminalContext } from "./emphasis.js";
 import { backendVerifier, listModels, setModel, showModel } from "./model.js";
 import { createBackend } from "./backends/index.js";
 import { mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
@@ -848,11 +849,18 @@ async function commandConnect(
          * dashboard's problem, and the approval URL carries whatever it needs
          * to open on the right screen. A step here naming a button would be a
          * step that goes stale the first time the page is redesigned.
+         *
+         * The code itself is highlighted — ux 09-03. Numbering the steps was
+         * not enough on its own: step 2 holds the only value somebody has to
+         * carry to another window, and it sat in a line that looked exactly
+         * like the two around it. The emphasis wraps the code and not the
+         * label, and it is absent the moment this is not a terminal, so a
+         * piped transcript still holds a code somebody can paste.
          */
         io.out(
           `\n  Your steps:\n` +
             `    1) Open:       ${info.verificationUrl}\n` +
-            `    2) Enter code: ${info.userCode}   ` +
+            `    2) Enter code: ${emphasise(info.userCode, terminalContext())}   ` +
             `(expires in ${String(minutes)} minutes)\n` +
             `    3) Check the screen shows this device's fingerprint, ` +
             `then approve:\n\n` +

@@ -1,5 +1,5 @@
 import { mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
-import { REVOKED_SENTENCE } from "./revoked.js";
+import { REVOKED_RETURN, REVOKED_SENTENCE } from "./revoked.js";
 import { dirname } from "node:path";
 import {
   refuseToSupervise,
@@ -350,7 +350,7 @@ export async function installService(
             `  ${REVOKED_SENTENCE}.`,
             "",
             `  re-pair:  byollm connect`,
-            `  then:     byollm install`,
+            `  ${REVOKED_RETURN}.`,
             "",
             `Installing again will not change this — the refusal is the hub's,`,
             `and it stands until this device is approved again.`,

@@ -16,9 +16,37 @@ import { readHealth, writeHealth } from "./health.js";
  */
 export const REVOKED_SENTENCE = "this device was revoked — re-pair to return";
 
-/** The remedy line, in the shape the CLI prints elsewhere. */
-export function revokedRemedy(origin?: string): string {
-  return `  re-pair:  byollm connect${origin === undefined ? "" : ` ${origin}`}\n`;
+/**
+ * What happens after the remedy, which nobody was told — ruled 2026-09-03.
+ *
+ * `connect` said "paired" and the machine stayed dark, so the remedy looked
+ * like it had failed. Two different things carry it back, and both are
+ * automatic: a parked daemon polls the mark and promotes itself, and a daemon
+ * that is not up is restarted by a supervisor holding `KeepAlive` — so the
+ * one instruction that used to follow this line, `byollm install`, was work
+ * nobody needed to do.
+ *
+ * Said out loud because a person who sees nothing happen reaches for the
+ * reinstall on their own. The wait is bounded and short; the sentence is
+ * here so the waiting is expected rather than alarming.
+ */
+export const REVOKED_RETURN =
+  "the installed service returns by itself once you do — no reinstall";
+
+/**
+ * The remedy line, in the shape the CLI prints elsewhere.
+ *
+ * `returnsByItself` is asked rather than assumed, because the promise is only
+ * true where something is holding the daemon up. A person running `byollm
+ * run` in their own terminal has no service to come back on its own, and
+ * telling them one exists would send them looking for a machine that is never
+ * going to light up. **A promise belongs to the party that can keep it.**
+ */
+export function revokedRemedy(origin?: string, returnsByItself = true): string {
+  return (
+    `  re-pair:  byollm connect${origin === undefined ? "" : ` ${origin}`}\n` +
+    (returnsByItself ? `  ${REVOKED_RETURN}.\n` : "")
+  );
 }
 
 /**

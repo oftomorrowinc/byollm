@@ -115,6 +115,20 @@ export async function runCli(
      * something on whoever runs it.
      */
     service?: ServiceIo;
+    /**
+     * How long a parked daemon waits between asking whether it has been
+     * re-paired. Injected by the tests for the same reason `service` is: the
+     * real interval is tuned for a person watching a machine, and a test that
+     * waited it out would spend that time doing nothing.
+     */
+    parkPollMs?: number;
+    /**
+     * Is something restarting us if we exit? Defaults to "no TTY, so yes".
+     * Injected because the parked-daemon behaviour only exists under a
+     * supervisor, and a test runner attached to a terminal looks like a
+     * person at a prompt — which is the other branch entirely.
+     */
+    supervised?: boolean;
   } = {},
 ): Promise<ExitCode> {
   const [command, ...rest] = argv;
@@ -146,7 +160,14 @@ export async function runCli(
     case "name":
       return commandName(paths, rest, io);
     case "run":
-      return commandRun(paths, rest, io, signal);
+      return commandRun(
+        paths,
+        rest,
+        io,
+        signal,
+        options.parkPollMs,
+        options.supervised,
+      );
     case "status":
       return commandStatus(paths, io, service);
     case "log":
@@ -963,25 +984,41 @@ async function commandRun(
   args: readonly string[],
   io: CliIo,
   signal?: AbortSignal,
+  pollMs = PARK_POLL_MS,
+  supervised = !process.stdout.isTTY,
 ): Promise<ExitCode> {
-  const pairings = new Pairings(paths.pairings);
-  await pairings.load();
-  reportSkipped(pairings, io);
+  /*
+   * Re-entered, not run once, so that re-pairing can end a park.
+   *
+   * The pairings are read inside the loop for the same reason: the file is
+   * how another process hands this one the news, and a parked daemon that
+   * kept its first reading would come back to serve exactly the nothing it
+   * parked over.
+   */
+  for (;;) {
+    const pairings = new Pairings(paths.pairings);
+    await pairings.load();
+    reportSkipped(pairings, io);
 
-  const target = args[0];
-  const origins =
-    target === undefined
-      ? pairings.list().map((pairing) => pairing.origin)
-      : [normalizeOrigin(target)];
+    const target = args[0];
+    const origins =
+      target === undefined
+        ? pairings.list().map((pairing) => pairing.origin)
+        : [normalizeOrigin(target)];
 
-  if (origins.length === 0) {
-    // The branch Todd's service log repeated all evening, for a machine that
-    // was paired and had been revoked. It is the *first* of two that can find
-    // nothing to serve, and it was the one being reached — which is why the
-    // decision lives in one function now rather than beside each `return`.
-    return nothingToServe(paths, io, signal);
+    const outcome =
+      origins.length === 0
+        ? // The branch Todd's service log repeated all evening, for a machine
+          // that was paired and had been revoked. It is the *first* of two
+          // that can find nothing to serve, and it was the one being reached
+          // — which is why the decision lives in one function now rather than
+          // beside each `return`.
+          await nothingToServe(paths, io, signal, supervised, [], pollMs)
+        : await runLoop(paths, origins, io, signal, supervised, pollMs);
+
+    if (outcome !== "repaired") return outcome;
+    io.err("re-paired — this device is returning to service.\n");
   }
-  return runLoop(paths, origins, io, signal);
 }
 
 /**
@@ -1074,6 +1111,15 @@ async function retireAllowlist(paths: DaemonPaths, io: CliIo): Promise<void> {
 }
 
 /**
+ * What a run ended as: an exit code, or the news that it should start again.
+ *
+ * `"repaired"` is not an exit. A parked daemon that sees its revocation
+ * undone has to go back and build the runners it never built, and the only
+ * honest way to say that in a return type is a value that is not a code.
+ */
+type ServeOutcome = ExitCode | "repaired";
+
+/**
  * There is nothing to serve, and why that is decides everything after it.
  *
  * Two call sites reach this — no pairings at all, and pairings that all
@@ -1106,7 +1152,10 @@ async function nothingToServe(
   io: CliIo,
   signal?: AbortSignal,
   supervised = !process.stdout.isTTY,
-): Promise<ExitCode> {
+  /** What we were asked to serve; empty means "whatever is paired". */
+  origins: readonly string[] = [],
+  pollMs = PARK_POLL_MS,
+): Promise<ServeOutcome> {
   const mark = await revokedMark(paths.health);
   if (mark === undefined) {
     io.err(
@@ -1122,22 +1171,88 @@ async function nothingToServe(
     `${REVOKED_SENTENCE}.\n` +
       `  ${mark.origin} no longer accepts this device's credential, so ` +
       `there is nothing to serve.\n` +
-      revokedRemedy(mark.origin),
+      revokedRemedy(mark.origin, supervised),
   );
   if (!supervised) return 2;
+  return (await parkedUntilRepaired(paths, origins, signal, pollMs))
+    ? "repaired"
+    : 0;
+}
 
-  // Marked and waiting. `byollm connect` ends it, which is the remedy anyway;
-  // so does stopping the service.
-  await new Promise<void>((resolve) => {
-    if (signal === undefined || signal.aborted) {
-      resolve();
+/**
+ * How often a parked daemon asks whether the remedy has been applied.
+ *
+ * Slow is about not spinning, and nothing else: this reads two local files
+ * and never speaks to the hub, so the reason the rest of this daemon backs
+ * off — do not hammer somebody else's server — has no force here. What sets
+ * the number is the person: they run `byollm connect`, they are told the
+ * service comes back on its own, and this is how long they watch a dark
+ * machine before that sentence starts to look like a lie.
+ */
+const PARK_POLL_MS = 15_000;
+
+/** Resolves `true` if the wait was cut short by the signal. */
+function sleepOrAbort(ms: number, signal?: AbortSignal): Promise<boolean> {
+  return new Promise((resolve) => {
+    if (signal?.aborted === true) {
+      resolve(true);
       return;
     }
-    signal.addEventListener("abort", () => {
-      resolve();
-    });
+    const timer = setTimeout(() => {
+      signal?.removeEventListener("abort", onAbort);
+      resolve(false);
+    }, ms);
+    // Declared after the timer it clears, and used only from a callback that
+    // cannot run before this line — the alternative is a `let` that lint
+    // rightly objects to.
+    const onAbort = (): void => {
+      clearTimeout(timer);
+      resolve(true);
+    };
+    signal?.addEventListener("abort", onAbort, { once: true });
   });
-  return 0;
+}
+
+/**
+ * Wait, parked, until the revocation is undone — or until we are stopped.
+ *
+ * The gap this closes: a revoked daemon under a supervisor stayed up holding
+ * nothing but its abort signal. `byollm connect` runs in a *different*
+ * process; it clears the mark and writes the pairing, says "paired", and had
+ * no way at all to reach the waiter. The machine stayed dark until somebody
+ * restarted it by hand, having been given no reason to think they needed to.
+ *
+ * **A poll may promote, never demote** — the rule the hub's pollers already
+ * follow, turned on the daemon's own state. This only ever moves parked to
+ * serving. It cannot park a serving daemon, and a read that fails is not an
+ * answer: `revokedMark` returning `undefined` on an unreadable health file
+ * would be indistinguishable from a cleared mark, so promotion also requires
+ * a pairing to be present and readable. Two facts have to agree before this
+ * wakes anything up.
+ *
+ * Returns `true` when the caller should go back and serve.
+ */
+async function parkedUntilRepaired(
+  paths: DaemonPaths,
+  origins: readonly string[],
+  signal: AbortSignal | undefined,
+  pollMs: number,
+): Promise<boolean> {
+  for (;;) {
+    if (await sleepOrAbort(pollMs, signal)) return false;
+    if ((await revokedMark(paths.health)) !== undefined) continue;
+
+    const pairings = new Pairings(paths.pairings);
+    await pairings.load();
+    // An empty `origins` is `byollm run` with no argument — any pairing will
+    // do, because any pairing is what it would have served.
+    const served = pairings
+      .list()
+      .some(
+        (pairing) => origins.length === 0 || origins.includes(pairing.origin),
+      );
+    if (served) return true;
+  }
 }
 
 async function runLoop(
@@ -1159,7 +1274,8 @@ async function runLoop(
    * Injected so the tests can be either.
    */
   supervised = !process.stdout.isTTY,
-): Promise<ExitCode> {
+  pollMs = PARK_POLL_MS,
+): Promise<ServeOutcome> {
   const { loaded, ingress, budgets, spend, spentGrants } = await context(paths);
   const identity = new DeviceIdentity(paths.keys);
   const pairings = new Pairings(paths.pairings);
@@ -1304,7 +1420,7 @@ async function runLoop(
     // Every origin that got here was skipped for a reason already said out
     // loud above; `nothingToServe` supplies the consequence and decides
     // whether exiting would hand the supervisor a loop.
-    return nothingToServe(paths, io, signal, supervised);
+    return nothingToServe(paths, io, signal, supervised, origins, pollMs);
   }
 
   // Leases are released on the way out, so the app sees work return to the
@@ -1551,7 +1667,7 @@ async function commandStatus(
     io.out(
       `  ${REVOKED_SENTENCE}.\n` +
         `  ${revoked.origin} no longer accepts this device's credential.\n` +
-        revokedRemedy(revoked.origin),
+        revokedRemedy(revoked.origin, supervision.state !== "absent"),
     );
   }
   if (failing) {

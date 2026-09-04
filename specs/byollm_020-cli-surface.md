@@ -95,3 +95,52 @@ with a url) fixed; one list where there were two.
   admin) — that is the Batch B Windows work (B036/#7), not a naming
   change. This spec assumes `start` calls whatever the platform's
   supervisor is; the Windows fix is separate.
+
+---
+
+## CW rolling review — 2026-09-04 eve, range 255ba75..8f1c6a0 (the .81 cut)
+
+Verdict: **CLEAR — latest may move to 0.1.0-alpha.81.** Verified
+independently, not from the report: all six packages read back at .81
+from registry.npmjs.org directly (latest uniformly .79 before the
+move); full unit suite green at 8f1c6a0 (97 files, 1263 passed); and I
+re-ran two mutations myself — pause aliased at uninstall reddens the
+"does not quietly do something else" test, and DAEMON_VERSION set to
+0.1.0 reddens all four death-date arms, each printing its instruction.
+
+The build's central finding is confirmed in the diff and it upgrades
+the ruling's rationale, as CCB said: `#paused` gated claiming inside
+the Runner, but pause()/resume() had only test callers, and the CLI's
+flag file was read by exactly two surfaces — the connect probe and the
+`status` headline, where PAUSED outranked everything but REVOKED,
+including NOT REPORTING. The removal is the honest fix and the tests
+around it are the right shape: the stubs exit 2 and print the truth;
+the flag file is never written; and — the test I most wanted to see —
+an *old* flag file from a pre-.81 install is proven inert against the
+status headline. The wire assertion checks the key, not just the
+value, so dropping the field is the failure it catches.
+
+Keeping `paused` on the wire until 0.1.0 is correct, and not merely
+compatible: pre-.81 daemons in the wild can still legitimately send
+`true` (their flag files exist), and the hub's offer gate at
+`!runner.paused` still serves them. The field, the gate, and the
+server records all die together at the lockstep cut, and the
+death-date test's instruction text names every site. Footprint
+enforcement is transitive but real: the test forces the surface
+deletion, and knip (in verify.sh) then fails the build on the orphaned
+listModels — Todd's "remove the code footprint" wish is machine-held
+at both levels.
+
+Two minors, doc-grade, riding any next cut:
+- **M-1** runner.ts's compromised-control-plane trade note now reads
+  "Spend caps bound the damage," which silently halved the recorded
+  trade. Truer than before (pause never bounded anything), but the
+  owner's actual lever should be named: spend caps bound it, `byollm
+  stop` ends it.
+- **M-2** relay fixture's HeartbeatRequest mirror has `paused` with
+  `.default(false)` where the real schema has it required — a fixture
+  lenient where the protocol is strict predates this range, but the
+  0.1.0 sweep should take the mirror with it.
+
+CCB's swallowed-mutation catch is minted as law in 016: prove the
+mutation applied before trusting its verdict.

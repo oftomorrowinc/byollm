@@ -7246,3 +7246,21 @@ raised under uncertainty must prescribe a remedy that is harmless if
 the alarm turns out to be false — diagnose-and-confirm, never
 destroy-to-fix. The cost of a false positive is not only the scare; it
 is whatever its prescribed fix would have done.
+
+## Law: prove the mutation applied before trusting its verdict (CW, 2026-09-04, from CCB's own catch)
+
+During B043's mutation pass, the first attempt to restore the PAUSED
+branch referenced a symbol the file no longer imports, and the code's
+own try/catch swallowed the error — so the mutation never executed, the
+suite ran green, and a green there reads exactly like "the tests caught
+nothing to catch." CCB noticed only because a pass was implausible.
+
+The law: a mutation that does not apply is indistinguishable from a
+mutation that was caught. Before believing any mutation result — red or
+green — prove the mutant actually ran: watch it change observable
+behavior once, or make it fail compilation when it cannot land. This is
+the re-reader law's sibling one level down: the mutation is itself a
+measurement instrument, and an instrument must be shown to be connected
+before its reading means anything. The same holds for every negative
+test: a test that passes because the scenario never fired protects
+nothing.

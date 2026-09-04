@@ -109,6 +109,11 @@ describe("what a revoked daemon promises", () => {
     await runCli(["run"], { paths, io: io(), supervised: false });
     expect(err).toContain("byollm connect");
     expect(err).not.toContain("returns by itself");
+    /* And it does not leave them without a next step — rider closed
+       2026-09-04. Their process has already exited by the time they read
+       this, so the restart is the command they typed, not an install. */
+    expect(err).toContain("byollm run");
+    expect(err).not.toContain("byollm install");
   }, 30_000);
 });
 

@@ -45,7 +45,19 @@ export const REVOKED_RETURN =
 export function revokedRemedy(origin?: string, returnsByItself = true): string {
   return (
     `  re-pair:  byollm connect${origin === undefined ? "" : ` ${origin}`}\n` +
-    (returnsByItself ? `  ${REVOKED_RETURN}.\n` : "")
+    (returnsByItself
+      ? `  ${REVOKED_RETURN}.\n`
+      : /* The restart step, on the one branch that needs one — rider closed
+           2026-09-04.
+ 
+           The original rider asked for `byollm install` back in the remedy.
+           It is not the answer: a supervised daemon polls its mark and
+           promotes itself, and a reinstall was work nobody needed to do. But
+           the branch where nothing self-returns was left with a re-pair step
+           and no next step at all — somebody running the daemon in their own
+           terminal, whose process has already exited by the time they read
+           this. Their restart is the command they typed, not an install. */
+        `  then:     byollm run\n`)
   );
 }
 

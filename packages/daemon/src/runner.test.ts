@@ -112,6 +112,10 @@ async function makeRunner(
     onEvent?: (event: RunnerEvent) => void;
     /** The clock, for the cases that are about one — see the quota block. */
     now?: () => number;
+    /** The file the surfaces read, for the case that is about reaching them. */
+    onServiceStates?: (
+      states: ReadonlyMap<string, { state: { kind: string } }>,
+    ) => Promise<void>;
   } = {},
 ) {
   const loaded = resolveConfig(
@@ -159,6 +163,9 @@ async function makeRunner(
     ingress,
     backendFactory: options.backendFactory ?? (() => backend),
     ...(options.now === undefined ? {} : { now: options.now }),
+    ...(options.onServiceStates === undefined
+      ? {}
+      : { onServiceStates: options.onServiceStates }),
     ...(options.onEvent === undefined ? {} : { onEvent: options.onEvent }),
   });
   return { runner, ingress, budgets };
@@ -866,6 +873,15 @@ describe("what leaves the machine when a backend fails", () => {
 
     const blocked = await runner.detectCapabilities({});
     expect(blocked.map((c) => c.service)).not.toContain("primary");
+    /* And the *state* survives that pass — S2. The map is rebuilt from
+       scratch each time and a blocked service skips the probe that would
+       fill its entry, so without carrying it the reason and the clock exist
+       for one pass and then vanish, leaving `byollm status` unable to say
+       anything at all. */
+    expect(runner.serviceStates.get("primary")?.state).toMatchObject({
+      kind: "blocked",
+      until,
+    });
 
     // Still inside the window: still withdrawn.
     now = until - 1;
@@ -876,6 +892,41 @@ describe("what leaves the machine when a backend fails", () => {
     now = until;
     const after = await runner.detectCapabilities({});
     expect(after.map((c) => c.service)).toContain("primary");
+    // And it stops claiming to be blocked, or the surface would keep saying so
+    // about a service that is answering again.
+    expect(runner.serviceStates.get("primary")?.state.kind).not.toBe("blocked");
+  });
+
+  it("tells the process that writes the file, at the moment it changes", async () => {
+    /**
+     * S2's other half — and the reason a callback is not enough on its own.
+     *
+     * The daemon probes; `byollm status` reports; they are different
+     * processes and the file between them was written once, at start. A
+     * service that went out of quota an hour later was invisible to every
+     * surface except the daemon's own stderr, so the state could be perfectly
+     * correct in memory and unreadable by the only thing that renders it.
+     *
+     * **An injection point nobody invokes is dead code wearing an API.** This
+     * asserts the call, because without it the wiring could be removed and
+     * every other test here would still pass.
+     */
+    const written: string[] = [];
+    const { runner } = await makeRunner({
+      backendFactory: () =>
+        failingUntil(
+          "the codex CLI failed: You've hit your usage limit",
+          "quota-exhausted",
+          9_999,
+        ),
+      onServiceStates: (states) => {
+        written.push(states.get("primary")?.state.kind ?? "absent");
+        return Promise.resolve();
+      },
+    });
+
+    await runner.runJob(job());
+    expect(written).toEqual(["blocked"]);
   });
 
   it("keeps a signed-out service withdrawn, clock or no clock", async () => {
@@ -918,6 +969,61 @@ describe("what leaves the machine when a backend fails", () => {
     expect(seen).toEqual([
       { type: "service-out-of-quota", service: "primary", until: 9_999 },
     ]);
+  });
+
+  it("gives every service_unavailable the same retry answer", async () => {
+    /**
+     * S3 — ruled by CW, 2026-09-04.
+     *
+     * `retryable` used to travel from the backend result, on the reasoning
+     * that whether to try again is the site's decision and says nothing about
+     * whose machine it was. True while the flag distinguished nothing. Quota
+     * broke it by arriving `true`, and within one site-facing class exactly
+     * one path produced that value — so `(service_unavailable, true)` read as
+     * **"his account is rate-limited"**, the inference the fence exists to
+     * prevent, on the job-failure surface rather than the enqueue one.
+     *
+     * The two adapters disagreed as well: the same block reported `true` from
+     * Codex and `false` from Claude.
+     *
+     * Asserted as a set, so a fourth sibling added later has to join it. The
+     * person-or-time question lives at enqueue, in the slot-level wait-bit,
+     * and nowhere else.
+     */
+    const siblings: BackendErrorCode[] = [
+      "unauthorized",
+      "backend-error",
+      "quota-exhausted",
+      "backend-unreachable",
+      "model-not-found",
+    ];
+
+    const answers = new Set<string>();
+    for (const code of siblings) {
+      const { runner } = await makeRunner({
+        backendFactory: () => failing(`the claude CLI failed: ${code}`, code),
+      });
+      const outcome = (await runner.runJob(job())) as {
+        code: string;
+        message: string;
+        retryable: boolean;
+      };
+      expect(outcome.code).toBe("service_unavailable");
+      answers.add(JSON.stringify([outcome.code, outcome.retryable]));
+    }
+
+    expect(answers.size, [...answers].join(" vs ")).toBe(1);
+  });
+
+  it("still tells a site a timeout is worth retrying", async () => {
+    /* The control. Making the flag uniform must not make it constant — a
+       class that genuinely is worth retrying still says so, and if it did
+       not, the assertion above would pass on a field nobody could use. */
+    const { runner } = await makeRunner({
+      backendFactory: () => failing("took too long", "timeout"),
+    });
+    const outcome = (await runner.runJob(job())) as { retryable: boolean };
+    expect(outcome.retryable).toBe(true);
   });
 
   /* And the owner keeps everything. The text is theirs — it is their machine,

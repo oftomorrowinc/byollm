@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { observedQuotaCorpus, quotaBlock } from "./backends/quota.js";
-import { serviceLine } from "./service-line.js";
+import { renderServices, serviceLine } from "./service-line.js";
 
 /**
  * A quota block is its own failure, with its own remedy — byollm_019.
@@ -39,13 +39,40 @@ describe("the corpus", () => {
   });
 
   it("is reachable at all", () => {
-    /* The positive control §4 asks for. Everything else here proves the
-       classifier stays quiet; without this, a classifier wired to nothing
-       would pass the whole file. */
-    expect(observedQuotaCorpus.length).toBeGreaterThan(0);
-    const seen = observedQuotaCorpus[0];
-    expect(seen).toBeDefined();
-    expect(quotaBlock(seen?.verbatim ?? "", NOW)).toBeDefined();
+    /**
+     * The positive control §4 asks for, decoupled from corpus size — CW's
+     * note, 2026-09-04.
+     *
+     * This asserted `length > 0`, which made emptying the corpus fail CI
+     * while §6.1 rules an empty corpus legal. Two different claims: "the
+     * classifier is wired to something" is what a control must prove, and
+     * "we currently hold observations" is a fact about our filing.
+     *
+     * So it drives a labelled fixture through the same function and asserts
+     * the classifier agrees with its own corpus. If every observation were
+     * retracted tomorrow this still proves the machinery runs — and what it
+     * would then correctly say is that nothing matches.
+     */
+    const fixture = "You've hit your usage limit.";
+    const matches = observedQuotaCorpus.some((seen) =>
+      seen.pattern.test(fixture),
+    );
+    expect(
+      quotaBlock(fixture, NOW) !== undefined,
+      "the classifier disagrees with its own corpus",
+    ).toBe(matches);
+  });
+
+  it("is silent, not broken, when it holds nothing", () => {
+    /* §6.1's legal state, asserted rather than assumed. Nothing waits on
+       collection: machinery with an empty corpus classifies nothing, which is
+       what every machine did before this existed. */
+    for (const message of ["anything at all", "You've hit your usage limit."]) {
+      const matched = observedQuotaCorpus.some((seen) =>
+        seen.pattern.test(message),
+      );
+      if (!matched) expect(quotaBlock(message, NOW)).toBeUndefined();
+    }
   });
 });
 
@@ -139,5 +166,62 @@ describe("what the owner is told", () => {
     });
     expect(said.line).toContain("needs sign-in");
     expect(said.line).not.toContain("out of quota");
+  });
+});
+
+describe("the state a different process can read", () => {
+  it("survives a rebuild of the probe's map", async () => {
+    /**
+     * S2, found by CW reading the code — 2026-09-04.
+     *
+     * `serviceStates` is rebuilt from scratch on every detection pass, and a
+     * blocked service skips the probe that would fill its entry. So the state
+     * existed for one pass and vanished, and `byollm status` — a *different
+     * process*, reading a file — could never say a service was blocked, let
+     * alone until when, though acceptance §4 names that surface by name. The
+     * only place the time appeared was the daemon's own stderr.
+     *
+     * Asserted end to end through the writer and reader the two processes
+     * actually share, because the bug was precisely that the in-memory map
+     * and the file had stopped agreeing.
+     */
+    const { mkdtemp, rm } = await import("node:fs/promises");
+    const { tmpdir } = await import("node:os");
+    const { join } = await import("node:path");
+    const { readServiceStates, writeServiceStates } =
+      await import("./service-states.js");
+
+    const dir = await mkdtemp(join(tmpdir(), "byollm-blocked-"));
+    const path = join(dir, "services.json");
+    try {
+      await writeServiceStates(
+        path,
+        new Map([
+          [
+            "claude",
+            {
+              state: {
+                kind: "blocked" as const,
+                detail: "the claude CLI is out of quota",
+                until: Date.parse("2026-09-03T08:28:00"),
+              },
+            },
+          ],
+        ]),
+      );
+
+      const read = await readServiceStates(path);
+      expect(read.get("claude")?.state).toMatchObject({
+        kind: "blocked",
+        until: Date.parse("2026-09-03T08:28:00"),
+      });
+
+      // And the surface renders it as a time rather than as a fault.
+      const lines = renderServices(read, "Todd's MacBook");
+      expect(lines.join("\n")).toContain("out of quota");
+      expect(lines.join("\n")).not.toMatch(/sign in|install/i);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
   });
 });

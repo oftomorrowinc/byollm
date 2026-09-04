@@ -235,7 +235,12 @@ function spawnIn(job: ProcessJob, scratch: string): Promise<BackendResult> {
           ...(blocked?.until === undefined ? {} : { until: blocked.until }),
           message:
             blocked !== undefined
-              ? `${displayName} is out of quota for now`
+              ? /* The CLI's own words, as the Codex path already carries —
+                   M2, 2026-09-04. This said only "out of quota for now",
+                   throwing away the sentence that names the time, on the one
+                   surface entitled to it. Owner-only: the class is all a site
+                   ever sees. */
+                `${displayName} is out of quota: ${firstLine(blocked.detail)}`
               : authFailed
                 ? `${displayName} is not signed in`
                 : stderr.trim() !== ""

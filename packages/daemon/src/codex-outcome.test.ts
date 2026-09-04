@@ -94,6 +94,62 @@ describe("codex terminal outcomes", () => {
     });
   });
 
+  it("carries the clock the message named, all the way out", () => {
+    /**
+     * S1, found by CW reading the code — 2026-09-04.
+     *
+     * `quota.ts` parsed "Try again at ..." and this shape had nowhere to put
+     * it, so a Codex quota block arrived without its clock. The runner then
+     * released the service on the next detection pass: Todd's five-hour block
+     * would withdraw for seconds, re-advertise, and fail again forever — the
+     * fast failover never engaging for the one CLI the corpus has actually
+     * observed.
+     *
+     * The stream below is the real event shape, captured from codex-cli
+     * 0.149.1 on 2026-09-03, carrying the observed quota sentence. Not a
+     * synthetic backend handed an `until` I typed: the number has to come out
+     * of the text, which is the step that was missing.
+     */
+    // The morning the transcript was captured, so the block is still ahead.
+    const outcome = parseCodexOutput(
+      stream(
+        { type: "thread.started", thread_id: "01a06a20-e1d8-7fe0-b5eb-3594" },
+        { type: "turn.started" },
+        {
+          type: "error",
+          message:
+            "You've hit your usage limit. Try again at Sep 3rd, 2026 8:28 AM.",
+        },
+        {
+          type: "turn.failed",
+          error: {
+            message:
+              "You've hit your usage limit. Try again at Sep 3rd, 2026 8:28 AM.",
+          },
+        },
+      ),
+      Date.parse("2026-09-03T06:00:00"),
+    );
+
+    expect(outcome).toMatchObject({
+      ok: false,
+      code: "quota-exhausted",
+      until: Date.parse("2026-09-03T08:28:00"),
+    });
+  });
+
+  it("says nothing about a clock the message did not name", () => {
+    /* The control. A block with no time must arrive without one rather than
+       with a guess — a wrong clock brings somebody back to a machine that is
+       still blocked, having been told it would not be. */
+    const outcome = parseCodexOutput(
+      stream({ type: "error", message: "You've hit your usage limit." }),
+      Date.parse("2026-09-03T06:00:00"),
+    );
+    expect(outcome).toMatchObject({ ok: false, code: "quota-exhausted" });
+    expect(outcome).not.toHaveProperty("until");
+  });
+
   it("ignores non-events and accepts the agent-message compatibility field", () => {
     expect(
       parseCodexOutput(

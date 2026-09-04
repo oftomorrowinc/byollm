@@ -101,6 +101,18 @@ export type CodexOutput =
       readonly code: BackendErrorCode;
       readonly message: string;
       readonly retryable: boolean;
+      /**
+       * When the CLI expects to be back — 019 §3.2, carried not dropped.
+       *
+       * This shape had no such field, so a Codex quota block arrived without
+       * the clock `quota.ts` had just parsed out of it. The runner then
+       * released the service on the next detection pass: a five-hour block
+       * would withdraw for seconds, re-advertise, and fail again forever, so
+       * the fast failover never engaged for the one CLI the corpus has
+       * actually observed. The runner tests missed it because they injected
+       * `until` on a synthetic backend rather than reading a real transcript.
+       */
+      readonly until?: number | undefined;
     };
 
 function record(value: unknown): Record<string, unknown> | undefined {
@@ -131,9 +143,13 @@ function failureMessage(event: Record<string, unknown>): string {
   );
 }
 
-function classifyFailure(message: string): {
+function classifyFailure(
+  message: string,
+  now: number,
+): {
   readonly code: BackendErrorCode;
   readonly retryable: boolean;
+  readonly until?: number | undefined;
 } {
   /*
    * Quota first, and from the shared corpus rather than from patterns typed
@@ -153,8 +169,13 @@ function classifyFailure(message: string): {
    * was written for — would be invisible to the machinery built for it if
    * this read the exit code.
    */
-  if (quotaBlock(message, Date.now()) !== undefined) {
-    return { code: "quota-exhausted", retryable: true };
+  const blocked = quotaBlock(message, now);
+  if (blocked !== undefined) {
+    return {
+      code: "quota-exhausted",
+      retryable: true,
+      ...(blocked.until === undefined ? {} : { until: blocked.until }),
+    };
   }
   if (isAuthFailure(message)) {
     return { code: "unauthorized", retryable: false };
@@ -174,7 +195,19 @@ function classifyFailure(message: string): {
  * `item.completed` and is never searched for error words, so an answer that
  * discusses a usage limit cannot withdraw working capacity.
  */
-export function parseCodexOutput(output: string): CodexOutput {
+export function parseCodexOutput(
+  output: string,
+  /**
+   * The clock, injectable — and not for convenience.
+   *
+   * The quota corpus drops a "try again at" that has already passed, because
+   * a stale clock brings somebody back to a machine that is still blocked.
+   * Read from `Date.now()` inside, the one observed transcript we hold stops
+   * exercising that path the day after it was captured: the test would go
+   * green having proved nothing, on a schedule.
+   */
+  now: number = Date.now(),
+): CodexOutput {
   const messages: string[] = [];
 
   for (const line of output.split(/\r?\n/u)) {
@@ -200,7 +233,7 @@ export function parseCodexOutput(output: string): CodexOutput {
 
     if (type === "error" || type === "turn.failed") {
       const detail = failureMessage(event);
-      const classified = classifyFailure(detail);
+      const classified = classifyFailure(detail, now);
       return {
         ok: false,
         ...classified,

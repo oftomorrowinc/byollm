@@ -1331,6 +1331,10 @@ async function runLoop(
       // write a count from one attempt, which says nothing about how the
       // daemon that actually runs is getting on.
       healthPath: paths.health,
+      // Written whenever it changes, not only at start — S2. `byollm status`
+      // is a different process and this file is the whole of what reaches it.
+      onServiceStates: (states) =>
+        writeServiceStates(paths.serviceStates, states),
       identity: {
         keys: () => identity.load(Date.now()),
         // What was on disk. The runner replaces it from each heartbeat and

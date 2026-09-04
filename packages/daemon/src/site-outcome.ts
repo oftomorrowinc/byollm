@@ -36,42 +36,82 @@ export const SERVICE_UNAVAILABLE =
  * apart would be telling the site which machine.
  */
 const FOR_SITE: Readonly<
-  Record<BackendErrorCode, { code: string; message: string }>
+  Record<
+    BackendErrorCode,
+    { code: string; message: string; retryable: boolean }
+  >
 > = Object.freeze({
   "backend-unreachable": {
     code: "service_unavailable",
     message: SERVICE_UNAVAILABLE,
+    retryable: false,
   },
   "backend-error": {
     code: "service_unavailable",
     message: SERVICE_UNAVAILABLE,
+    retryable: false,
   },
   "model-not-found": {
     code: "service_unavailable",
     message: SERVICE_UNAVAILABLE,
+    retryable: false,
   },
   "quota-exhausted": {
     code: "service_unavailable",
     message: SERVICE_UNAVAILABLE,
+    retryable: false,
   },
   unauthorized: {
     code: "service_unavailable",
     message: SERVICE_UNAVAILABLE,
+    retryable: false,
   },
   timeout: {
     code: "timeout",
     message: "the device did not answer in time",
+    retryable: true,
   },
   "output-too-large": {
     code: "output-too-large",
     message: "the answer was too large to return",
+    retryable: false,
   },
-  canceled: { code: "canceled", message: "the job was canceled" },
+  canceled: {
+    code: "canceled",
+    message: "the job was canceled",
+    retryable: false,
+  },
 });
 
+/**
+ * What a site is told, retry decision included — ruled 2026-09-04 (CW).
+ *
+ * `retryable` used to travel from the backend result, on the reasoning that
+ * whether to try again is the site's decision and says nothing about whose
+ * machine it was. That held while the flag did not distinguish anything: both
+ * failures that reached `service_unavailable` reported `false`.
+ *
+ * `quota-exhausted` broke it by arriving `true`. Within one site-facing class
+ * exactly one path produced that value, so the pair
+ * `(service_unavailable, retryable: true)` read as **"his account is
+ * rate-limited"** — the inference the fence exists to prevent, arriving on the
+ * job-failure surface rather than the enqueue one nobody was watching. The two
+ * adapters also disagreed: the same block reported `true` from Codex and
+ * `false` from Claude.
+ *
+ * So the flag is a property of the **class**, decided here, and no longer of
+ * the individual failure. Two failures a site cannot tell apart by code and
+ * message cannot be told apart by this either, which is a shape rather than a
+ * promise. The person-or-time question lives at enqueue, in the slot-level
+ * wait-bit, and nowhere else.
+ *
+ * Every value below is what that class already reported, so nothing changes
+ * for a site except the one that was leaking.
+ */
 export function outcomeForSite(code: BackendErrorCode): {
   readonly code: string;
   readonly message: string;
+  readonly retryable: boolean;
 } {
   return FOR_SITE[code];
 }

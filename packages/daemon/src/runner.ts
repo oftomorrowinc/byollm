@@ -89,6 +89,20 @@ export interface RunnerOptions {
    * not care about persistence get.
    */
   readonly spentGrants?: SpentGrants;
+  /**
+   * Called when what a service can do changes mid-run — S2, 2026-09-04.
+   *
+   * The daemon probes; `byollm status` reports; they are different processes
+   * and a file is the only thing between them. It was written once at start,
+   * so a service that went out of quota an hour later was invisible to every
+   * surface except the daemon's own stderr.
+   *
+   * A callback rather than a path because this class writes no files of its
+   * own except the health note, and the CLI already owns where these live.
+   */
+  readonly onServiceStates?: (
+    states: ReadonlyMap<string, ServiceReport>,
+  ) => Promise<void>;
   readonly budgets: Budgets;
   /** Tracks money spent on other people's work, for metered backends. */
   readonly spend: SpendLedger;
@@ -373,6 +387,16 @@ export class Runner {
    * separately.
    */
   readonly #blocked = new Map<string, number | undefined>();
+  /**
+   * The blocked services' own reports, kept so a rebuild can restore them.
+   *
+   * `serviceStates` is rebuilt from scratch on every detection pass and a
+   * blocked service never reaches the probe that would fill its entry, so
+   * without this the state survives one pass and disappears — and `byollm
+   * status`, which is a different process reading the file, could never say a
+   * service was blocked.
+   */
+  readonly #blockedReport = new Map<string, ServiceReport>();
 
   /**
    * The key grants are checked against — from the pairing, or adopted later.
@@ -580,8 +604,24 @@ export class Runner {
        */
       const blockedUntil = this.#blocked.get(route.service);
       if (this.#blocked.has(route.service)) {
-        if (blockedUntil !== undefined && this.#now() < blockedUntil) continue;
+        if (blockedUntil !== undefined && this.#now() < blockedUntil) {
+          /*
+           * Carried across the reset above — S2, found by CW reading the code.
+           *
+           * This map is rebuilt from scratch each pass, and a blocked service
+           * skips the probe that would fill its entry. So the state existed
+           * for exactly one pass and then vanished: `byollm status` could
+           * never say a service was blocked, let alone until when, though
+           * acceptance §4 names that surface by name. The block is a fact
+           * about right now, and a surface asking "what is true" has to be
+           * able to read it.
+           */
+          const kept = this.#blockedReport.get(route.service);
+          if (kept !== undefined) this.serviceStates.set(route.service, kept);
+          continue;
+        }
         this.#blocked.delete(route.service);
+        this.#blockedReport.delete(route.service);
       }
       let usable = probed.get(route.service);
       if (usable === undefined) {
@@ -1258,14 +1298,23 @@ export class Runner {
        */
       if (!result.ok && result.code === "quota-exhausted") {
         this.#blocked.set(route.service, result.until);
-        this.serviceStates.set(route.service, {
+        const report: ServiceReport = {
           ...this.serviceStates.get(route.service),
           state: {
             kind: "blocked",
             detail: result.message,
             ...(result.until === undefined ? {} : { until: result.until }),
           },
-        });
+        };
+        this.serviceStates.set(route.service, report);
+        this.#blockedReport.set(route.service, report);
+        /* The surfaces are other processes, and the file is the only thing
+           that reaches them. Not awaited, and the rejection is swallowed on
+           purpose: a job must not fail — nor the runner die on an unhandled
+           rejection — because a status note could not be written. The note is
+           evidence about the job, not part of it. */
+        const noted = this.#options.onServiceStates?.(this.serviceStates);
+        if (noted !== undefined) void noted.catch(() => undefined);
         this.#options.onEvent?.({
           type: "service-out-of-quota",
           service: route.service,
@@ -1295,13 +1344,15 @@ export class Runner {
              * named its backend, so every failure leaked what every success
              * is careful to hide.
              *
-             * `retryable` still travels: whether to try again is the site's
-             * decision and says nothing about whose machine it was.
+             * `retryable` comes from the class, not from this result —
+             * ruled 2026-09-04. Taking it from the backend let one path
+             * inside `service_unavailable` report `true` and made the pair
+             * readable as "rate-limited". A flag a site can read is a channel
+             * whether or not anybody meant it as one.
              */
             {
               outcome: "error",
               ...outcomeForSite(result.code),
-              retryable: result.retryable,
             };
 
       await this.#options.ingress.recordOutcome({

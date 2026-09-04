@@ -305,8 +305,8 @@ subscription" and "free to share" are different claims:
 | `cost` | Constraint | Offer scope |
 |---|---|---|
 | `free` | Electricity | Widens freely |
-| `metered` | The owner's money, per token | `self` unless acknowledged, **and** capped |
-| `subscription` | A provider's terms | `self`, always |
+| `metered` | The owner's money, per token | `private` unless acknowledged, **and** capped |
+| `subscription` | A provider's terms | `private`, always |
 
 The bug this closed: `openai-http` was classed "open" while also accepting an
 API key, so an owner could point it at a paid endpoint, share it, and
@@ -394,7 +394,7 @@ Every result carries provenance to the delivery seam:
 }
 ```
 
-`untrusted` is **derived** from the audience (`audience !== "self"`), never
+`untrusted` is **derived** from the audience (`audience !== "private"`), never
 supplied, so no caller can mark volunteer output as first-party.
 
 **If you are an app developer**, a result with `untrusted: true` must not be

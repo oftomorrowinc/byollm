@@ -337,3 +337,44 @@ otherwise it follows and Tuesday-Kevin only needs setup+messages fixed.
 sitting ready; posting at least CONTRIBUTING before Tuesday gives his
 first PR a documented path and makes him the contributing flow's first
 real test. Todd's call, as B022 always was.
+
+### B036 diagnostics, round 1 — 2026-09-04 ~5:09pm Kevin's time. Inconclusive, instructively.
+
+What came back, and what each answer is worth:
+1. The schtasks re-run said "ERROR: The system cannot find the path
+   specified" — a FILE-not-found, not an access-denied. The test never
+   reached registration: byollm-task.xml does not exist on his disk
+   right now. Reconstruction: the B048 teardown deleted ~/.byollm, and
+   setup then REFUSED to write anything while claude was signed out
+   ("Nothing was written; setup is safe to re-run"), so nothing has
+   recreated the XML since. Two correct behaviors interlocking into a
+   dead end for the diagnostic — and proof the sign-in bug (B049 item
+   1) is upstream of everything: it is currently blocking the machine
+   from even having the file the B036 test needs.
+2. `whoami` -> `desktop-skc98b9\kevin`: a plain local account, no
+   Microsoft-account or AzureAD indirection. H2 (principal mismatch)
+   weakens substantially.
+3. The %USERDOMAIN%\%USERNAME% echo printed its own literals — Kevin is
+   in PowerShell and %VAR% is cmd syntax. CW's miss: paste-ready
+   diagnostics must be shell-correct for the shell the tester is
+   actually in. Round 2 below is pure PowerShell.
+
+Round 2 (one paste, PowerShell, raw output wanted; step 2 rewrites the
+XML because start writes the unit before asking schtasks):
+
+    whoami
+    "$env:USERDOMAIN\$env:USERNAME"
+    byollm start
+    schtasks /create /tn test.byollm /xml "$env:USERPROFILE\.byollm\byollm-task.xml" /f
+    $xml = Get-Content "$env:USERPROFILE\.byollm\byollm-task.xml" -Raw
+    $xml = $xml -replace '(?s)<LogonTrigger>.*?</LogonTrigger>', '<TimeTrigger><StartBoundary>2030-01-01T12:00:00</StartBoundary><Enabled>true</Enabled></TimeTrigger>'
+    Set-Content "$env:TEMP\test-time.xml" $xml -Encoding Unicode
+    schtasks /create /tn test.byollm.time /xml "$env:TEMP\test-time.xml" /f
+    schtasks /delete /tn test.byollm /f
+    schtasks /delete /tn test.byollm.time /f
+
+Reading it: the first /create failing "Access is denied" while the
+second (time-trigger) succeeds = H1 confirmed, the logon trigger is
+the gate. Both refused = policy or something in Settings (H3/H4). Both
+succeed = the original refusal was environmental and B036 may already
+be fixed on a clean run.

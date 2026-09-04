@@ -213,3 +213,70 @@ the success/serving line:
 - Non-interactive start: byte-identical behavior to .81.
 - Declining the prompt is honored and quiet — asked once per start,
   never nagged.
+
+### B047 amendments — Todd's ruling, 2026-09-04 eve
+
+RULED: on Windows the preflight does NOT spawn the backend's login — it
+prints the instruction ("run `claude login`, then `byollm start` again"
+or the backend's own words), prominently, and continues. Everywhere
+else the [Y/n] + foreground spawn stands as designed. Otherwise
+approved as specced.
+
+### B036 REOPENED by the field — 2026-09-04 eve (CW, from Kevin's .81 run)
+
+Kevin's standard account still cannot register the task on .81. The
+screenshot shows the per-user XML (named UserId, InteractiveToken,
+LeastPrivilege) being refused by schtasks and the Startup-folder
+fallback catching it — the fallback and its caveat worked exactly as
+built, so the machinery is honest; the premise is what failed. Todd:
+"Admin still required for start to schedule. So it may not be a
+multi-user thing." The B036a diagnosis (unscoped task = machine-wide =
+admin) was either wrong or incomplete: the fix was right in kind and
+insufficient on the one real Windows box we have.
+
+Hypotheses, ranked (CW):
+- **H1 — the trigger type itself.** Microsoft's own schtasks docs put
+  ONLOGON on the list of schedule types requiring administrator
+  permissions, and there is reason to believe that applies to a
+  LogonTrigger delivered by XML too, regardless of how well-scoped the
+  Principal is. If true, NO logon-triggered task registers from a
+  standard shell, ever, and the Startup folder is not a fallback but
+  the standard-account path — the message should say so instead of
+  hinting at IT policy.
+  Test that separates it: same XML with the LogonTrigger swapped for a
+  one-shot TimeTrigger, registered from Kevin's normal shell. Registers
+  fine -> H1; same refusal -> look lower.
+- **H2 — principal mismatch.** UserId derives from
+  USERDOMAIN\USERNAME; a Microsoft-account or AzureAD box can answer
+  those differently from the account's real principal, and registering
+  a task *for another user* requires admin. Test: Kevin runs `whoami`
+  and `echo %USERDOMAIN%\%USERNAME%` and we compare against the
+  UserId in his byollm-task.xml.
+- **H3 — a Settings element that wants elevation** (RestartOnFailure
+  is the exotic one in our XML; it is also the whole reason we use XML).
+- **H4 — actual machine policy.** Named last because it explains
+  anything and predicts nothing.
+
+Diagnostics for Kevin (paste-ready, no admin needed):
+1. `schtasks /create /tn test.byollm /xml C:\Users\Kevin\.byollm\byollm-task.xml /f`
+   — and paste the RAW output. Our own message interpreted the error
+   and discarded the original words (see rider).
+2. `whoami` and `echo %USERDOMAIN%\%USERNAME%` — for H2.
+3. If willing: the H1 trigger-swap XML (CCB can hand him one).
+
+Riders on this reopen:
+- **refusalOf eats the evidence.** When the denied-pattern matches, the
+  interpretation REPLACES schtasks's raw words, so the field report
+  arrived without the one line that distinguishes H1 from H2 from H4.
+  Print the interpretation AND the raw line under it. The reviewer's
+  version of this law already exists: the announcement is not the
+  effect, and an interpretation is not the evidence.
+- **Kevin's UX finding, verbatim fence-checked:** the "Run as
+  administrator" remedy "is there, but its buried in the middle of the
+  text and easy to miss, it should be the primary thing it tells you
+  since its going to be the solution 99% of the time." Restructure the
+  fallback-success message: outcome first (starts at logon, the weaker
+  way), the upgrade path second as its own short line, mechanics last.
+  If H1 holds, the upgrade line changes accordingly (one elevated
+  registration, or "this is the standard-account way" with no false
+  promise that elevation is exceptional).

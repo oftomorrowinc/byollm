@@ -1,5 +1,5 @@
 > [!WARNING]
-> **Alpha (`0.1.0-alpha.78`) — under active development. Don't use this yet.**
+> **Alpha (`0.1.0-alpha.79`) — under active development. Don't use this yet.**
 >
 > This is a walking skeleton. It routes real jobs between real daemons and real
 > sites, and it is the fixture byollm_009 freezes against — but it keeps its

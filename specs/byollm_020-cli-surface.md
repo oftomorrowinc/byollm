@@ -1,8 +1,10 @@
 # byollm_020 — CLI surface audit and simplification
 
 Status: DRAFT for build (Todd approved the shape 2026-09-04; slotted
-into Eric's Batch C so his users learn the final vocabulary once,
-before they onboard, rather than through a rename later). Not built.
+into Batch B, with the Windows/daemon work, so ALL daemon-facing
+changes land as one update — Kevin and Rob switch to `start` once,
+not across two batches — and it still lands before Eric's users
+onboard). Not built.
 
 ## Why now, not icebox
 

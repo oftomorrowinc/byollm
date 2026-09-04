@@ -37,6 +37,7 @@ describe(`the deprecation shims, at ${DAEMON_VERSION}`, () => {
   const io = (): CliIo => ({
     out: (t) => (out += t),
     err: (t) => (err += t),
+    confirm: () => Promise.resolve(false),
   });
 
   beforeEach(async () => {

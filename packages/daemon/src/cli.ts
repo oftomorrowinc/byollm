@@ -1291,6 +1291,17 @@ async function runLoop(
     },
     { once: true },
   );
+  /*
+   * An abort that already happened fires no listener.
+   *
+   * Registering was the whole of the wiring, so a signal aborted before this
+   * line — a caller that stops us during startup, or the re-entry after a
+   * park, where the stop can land between the decision to serve and the
+   * setup that serves — started a full polling loop that nothing could ever
+   * stop. `AbortSignal` is a latch, not an event: it has to be read as well
+   * as subscribed to.
+   */
+  if (signal?.aborted === true) controller.abort();
   const runners: Runner[] = [];
 
   for (const origin of origins) {

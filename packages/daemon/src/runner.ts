@@ -2180,6 +2180,23 @@ function modelPresent(models: readonly string[], wanted: string): boolean {
 
 function sleep(ms: number, signal: AbortSignal): Promise<void> {
   return new Promise((resolve) => {
+    /*
+     * An abort that already happened fires no listener.
+     *
+     * Subscribing was the whole of the wiring, and the common case walks
+     * straight past it: a stop lands while `tick()` is in flight, the tick
+     * finishes, and the loop calls this with a signal that is already
+     * aborted — so it waits out a full heartbeat before the `while` test
+     * gets a chance to see it. Ten seconds to answer Ctrl-C, and long enough
+     * under launchd for a polite stop to be escalated to a kill.
+     *
+     * **An AbortSignal is a latch, not an event.** It has to be read as well
+     * as subscribed to.
+     */
+    if (signal.aborted) {
+      resolve();
+      return;
+    }
     const timer = setTimeout(resolve, ms);
     signal.addEventListener(
       "abort",

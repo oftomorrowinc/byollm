@@ -11,7 +11,7 @@ import {
 import { debugPage } from "./debug.js";
 import { Projection, type RelayFixture } from "./fixture.js";
 import { MemoryPairingCodes, type PairingCodes } from "./pairing-codes.js";
-import { SitePlane } from "./site-plane.js";
+import { SitePlane, type Satisfiable } from "./site-plane.js";
 import { RelayState } from "./state.js";
 import type { RoutingStore } from "./store.js";
 
@@ -96,12 +96,7 @@ export interface RelayOptions {
    * boot and on the health surface, because a check that quietly is not there
    * reads as a check that passed.
    */
-  readonly satisfiable?: (query: {
-    readonly siteId: string;
-    readonly owner: string;
-    readonly purpose: string | undefined;
-    readonly kind: string;
-  }) => Promise<{ readonly verdict: "ok" | "not-declared" | "unmapped" }>;
+  readonly satisfiable?: Satisfiable;
   /**
    * Author a grant for one claimed job — Amendment J.
    *

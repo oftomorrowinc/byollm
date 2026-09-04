@@ -144,14 +144,7 @@ export interface SitePlaneDeps {
    * which service — that stays in the control plane, and this is recorded in
    * the enumerated-metadata commitment so the list stays exhaustive.
    */
-  readonly satisfiable?: (query: {
-    readonly siteId: string;
-    readonly owner: string;
-    readonly purpose: string | undefined;
-    readonly kind: string;
-  }) => Promise<{
-    readonly verdict: "ok" | "not-declared" | "unmapped";
-  }>;
+  readonly satisfiable?: Satisfiable;
   /**
    * The one site this relay routes for.
    *
@@ -160,6 +153,23 @@ export interface SitePlaneDeps {
    * paired with would route work nobody can open.
    */
 }
+
+/**
+ * The enqueue-time question, declared once.
+ *
+ * It was written out twice — here and on `RelayOptions` — and by the time
+ * 019 added a fourth verdict the two copies disagreed, so a relay could be
+ * handed an answer its own options type said was impossible. **A shape
+ * declared in two places is two places for it to drift.**
+ */
+export type Satisfiable = (query: {
+  readonly siteId: string;
+  readonly owner: string;
+  readonly purpose: string | undefined;
+  readonly kind: string;
+}) => Promise<{
+  readonly verdict: "ok" | "not-declared" | "unmapped" | "waiting";
+}>;
 
 /** What `Relay.handle` reconstructs from the request, for signature checking. */
 export interface SiteAuth {
@@ -407,6 +417,33 @@ export class SitePlane {
             409,
             "slot-unsatisfiable",
             "nobody has chosen what answers this yet",
+          );
+        }
+        if (answer?.verdict === "waiting") {
+          /**
+           * The one bit beyond unsatisfiable a site may learn — 019 §6.3.
+           *
+           * **Does this need the person, or only time.** Above: somebody has
+           * to go and choose a model, and no amount of waiting helps. Here:
+           * the slot may recover with nobody acting, so retrying later is the
+           * right fallback and sending the person to a settings page is not.
+           *
+           * A separate code rather than a field, and that is not a shortcut:
+           * this endpoint's 409 class is the refusal class, and an unknown
+           * code in it is already read as a refusal by every deployed client.
+           * A site that has never heard of this one still learns its job was
+           * refused, which is the fact it needs.
+           *
+           * Carries no duration — a duration leaks which block was hit, and
+           * which block was hit says how much somebody has been working
+           * today. Carries no cause: device asleep, service unhealthy and
+           * account blocked are one sentence here, which is what makes the
+           * bit safe. It is about the slot's future, not the person's day.
+           */
+          return fail(
+            409,
+            "slot-waiting",
+            "nothing can answer this right now — try again later",
           );
         }
 

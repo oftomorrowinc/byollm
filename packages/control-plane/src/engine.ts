@@ -105,7 +105,7 @@ export class ControlPlane {
     readonly user: string;
     readonly purpose: string | undefined;
     readonly kind: string;
-  }): Promise<{ verdict: "ok" | "not-declared" | "unmapped" }> {
+  }): Promise<{ verdict: "ok" | "not-declared" | "unmapped" | "waiting" }> {
     const snapshot = await this.#store.read({
       siteId: input.siteId,
       user: input.user,
@@ -124,10 +124,38 @@ export class ControlPlane {
       return { verdict: "not-declared" };
     }
 
-    const mapped = snapshot.mappings.some(
+    const forSlot = snapshot.mappings.filter(
       (mapping) => mapping.purpose === purpose && mapping.kind === input.kind,
     );
-    return { verdict: mapped ? "ok" : "unmapped" };
+    if (forSlot.length === 0) return { verdict: "unmapped" };
+
+    /**
+     * Mapped, and nothing that could answer it is there — 019 §3.3.
+     *
+     * The gap this closes: a service healthy this morning and quota-blocked
+     * at 2pm was still mapped, so the slot read satisfiable, the job was
+     * queued, and the site learned nothing until the TTL expired. The
+     * fallback could not fire because nothing had told the site to fall back.
+     *
+     * A daemon withdraws a blocked service, so it stops being advertised, and
+     * that is the whole mechanism — no new field on the wire, and device
+     * offline, service unhealthy and account blocked all arrive as the same
+     * absence, which is exactly the bit a site is allowed to learn.
+     *
+     * **Absent means unknown, and unknown is not a refusal.** A store that
+     * cannot see presence leaves this undefined and every mapped slot stays
+     * satisfiable — the status quo, which is what this must fail toward. The
+     * projection also refreshes on its own schedule, so a service blocked
+     * thirty seconds ago may still read advertised; that job takes the old
+     * slow path, and closing the common case without the edge is the trade
+     * §6.2 rules for.
+     */
+    const advertised = snapshot.advertised;
+    if (advertised === undefined) return { verdict: "ok" };
+    const answerable = forSlot.some((mapping) =>
+      advertised.has(`${mapping.owner ?? input.user}\u0000${mapping.service}`),
+    );
+    return { verdict: answerable ? "ok" : "waiting" };
   }
 
   async authorGrant(input: {

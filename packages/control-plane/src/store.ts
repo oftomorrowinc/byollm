@@ -122,6 +122,27 @@ export interface PolicySnapshot {
    * already share.
    */
   readonly declares?: ReadonlySet<string> | undefined;
+  /**
+   * Which of this person's services are being advertised right now — 019 §3.3.
+   *
+   * Keys are `owner\u0000service`, matching {@link Mapping.owner} and
+   * {@link Mapping.service}, with the mapper's own services under their own
+   * user id rather than `null` — a set cannot hold "whoever asked".
+   *
+   * This is how a quota block reaches the enqueue question without a new wire
+   * field. A daemon withdraws a blocked service, so it simply stops appearing
+   * in what the device advertises, and the fact arrives through the presence
+   * the hub already keeps. Device offline, service unhealthy and account
+   * blocked all look identical here, which is deliberate: they are one bit
+   * about the slot's future, not three facts about somebody's day.
+   *
+   * **`undefined` means "cannot say", and must never brake.** A store with no
+   * presence to read — and every store that predates this — leaves it absent,
+   * and a slot with a mapping stays satisfiable exactly as it does today. The
+   * same discipline {@link PolicyStoreSnapshot.declares} states, for the same
+   * reason: a fact we could not read is not a negative answer.
+   */
+  readonly advertised?: ReadonlySet<string> | undefined;
 }
 
 export interface PolicyStore {

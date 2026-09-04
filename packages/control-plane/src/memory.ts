@@ -15,6 +15,14 @@ export class MemoryPolicyStore implements PolicyStore {
   readonly #paused = new Set<string>();
   /** owner to the people who may use their devices. */
   readonly #members = new Map<string, Set<string>>();
+  /**
+   * Services being advertised right now, as `owner\u0000service`.
+   *
+   * `undefined` until somebody says otherwise, which is the reference store's
+   * way of saying it has no presence to read — the state every store was in
+   * before 019, and the one that must leave every mapped slot satisfiable.
+   */
+  #advertised: Set<string> | undefined;
 
   /**
    * Record a consent, with the mapping it carries.
@@ -87,6 +95,20 @@ export class MemoryPolicyStore implements PolicyStore {
     this.#members.get(input.owner)?.delete(input.user);
   }
 
+  /**
+   * Say which services are up, for the tests that are about that.
+   *
+   * Calling it at all moves this store out of "cannot say" — including with
+   * an empty set, which is the real state of a person whose only device is
+   * asleep. That distinction is the whole point of the optional field, so it
+   * is reachable here rather than inferred from emptiness.
+   */
+  advertising(services: readonly { owner: string; service: string }[]): void {
+    this.#advertised = new Set(
+      services.map((s) => `${s.owner}\u0000${s.service}`),
+    );
+  }
+
   read(input: {
     siteId: string;
     user: string;
@@ -102,6 +124,9 @@ export class MemoryPolicyStore implements PolicyStore {
         mappings === undefined ? "no" : this.#paused.has(id) ? "paused" : "yes",
       member: this.#members.get(input.owner)?.has(input.user) ?? false,
       mappings: mappings ?? [],
+      ...(this.#advertised === undefined
+        ? {}
+        : { advertised: this.#advertised }),
     });
   }
 }

@@ -36,7 +36,7 @@ const siteKeys = generateKeys(1_700_000_000_000);
  * where the whole point is the refusal.
  */
 async function enqueueThrough(
-  verdict: "ok" | "not-declared" | "unmapped" | "absent",
+  verdict: "ok" | "not-declared" | "unmapped" | "waiting" | "absent",
   /**
    * A control plane that cannot answer, for the transient cases.
    *
@@ -114,6 +114,60 @@ describe("enqueueing a slot nobody can satisfy", () => {
         `the refusal named ${leak}`,
       ).not.toContain(leak);
     }
+  });
+
+  it("refuses a slot nothing can answer right now, and says only that", async () => {
+    /**
+     * The wait-bit — byollm_019 §6.3, ruled 2026-09-03.
+     *
+     * The one thing a site may learn beyond unsatisfiable: **does this need
+     * the person, or only time.** Above, somebody has to go and choose a
+     * model and no amount of waiting helps. Here the slot may recover with
+     * nobody acting, so retrying later is the right fallback and sending the
+     * person to a settings page is not.
+     *
+     * A separate code rather than a field, because this endpoint's 409 class
+     * is already the refusal class: a site that has never heard of this code
+     * still learns its job was refused, which is the fact it needs.
+     */
+    const said = await enqueueThrough("waiting");
+    expect(said.status).toBe(409);
+    expect(said.body.error).toBe("slot-waiting");
+    expect(said.body.message).toMatch(/try again later/);
+
+    /* No duration — it leaks which block was hit, and which block was hit
+       says how much somebody has been working today. No cause: device
+       asleep, service unhealthy and account blocked are one sentence here,
+       and that is what makes the bit safe. */
+    for (const leak of [
+      "quota",
+      "limit",
+      "rate",
+      "offline",
+      "asleep",
+      "unhealthy",
+      "minute",
+      "hour",
+      "service",
+      "device",
+      "claude",
+      "codex",
+    ]) {
+      expect(
+        `${said.body.error ?? ""} ${said.body.message ?? ""}`.toLowerCase(),
+        leak,
+      ).not.toContain(leak);
+    }
+  });
+
+  it("keeps the two refusals apart", async () => {
+    /* The control. One bit is only a bit if the two states differ — folding
+       waiting into unsatisfiable would pass every assertion above while
+       telling a site to send somebody to a settings page for a slot that is
+       going to fix itself. */
+    const waiting = await enqueueThrough("waiting");
+    const unmapped = await enqueueThrough("unmapped");
+    expect(waiting.body.error).not.toBe(unmapped.body.error);
   });
 
   it("accepts a slot that can be satisfied", async () => {

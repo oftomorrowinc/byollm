@@ -590,3 +590,69 @@ describe("a mapping is keyed by purpose and kind together", () => {
     ).toBeDefined();
   });
 });
+
+/**
+ * A slot nothing can answer right now — byollm_019 §3.3.
+ *
+ * A service healthy this morning and quota-blocked at 2pm was still *mapped*,
+ * so the slot read satisfiable, the job was queued, and the site learned
+ * nothing until the TTL expired. The fallback Todd promised Eric could not
+ * fire, because nothing had told the site to fall back.
+ *
+ * The mechanism is absence, not a new fact: a daemon withdraws a blocked
+ * service, so it stops appearing in what the device advertises. Device
+ * offline, service unhealthy and account blocked all arrive here identically,
+ * which is exactly the one bit a site is allowed to learn.
+ */
+describe("a mapped slot, and whether anything is up to answer it", () => {
+  const ask = () =>
+    plane.satisfiable({
+      siteId: SITE,
+      user: USER,
+      purpose: RESERVED_PURPOSE,
+      kind: "llm.generate",
+    });
+
+  it("waits when the mapped service is not being advertised", async () => {
+    mapped();
+    store.advertising([]);
+    expect((await ask()).verdict).toBe("waiting");
+  });
+
+  it("is satisfiable when it is", async () => {
+    mapped();
+    store.advertising([{ owner: OWNER, service: "qwen" }]);
+    expect((await ask()).verdict).toBe("ok");
+  });
+
+  it("stays satisfiable when the store cannot see presence at all", async () => {
+    /**
+     * **Absent is not a negative answer.** Every store that predates this
+     * leaves the field undefined, and a slot with a mapping must stay
+     * satisfiable exactly as it does today — the status quo is what this
+     * fails toward. Without this, shipping the engine ahead of the hub would
+     * refuse every job on the planet.
+     */
+    mapped();
+    expect((await ask()).verdict).toBe("ok");
+  });
+
+  it("still says unmapped when nothing is mapped", async () => {
+    /* The two refusals are different remedies: this one needs the person to
+       go and choose, and waiting will never fix it. Folding them would send
+       somebody to a settings page for a slot that is going to recover on its
+       own, and leave a genuinely unmapped slot being retried forever. */
+    store.consent({ siteId: SITE, user: USER, mappings: [] });
+    store.advertising([]);
+    expect((await ask()).verdict).toBe("unmapped");
+  });
+
+  it("does not match a teammate's identically named service", async () => {
+    /* Service ids are namespace-local. A set keyed by name alone would read
+       somebody else's healthy `qwen` as proof that this mapping can be
+       answered — the substitution the mapping shape exists to forbid. */
+    mapped();
+    store.advertising([{ owner: "someone-else", service: "qwen" }]);
+    expect((await ask()).verdict).toBe("waiting");
+  });
+});

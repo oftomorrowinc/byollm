@@ -93,8 +93,6 @@ describe("the words people already have in their shells", () => {
     for (const [was, now] of [
       ["install", "start"],
       ["uninstall", "stop"],
-      ["pause", "stop"],
-      ["resume", "start"],
       ["models", "services"],
     ] as const) {
       err = "";

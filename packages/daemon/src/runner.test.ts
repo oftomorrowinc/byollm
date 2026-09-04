@@ -446,7 +446,6 @@ describe("status", () => {
       origin: "https://app.test",
       owner: "me",
       runnerId: "runner_1",
-      paused: false,
       revoked: false,
       activeJobs: 0,
       completed: 1,
@@ -616,14 +615,6 @@ describe("status", () => {
     // And it stays withdrawn on the polling loop, which runs no canary and
     // would otherwise re-advertise it on the next heartbeat.
     expect(await runner.detectCapabilities()).toHaveLength(0);
-  });
-
-  it("reflects pause and resume", async () => {
-    const { runner } = await makeRunner();
-    runner.pause();
-    expect(runner.status().paused).toBe(true);
-    runner.resume();
-    expect(runner.status().paused).toBe(false);
   });
 });
 

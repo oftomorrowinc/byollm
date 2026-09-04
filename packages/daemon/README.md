@@ -234,8 +234,8 @@ byollm sites          # which sites this device serves, and which are waiting on
 byollm approve <site> # say yes to a site that asked
 byollm log            # every prompt that has ever run here
 byollm log --full     # the whole text, not the first line
-byollm pause          # stop claiming work
-byollm resume
+byollm stop           # stop claiming work — the off switch, always yours
+byollm start          # and bring it back
 ```
 
 ### A site cannot add itself

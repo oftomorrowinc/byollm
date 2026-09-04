@@ -48,7 +48,6 @@ export interface RunnerStatus {
   readonly origin: string;
   readonly owner: string;
   readonly runnerId: string;
-  readonly paused: boolean;
   readonly revoked: boolean;
   readonly activeJobs: number;
   readonly capabilities: readonly Capability[];
@@ -398,7 +397,6 @@ export class Runner {
   readonly #abandoned = new Set<string>();
   readonly #now: () => number;
   #capabilities: Capability[] = [];
-  #paused = false;
   #revoked = false;
   #awaitingConsent = "";
   #servingNothing = false;
@@ -560,7 +558,6 @@ export class Runner {
       origin: this.#options.client.origin,
       owner: this.#options.owner,
       runnerId: this.#options.runnerId,
-      paused: this.#paused,
       revoked: this.#revoked,
       activeJobs: this.#active.size,
       capabilities: [...this.#capabilities],
@@ -568,14 +565,6 @@ export class Runner {
       completed: this.#completed,
       refused: this.#refused,
     };
-  }
-
-  pause(): void {
-    this.#paused = true;
-  }
-
-  resume(): void {
-    this.#paused = false;
   }
 
   /**
@@ -1764,7 +1753,13 @@ export class Runner {
         jobId: held.jobId,
         leaseId,
       })),
-      paused: this.#paused,
+      /* Required, and `.strict()` on both sides, so it is sent rather than
+         dropped — see the same note in cli.ts. Nothing sets it true any
+         more: B043 removed `byollm pause`, and this idle check was never
+         wired to it in the first place. The field dies at the 0.1.0
+         protocol cut (B044), where one publish moves hub and daemon
+         together. */
+      paused: false,
     });
 
     this.#noteClockSkew(heartbeat.serverTime);
@@ -1843,7 +1838,7 @@ export class Runner {
       this.#servingNothing = false;
     }
 
-    if (this.#paused || capabilities.length === 0) return;
+    if (capabilities.length === 0) return;
 
     const free = this.#options.loaded.config.concurrency - this.#active.size;
     if (free <= 0) return;
@@ -2385,7 +2380,7 @@ export class Runner {
          *
          * What it no longer does is ask. The trade is recorded plainly: a
          * compromised control plane can point this device at a site its owner
-         * never chose. Spend caps and `pause` bound the damage; {@link
+         * never chose. Spend caps bound the damage; {@link
          * #served} makes it loud. It is the largest single reduction in
          * device-side control in this design, and it is deliberate.
          */

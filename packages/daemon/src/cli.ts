@@ -2,7 +2,7 @@ import { access } from "node:fs/promises";
 import { emphasise, terminalContext } from "./emphasis.js";
 import { backendVerifier, listModels, setModel, showModel } from "./model.js";
 import { createBackend } from "./backends/index.js";
-import { mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { hostname, userInfo } from "node:os";
 import { dirname } from "node:path";
 import { createInterface } from "node:readline/promises";
@@ -79,17 +79,40 @@ in ~/.byollm/ingress.log — it is yours to read and yours to delete.
  * for no reason: the old word still does the right thing, and says once what
  * to type next time.
  *
- * `pause`/`resume` fold into `stop`/`start` rather than aliasing something
- * subtly different. The temporary-idle nuance was a third state nobody asked
- * for, and two words for one act is the thing this audit exists to remove.
+ * `pause`/`resume` are not in here, because they were not renamed. They were
+ * removed — {@link REMOVED} — and the difference is the point of the map:
+ * this one promises the old word still does the old thing.
  */
 const RENAMED: Readonly<Record<string, string>> = {
   install: "start",
   uninstall: "stop",
-  pause: "stop",
-  resume: "start",
   models: "services",
 };
+
+/**
+ * Verbs that are gone, and say so — B043, ruled by Todd 2026-09-04.
+ *
+ * `pause` did not do what its own status screen claimed. It wrote a flag,
+ * and the running daemon never read it: the flag reached exactly two places,
+ * a probe heartbeat sent during `connect` and the `status` headline, which
+ * printed `PAUSED` in the top line while the daemon underneath went on
+ * claiming work and spending money. Somebody who paused a machine and
+ * checked on it was told the thing they wanted to hear by a screen that had
+ * not asked the daemon anything.
+ *
+ * So this is not a feature being retired for tidiness. Removing it is how
+ * the lie stops, and it is why these do not become aliases for `stop`: an
+ * alias must do the same thing under a new name, and `stop` unregisters
+ * supervision — more destructive than what the person typed, arriving
+ * through the fix for it.
+ *
+ * Idling without giving up startup is now `byollm stop` and `byollm start`,
+ * which costs one command each since B036 made re-registration free.
+ */
+const REMOVED = {
+  pause: "stop",
+  resume: "start",
+} as const;
 
 /**
  * One line, on stderr, saying what to type next time.
@@ -103,6 +126,21 @@ function renamedNotice(was: string): string {
   return (
     `note: \`byollm ${was}\` is now \`byollm ${RENAMED[was] ?? was}\` — ` +
     `the old name still works for now.\n`
+  );
+}
+
+/**
+ * What a removed verb says. Deliberately not the shape of a rename notice:
+ * that one ends "still works for now", and this one has to end the opposite
+ * way or it reads as a nudge somebody can ignore.
+ */
+function removedNotice(was: keyof typeof REMOVED): string {
+  return (
+    `\`byollm ${was}\` has been removed — use \`byollm ${REMOVED[was]}\`.\n\n` +
+    `  byollm stop    stops the daemon and unregisters it from startup\n` +
+    `  byollm start   brings it back\n\n` +
+    `It did not do what it said: the flag it wrote was never read by the ` +
+    `running\ndaemon, so a machine you had "paused" went on claiming work.\n`
   );
 }
 
@@ -283,30 +321,12 @@ export async function runCli(
     case "uninstall":
       io.err(renamedNotice(command));
       return commandUninstall(paths, io, service);
-    /**
-     * `pause` and `resume` keep doing what they did — flagged for CW/Todd.
-     *
-     * The spec folds them into `stop`/`start`, and they are gone from the
-     * documented surface accordingly. What they are *not* is aliases for
-     * those commands, because the two do materially different things:
-     * `pause` writes a flag so a running daemon stops claiming, and `stop`
-     * unregisters supervision. Somebody who typed `pause` expecting to
-     * resume in an hour would find their service no longer starts at logon.
-     *
-     * **A deprecation alias should do the same thing under a new name.** One
-     * that quietly does something more destructive is the failure this audit
-     * exists to remove, arriving through the fix for it. So they are
-     * undocumented and they point at the new words, and they still only
-     * pause and resume. Deleting the pause flag entirely is a separate
-     * decision — it is the only way to idle a device without giving up
-     * startup — and it is Todd's, not this commit's.
-     */
+    /* Gone, and saying so rather than doing something adjacent — see
+       {@link REMOVED} for why these are not aliases. */
     case "pause":
-      io.err(renamedNotice(command));
-      return commandPause(paths, true, io);
     case "resume":
-      io.err(renamedNotice(command));
-      return commandPause(paths, false, io);
+      io.err(removedNotice(command));
+      return 2;
     default:
       io.err(`unknown command: ${command}\n\n${USAGE}`);
       return 2;
@@ -895,10 +915,12 @@ async function commandConnect(
         daemonVersion: DAEMON_VERSION,
         capabilities,
         activeLeases: [],
-        // Truthfully, never `false` for convenience: a probe that reported an
-        // unpaused device would silently resume routing to a machine whose
-        // owner had paused it.
-        paused: await isPaused(paths),
+        /* Required by HeartbeatRequest, which is `.strict()`, so it is sent
+           and not dropped: a daemon that stops sending a required field is
+           rejected by every hub that has not been upgraded in lockstep. The
+           field itself dies at the 0.1.0 protocol cut with the aliases —
+           B044 — where one publish moves both sides at once. */
+        paused: false,
       });
       const when = new Date(existing.pairedAt).toISOString().slice(0, 10);
       io.out(
@@ -1833,7 +1855,6 @@ async function commandStatus(
     .list()
     .some((pairing) => pairing.controlPlanePublic !== undefined);
 
-  const paused = await isPaused(paths);
   const now = Date.now();
 
   io.out(formatVersion());
@@ -1863,10 +1884,15 @@ async function commandStatus(
    * running`. One display holding two truths, and a status that disagrees
    * with itself teaches the reader to trust neither line.
    *
-   * The cause was that this headline consulted the pause flag and the health
+   * The cause was that this headline consulted a local flag and the health
    * file and never the supervisor, so it was answering a narrower question
    * than the word `state` promises. It is meant to answer "is this device
    * working", and a device whose service is dead is not working.
+   *
+   * `PAUSED` is gone from this list (B043) because it was the worst version
+   * of that same bug: it outranked every other state and was set by a flag
+   * the daemon did not read, so the one line people check said the machine
+   * was idle while it claimed work.
    *
    * `absent` does not demote it: no service registered is the ordinary shape
    * of `byollm run` in a terminal, which is working fine.
@@ -1879,13 +1905,11 @@ async function commandStatus(
     `state: ${
       revoked !== undefined
         ? "REVOKED"
-        : paused
-          ? "PAUSED"
-          : supervision.state === "installed"
-            ? "NOT RUNNING"
-            : failing
-              ? "NOT REPORTING"
-              : "running"
+        : supervision.state === "installed"
+          ? "NOT RUNNING"
+          : failing
+            ? "NOT REPORTING"
+            : "running"
     }\n`,
   );
   if (revoked !== undefined) {
@@ -2270,35 +2294,6 @@ function indent(text: string): string {
     .split("\n")
     .map((line) => `           ${line}`)
     .join("\n");
-}
-
-// -- pause / resume -----------------------------------------------------------
-
-async function commandPause(
-  paths: DaemonPaths,
-  pause: boolean,
-  io: CliIo,
-): Promise<ExitCode> {
-  await mkdir(paths.root, { recursive: true });
-  if (pause) {
-    await writeFile(paths.pauseFlag, `${new Date().toISOString()}\n`);
-    io.out(
-      "paused — no new work will be claimed. `byollm resume` to start again.\n",
-    );
-  } else {
-    await rm(paths.pauseFlag, { force: true });
-    io.out("resumed\n");
-  }
-  return 0;
-}
-
-async function isPaused(paths: DaemonPaths): Promise<boolean> {
-  try {
-    await stat(paths.pauseFlag);
-    return true;
-  } catch {
-    return false;
-  }
 }
 
 // -- allow / disallow (tombstones) --------------------------------------------

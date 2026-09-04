@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, stat, writeFile } from "node:fs/promises";
 import { createServer, type Server, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
@@ -99,23 +99,37 @@ describe("byollm — usage", () => {
   });
 });
 
-describe("byollm pause / resume", () => {
-  it("pauses, reports it, and resumes", async () => {
-    expect(await run("pause")).toBe(0);
-    expect(out).toContain("paused");
+describe("byollm pause / resume — removed", () => {
+  it("says so, fails, and does not quietly do something else", async () => {
+    /* B043. The failure mode being guarded is not "pause is gone" — it is a
+       later hand deciding the kind thing to do is alias it at `stop`, which
+       unregisters supervision. More destructive than what was typed. */
+    expect(await run("pause")).toBe(2);
+    expect(err).toContain("has been removed");
+    expect(out).toBe("");
 
-    out = "";
-    expect(await run("status")).toBe(0);
-    expect(out).toContain("PAUSED");
+    err = "";
+    expect(await run("resume")).toBe(2);
+    expect(err).toContain("has been removed");
+  });
 
-    out = "";
-    expect(await run("resume")).toBe(0);
-    expect(out).toContain("resumed");
+  it("leaves nothing on disk, so status cannot be told a story", async () => {
+    /* The flag file is the whole of the old bug. If a later pause writes one
+       again, the headline below starts lying again. */
+    await run("pause");
+    await expect(stat(join(paths.root, "paused"))).rejects.toThrow();
+  });
 
-    out = "";
+  it("never says PAUSED, even with the old flag file sitting there", async () => {
+    /* The removal read forward: somebody upgrading has a `paused` file from
+       the version that wrote them. It is inert now, and it must not be able
+       to reach this line — which is where it did its damage, outranking
+       every other state on the one screen people check. */
+    await mkdir(paths.root, { recursive: true });
+    await writeFile(join(paths.root, "paused"), "2026-09-01T00:00:00.000Z\n");
     await run("status");
-    expect(out).toContain("running");
     expect(out).not.toContain("PAUSED");
+    expect(out).toMatch(/^state: running$/m);
   });
 });
 
@@ -886,14 +900,14 @@ describe("a device that is running and invisible", () => {
     expect(out).toMatch(/^state: running$/m);
   });
 
-  it("keeps PAUSED ahead of it, because a pause is a decision", async () => {
-    // Somebody who paused their device does not need to be told it is not
-    // reporting. They know; they did it.
+  it("says NOT REPORTING, which nothing outranks any more", async () => {
+    /* This used to assert PAUSED came first, and it was the wrong shape of
+       right: a device failing every heartbeat was shown as a calm decision
+       because a flag said so. The flag is gone (B043) and the alarm is the
+       headline. */
     await health({ at: Date.now(), consecutiveFailures: 99 });
-    await run("pause");
     await run("status");
-    expect(out).toContain("PAUSED");
-    expect(out).not.toContain("NOT REPORTING");
+    expect(out).toContain("NOT REPORTING");
   });
 });
 
@@ -1023,21 +1037,23 @@ describe("connect when this device is already paired", () => {
     expect(confirmQuestions).toEqual([]);
   });
 
-  it("reports the pause honestly while it reconnects", async () => {
+  it("still sends the field the hub requires, and sends it false", async () => {
     /**
-     * A probe is still a heartbeat, and a heartbeat says whether this device
-     * is taking work. Reporting `false` for convenience would quietly resume
-     * routing to a machine whose owner had paused it — the reconnect would
-     * un-pause them as a side effect of saying hello.
+     * `paused` is required on HeartbeatRequest and the schema is `.strict()`,
+     * so this is not a value to tidy away with the feature that set it. A
+     * daemon that stops sending a required field is refused by every hub not
+     * upgraded in the same breath — and the hub is the side that does not
+     * upgrade when a laptop does.
      *
-     * This exists because the comment claiming it mattered survived a
-     * mutation that hard-coded `false`. A prediction ships with the check
-     * that catches it.
+     * So the assertion is on the key, not only the value: dropping it is the
+     * failure, and `toEqual([false])` alone would pass on an object that had
+     * no such key at all. It goes at the 0.1.0 protocol cut (B044), where
+     * one publish moves both sides together.
      */
     await alreadyPaired();
-    expect(await run("pause")).toBe(0);
     expect(await run("connect", origin)).toBe(0);
-    expect(beats.map((b) => b.paused)).toEqual([true]);
+    expect(beats.map((b) => "paused" in b)).toEqual([true]);
+    expect(beats.map((b) => b.paused)).toEqual([false]);
   });
 
   it("pairs again when the hub says the credential is spent", async () => {

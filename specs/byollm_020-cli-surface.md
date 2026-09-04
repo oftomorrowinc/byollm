@@ -27,8 +27,16 @@ one-line "renamed to X" notice so Kevin/Casul/Eric's early installs
 keep working):
 - `install`  -> `start`   (run persistently, across restarts)
 - `uninstall`-> `stop`    (stop the persistent daemon)
-- `pause`    -> `stop`    (drop the temporary-idle nuance for v1)
-- `resume`   -> `start`
+- `pause`    -> REMOVED, not renamed (B043, ruled by Todd 2026-09-04).
+  The build found why the rename was the wrong shape: the flag `pause`
+  wrote was never read by the running daemon. It reached a probe
+  heartbeat and the `status` headline, which printed `PAUSED` over a
+  daemon that went on claiming work. So there was no temporary-idle
+  nuance to drop — there was a screen agreeing with the person instead
+  of with the machine. `pause` and `resume` now say they are removed
+  and exit non-zero; they are not aliased at `stop`, which unregisters
+  supervision and is more destructive than what was typed.
+- `resume`   -> REMOVED, same ruling.
 - `models`   -> folded into `services` (killed — "services" is our
   ruled term, "models" is not; the service->model mapping becomes a
   column of `services`)
@@ -39,8 +47,8 @@ FIX:
   and "serve all paired apps" is the whole job. `run` prints a clear
   "serving <device>, enabled from your dashboard" line on start, so a
   person can tell it is working (closes B037).
-- the daemon's surfaced remedy line ("Not expected? `byollm pause`
-  stops all work...") repoints from `pause` to `stop`.
+- the daemon's surfaced remedy line ("Not expected? `byollm stop`
+  stops all work...") names `stop` — done.
 - `setup` gains a final y/n: "Start byollm now and keep it running
   across restarts? (recommended)" — if yes, it does the `start`, so a
   new user never has to discover a second command.

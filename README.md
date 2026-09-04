@@ -464,7 +464,7 @@ Point it at your models:
 byollm services       # what's installed, healthy, advertised — and who each is offered to
 byollm sites          # which sites this device serves, and which keys it holds
 byollm log            # every prompt that ran here, ever
-byollm pause          # stop claiming work — the off switch, always yours
+byollm stop           # stop claiming work — the off switch, always yours
 byollm offer <service> team --cap 250     # share a paid service, deliberately
 ```
 

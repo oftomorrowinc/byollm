@@ -534,36 +534,6 @@ describe("the loop", () => {
     expect(backend.seen).toEqual([]);
   });
 
-  it("claims nothing while paused", async () => {
-    const runner = await makeRunner(
-      routed({
-        claim: {
-          jobs: [
-            {
-              id: "job_1",
-              kind: "llm.generate",
-              audience: "private",
-              owner: "me",
-              site: TEST_SITE_ID,
-              sizeClass: "small",
-              streaming: false,
-              deadlineAt: Date.now() + 60_000,
-              lease: {
-                id: "lease_test",
-                runnerId: "runner_1",
-                expiresAt: Date.now() + 60_000,
-              },
-            },
-          ],
-          leaseMs: 60_000,
-        },
-      }),
-    );
-    runner.pause();
-    await runner.tick();
-    expect(backend.seen).toEqual([]);
-  });
-
   it("refuses a stub naming a site it did not pair with", async () => {
     // Amendment A §A.3's daemon half. `stub.site` is the site's identity key
     // id precisely so a daemon can check it against the key it pinned, with no

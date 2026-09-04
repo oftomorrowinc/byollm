@@ -23,7 +23,7 @@
   SIGINT; a wedged job's lease simply expires server-side.
 - **Trust surface**: append-only **ingress log** (timestamp, app,
   job id, kind, backend/model, prompt hash + full prompt in a local
-  file the owner can read); `byollm log`, `byollm pause`,
+  file the owner can read); `byollm log`, `byollm stop`,
   `byollm status` commands; per-app counters. The meter is the
   product — it gets the same care as the loop.
 - Errors: transient 5xx/backoff with Retry-After honored; 404-class

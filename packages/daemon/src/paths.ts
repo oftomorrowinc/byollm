@@ -36,8 +36,6 @@ export interface DaemonPaths {
    * revoke and reissue.
    */
   readonly keys: string;
-  /** Set while the owner has the daemon paused. */
-  readonly pauseFlag: string;
   /**
    * What the last probe learned about each service — the owner's copy.
    *
@@ -56,7 +54,7 @@ export interface DaemonPaths {
    *
    * Written by the running daemon, read by `byollm status`, which otherwise
    * cannot ask it anything: the two are separate processes and `state:
-   * running` was derived from the pause flag alone. That sentence was true
+   * running` was derived from a local flag alone. That sentence was true
    * for hours while every heartbeat this device sent was refused — the
    * daemon was running and reporting nothing, and the only surface that knew
    * was a log line nobody tails.
@@ -95,7 +93,6 @@ export function daemonPaths(root = defaultRoot()): DaemonPaths {
     serviceStates: join(root, "services.json"),
     spentGrants: join(root, "spent-grants.json"),
     keys: join(root, "keys.json"),
-    pauseFlag: join(root, "paused"),
     health: join(root, "health.json"),
     label: join(root, "label"),
     scratch: join(root, "scratch"),

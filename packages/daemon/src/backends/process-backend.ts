@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { quotaBlock } from "./quota.js";
+import { quotaBlock, type Observation } from "./quota.js";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -39,6 +39,19 @@ export interface ProcessJob {
   readonly request: BackendRequest;
   /** When the caller started timing, so durations cover the whole call. */
   readonly started: number;
+  /**
+   * The clock the quota corpus reads, injectable — S1's shape, one adapter
+   * over.
+   *
+   * A "try again at" already past is dropped, because a stale clock brings
+   * somebody back to a machine that is still blocked. Read from `Date.now()`
+   * inside, any transcript we hold stops exercising that path the day after
+   * it was captured — a test that goes green on a schedule, which is what the
+   * Codex adapter was filed for.
+   */
+  readonly now?: () => number;
+  /** The observations to classify against. Tests own their own strings. */
+  readonly corpus?: readonly Observation[];
 }
 
 export async function runProcessJob(job: ProcessJob): Promise<BackendResult> {
@@ -52,7 +65,6 @@ export async function runProcessJob(job: ProcessJob): Promise<BackendResult> {
       ok: false,
       code: "backend-error",
       message: "no time limit was set for this call",
-      retryable: false,
       durationMs: 0,
     };
   }
@@ -80,7 +92,6 @@ function spawnIn(job: ProcessJob, scratch: string): Promise<BackendResult> {
         ok: false,
         code: "canceled",
         message: "the job was canceled before it started",
-        retryable: false,
         durationMs: Date.now() - started,
       });
       return;
@@ -161,7 +172,6 @@ function spawnIn(job: ProcessJob, scratch: string): Promise<BackendResult> {
         ok: false,
         code: "backend-unreachable",
         message: `could not start ${displayName}: ${error.message}`,
-        retryable: false,
         durationMs: Date.now() - started,
       });
     });
@@ -175,7 +185,6 @@ function spawnIn(job: ProcessJob, scratch: string): Promise<BackendResult> {
           ok: false,
           code: "canceled",
           message: "the job was canceled",
-          retryable: false,
           durationMs,
         });
         return;
@@ -185,7 +194,6 @@ function spawnIn(job: ProcessJob, scratch: string): Promise<BackendResult> {
           ok: false,
           code: "timeout",
           message: `the model did not answer within ${String(request.timeoutMs)}ms`,
-          retryable: true,
           durationMs,
         });
         return;
@@ -195,7 +203,6 @@ function spawnIn(job: ProcessJob, scratch: string): Promise<BackendResult> {
           ok: false,
           code: "output-too-large",
           message: `the model produced more than ${String(request.maxOutputBytes)} bytes`,
-          retryable: false,
           durationMs,
         });
         return;
@@ -222,7 +229,7 @@ function spawnIn(job: ProcessJob, scratch: string): Promise<BackendResult> {
          * one of these strings this branch is never taken and behaviour is
          * exactly what it was.
          */
-        const blocked = quotaBlock(said, Date.now());
+        const blocked = quotaBlock(said, (job.now ?? Date.now)(), job.corpus);
         const authFailed = blocked === undefined && isAuthFailure(said);
         finish({
           ok: false,
@@ -254,7 +261,6 @@ function spawnIn(job: ProcessJob, scratch: string): Promise<BackendResult> {
                     stdout.trim() !== ""
                     ? `${displayName} failed: ${firstLine(stdout)}`
                     : `${displayName} exited with status ${String(code)}`,
-          retryable: false,
           durationMs,
         });
         return;

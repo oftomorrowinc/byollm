@@ -44,27 +44,27 @@ const FOR_SITE: Readonly<
   "backend-unreachable": {
     code: "service_unavailable",
     message: SERVICE_UNAVAILABLE,
-    retryable: false,
+    retryable: true,
   },
   "backend-error": {
     code: "service_unavailable",
     message: SERVICE_UNAVAILABLE,
-    retryable: false,
+    retryable: true,
   },
   "model-not-found": {
     code: "service_unavailable",
     message: SERVICE_UNAVAILABLE,
-    retryable: false,
+    retryable: true,
   },
   "quota-exhausted": {
     code: "service_unavailable",
     message: SERVICE_UNAVAILABLE,
-    retryable: false,
+    retryable: true,
   },
   unauthorized: {
     code: "service_unavailable",
     message: SERVICE_UNAVAILABLE,
-    retryable: false,
+    retryable: true,
   },
   timeout: {
     code: "timeout",
@@ -105,9 +105,36 @@ const FOR_SITE: Readonly<
  * promise. The person-or-time question lives at enqueue, in the slot-level
  * wait-bit, and nowhere else.
  *
- * Every value below is what that class already reported, so nothing changes
- * for a site except the one that was leaking.
+ * ## And the class value is `true` — corrected 2026-09-04
+ *
+ * The first version of this flattened to `false` and its comment claimed
+ * nothing changed for a site except the leak. **That was wrong, and the
+ * review caught it:** the HTTP backend already reported `true` for
+ * `backend-unreachable` and for a 5xx `backend-error`, so the class was
+ * split three ways and the flatten broke transient retries — a site with
+ * retry-on-retryable would stop re-enqueueing after a 503 from somebody's
+ * local model server.
+ *
+ * `true` is also the honest value. `service_unavailable` says nobody can
+ * answer *right now*, and right now implies possibly-later. A site that
+ * retries a quota block simply meets the fast enqueue refusal, which is the
+ * cheap path 019 exists to provide.
  */
+/**
+ * Every code that reaches a site as one class, derived rather than listed.
+ *
+ * The fence test used to name its five siblings by hand, so the claim "these
+ * are indistinguishable" held by convention: a sixth code added to the table
+ * would be a sixth thing a site could tell apart, and no test would notice.
+ * Membership comes off the table now, so a new sibling joins the assertion
+ * the moment it exists.
+ */
+export function siblingsOf(siteCode: string): BackendErrorCode[] {
+  return Object.entries(FOR_SITE)
+    .filter(([, forSite]) => forSite.code === siteCode)
+    .map(([code]) => code as BackendErrorCode);
+}
+
 export function outcomeForSite(code: BackendErrorCode): {
   readonly code: string;
   readonly message: string;

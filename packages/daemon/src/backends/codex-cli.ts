@@ -2,7 +2,7 @@ import { execFile } from "node:child_process";
 import type { BackendClass, BackendId } from "@byollm/protocol";
 import { childEnv, resolveCliLaunch } from "./claude-cli.js";
 import { isAuthFailure, runProcessJob } from "./process-backend.js";
-import { quotaBlock } from "./quota.js";
+import { quotaBlock, type Observation } from "./quota.js";
 import type {
   Backend,
   BackendErrorCode,
@@ -100,7 +100,6 @@ export type CodexOutput =
       readonly ok: false;
       readonly code: BackendErrorCode;
       readonly message: string;
-      readonly retryable: boolean;
       /**
        * When the CLI expects to be back — 019 §3.2, carried not dropped.
        *
@@ -146,9 +145,9 @@ function failureMessage(event: Record<string, unknown>): string {
 function classifyFailure(
   message: string,
   now: number,
+  corpus?: readonly Observation[],
 ): {
   readonly code: BackendErrorCode;
-  readonly retryable: boolean;
   readonly until?: number | undefined;
 } {
   /*
@@ -169,18 +168,17 @@ function classifyFailure(
    * was written for — would be invisible to the machinery built for it if
    * this read the exit code.
    */
-  const blocked = quotaBlock(message, now);
+  const blocked = quotaBlock(message, now, corpus);
   if (blocked !== undefined) {
     return {
       code: "quota-exhausted",
-      retryable: true,
       ...(blocked.until === undefined ? {} : { until: blocked.until }),
     };
   }
   if (isAuthFailure(message)) {
-    return { code: "unauthorized", retryable: false };
+    return { code: "unauthorized" };
   }
-  return { code: "backend-error", retryable: false };
+  return { code: "backend-error" };
 }
 
 /**
@@ -207,6 +205,8 @@ export function parseCodexOutput(
    * green having proved nothing, on a schedule.
    */
   now: number = Date.now(),
+  /** The observations to classify against — see `quota.ts` on why. */
+  corpus?: readonly Observation[],
 ): CodexOutput {
   const messages: string[] = [];
 
@@ -233,7 +233,7 @@ export function parseCodexOutput(
 
     if (type === "error" || type === "turn.failed") {
       const detail = failureMessage(event);
-      const classified = classifyFailure(detail, now);
+      const classified = classifyFailure(detail, now, corpus);
       return {
         ok: false,
         ...classified,
@@ -250,7 +250,6 @@ export function parseCodexOutput(
     ok: false,
     code: "backend-error",
     message: "the codex CLI ended without a terminal event",
-    retryable: false,
   };
 }
 

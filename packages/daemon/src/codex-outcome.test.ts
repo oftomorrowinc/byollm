@@ -1,5 +1,16 @@
 import { describe, expect, it } from "vitest";
 import { codexArgv, parseCodexOutput } from "./backends/codex-cli.js";
+import type { Observation } from "./backends/quota.js";
+
+/** This file's own strings, so an empty shipped corpus stays legal. */
+const FIXTURE: readonly Observation[] = [
+  {
+    pattern: /\busage limit\b/iu,
+    seenOn: "fixture",
+    seenAt: "2026-09-04",
+    verbatim: "You've hit your usage limit.",
+  },
+];
 
 const stream = (...events: unknown[]): string =>
   events.map((event) => JSON.stringify(event)).join("\n");
@@ -41,12 +52,13 @@ describe("codex terminal outcomes", () => {
           error: { message: "You've hit your usage limit." },
         },
       ),
+      Date.parse("2026-09-03T06:00:00"),
+      FIXTURE,
     );
 
     expect(outcome).toMatchObject({
       ok: false,
       code: "quota-exhausted",
-      retryable: true,
     });
   });
 
@@ -58,7 +70,7 @@ describe("codex terminal outcomes", () => {
           error: { message: "Not logged in. Please log in to continue." },
         }),
       ),
-    ).toMatchObject({ ok: false, code: "unauthorized", retryable: false });
+    ).toMatchObject({ ok: false, code: "unauthorized" });
   });
 
   it("keeps an ordinary provider failure generic", () => {
@@ -69,7 +81,7 @@ describe("codex terminal outcomes", () => {
           error: { message: "the upstream connection closed" },
         }),
       ),
-    ).toMatchObject({ ok: false, code: "backend-error", retryable: false });
+    ).toMatchObject({ ok: false, code: "backend-error" });
   });
 
   it("recognizes the diagnostic somebody actually met", () => {
@@ -86,11 +98,12 @@ describe("codex terminal outcomes", () => {
           type: "error",
           message: "\u0000 You've hit your usage limit.\u007f",
         }),
+        Date.parse("2026-09-03T06:00:00"),
+        FIXTURE,
       ),
     ).toMatchObject({
       ok: false,
       code: "quota-exhausted",
-      retryable: true,
     });
   });
 
@@ -129,6 +142,7 @@ describe("codex terminal outcomes", () => {
         },
       ),
       Date.parse("2026-09-03T06:00:00"),
+      FIXTURE,
     );
 
     expect(outcome).toMatchObject({
@@ -145,6 +159,7 @@ describe("codex terminal outcomes", () => {
     const outcome = parseCodexOutput(
       stream({ type: "error", message: "You've hit your usage limit." }),
       Date.parse("2026-09-03T06:00:00"),
+      FIXTURE,
     );
     expect(outcome).toMatchObject({ ok: false, code: "quota-exhausted" });
     expect(outcome).not.toHaveProperty("until");
@@ -176,7 +191,6 @@ describe("codex terminal outcomes", () => {
       ok: false,
       code: "backend-error",
       message: "the codex CLI failed: codex reported an error",
-      retryable: false,
     });
   });
 
@@ -193,7 +207,6 @@ describe("codex terminal outcomes", () => {
       ok: false,
       code: "backend-error",
       message: "the codex CLI ended without a terminal event",
-      retryable: false,
     });
   });
 
@@ -220,7 +233,7 @@ describe("codex terminal outcomes", () => {
           { type: "turn.failed", error: { message: observed } },
         ),
       ),
-    ).toMatchObject({ ok: false, code: "backend-error", retryable: false });
+    ).toMatchObject({ ok: false, code: "backend-error" });
   });
 
   it("never classifies model prose as a provider failure", () => {

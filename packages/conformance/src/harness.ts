@@ -84,7 +84,6 @@ export class EchoBackend implements Backend {
           ok: false,
           code: "canceled",
           message: "the job was canceled",
-          retryable: false,
           durationMs: Date.now() - started,
         };
       }

@@ -113,7 +113,6 @@ export class OpenAiHttpBackend implements Backend {
         ok: false,
         code: "backend-error",
         message: "no time limit was set for this call",
-        retryable: false,
         durationMs: 0,
       };
     }
@@ -144,7 +143,6 @@ export class OpenAiHttpBackend implements Backend {
         return this.#fail(
           "unauthorized",
           "the model server rejected our credentials",
-          false,
           started,
         );
       }
@@ -152,7 +150,6 @@ export class OpenAiHttpBackend implements Backend {
         return this.#fail(
           "model-not-found",
           `the model server does not know "${request.model}"`,
-          false,
           started,
         );
       }
@@ -160,7 +157,6 @@ export class OpenAiHttpBackend implements Backend {
         return this.#fail(
           "backend-error",
           `the model server returned HTTP ${String(response.status)}`,
-          response.status >= 500,
           started,
         );
       }
@@ -172,7 +168,6 @@ export class OpenAiHttpBackend implements Backend {
         return this.#fail(
           "output-too-large",
           `the model produced more than ${String(request.maxOutputBytes)} bytes`,
-          false,
           started,
         );
       }
@@ -182,43 +177,48 @@ export class OpenAiHttpBackend implements Backend {
         return this.#fail(
           "backend-error",
           "the model server's response was not in OpenAI chat-completion shape",
-          false,
           started,
         );
       }
       return { ok: true, text: content, durationMs: Date.now() - started };
     } catch (error) {
       if (request.signal.aborted) {
-        return this.#fail("canceled", "the job was canceled", false, started);
+        return this.#fail("canceled", "the job was canceled", started);
       }
       if (isAbort(error)) {
         return this.#fail(
           "timeout",
           `the model did not answer within ${String(request.timeoutMs)}ms`,
-          true,
           started,
         );
       }
       return this.#fail(
         "backend-unreachable",
         describeFetchError(error, this.#baseUrl.origin),
-        true,
         started,
       );
     }
   }
 
+  /*
+   * No `retryable` argument any more — ruled 2026-09-04.
+   *
+   * This adapter used to decide it per failure, and it was the only one whose
+   * rule was defensible: `true` for unreachable and for a 5xx. That is
+   * exactly why removing it matters. The decision now lives once, in the
+   * site-facing class table, and it was the *disagreement* between three
+   * adapters that let a value only quota produced become readable as a fact
+   * about somebody's account.
+   */
   #fail(
     code: Exclude<BackendResult & { ok: false }, never>["code"],
     message: string,
-    retryable: boolean,
     started: number,
   ): BackendResult {
     return {
       ok: false,
       code,
       message,
-      retryable,
       durationMs: Date.now() - started,
     };
   }

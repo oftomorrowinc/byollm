@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { observedQuotaCorpus, quotaBlock } from "./backends/quota.js";
+import {
+  observedQuotaCorpus,
+  quotaBlock,
+  type Observation,
+} from "./backends/quota.js";
 import { renderServices, serviceLine } from "./service-line.js";
 
 /**
@@ -14,6 +18,25 @@ import { renderServices, serviceLine } from "./service-line.js";
  * told anything to fall back from.
  */
 const NOW = Date.parse("2026-09-03T06:00:00Z");
+
+/**
+ * The strings this file tests with, owned by this file.
+ *
+ * §6.1 rules an empty corpus legal, and the suite quietly made that false:
+ * six tests reddened when `OBSERVED` was emptied, because they asserted
+ * behaviour through whichever strings we happened to have collected. That
+ * couples "does the classifier work" to "what have we filed", and filing is
+ * meant to change without ceremony.
+ */
+const FIXTURE: readonly Observation[] = [
+  {
+    pattern: /\busage limit\b/iu,
+    seenOn: "fixture",
+    seenAt: "2026-09-04",
+    verbatim:
+      "You've hit your usage limit. Try again at Sep 3rd, 2026 8:28 AM.",
+  },
+];
 
 describe("the corpus", () => {
   it("holds only what a CLI actually printed", () => {
@@ -53,26 +76,23 @@ describe("the corpus", () => {
      * retracted tomorrow this still proves the machinery runs — and what it
      * would then correctly say is that nothing matches.
      */
-    const fixture = "You've hit your usage limit.";
-    const matches = observedQuotaCorpus.some((seen) =>
-      seen.pattern.test(fixture),
-    );
-    expect(
-      quotaBlock(fixture, NOW) !== undefined,
-      "the classifier disagrees with its own corpus",
-    ).toBe(matches);
+    /* Driven through a corpus this file owns, so it proves the machinery
+       runs whether or not anything has been collected yet. */
+    expect(quotaBlock(FIXTURE[0]?.verbatim ?? "", NOW, FIXTURE)).toBeDefined();
+    expect(quotaBlock("nothing like it", NOW, FIXTURE)).toBeUndefined();
+
+    // And the shipped corpus agrees with itself, whatever size it is.
+    for (const seen of observedQuotaCorpus) {
+      expect(quotaBlock(seen.verbatim, NOW), seen.verbatim).toBeDefined();
+    }
   });
 
   it("is silent, not broken, when it holds nothing", () => {
     /* §6.1's legal state, asserted rather than assumed. Nothing waits on
        collection: machinery with an empty corpus classifies nothing, which is
        what every machine did before this existed. */
-    for (const message of ["anything at all", "You've hit your usage limit."]) {
-      const matched = observedQuotaCorpus.some((seen) =>
-        seen.pattern.test(message),
-      );
-      if (!matched) expect(quotaBlock(message, NOW)).toBeUndefined();
-    }
+    expect(quotaBlock("You've hit your usage limit.", NOW, [])).toBeUndefined();
+    expect(quotaBlock("anything at all", NOW, [])).toBeUndefined();
   });
 });
 
@@ -89,7 +109,7 @@ describe("classifying one diagnostic", () => {
       "request timed out after 30s",
       "",
     ]) {
-      expect(quotaBlock(message, NOW), message).toBeUndefined();
+      expect(quotaBlock(message, NOW, FIXTURE), message).toBeUndefined();
     }
   });
 
@@ -97,6 +117,7 @@ describe("classifying one diagnostic", () => {
     const block = quotaBlock(
       "You've hit your usage limit. Try again at Sep 3rd, 2026 8:28 AM.",
       NOW,
+      FIXTURE,
     );
     expect(block?.until).toBe(Date.parse("2026-09-03T08:28:00"));
   });
@@ -111,6 +132,7 @@ describe("classifying one diagnostic", () => {
     const stale = quotaBlock(
       "You've hit your usage limit. Try again at Sep 1st, 2020 8:28 AM.",
       NOW,
+      FIXTURE,
     );
     expect(stale).toBeDefined();
     expect(stale?.until).toBeUndefined();
@@ -118,6 +140,7 @@ describe("classifying one diagnostic", () => {
     const unreadable = quotaBlock(
       "You've hit your usage limit. Try again at some point.",
       NOW,
+      FIXTURE,
     );
     expect(unreadable).toBeDefined();
     expect(unreadable?.until).toBeUndefined();

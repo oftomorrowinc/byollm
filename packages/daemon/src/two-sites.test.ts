@@ -148,7 +148,6 @@ class StubBackend implements Backend {
             ok: false,
             code: "canceled",
             message: "aborted",
-            retryable: false,
             durationMs: 1,
           });
         },

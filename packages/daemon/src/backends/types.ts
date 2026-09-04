@@ -27,7 +27,6 @@ export type BackendResult =
       readonly ok: false;
       readonly code: BackendErrorCode;
       readonly message: string;
-      readonly retryable: boolean;
       readonly durationMs: number;
       /**
        * When the backend expects to be usable again — byollm_019 §3.2.
@@ -48,6 +47,22 @@ export type BackendResult =
        */
       readonly until?: number | undefined;
     };
+
+/*
+ * `retryable` used to live on this shape and no longer does — ruled
+ * 2026-09-04.
+ *
+ * Every adapter computed one, and after the retry decision moved to the
+ * site-facing class table nothing read any of them. They had also drifted:
+ * the same quota block reported `true` from Codex and `false` from Claude,
+ * and the HTTP backend used a third rule again. A field that is computed
+ * three inconsistent ways and read nowhere is not harmless — it is a leak
+ * waiting for its first consumer, and the leak it waits for is the one the
+ * class table was flattened to close.
+ *
+ * The wire's `retryable` is a different field on a different shape, is read,
+ * and stays.
+ */
 
 /**
  * Why a backend call failed.

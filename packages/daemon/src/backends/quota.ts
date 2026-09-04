@@ -42,7 +42,7 @@
  */
 
 /** One thing a CLI really printed, kept with the evidence that it did. */
-interface Observation {
+export interface Observation {
   /** The pattern, anchored on words rather than substrings. */
   readonly pattern: RegExp;
   /** Which CLI said it, and the version that said it. */
@@ -115,8 +115,20 @@ export interface QuotaBlock {
 export function quotaBlock(
   message: string,
   now: number,
+  /**
+   * Which observations to match against. Injectable, and not for convenience.
+   *
+   * §6.1 rules an empty corpus legal, and the suite made that false: six
+   * tests reddened when `OBSERVED` was emptied, because they asserted
+   * behaviour through whichever strings we happened to have collected. That
+   * couples "does the classifier work" to "what have we filed", and the
+   * second is meant to change without ceremony.
+   *
+   * **A test fixture owns its own strings; the corpus owns only what ships.**
+   */
+  corpus: readonly Observation[] = OBSERVED,
 ): QuotaBlock | undefined {
-  if (!OBSERVED.some((seen) => seen.pattern.test(message))) return undefined;
+  if (!corpus.some((seen) => seen.pattern.test(message))) return undefined;
   const at = until(message, now);
   return { detail: message, ...(at === undefined ? {} : { until: at }) };
 }

@@ -677,15 +677,30 @@ describe("openai-http against a real socket", () => {
         signal: new AbortController().signal,
       });
 
+    /*
+     * Both are `backend-error`, and neither carries a retry decision any
+     * more — ruled 2026-09-04.
+     *
+     * This adapter used to split 5xx from 4xx with its own `retryable`, and
+     * it was the only one of the three whose rule was defensible. That is
+     * precisely why it went: the decision now lives once, in the site-facing
+     * class table, and the disagreement between three adapters is what let a
+     * value only quota produced be read as "his account is rate-limited".
+     *
+     * The distinction is deliberately not preserved. `service_unavailable`
+     * means nobody can answer right now, and right now implies
+     * possibly-later; a site that retries a slot nothing can serve meets the
+     * fast enqueue refusal, which is the cheap path.
+     */
     handler = () => ({ status: 503, body: "{}" });
     const server5xx = await call();
     expect(server5xx.ok).toBe(false);
-    if (!server5xx.ok) expect(server5xx.retryable).toBe(true);
+    if (!server5xx.ok) expect(server5xx.code).toBe("backend-error");
 
     handler = () => ({ status: 418, body: "{}" });
     const client4xx = await call();
     expect(client4xx.ok).toBe(false);
-    if (!client4xx.ok) expect(client4xx.retryable).toBe(false);
+    if (!client4xx.ok) expect(client4xx.code).toBe("backend-error");
   });
 
   it("reports a body that is not JSON as a backend error", async () => {

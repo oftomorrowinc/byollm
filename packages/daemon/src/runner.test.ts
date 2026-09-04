@@ -20,7 +20,7 @@ import { ProtocolClient } from "./client.js";
 import { composePrompt } from "./compose.js";
 import { DaemonConfig, resolveConfig, type ResolvedRoute } from "./config.js";
 import { IngressLog } from "./ingress.js";
-import { SERVICE_UNAVAILABLE } from "./site-outcome.js";
+import { SERVICE_UNAVAILABLE, siblingsOf } from "./site-outcome.js";
 import { SpendLedger } from "./spend.js";
 import { Runner, type RunnerEvent } from "./runner.js";
 import { removeTemp, testControlPlane } from "./test-support.js";
@@ -73,7 +73,6 @@ class SpyBackend implements Backend {
         ok: false,
         code: "canceled",
         message: "the job was canceled",
-        retryable: false,
         durationMs: 0,
       };
     }
@@ -544,7 +543,6 @@ describe("status", () => {
             ok: false as const,
             code: "unauthorized" as const,
             message: "the claude CLI is not signed in",
-            retryable: false,
             durationMs: 1,
           }),
       }),
@@ -770,7 +768,6 @@ describe("what leaves the machine when a backend fails", () => {
           ok: false as const,
           code,
           message,
-          retryable: true,
           durationMs: 1,
           until,
         }),
@@ -784,7 +781,6 @@ describe("what leaves the machine when a backend fails", () => {
           ok: false as const,
           code,
           message,
-          retryable: false,
           durationMs: 1,
         }),
     }) as unknown as Backend;
@@ -929,6 +925,84 @@ describe("what leaves the machine when a backend fails", () => {
     expect(written).toEqual(["blocked"]);
   });
 
+  it("writes when the block lifts, not only when it lands", async () => {
+    /**
+     * S-2, found by CW reading the code — 2026-09-04.
+     *
+     * Only the block was written. An until-less block withdraws for one
+     * pass, recovers on the next, and `services.json` goes on saying "out of
+     * quota: it needs time, not a fix" forever, about a service that is
+     * answering. **A file written when things get worse and never when they
+     * get better is not a record, it is an accusation.**
+     *
+     * The rule, one line: a withdrawal or restoration that `status` would
+     * report differently is a state change, and every state change writes.
+     */
+    const until = 2_000;
+    let now = 1_000;
+    const written: (string | undefined)[] = [];
+    const { runner } = await makeRunner({
+      now: () => now,
+      backendFactory: () =>
+        failingUntil(
+          "the codex CLI failed: You've hit your usage limit",
+          "quota-exhausted",
+          until,
+        ),
+      onServiceStates: (states) => {
+        written.push(states.get("primary")?.state.kind ?? "absent");
+        return Promise.resolve();
+      },
+    });
+
+    await runner.runJob(job());
+    expect(written).toEqual(["blocked"]);
+
+    /* The lift is recorded by the pass that re-probes it: the entry stops
+       saying "blocked" and starts saying what the probe found. What must
+       never happen is the file keeping the old accusation. */
+    now = until;
+    await runner.detectCapabilities({});
+    expect(written).toEqual(["blocked", "unknown"]);
+  });
+
+  it("writes once for a machine that has not changed", async () => {
+    /* The pass writes at the end, and passes are far more frequent than
+       changes — a heartbeat every ten seconds, forever. Without the
+       comparison this is a small file rewritten all night on a machine where
+       nothing happened, and every process polling it woken for nothing. */
+    const written: string[] = [];
+    const { runner } = await makeRunner({
+      onServiceStates: (states) => {
+        written.push([...states.keys()].join(","));
+        return Promise.resolve();
+      },
+    });
+
+    await runner.detectCapabilities({});
+    await runner.detectCapabilities({});
+    await runner.detectCapabilities({});
+    expect(written).toHaveLength(1);
+  });
+
+  it("writes when a service signs out mid-run", async () => {
+    /* The other half of S-2. This path never got the treatment at all, so a
+       mid-run sign-out was invisible to status: the surface said the service
+       was answering while every job it took was refused. */
+    const written: (string | undefined)[] = [];
+    const { runner } = await makeRunner({
+      backendFactory: () =>
+        failing("the claude CLI is not signed in", "unauthorized"),
+      onServiceStates: (states) => {
+        written.push(states.get("primary")?.state.kind ?? "absent");
+        return Promise.resolve();
+      },
+    });
+
+    await runner.runJob(job());
+    expect(written).toEqual(["signed-out"]);
+  });
+
   it("keeps a signed-out service withdrawn, clock or no clock", async () => {
     /* The control. If the two sets had been folded, the release above would
        let a signed-out service back in after a couple of seconds — which is
@@ -990,13 +1064,12 @@ describe("what leaves the machine when a backend fails", () => {
      * person-or-time question lives at enqueue, in the slot-level wait-bit,
      * and nowhere else.
      */
-    const siblings: BackendErrorCode[] = [
-      "unauthorized",
-      "backend-error",
-      "quota-exhausted",
-      "backend-unreachable",
-      "model-not-found",
-    ];
+    /* Derived, not listed — CW's minor, 2026-09-04. Naming the five by hand
+       made this hold by convention: a sixth code mapped into the class would
+       be a sixth thing a site could tell apart, and nothing here would have
+       noticed. */
+    const siblings = siblingsOf("service_unavailable");
+    expect(siblings.length).toBeGreaterThan(1);
 
     const answers = new Set<string>();
     for (const code of siblings) {
@@ -1057,7 +1130,6 @@ describe("what leaves the machine when a backend fails", () => {
               ok: false as const,
               code: "timeout" as const,
               message: "the claude CLI did not answer within 120000ms",
-              retryable: true,
               durationMs: 1,
             }),
         }) as unknown as Backend,

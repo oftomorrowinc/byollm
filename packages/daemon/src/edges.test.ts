@@ -179,7 +179,10 @@ describe("openai-http — unreachable backend", () => {
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.code).toBe("backend-unreachable");
-      expect(result.retryable).toBe(true);
+      /* The retry decision left this shape on 2026-09-04. Adapters report a
+         code; the site-facing class table decides whether trying again is
+         worth it, because three adapters deciding separately is how one of
+         them came to leak a fact about somebody's account. */
     }
   });
 

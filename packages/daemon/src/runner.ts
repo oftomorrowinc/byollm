@@ -397,6 +397,8 @@ export class Runner {
    * service was blocked.
    */
   readonly #blockedReport = new Map<string, ServiceReport>();
+  /** What was last handed to the writer, so an unchanged pass writes nothing. */
+  #lastWritten: string | undefined;
 
   /**
    * The key grants are checked against — from the pairing, or adopted later.
@@ -620,8 +622,25 @@ export class Runner {
           if (kept !== undefined) this.serviceStates.set(route.service, kept);
           continue;
         }
+        /*
+         * The lift is a state change too — S-2, 2026-09-04.
+         *
+         * Only the block was written. An until-less block withdraws for one
+         * pass, recovers on the next, and `services.json` goes on saying "out
+         * of quota: it needs time, not a fix" forever, about a service that
+         * is answering. A file that is written when things get worse and
+         * never when they get better is not a record, it is an accusation.
+         *
+         * **A withdrawal or restoration that `status` would report
+         * differently is a state change, and every state change writes.**
+         */
         this.#blocked.delete(route.service);
         this.#blockedReport.delete(route.service);
+        this.serviceStates.delete(route.service);
+        /* No write here: the probe below fills this entry back in and the
+           pass writes once at the end. Writing twice would put an `absent`
+           on the way to a state that is about to be known, which is a
+           flicker in a file other processes poll. */
       }
       let usable = probed.get(route.service);
       if (usable === undefined) {
@@ -707,6 +726,12 @@ export class Runner {
     }
 
     this.#capabilities = capabilities;
+    /* Every pass ends by saying what it found — S-2, both entry points.
+       `byollm run` wired the writer and never called it, so a daemon that
+       started, probed and settled left `status` reading whatever the last
+       `connect` had written. The dirty check inside keeps a settled machine
+       from writing a file every heartbeat. */
+    this.#writeServiceStates();
     return capabilities;
   }
 
@@ -1207,6 +1232,9 @@ export class Runner {
         outcome: "error",
         code: "no-capability",
         message: "this device has no route for that job kind",
+        /* Not retryable, and not from the class table: this is the runner's
+           own refusal rather than a backend failure. A device with no route
+           for a kind will not grow one by being asked again. */
         retryable: false,
       };
     }
@@ -1274,6 +1302,16 @@ export class Runner {
        */
       if (!result.ok && result.code === "unauthorized") {
         this.#unauthenticated.add(route.service);
+        /* Written, like every other change — S-2's second half, 2026-09-04.
+           This path never got the treatment the quota path did, so a mid-run
+           sign-out was invisible to `byollm status`: the surface said the
+           service was answering while every job it took was refused. */
+        this.#noteServiceState(route.service, {
+          state: {
+            kind: "signed-out",
+            detail: result.message,
+          },
+        });
         this.#options.onEvent?.({
           type: "service-not-signed-in",
           service: route.service,
@@ -1298,23 +1336,15 @@ export class Runner {
        */
       if (!result.ok && result.code === "quota-exhausted") {
         this.#blocked.set(route.service, result.until);
-        const report: ServiceReport = {
+        const report = this.#noteServiceState(route.service, {
           ...this.serviceStates.get(route.service),
           state: {
             kind: "blocked",
             detail: result.message,
             ...(result.until === undefined ? {} : { until: result.until }),
           },
-        };
-        this.serviceStates.set(route.service, report);
+        });
         this.#blockedReport.set(route.service, report);
-        /* The surfaces are other processes, and the file is the only thing
-           that reaches them. Not awaited, and the rejection is swallowed on
-           purpose: a job must not fail — nor the runner die on an unhandled
-           rejection — because a status note could not be written. The note is
-           evidence about the job, not part of it. */
-        const noted = this.#options.onServiceStates?.(this.serviceStates);
-        if (noted !== undefined) void noted.catch(() => undefined);
         this.#options.onEvent?.({
           type: "service-out-of-quota",
           service: route.service,
@@ -1442,6 +1472,48 @@ export class Runner {
       // herd against one server.
       await sleep(heartbeatMs * (0.85 + Math.random() * 0.3), signal);
     }
+  }
+
+  /**
+   * Record a service's state, and tell whoever writes the file — S-2.
+   *
+   * One door, because the bug was two doors and only one of them wrote. The
+   * quota path wrote on block and not on lift; the sign-out path never wrote
+   * at all. Both are changes `byollm status` would report differently, and
+   * status is a different process whose only source is that file.
+   */
+  #noteServiceState(service: string, report: ServiceReport): ServiceReport {
+    this.serviceStates.set(service, report);
+    this.#writeServiceStates();
+    return report;
+  }
+
+  /**
+   * Hand the current map to whoever persists it.
+   *
+   * Not awaited, and the rejection is swallowed on purpose: a job must not
+   * fail — nor the runner die on an unhandled rejection — because a status
+   * note could not be written. The note is evidence about the job, not part
+   * of it.
+   */
+  #writeServiceStates(): void {
+    /*
+     * Only when it actually moved.
+     *
+     * This is called at the end of every detection pass as well as on each
+     * change, because `byollm run` wired the callback and never wrote a
+     * first time — so a daemon that started, probed, and sat there left
+     * `status` reading whatever the last `connect` had said, which on a
+     * machine that has since signed out is a stale reassurance.
+     *
+     * Passes are far more frequent than changes, so the comparison is what
+     * keeps this from being a small write every heartbeat forever.
+     */
+    const now = JSON.stringify([...this.serviceStates]);
+    if (now === this.#lastWritten) return;
+    this.#lastWritten = now;
+    const noted = this.#options.onServiceStates?.(this.serviceStates);
+    if (noted !== undefined) void noted.catch(() => undefined);
   }
 
   /**

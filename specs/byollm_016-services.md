@@ -7136,3 +7136,47 @@ Outside PRs now three: #8 (Codex terminal events, synced at 528f6cb),
 #9 (private-scope vocabulary + drift test), #10 (version-bump history
 preservation + regression fixture). Todd reads each diff, then
 approves CI — per the standing gate.
+
+### 2026-09-03 – The three ledgers fail closed (RELEASED to build; Todd's word after discussion)
+
+Rob's third report, CW-verified in source: spent-grants.ts — the
+durable single-use burn for signed grants — fails open on corrupt
+state (load catches everything into an empty set), writes the live
+file directly (writeFileSync, failure swallowed, the job still
+runs), and two tests BLESS both directions. A torn write plus a
+supervised restart inside a grant's acceptance window lets the same
+valid grant execute twice; no forgery needed. Unlike spend.ts, this
+file CHOSE fail-open in its comments — but its defense ("refusing
+every grant is a total outage") argues against refusing forever,
+while the fix refuses only for the acceptance horizon. The remedy
+dominates the code's own justification.
+
+The build folds all three files into one pattern, with the scope
+question Todd raised settled precisely:
+- **Each ledger's brake covers exactly what that ledger ever
+  protected.** spend.ts and budgets.ts only ever counted OTHER
+  people's work — on corruption they brake the community/metered
+  gates and never the owner's own jobs, which never consulted them.
+  spent-grants protects the WIRE — on corruption the daemon refuses
+  ALL relayed grants (the owner's own site jobs included) for the
+  full acceptance horizon plus tolerated clock skew, then resets
+  explicitly. A duplicate of your own metered job is still your
+  money (Todd).
+- ENOENT is fresh; anything else is untrusted, with the latch
+  (writes must not overwrite untrusted state; explicit or clean
+  reset only).
+- **The burn persists before execution**; a grant whose burn cannot
+  be written is refused, not run unprotected.
+- Atomic writes everywhere: same-directory temp, 0600, sync,
+  rename (the pairing code's own pattern).
+- The blessing tests flip; a torn-write/restart/replay case joins.
+- Adversarial note, recorded because Todd asked the right question:
+  wire-injected corruption is structurally prevented (schema-
+  validated ids through JSON.stringify) and a local attacker owns
+  the machine anyway — but fail-closed decides which way UNKNOWN
+  corruption paths land: refusal (nuisance) instead of permission
+  (replay). Defense in depth is the point.
+
+No PRs exist for any of this — the reporter deliberately withheld
+public branches and will not race the patch. CCB builds from this
+spec; Rob gets the diff review he volunteered; changelog credit.

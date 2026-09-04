@@ -7180,3 +7180,20 @@ question Todd raised settled precisely:
 No PRs exist for any of this — the reporter deliberately withheld
 public branches and will not race the patch. CCB builds from this
 spec; Rob gets the diff review he volunteered; changelog credit.
+
+## Law: force the interleaving (CW, 2026-09-03 late, Todd concurring)
+
+From the record() race rider: CCB's first test for the lost-entry
+race passed with the fix removed. The interleaving that loses
+entries on a real machine did not happen under the test runner, so
+CI would have gone green on broken code. The fix that counts came
+in two parts: the writer takes its sink as a parameter, and the
+test makes the ordering happen instead of waiting for it. The
+filesystem tests stay, labelled as what they are.
+
+The law: a race you hope into a test is a comment; force the
+interleaving. A concurrency property is proved by constructing the
+schedule that breaks it, never by running enough iterations to feel
+lucky. Sibling of "a ceremony repeated becomes a habit, and a habit
+is not a comparison" - green-by-coincidence is the same disease
+with a scheduler for a dealer.

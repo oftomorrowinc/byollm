@@ -1,4 +1,4 @@
-import { mkdtemp, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -68,12 +68,17 @@ describe("SpendLedger [METERED_REQUIRES_CEILING]", () => {
     expect(second.hasReachedCeiling("gpt", 100, NOW)).toBe(true);
   });
 
-  it("reads a corrupt ledger as empty rather than throwing", async () => {
+  it("does not throw on a corrupt ledger, and does not believe it either", async () => {
+    /* Flipped, 2026-09-03. This asserted `spentTodayCents === 0` and called
+       that the desired behaviour. Zero is what the counter says when the
+       file is gone *and* when the file is unreadable, and the second one is
+       not a measurement — see the ceiling assertions below, which are what
+       this file should have been checking all along. */
     const path = join(dir, "spend.json");
     await writeFile(path, "{ not json");
     const l = new SpendLedger(path);
     await l.load(NOW);
-    expect(l.spentTodayCents("gpt", NOW)).toBe(0);
+    expect(l.untrustedReason()).toMatch(/not valid JSON/);
   });
 
   it("refuses to be used before load", () => {
@@ -106,16 +111,61 @@ describe("estimateCents", () => {
 });
 
 describe("a ledger that cannot be trusted brakes rather than opens", () => {
-  it("reads a corrupt ledger as empty — and empty means ceiling-reached", async () => {
+  it("brakes a configured cap, which is the case that was open", async () => {
+    /*
+     * The test that blessed the bug, rewritten to expose it.
+     *
+     * It used to assert the undefined-cap case and stop there — and that case
+     * was closed for its own separate reason, so the assertion passed while
+     * the gate it appeared to be guarding stood open. With a cap configured,
+     * an empty ledger reads `0 >= cap` as false and metered community work is
+     * admitted on a ledger nobody could read. **The prover aged with the
+     * wrong contract.**
+     */
     await writeFile(join(dir, "spend.json"), "{ this is not json");
     const l = ledger();
     await l.load(NOW);
 
-    // Not a throw, because a broken ledger must not stop the daemon taking
-    // the owner's own work. Zero spend is the unsafe reading, so the brake
-    // comes from the ceiling rule instead: no ceiling means reached.
-    expect(l.spentTodayCents("gpt", NOW)).toBe(0);
+    expect(l.hasReachedCeiling("gpt", 100, NOW)).toBe(true);
+    // And the case that was always closed, so a regression can be told apart
+    // from this one.
     expect(l.hasReachedCeiling("gpt", undefined, NOW)).toBe(true);
+  });
+
+  it("brakes on an unreadable ledger, not merely an unparseable one", async () => {
+    /* A directory where the file should be: the read fails with EISDIR
+       rather than returning bytes that will not parse. Same verdict — the
+       disk declining to say what it holds is not the disk holding nothing. */
+    const l = new SpendLedger(join(dir, "as-a-directory"));
+    await mkdir(join(dir, "as-a-directory"), { recursive: true });
+    await l.load(NOW);
+
+    expect(l.untrustedReason()).toBeDefined();
+    expect(l.hasReachedCeiling("gpt", 100, NOW)).toBe(true);
+  });
+
+  it("counts a fresh machine as fresh, not as broken", async () => {
+    /* The control that keeps the brake honest. A ledger that has never been
+       written must not brake anything, or every new device refuses community
+       work forever and the fix reads as "sharing is broken". */
+    const l = new SpendLedger(join(dir, "never-written.json"));
+    await l.load(NOW);
+
+    expect(l.untrustedReason()).toBeUndefined();
+    expect(l.hasReachedCeiling("gpt", 100, NOW)).toBe(false);
+  });
+
+  it("will not overwrite a ledger it could not read", async () => {
+    // The latch. Recording here would replace the evidence with a file
+    // holding one entry, and call that entry the whole day's spending.
+    const path = join(dir, "spend.json");
+    await writeFile(path, "{ this is not json");
+    const l = new SpendLedger(path);
+    await l.load(NOW);
+    await l.record("gpt", 42, NOW);
+
+    expect(await readFile(path, "utf8")).toBe("{ this is not json");
+    expect(l.hasReachedCeiling("gpt", 100, NOW)).toBe(true);
   });
 
   it("reads a well-formed but wrong-shaped ledger as empty", async () => {

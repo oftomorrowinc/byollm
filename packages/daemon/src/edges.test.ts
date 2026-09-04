@@ -88,7 +88,11 @@ describe("loadConfig", () => {
 });
 
 describe("Budgets", () => {
-  it("starts empty when the file is corrupt", async () => {
+  it("refuses community work when the file is corrupt", async () => {
+    /* Flipped, 2026-09-03. This asserted that a corrupt file starts the
+       counter at zero — which it does, and which is exactly the failure: a
+       count reconstructed from a file nobody could read passes both caps.
+       The question is not what `usage` reports but what `check` decides. */
     const path = join(dir, "b.json");
     await writeFile(path, "not json");
     const budgets = new Budgets(path, {
@@ -99,7 +103,27 @@ describe("Budgets", () => {
       maxPayloadChars: 10,
     });
     await budgets.load(1_000);
-    expect(budgets.usage(1_000).hour).toBe(0);
+
+    expect(budgets.check(1_000, 1)).toMatchObject({
+      ok: false,
+      refusal: "ledger-untrusted",
+    });
+    expect(budgets.untrustedReason()).toBeDefined();
+  });
+
+  it("accepts community work when the file has simply never existed", async () => {
+    // The control. Fresh is not corrupt, or no new device ever shares.
+    const budgets = new Budgets(join(dir, "never-written.json"), {
+      maxJobsPerHour: 1,
+      maxJobsPerDay: 1,
+      maxWallClockMs: 1,
+      maxOutputBytes: 1,
+      maxPayloadChars: 10,
+    });
+    await budgets.load(1_000);
+
+    expect(budgets.check(1_000, 1)).toEqual({ ok: true });
+    expect(budgets.untrustedReason()).toBeUndefined();
   });
 
   it("refuses to be used before load", () => {

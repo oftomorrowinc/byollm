@@ -1,7 +1,6 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { dirname } from "node:path";
 import { z } from "zod";
 import type { CommunityBudget } from "./config.js";
+import { readLedger, writeLedger } from "./ledger.js";
 
 const BudgetFile = z
   .object({
@@ -11,7 +10,8 @@ const BudgetFile = z
   })
   .strict();
 
-export type BudgetRefusal = "hourly-cap" | "daily-cap" | "payload-too-large";
+export type BudgetRefusal =
+  "hourly-cap" | "daily-cap" | "payload-too-large" | "ledger-untrusted";
 
 export type BudgetDecision =
   | { readonly ok: true }
@@ -35,23 +35,32 @@ export class Budgets {
   readonly #limits: CommunityBudget;
   #accepted: number[] = [];
   #loaded = false;
+  #untrusted: string | undefined;
 
   constructor(path: string, limits: CommunityBudget) {
     this.#path = path;
     this.#limits = limits;
   }
 
+  /**
+   * Read the record of what has already been accepted.
+   *
+   * Every failure used to become an empty array, which reconstructs the
+   * counts as zero and passes both caps — the file that says "you have
+   * already run your hundred jobs today" and the file that will not parse
+   * were the same answer.
+   */
   async load(now: number): Promise<void> {
-    try {
-      const parsed = BudgetFile.safeParse(
-        JSON.parse(await readFile(this.#path, "utf8")),
-      );
-      this.#accepted = parsed.success ? parsed.data.accepted : [];
-    } catch {
-      this.#accepted = [];
-    }
+    const read = await readLedger(this.#path, BudgetFile);
+    this.#accepted = read.state === "loaded" ? [...read.data.accepted] : [];
+    this.#untrusted = read.state === "untrusted" ? read.why : undefined;
     this.#prune(now);
     this.#loaded = true;
+  }
+
+  /** Why community work is braked, if it is — for `byollm status`. */
+  untrustedReason(): string | undefined {
+    return this.#untrusted;
   }
 
   /**
@@ -62,6 +71,18 @@ export class Budgets {
    */
   check(now: number, payloadChars: number): BudgetDecision {
     if (!this.#loaded) throw new Error("budgets used before load()");
+    /* Before the counts, because the counts are the thing in doubt. Refusing
+       is a nuisance for strangers and costs the owner nothing: only work for
+       other people is checked here, and their own jobs never reach it. */
+    if (this.#untrusted !== undefined) {
+      return {
+        ok: false,
+        refusal: "ledger-untrusted",
+        detail:
+          "this device cannot read its record of community work, so it is " +
+          "not accepting any until that is fixed",
+      };
+    }
     this.#prune(now);
 
     if (payloadChars > this.#limits.maxPayloadChars) {
@@ -96,13 +117,13 @@ export class Budgets {
 
   /** Count a community job as accepted. Call only after {@link check} passes. */
   async record(now: number): Promise<void> {
+    // The latch: an untrusted ledger is not overwritten with a count of one.
+    if (this.#untrusted !== undefined) return;
     this.#accepted.push(now);
     this.#prune(now);
-    await mkdir(dirname(this.#path), { recursive: true });
-    await writeFile(
+    await writeLedger(
       this.#path,
       JSON.stringify({ version: 1, accepted: this.#accepted }),
-      { mode: 0o600 },
     );
   }
 

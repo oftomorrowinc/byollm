@@ -1,6 +1,5 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { dirname } from "node:path";
 import { z } from "zod";
+import { readLedger, writeLedger } from "./ledger.js";
 
 const SpendFile = z
   .object({
@@ -31,25 +30,38 @@ export class SpendLedger {
   readonly #path: string;
   #entries: Record<string, { at: number; cents: number }[]> = {};
   #loaded = false;
+  #untrusted: string | undefined;
 
   constructor(path: string) {
     this.#path = path;
   }
 
+  /**
+   * Read the ledger, and remember whether it could be read at all.
+   *
+   * This used to funnel every failure — unparseable JSON, wrong schema, an
+   * I/O error — into the same empty object as a file that had never been
+   * written, and the comment here promised a brake that `hasReachedCeiling`
+   * did not apply. Zero spent is the *unsafe* reading: with a cap configured,
+   * `0 >= cap` is false and the metered gate opens on exactly the state a
+   * torn write produces.
+   */
   async load(now: number): Promise<void> {
-    try {
-      const parsed = SpendFile.safeParse(
-        JSON.parse(await readFile(this.#path, "utf8")),
-      );
-      this.#entries = parsed.success ? parsed.data.entries : {};
-    } catch {
-      // A corrupt ledger reads as "spent nothing", which would be the unsafe
-      // direction — so callers treat a missing ledger as ceiling-reached
-      // until it loads cleanly. See `hasReachedCeiling`.
-      this.#entries = {};
-    }
+    const read = await readLedger(this.#path, SpendFile);
+    this.#entries = read.state === "loaded" ? read.data.entries : {};
+    this.#untrusted = read.state === "untrusted" ? read.why : undefined;
     this.#prune(now);
     this.#loaded = true;
+  }
+
+  /**
+   * Why this ledger cannot be counted on, if it cannot — for `byollm status`.
+   *
+   * The owner has to be able to find out why their machine stopped taking
+   * community work. A brake nobody can explain looks like a broken daemon.
+   */
+  untrustedReason(): string | undefined {
+    return this.#untrusted;
   }
 
   /** Cents spent on community work for this backend in the last 24 hours. */
@@ -74,6 +86,13 @@ export class SpendLedger {
     capCents: number | undefined,
     now: number,
   ): boolean {
+    /* An unreadable ledger reads as reached, whatever the cap says. The
+       counts behind this number are gone, so the honest answer to "how much
+       has been spent" is "unknown", and unknown spends nothing further of
+       somebody else's money. Only community metered work consults this — the
+       owner's own jobs never reach it, so a bookkeeping failure cannot brake
+       the machine's own work. */
+    if (this.#untrusted !== undefined) return true;
     if (capCents === undefined) return true;
     return this.spentTodayCents(backendKey, now) >= capCents;
   }
@@ -81,13 +100,16 @@ export class SpendLedger {
   /** Record an estimated charge for community work. */
   async record(backendKey: string, cents: number, now: number): Promise<void> {
     this.#assertLoaded();
+    /* The latch. Writing here would replace an unreadable ledger with a file
+       holding one entry and call it the day's total — destroying the evidence
+       and releasing the brake in the same line. It clears on a clean load,
+       which is what happens once the owner moves the bad file aside. */
+    if (this.#untrusted !== undefined) return;
     (this.#entries[backendKey] ??= []).push({ at: now, cents });
     this.#prune(now);
-    await mkdir(dirname(this.#path), { recursive: true });
-    await writeFile(
+    await writeLedger(
       this.#path,
       JSON.stringify({ version: 1, entries: this.#entries }),
-      { mode: 0o600 },
     );
   }
 

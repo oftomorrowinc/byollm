@@ -1884,6 +1884,32 @@ async function commandStatus(
     );
   }
 
+  /*
+   * A ledger that could not be read, named — byollm_016, 2026-09-03.
+   *
+   * The brakes below go on by themselves when the bookkeeping is
+   * unreadable, and a brake nobody can explain is indistinguishable from a
+   * broken daemon: the machine simply stops taking community work and every
+   * number on this screen says it should be taking it. The file is named,
+   * never quoted — it is a record of what this machine did for other people,
+   * and that does not belong in a screenshot or a support thread.
+   */
+  const untrusted = [
+    ["community work", budgets.untrustedReason()],
+    ["metered spend", spend.untrustedReason()],
+  ].filter((row): row is [string, string] => row[1] !== undefined);
+  if (untrusted.length > 0) {
+    io.out("\nbookkeeping this device cannot read\n");
+    for (const [what, why] of untrusted) {
+      io.out(`  ${what}: ${why}\n`);
+    }
+    io.out(
+      "  it is refusing work for other people until this is fixed. Your own " +
+        "work is unaffected.\n" +
+        "  move the named file aside and this clears on the next start.\n",
+    );
+  }
+
   const spentToday = spend.summary(now);
   const metered = loaded.routes.filter((r) => r.cost === "metered");
   if (metered.length > 0) {

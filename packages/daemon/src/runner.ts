@@ -831,6 +831,22 @@ export class Runner {
       };
     }
 
+    /* The record of what has already been admitted is unreadable, so every
+       grant is refused until nothing in it could have mattered. Checked here,
+       with the other grant refusals, because that is what this is: the device
+       cannot tell a first admission from a second, and admitting on a guess
+       is the replay this whole path exists to stop. */
+    const blocked = this.#spentGrants.blockedReason(this.#now());
+    if (blocked !== undefined) {
+      this.#noteGrantRefusal("replayed", job.id);
+      return {
+        ok: false,
+        reason:
+          "this device cannot read its record of used grants, so it is " +
+          "refusing relayed work until that record can be trusted again",
+      };
+    }
+
     // Replay: a grant admits one job, once.
     if (this.#spentGrants.has(grant.grantId, this.#now())) {
       this.#noteGrantRefusal("replayed", job.id);
@@ -1069,11 +1085,23 @@ export class Runner {
     // upstream re-offers with a *fresh* grant anyway, so there is nothing to
     // protect against by burning it early.
     if (job.grant !== undefined) {
-      this.#spentGrants.spend(
+      const burned = this.#spentGrants.spend(
         job.grant.grantId,
         job.grant.issuedAt,
         this.#now(),
       );
+      /* The burn has to outlive this process or it is not protection at all.
+         A job admitted on a note that was never written is a job whose second
+         delivery, after a restart, looks exactly like its first. */
+      if (!burned) {
+        this.#noteGrantRefusal("replayed", job.id);
+        return {
+          ok: false,
+          reason:
+            "this device could not durably record that this grant was used, " +
+            "so it is refusing the job rather than risk running it twice",
+        };
+      }
     }
 
     return { ok: true };

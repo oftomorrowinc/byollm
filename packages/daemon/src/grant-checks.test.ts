@@ -1,5 +1,5 @@
 import { GRANT_MAX_AGE_MS, RESERVED_PURPOSE } from "@byollm/protocol";
-import { mkdtemp } from "node:fs/promises";
+import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DaemonConfig, resolveConfig } from "./config.js";
@@ -8,6 +8,7 @@ import { IngressLog } from "./ingress.js";
 import { ProtocolClient } from "./client.js";
 import { Runner, type RunnerEvent } from "./runner.js";
 import { SpendLedger } from "./spend.js";
+import { SpentGrants } from "./spent-grants.js";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { removeTemp, testControlPlane } from "./test-support.js";
 import type {
@@ -60,7 +61,11 @@ afterEach(async () => {
 
 /** Bob's device, offering `shared` to his team and `mine` to himself. */
 async function device(
-  over: { onEvent?: (event: RunnerEvent) => void; now?: () => number } = {},
+  over: {
+    onEvent?: (event: RunnerEvent) => void;
+    now?: () => number;
+    spentGrants?: SpentGrants;
+  } = {},
 ): Promise<Runner> {
   const loaded = resolveConfig(
     DaemonConfig.parse({
@@ -102,6 +107,9 @@ async function device(
     }),
     backendFactory: () => new Echo(),
     now: over.now ?? (() => NOW),
+    ...(over.spentGrants === undefined
+      ? {}
+      : { spentGrants: over.spentGrants }),
     ...(over.onEvent === undefined ? {} : { onEvent: over.onEvent }),
   });
 }
@@ -316,6 +324,62 @@ describe("check 2 — replay", () => {
     const retry = job();
     retry.grant = refused.grant;
     expect(runner.admit(retry).ok).toBe(true);
+  });
+
+  it("refuses every grant while the record of used grants cannot be read", async () => {
+    /*
+     * byollm_016, 2026-09-03 — the wire brake, at the seam that uses it.
+     *
+     * The device cannot tell a first admission from a second, and admitting
+     * on that guess is the replay this check exists to stop. Unlike the other
+     * two ledgers this one refuses the owner's own work too: a duplicate of
+     * your own metered job is still your money.
+     */
+    const path = join(dir, "spent-grants.json");
+    await writeFile(path, "{ torn");
+    const spentGrants = new SpentGrants(path);
+    spentGrants.load(NOW);
+
+    const result = (await device({ spentGrants })).admit(job());
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.reason).toContain("cannot read its record of used grants");
+      // The reason travels upstream. It names no path and quotes no ledger.
+      expect(result.reason).not.toContain(dir);
+    }
+  });
+
+  it("refuses a job whose burn cannot be made durable", async () => {
+    /*
+     * The burn has to outlive this process or it is not protection at all.
+     * This used to swallow the write failure and run the job on in-memory
+     * protection — which is exactly the protection a restart erases, so the
+     * case where the note fails and the case where the note is needed are
+     * the same case.
+     */
+    const path = join(dir, "burn.json");
+    const spentGrants = new SpentGrants(path);
+    spentGrants.load(NOW);
+    // A directory where the file goes: the read was clean, the write is not.
+    await mkdir(path, { recursive: true });
+
+    const result = (await device({ spentGrants })).admit(job());
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.reason).toContain("could not durably record");
+    }
+  });
+
+  it("admits normally when the record is simply fresh", async () => {
+    // The control for both refusals above: a durable store that has never
+    // been written admits the first grant and burns it.
+    const spentGrants = new SpentGrants(join(dir, "fresh.json"));
+    spentGrants.load(NOW);
+
+    const runner = await device({ spentGrants });
+    const claimed = job();
+    expect(runner.admit(claimed).ok).toBe(true);
+    expect(runner.admit(claimed).ok).toBe(false);
   });
 
   it("lets a re-claimed job through on a fresh grant", async () => {

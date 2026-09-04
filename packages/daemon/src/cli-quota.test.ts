@@ -1,4 +1,4 @@
-import { chmod, mkdtemp, writeFile } from "node:fs/promises";
+import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -34,13 +34,11 @@ const FIXTURE: readonly Observation[] = [
 const NOW = Date.parse("2026-09-03T06:00:00");
 
 /** A CLI that fails the way a blocked one does: non-zero, and says why. */
-const BLOCKED = `#!/usr/bin/env node
-process.stdout.write("You've hit your usage limit. Try again at Sep 3rd, 2026 8:28 AM.\\n");
+const BLOCKED = `process.stdout.write("You've hit your usage limit. Try again at Sep 3rd, 2026 8:28 AM.\\n");
 process.exit(1);
 `;
 
-const SIGNED_OUT = `#!/usr/bin/env node
-process.stdout.write("Not logged in. Please run /login\\n");
+const SIGNED_OUT = `process.stdout.write("Not logged in. Please run /login\\n");
 process.exit(1);
 `;
 
@@ -54,19 +52,19 @@ afterEach(async () => {
 async function cli(behaviour: string): Promise<string> {
   const path = join(dir, "fake-cli.mjs");
   await writeFile(path, behaviour, "utf8");
-  await chmod(path, 0o755);
   return path;
 }
 
 const run = (command: string) =>
   runProcessJob({
-    launch: { command, prefixArgs: [] },
+    /* Run by this Node rather than by a shebang. Windows has no shebang, so
+       spawning the script directly is `EFTYPE` there — which CI said and a
+       Mac never would. `process.execPath` is absolute, so the child needs no
+       PATH either, and the environment stays the empty allowlist a real job
+       gets. */
+    launch: { command: process.execPath, prefixArgs: [command] },
     argv: [],
-    /* PATH only. The stand-in has a `#!/usr/bin/env node` shebang, so with a
-       genuinely empty environment the child never starts and every case here
-       classifies as `backend-error` — which is what a first run of this
-       proved, and it proved nothing about quota. */
-    env: { PATH: process.env["PATH"] ?? "" },
+    env: {},
     displayName: "the claude CLI",
     now: () => NOW,
     corpus: FIXTURE,

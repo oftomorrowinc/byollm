@@ -144,3 +144,72 @@ Two minors, doc-grade, riding any next cut:
 
 CCB's swallowed-mutation catch is minted as law in 016: prove the
 mutation applied before trusting its verdict.
+
+---
+
+## B047 — startup preflight: check the services now, offer the sign-in (Kevin's ask via Todd, 2026-09-04 eve; CW diagnosis + design sketch)
+
+Kevin, on .81: logging out of claude and running `start` or `run` never
+prompted him to log back in. Todd: check what services should be running
+locally on startup, check them, and prompt.
+
+**Why .81 is silent, from the code (CW, read at 8f1c6a0).** The B036b
+line has one caller — `commandInstall` — and it READS services.json, the
+daemon's own probe record, "rather than probed again: a canary spends a
+real call." That design is right for what it does and it loses the exact
+race Kevin ran: `installService` polls `confirmRunning` for the daemon
+being ALIVE, not for its startup probe having completed and WRITTEN. A
+backend probe takes real seconds, so `start` reads the file from before
+the probe lands — stale-healthy after a fresh sign-out, absent on a
+fresh machine, and the tri-state rule ("absent is not signed-out")
+correctly says nothing about either. The read-back only speaks when a
+PRIOR daemon session already recorded signed-out. And `run` has no
+signed-out surface at all — `signedOutLines` has exactly one caller.
+So both of Kevin's cases produce silence by construction, not by bug:
+the check answers "what did the daemon learn last time" at the one
+moment the person deserves "what is true now."
+
+**Design.** At `start` and `run`, in an interactive terminal, before
+the success/serving line:
+
+1. Enumerate the mapped services from config — the same set the daemon
+   will advertise.
+2. Verify each backend's auth NOW, with the machinery `setup` already
+   trusts (backendVerifier), not by reading services.json. Cost: one
+   verification per mapped backend per human-initiated start. Bounded,
+   and spent at the moment somebody is watching the answer.
+3. Signed-in: fold into the serving line — say what is being served.
+4. Signed-out: print the existing named line + remedy, then PROMPT:
+   "Sign in to <backend> now? [Y/n]". Yes spawns the backend's own
+   login command in the foreground, inheriting the TTY, then
+   re-verifies and reports. No (or EOF) prints the remedy and
+   CONTINUES — signed-out is not fatal, per B036b's "alongside the
+   success rather than instead of it." Never auto-spawn a login
+   without the y/n: logins open browsers.
+5. Non-interactive (no TTY, supervisor respawn): unchanged from today
+   — no prompt, no fresh spend, the daemon's own probe + withdrawal
+   machinery remains the authority. The preflight is a terminal
+   feature for a person at a terminal.
+
+**Opens for CCB.**
+- Whether `start` should also WAIT for the daemon's first probe write
+  and read it back (closing the race for the passive line too), or
+  whether the active preflight makes the passive read-back at `start`
+  redundant and it should simply be replaced. CW leans replace: two
+  answers to one question on one screen is how they disagree.
+- Backend login spawn: claude and codex both have interactive login
+  flows; the adapter should own its login command the way it owns its
+  failure definition (016's per-backend rule, 6.4 above).
+- Whether `setup` should reuse the same preflight verbatim (it already
+  verifies; convergence is free consistency).
+
+**Acceptance.**
+- Signed-out backend + interactive `start`: named line, prompt, login
+  runs on yes, re-verify confirms, service proceeds either way.
+- Same for `run`, before its serving line.
+- Fresh machine (no services.json): the live check still speaks —
+  the absent-is-silence rule stays true of status and stops being the
+  reason start says nothing.
+- Non-interactive start: byte-identical behavior to .81.
+- Declining the prompt is honored and quiet — asked once per start,
+  never nagged.

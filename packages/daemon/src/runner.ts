@@ -1883,6 +1883,23 @@ export class Runner {
     // the payload rode along with the claim.
     const fetched = await this.#fetchWhenSealed(job);
     if (!fetched) return;
+    if ("gone" in fetched) {
+      /* Terminal for this device: hand the lease back rather than sitting on
+         it. `refused` is what stops the hub re-offering, which is the whole
+         of the fix — a silent abandon is what made this a loop. */
+      this.#options.onEvent?.({
+        type: "error",
+        message: `${job.id} is not ours to run: ${fetched.gone}`,
+      });
+      await this.#safely(() =>
+        this.#options.client.release({
+          runnerId: this.#options.runnerId,
+          leases: [{ jobId: job.id, leaseId: job.lease.id }],
+          reason: "refused",
+        }),
+      );
+      return;
+    }
     const payload = await this.#openPayload(job, fetched.envelope);
 
     // The grant's resolution, carried into the opened job. A relayed job runs
@@ -1999,9 +2016,31 @@ export class Runner {
    * the job up quietly — the upstream's `awaiting-payload` timer will requeue
    * it, and the stub was never lost.
    */
+  /**
+   * Wait for the payload, or say the job is over for this device — B038.
+   *
+   * The stuck-daemon loop, reported live on a real user's Windows machine: a
+   * claimed job came back "unknown job", the daemon abandoned it **without
+   * releasing the lease**, the hub re-offered it, and the same daemon
+   * re-claimed the same id every twenty seconds forever. The log spammed
+   * claim, unknown job, reclaim; the device looked wedged while fresh jobs on
+   * a live site still ran fine.
+   *
+   * Both exits leaked. A terminal error threw straight out of `#handle` into
+   * the background `catch`, and the give-up-at-deadline path returned `null`
+   * into `if (!fetched) return`. Neither released anything, and the comment on
+   * that `catch` explains why nobody noticed: letting the lease lapse *is*
+   * the recovery the protocol is built around — for a transient failure. For
+   * a permanent one it is an invitation to be offered the same job again.
+   *
+   * So this reports *why* it stopped instead of throwing, and the caller
+   * releases. `refused` is the shape the relay already has for exactly this:
+   * a permanent decline, which means the job is never offered to this device
+   * again. Nothing new on the wire.
+   */
   async #fetchWhenSealed(
     job: ClaimedStub,
-  ): Promise<{ envelope: SealedEnvelope } | null> {
+  ): Promise<{ envelope: SealedEnvelope } | { gone: string } | null> {
     const deadline = Math.min(job.lease.expiresAt, this.#now() + 30_000);
     let delay = 50;
     for (;;) {
@@ -2014,13 +2053,32 @@ export class Runner {
       } catch (error) {
         const notReady =
           error instanceof ClientError && error.kind === "not-ready";
-        if (!notReady) throw error;
+        if (!notReady) {
+          /*
+           * `rejected` is a 400 or a 404: the upstream has no such job for
+           * this device. Asking again cannot change that, and this is the
+           * exact answer the wedged daemon was throwing away.
+           *
+           * Anything else — unreachable, server-error, rate-limited — is the
+           * network or the hub having a moment, and still throws, because
+           * the lease lapsing and the job being offered again is the right
+           * recovery for those.
+           */
+          if (error instanceof ClientError && error.kind === "rejected") {
+            return { gone: error.message };
+          }
+          throw error;
+        }
         if (this.#now() + delay >= deadline) {
           this.#options.onEvent?.({
             type: "error",
             message: `gave up waiting for the payload of ${job.id}`,
           });
-          return null;
+          /* Also a release rather than a silent abandon. A plain one would
+             leave this job claimable by this device, which the relay's own
+             note says re-claims at once and spins — the same wedge with a
+             longer period. This device waited its thirty seconds. */
+          return { gone: `the payload never arrived for ${job.id}` };
         }
         await new Promise((resolve) => setTimeout(resolve, delay));
         // Backs off, but stays responsive: a site that is merely slow should

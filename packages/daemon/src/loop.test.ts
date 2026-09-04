@@ -335,6 +335,100 @@ describe("the loop", () => {
     expect(events.some((e) => e.type === "serving-nothing")).toBe(true);
   });
 
+  it("hands back a job the upstream says it has never heard of", async () => {
+    /**
+     * The stuck-daemon loop — B038, reported live on a real user's Windows
+     * machine.
+     *
+     * A claimed job came back "unknown job", the daemon abandoned it **without
+     * releasing the lease**, the hub re-offered it, and the same daemon
+     * re-claimed the same id every twenty seconds forever. The device looked
+     * wedged and the log spammed claim, unknown job, reclaim, while fresh jobs
+     * on a live site still ran fine — job-specific, not total, which is what
+     * made it look like a mystery.
+     *
+     * Both exits leaked. A terminal error threw out of the handler into the
+     * background `catch`; the give-up-at-deadline path returned null into an
+     * early return. Neither released anything, and the comment on that
+     * `catch` explains why it read as fine: letting the lease lapse *is* the
+     * protocol's recovery — for a transient failure. For a permanent one it is
+     * an invitation to be offered the same job again.
+     *
+     * `refused` is the fix and it needed nothing new on the wire: the relay
+     * already defines it as a permanent decline, meaning the job is never
+     * offered to this device again.
+     */
+    const released: { reason?: string; leases?: unknown }[] = [];
+    const stub = {
+      id: "job_1",
+      kind: "llm.generate" as const,
+      audience: "private" as const,
+      owner: "me",
+      site: TEST_SITE_ID,
+      sizeClass: "small" as const,
+      streaming: false,
+      deadlineAt: Date.now() + 60_000,
+      lease: {
+        id: "lease_test",
+        runnerId: "runner_1",
+        expiresAt: Date.now() + 60_000,
+      },
+    };
+
+    const runner = await makeRunner((input, init) => {
+      const url = String(input instanceof Request ? input.url : input);
+      const endpoint = url.split("/").pop() ?? "";
+      const json = (value: unknown, status = 200) =>
+        Promise.resolve(
+          new Response(JSON.stringify(value), {
+            status,
+            headers: { "content-type": "application/json" },
+          }),
+        );
+
+      if (endpoint === "fetch") {
+        // What the wedged daemon actually met.
+        return json({ error: "not-found", message: "unknown job" }, 404);
+      }
+      if (endpoint === "release") {
+        /* Read only when it is the string this client sends. A body that is
+           a stream would stringify to `[object Object]` and this would
+           silently record nothing, which is the shape of a test that passes
+           by not looking. */
+        const body = typeof init?.body === "string" ? init.body : "";
+        expect(body, "the release body was not a string").not.toBe("");
+        released.push(JSON.parse(body) as { reason?: string });
+        return json({ released: [] });
+      }
+      const body =
+        endpoint === "claim"
+          ? { jobs: [stub], leaseMs: 60_000 }
+          : endpoint === "heartbeat"
+            ? {
+                sites: HEARTBEAT_SITES,
+                awaitingConsent: [],
+                cancel: [],
+                lost: [],
+                serverTime: Date.now(),
+              }
+            : { accepted: true, state: "ok" };
+      return json(body);
+    });
+
+    await runner.tick();
+    // The handler runs detached from the tick, so let it finish.
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    expect(
+      released,
+      "a job the upstream has never heard of must be handed back, not " +
+        "silently abandoned — abandoning is what made this a loop",
+    ).toHaveLength(1);
+    expect(released[0]?.reason).toBe("refused");
+    // And it never reached a backend: there was nothing to run.
+    expect(backend.seen).toEqual([]);
+  });
+
   it("claims nothing while paused", async () => {
     const runner = await makeRunner(
       routed({

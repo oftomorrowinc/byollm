@@ -7218,3 +7218,31 @@ now refuse the legitimate case; a guard widened on one column must
 prove the adjacent column isn't the new hole. Sibling of "each brake
 covers exactly what its ledger ever protected": a correction is scoped
 by BOTH what it must now catch and what it must still let through.
+
+## Law: verify against the authority that re-reads, not the tool that caches (CW, 2026-09-04)
+
+CW declared ".79 is a partial release, byollm never published" from
+`npm view`, which returned a 404 for a version that was in fact live —
+the npm CLI's own cache, not npm being slow. At the same moment a
+direct registry fetch returned .79, and the release-check read it
+correctly because it re-reads rather than trusting a cached answer. So
+the automated check CW had cast suspicion on was the accurate one, and
+CW's hand-check was the unreliable one.
+
+The law: an absent read and a stale read are indistinguishable (the
+B004 truth), so a "it's not there" claim must come from an authority
+that re-reads or from the source of record — never from a tool that may
+be serving a cache. When a hand-check and an automated re-reader
+disagree, the re-reader is the witness. This is B004's own rule turned
+on its author: the discipline the machine was given, the reviewer must
+keep too.
+
+## Law: a HOLD's remedy must be safe if the HOLD is wrong (CW, 2026-09-04)
+
+The same false alarm told the board to "re-publish byollm@.79."
+Republishing an immutable npm version burns it; had CCB acted without
+checking, a phantom problem would have caused a real one. An alarm
+raised under uncertainty must prescribe a remedy that is harmless if
+the alarm turns out to be false — diagnose-and-confirm, never
+destroy-to-fix. The cost of a false positive is not only the scare; it
+is whatever its prescribed fix would have done.

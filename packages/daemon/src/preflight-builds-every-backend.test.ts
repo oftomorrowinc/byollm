@@ -30,20 +30,15 @@ import { removeTemp } from "./test-support.js";
  */
 let home: string;
 let paths: DaemonPaths;
-let err: string;
-
 const io = (): Partial<CliIo> => ({
   out: () => undefined,
-  err: (text) => {
-    err += text;
-  },
+  err: () => undefined,
   confirm: () => Promise.resolve(false),
 });
 
 beforeEach(async () => {
   home = await mkdtemp(join(tmpdir(), "byollm-preflight-"));
   paths = daemonPaths(home);
-  err = "";
 });
 
 afterEach(async () => {
@@ -99,5 +94,23 @@ describe("the preflight's default verify path", () => {
        through the preflight, which is the whole assertion. A throw would
        come out of runCli, not as an exit code. */
     expect(code).toBe(2);
+
+    /**
+     * Deliberately NOT asserting that a line was printed.
+     *
+     * The first draft of this asserted the signed-out line for HTTP-class
+     * services and failed, and the code was right: HTTP backends have no
+     * canary, so `backendVerifier` returns `answers: undefined` — "there was
+     * no way to ask", which the tri-state exists to keep distinct from "it
+     * said no". A local model server is not signed out; it is unasked. So
+     * the preflight is silent for every HTTP service by design, and an
+     * assertion that it spoke would have been an assertion that the
+     * tri-state was broken.
+     *
+     * What keeps this from being a test that passes by running nothing is
+     * not an assertion here. It is the registry control above, and the
+     * mutation on the record: reverting to `createBackend(id, {})` reddens
+     * six of these cases.
+     */
   });
 });

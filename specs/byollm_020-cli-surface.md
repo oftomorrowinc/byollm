@@ -517,3 +517,30 @@ CW riders, recorded with the ruling:
   nor print, exactly as B047 shipped.
 - The B047 sign-in offer is unchanged; this extends what "verify"
   means for backends with no sign-in.
+
+### B050 refined (Todd, same night, minutes later) — local models get STARTED, not reported
+
+Todd re-read and sharpened it: "For local models running. We had a
+ticket to start the models directly, so they didn't have to be running
+ahead of time. I prefer that." The ticket is the icebox item from
+09-02 eve (model-server auto-start, three tiers); this pulls its
+runtime tier forward and supersedes detection-first FOR THIS MOMENT:
+at interactive `start`/`run`, a configured local model server (ollama,
+mlx) that does not answer the ping is STARTED by byollm — spawned and
+supervised — not reported as somebody else's problem.
+
+Why no [Y/n] here when the sign-in got one: typing `byollm run` is
+the consent. The person asked this machine to serve its configured
+services; starting the engine they configured is doing what they
+asked, where opening a browser to a vendor login was doing something
+adjacent to it. The disclosure line covers it: name what was started,
+as it is started ("starting qwen-2.5-14b (mlx server was not
+running)…").
+
+Boundaries that stand: vendor CLIs (claude/codex) are never
+auto-started into a login; sign-in remains ask-first. Metered/remote
+HTTP endpoints are not ours to start — unreachable stays a report.
+Non-interactive stays byte-identical. The setup-ceremony consent tier
+and hosted-box supervision tier of the icebox item are untouched —
+this is only the runtime tier, ruled preferred by Todd. Config gets a
+per-service off-switch for anyone who manages their own server.

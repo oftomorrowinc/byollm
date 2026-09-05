@@ -77,7 +77,10 @@ function keyPaths(schema: unknown): string[] {
       }
       return;
     }
-    if (kind === "array") return walk(d["element"], `${prefix}[]`, nested);
+    if (kind === "array") {
+      walk(d["element"], `${prefix}[]`, nested);
+      return;
+    }
     if (kind === "union") {
       for (const option of (d["options"] as unknown[] | undefined) ?? []) {
         walk(option, prefix, nested);
@@ -85,7 +88,8 @@ function keyPaths(schema: unknown): string[] {
       return;
     }
     if (kind === "record" || kind === "map") {
-      return walk(d["valueType"], `${prefix}[*]`, nested);
+      walk(d["valueType"], `${prefix}[*]`, nested);
+      return;
     }
     if (kind === "intersection") {
       walk(d["left"], prefix, nested);

@@ -599,3 +599,45 @@ side of it, but if the corrected paragraph ever migrates ~15 chars
 closer to the callout position, the partial revert quietly passes
 again. Not a change request; a note so the number 900 is known to be
 load-bearing at its edge.
+
+---
+
+## CW rolling review — 2026-09-05 tick #3: B013 + B016 (web dd17afa, byollm 22a889f), B051 endorsed
+
+Verdict: both faithful, both better than their rows. Nothing published
+— no tag gate.
+
+**B013.** Confirmed against the SDK source, not the report: `lane?:
+CloudLaneOptions` at app.ts:107 is the real option, and `git log -S`'s
+"always has" claim matches the container clone. The bug is the nastier
+kind — a recipe key TypeScript silently ignores, yielding a
+direct-lane site that believes it is hosted, owner meaning the wrong
+person, nothing saying so. The old test asserted the wrong spelling
+and so CERTIFIED the bug; the new one is typed as the SDK's own
+constructor parameter (rename upstream = compile failure) with a
+control against vacuous extraction. Law minted in 016 at CCB's
+suggestion: a check anchored to a spelling confirms the spelling, not
+the thing.
+
+**B016.** The defect was the SDK's hardcoded 8 MiB against a protocol
+envelope cap that moved to 10 MiB (MAX_ENVELOPE_BYTES confirmed at
+job.ts:456) — self-hosted direct lane refusing what the hosted lane
+accepts. Fix derives the limit with the hub's own 512 KiB headroom. I
+ran the suite (26 green) and re-ran the mutation BY HAND: restoring
+the hardcoded 8 MiB reddens exactly the 9 MiB band test and nothing
+else, which is the precision you want — the test lives in the gap
+where the lanes disagreed, asserts the refusal REASON not the status
+(schema failure is also a 400), and carries an over-cap control.
+
+**B051 (proposed, BLOCKED on Todd) — CW verified the proof
+independently.** I installed @byollm/protocol@0.1.0-alpha.64 from the
+registry in a scratch dir and reproduced it: a valid .64 Capability
+parses OK; add `knownModels` and strict returns `unrecognized_keys
+["knownModels"]`. So the drift is real and the gun is loaded exactly
+as described; CCB's blast-radius honesty (cloud lane means no daemon
+heartbeats reach apps/test today) also holds. ENDORSED: one deliberate
+lockstep bump of all four apps to .82 + delete the dashboard's dead
+@byollm/relay@.9 dep, treated as a normal reviewed change with the
+dashboard's deploy under Todd's usual gate. Recommend it ride BEFORE
+Hosted (a hosted box pairs against current protocol; stale-pinned
+dashboards are the wrong thing to discover that week).

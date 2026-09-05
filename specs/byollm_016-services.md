@@ -7283,3 +7283,22 @@ tries to reach the host and expects to be stopped. A destructive
 operation that succeeds quietly is the one failure no output-reading
 test will ever see; the announcement-not-effect law's hardest case is
 an effect nobody is watching for at all.
+
+## Law: a check anchored to a spelling confirms the spelling, not the thing (CCB found it, CW minted, 2026-09-05)
+
+B013: the reference guide told people to paste `cloud:` — an option
+the SDK has never had, silently ignored by TypeScript options — and
+the test that guarded the recipe asserted the recipe CONTAINED
+`cloud:`. The check was handed the same wrong name as the page it
+guarded, so it held the bug in place and reported success for as long
+as it ran.
+
+The law: a check that compares against a string typed into the test is
+only as true as whoever typed it, and it fails in the worst direction
+— it certifies the error. Anchor the check to the thing itself: the
+type, the constructor parameter, the exported constant, the running
+code — so that when the thing changes, the check breaks loudly instead
+of agreeing quietly. The fixed version is typed as the SDK's own
+constructor parameter and stops COMPILING if the option is renamed.
+Sibling of the re-reader law: a spelling in a test is a cache of the
+truth, and caches drift.

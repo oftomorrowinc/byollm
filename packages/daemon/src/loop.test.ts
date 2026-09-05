@@ -534,6 +534,137 @@ describe("the loop", () => {
     expect(backend.seen).toEqual([]);
   });
 
+  /**
+   * B053. The offer arrives on the channel the daemon already polls, and the
+   * runner's job is to say what it heard rather than to act on it — whether
+   * this machine updates itself is the owner's setting and the supervisor's
+   * business. A runner that reinstalled its own package would be a runner
+   * nobody could test without one.
+   */
+  it("says once when the hub names a version to move to", async () => {
+    const runner = await makeRunner(
+      routed({
+        heartbeat: {
+          sites: HEARTBEAT_SITES,
+          awaitingConsent: [],
+          cancel: [],
+          lost: [],
+          serverTime: Date.now(),
+          updateTo: "0.1.0-alpha.83",
+        },
+      }),
+    );
+    await runner.tick();
+    await runner.tick();
+    await runner.tick();
+
+    /* Once, not once per beat. The offer keeps arriving until the machine
+       takes it, and a daemon that repeats itself on a five-second timer is a
+       daemon nobody reads — the consent line learned this first. */
+    expect(events.filter((event) => event.type === "update-offered")).toEqual([
+      { type: "update-offered", version: "0.1.0-alpha.83" },
+    ]);
+  });
+
+  it("says nothing when the hub names no version", async () => {
+    /* The control. Every heartbeat in every other test omits the field, and
+       an event fired from `undefined` would be an update offer for a version
+       that does not exist. */
+    const runner = await makeRunner(routed({}));
+    await runner.tick();
+    expect(events.filter((event) => event.type === "update-offered")).toEqual(
+      [],
+    );
+  });
+
+  it("claims nothing while draining, and claims again after", async () => {
+    /**
+     * Draining is not shutting down — B053. `shutdown` cancels the active
+     * jobs and releases their leases, which is right for stopping and wrong
+     * for updating: an update is elective and a job is not.
+     *
+     * **The fixture mints a NEW job on every claim, and that is the whole
+     * design of this test.** The first version reused one job id, so the
+     * runner declined the repeat on its own and "claimed nothing while
+     * draining" passed with the drain gate deleted — a test that proved the
+     * deduplication it was not about. The `paused` test this replaces had
+     * the same shape and the same hole.
+     */
+    let minted = 0;
+    const freshWork: typeof fetch = async (input, init) => {
+      const url = String(input instanceof Request ? input.url : input);
+      if (url.endsWith("/claim")) {
+        minted += 1;
+        return new Response(
+          JSON.stringify({
+            jobs: [
+              {
+                id: `job_${String(minted)}`,
+                kind: "llm.generate",
+                audience: "private",
+                owner: "me",
+                site: TEST_SITE_ID,
+                sizeClass: "small",
+                streaming: false,
+                deadlineAt: Date.now() + 60_000,
+                lease: {
+                  id: `lease_${String(minted)}`,
+                  runnerId: "runner_1",
+                  expiresAt: Date.now() + 60_000,
+                },
+              },
+            ],
+            leaseMs: 60_000,
+          }),
+          { headers: { "content-type": "application/json" } },
+        );
+      }
+      return routed({})(input, init);
+    };
+
+    const runner = await makeRunner(freshWork);
+
+    /* The positive control, first: this fixture really does produce work,
+       so "nothing ran" below cannot pass by being offered nothing. */
+    await runner.tick();
+    /* Waiting for FINISHED, not for the backend call. A job still counted as
+       active holds the only concurrency slot, so a runner that claimed
+       nothing afterwards would be busy rather than draining — and this test
+       would credit the drain for it. */
+    await settles(
+      () => events.filter((e) => e.type === "finished").length === 1,
+      "the first job to finish",
+    );
+    await runner.drain(0, () => Promise.resolve());
+    const claimsBefore = minted;
+    await runner.tick();
+    /**
+     * Counted at the CLAIM, not at the backend, and that is the assertion
+     * worth having. A version that claimed the job and then declined to run
+     * it would satisfy a backend-only check while holding a lease on a
+     * machine about to replace its own binary — the job would sit unworked
+     * until the lease lapsed.
+     *
+     * Only the shared payload fixture seals to `job_1`, so a second job
+     * cannot be *run* here; asking is the property under test and the
+     * stricter of the two.
+     */
+    expect(minted, "a draining runner must not ask for work").toBe(
+      claimsBefore,
+    );
+    expect(backend.seen).toHaveLength(1);
+
+    runner.resumeClaiming();
+    /* Two ticks: the first re-establishes the claim after the drain, and the
+       loop reports a result on the beat after it runs. */
+    await runner.tick();
+    await runner.tick();
+    await settles(
+      () => minted > claimsBefore,
+      "the runner to ask for work again",
+    );
+  });
+
   it("refuses a stub naming a site it did not pair with", async () => {
     // Amendment A §A.3's daemon half. `stub.site` is the site's identity key
     // id precisely so a daemon can check it against the key it pinned, with no

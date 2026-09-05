@@ -182,6 +182,15 @@ export type RunnerEvent =
   /** A disclosure went stale; the user has something to read — finding 48. */
   | { readonly type: "awaiting-consent"; readonly sites: readonly string[] }
   | { readonly type: "consent-resumed" }
+  /**
+   * The hub named a version this machine should move to — B053.
+   *
+   * An event rather than an action taken here: whether this daemon updates
+   * itself is the owner's setting and the supervisor's business, and the
+   * runner's job is to say what it heard. A runner that reinstalled its own
+   * package would be a runner that could not be tested without one.
+   */
+  | { readonly type: "update-offered"; readonly version: string }
   /** A pinned site's encryption key moved under its identity — refused. */
   | { readonly type: "site-key-changed"; readonly site: string }
   /**
@@ -338,6 +347,18 @@ const FETCH_ATTEMPTS_BEFORE_GONE = 3;
 const GAVE_UP_TTL_MS = 10 * 60_000;
 
 const AUTH_RECHECK_MS = 60_000;
+
+/**
+ * How often a drain checks whether the running work has finished.
+ *
+ * Short enough that an idle machine updates promptly, long enough that a
+ * drain is not a spin loop. Nothing here is waiting on a person.
+ */
+const DRAIN_POLL_MS = 250;
+
+/** The wait a drain uses, injectable so a test does not spend real seconds. */
+const pause = (ms: number): Promise<void> =>
+  new Promise((wake) => setTimeout(wake, ms));
 
 const DEFAULT_HEARTBEAT_MS = 10_000;
 
@@ -1793,6 +1814,21 @@ export class Runner {
     // finding 48. Said once per transition rather than every few seconds: a
     // daemon that repeats itself on a five-second heartbeat is a daemon
     // nobody reads.
+    /* Said once per version, not once per beat. The offer arrives on every
+       heartbeat until the machine takes it, and a daemon that repeats itself
+       on a five-second timer is a daemon nobody reads — the same reasoning
+       as the consent line below, which learned it first. */
+    if (
+      heartbeat.updateTo !== undefined &&
+      heartbeat.updateTo !== this.#updateOffered
+    ) {
+      this.#updateOffered = heartbeat.updateTo;
+      this.#options.onEvent?.({
+        type: "update-offered",
+        version: heartbeat.updateTo,
+      });
+    }
+
     const waiting = heartbeat.awaitingConsent.join(",");
     if (waiting !== this.#awaitingConsent) {
       this.#awaitingConsent = waiting;
@@ -1838,7 +1874,8 @@ export class Runner {
       this.#servingNothing = false;
     }
 
-    if (capabilities.length === 0) return;
+    /* Draining: the running job finishes and nothing new is taken. */
+    if (this.#draining || capabilities.length === 0) return;
 
     const free = this.#options.loaded.config.concurrency - this.#active.size;
     if (free <= 0) return;
@@ -2268,6 +2305,12 @@ export class Runner {
    */
   readonly #retiring = new Map<string, number>();
 
+  /** The last version offered, so the event fires on change rather than on every beat. */
+  #updateOffered: string | undefined;
+
+  /** Set while this machine is finishing its work and taking none. */
+  #draining = false;
+
   /**
    * Sites this device has actually run work for, so the first one is loud.
    *
@@ -2590,6 +2633,32 @@ export class Runner {
   }
 
   /** Release everything on shutdown, so nothing waits for a lease to lapse. */
+  /**
+   * Stop claiming, and let what is running finish — B053.
+   *
+   * Deliberately not {@link shutdown}, which cancels the active jobs and
+   * releases their leases. That is right for stopping and wrong for
+   * updating: an update is elective and a job is not, so replacing the
+   * binary under work somebody is waiting on trades their result for our
+   * tidiness.
+   *
+   * Resolves when nothing is held, or when `waitMs` has passed — because a
+   * job that outlives its own lease must not hold a machine out of service
+   * indefinitely, and the lease is the thing that bounds it either way.
+   */
+  async drain(waitMs: number, sleep = pause): Promise<void> {
+    this.#draining = true;
+    const until = Date.now() + waitMs;
+    while (this.#active.size > 0 && Date.now() < until) {
+      await sleep(DRAIN_POLL_MS);
+    }
+  }
+
+  /** Undo a drain — the machine claims again. */
+  resumeClaiming(): void {
+    this.#draining = false;
+  }
+
   async shutdown(reason: "shutdown" | "pause"): Promise<void> {
     this.#stopped = true;
     const leases = [...this.#active.entries()].map(([leaseId, held]) => ({

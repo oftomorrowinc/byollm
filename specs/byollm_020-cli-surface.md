@@ -832,3 +832,42 @@ B052+B053 daemon side: COMPLETE and reviewed, both M-grades resolved
 (re-arm fixed; Windows restart semantics stays boarded for the
 personal-devices release). Hub halves remain the only unbuilt pieces,
 both Todd-gated.
+
+### B050 daemon side reviewed — same overnight (c687748 + c13635c)
+
+Faithful to the third-pass ruling, and the security thinking is the
+best part. Verified by hand: opening the loopback gate to the world
+reddens three tests (suite 1360 green after restore). The fences, each
+one the right shape:
+- **Loopback-only, by HOSTNAME, no DNS** — "a name that resolves to
+  loopback today is a name somebody else controls tomorrow, and this
+  decides whether to run a program." Starting a local process because
+  a REMOTE endpoint is down would at worst succeed and serve a
+  different model on a coincidental port.
+- **spawnServer absent by default** — connect/services/status all
+  build Runners to ask questions, and none of them may start a model
+  server as a side effect of asking. Only the job-running daemon
+  passes the seam.
+- **ollama-only start command**, others say nothing (the
+  verified-not-guessed precedent from login.ts); an unknown id behaves
+  exactly as before B050 existed.
+- **Startability before health**, because the other order costs a
+  request per job on every backend including the ones the answer
+  could never change.
+
+CCB's own catch, the FOURTH vacuous-first-draft this week and a new
+species: an ordering assertion built on two indexOf calls passed with
+the code DELETED, because indexOf returns -1 for a call that is not
+there, and -1 is less than every real index. "An ordering assertion on
+its own passes most convincingly when the thing has been removed
+entirely." Presence checked first now. The mutation-applied law keeps
+earning its keep before review ever arrives.
+
+Correctly boarded rather than decided at 4am: the advertising open
+(configured-but-stopped should advertise per the ruling, but needs
+"installed and startable" distinguishable from "configured and
+absent" first) — that wants Todd's eyes, and B018 was checked and
+boarded BLOCKED(on Todd) for the overnight for honest reasons
+(entitlement sits in the frozen purchase surface; fleet is a deploy;
+Your Devices' three actions all call unbuilt machinery). The protocol
+is doing exactly what it was written to do.

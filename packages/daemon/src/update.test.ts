@@ -102,7 +102,9 @@ describe("un-updating", () => {
      * — and is exactly the state where the machine is not running what the
      * fleet believes it is running.
      */
-    const d = deps({ installedVersion: () => Promise.resolve("0.1.0-alpha.81") });
+    const d = deps({
+      installedVersion: () => Promise.resolve("0.1.0-alpha.81"),
+    });
     const outcome = await update("0.1.0-alpha.81", "0.1.0-alpha.82", d.deps);
     expect(outcome).toEqual({
       kind: "rolled-back",
@@ -118,7 +120,9 @@ describe("un-updating", () => {
     const d = deps({
       installedVersion: () => {
         asked.push("?");
-        return Promise.resolve(asked.length === 1 ? undefined : "0.1.0-alpha.81");
+        return Promise.resolve(
+          asked.length === 1 ? undefined : "0.1.0-alpha.81",
+        );
       },
     });
     const outcome = await update("0.1.0-alpha.81", "0.1.0-alpha.82", d.deps);
@@ -129,7 +133,9 @@ describe("un-updating", () => {
   it("re-registers after rolling back, not only after updating", async () => {
     /* A machine that rolled back and did not re-register is on the right
        version and unsupervised, which is worse than the state it started in. */
-    const d = deps({ installedVersion: () => Promise.resolve("0.1.0-alpha.81") });
+    const d = deps({
+      installedVersion: () => Promise.resolve("0.1.0-alpha.81"),
+    });
     await update("0.1.0-alpha.81", "0.1.0-alpha.82", d.deps);
     expect(d.order.filter((step) => step === "reregister")).toHaveLength(2);
   });
@@ -157,7 +163,9 @@ describe("un-updating", () => {
   });
 
   it("is stranded, not silent, when the rollback installs and does not take", async () => {
-    const d = deps({ installedVersion: () => Promise.resolve("0.1.0-alpha.99") });
+    const d = deps({
+      installedVersion: () => Promise.resolve("0.1.0-alpha.99"),
+    });
     const outcome = await update("0.1.0-alpha.81", "0.1.0-alpha.82", d.deps);
     expect(outcome.kind).toBe("stranded");
     expect(d.said.join("")).toContain("0.1.0-alpha.99");

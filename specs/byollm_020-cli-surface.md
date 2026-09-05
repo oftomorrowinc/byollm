@@ -774,3 +774,32 @@ not needed for hosted Linux.
 Remaining for B053: the HUB HALF (send updateTo behind mayOfferUpdate,
 staged cohorts/jitter, hosted-first) — needs a deploy, Todd's gate —
 and the provision-page copy (product copy, Todd's approval).
+
+### B052 (the floor) reviewed — same overnight run (a2c11a3)
+
+Faithful, and the asymmetry at its center is the best thinking of the
+night: checkDaemonFloor and mayOfferUpdate are the same question with
+OPPOSITE unreadable-handling, on purpose — an unparseable version
+means "do not offer" on one side and "do not refuse" on the other,
+because guessing wrong on the offer breaks a heartbeat and guessing
+wrong on the floor takes a WORKING machine out of service over a
+string. I re-ran that exact mutation by hand (flip the guard so
+unreadable refuses): red on "does not refuse a version it cannot
+read." Suite 1343 green.
+
+Also right, checked in the diff: `daemon-below-floor` is its own code,
+not a reuse of unsupported-protocol-version (different sentences,
+different remedies); the daemon maps by CODE not status, with the
+four-status control test proving the branch is a code branch (a 403
+otherwise reads as forbidden and retries forever — the exact
+misdiagnosis class B036's message had); 426 fails safe on pre-B052
+daemons (lands on the never-retried 4xx default, vaguer than the
+remedy, which is what a fallback has to be); the hub's remedy sentence
+passes through unparaphrased because the hub knows the floor and the
+daemon does not.
+
+Remaining for both B052 and B053: the HUB HALF (declare the floor +
+send updateTo, both behind their fences) — needs a deploy, Todd's
+gate. The daemon side of the entire update system is now built and
+reviewed, uncut; it presumably rides the next release with whatever
+Hosted needs.

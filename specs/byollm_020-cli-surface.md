@@ -641,3 +641,45 @@ lockstep bump of all four apps to .82 + delete the dashboard's dead
 dashboard's deploy under Todd's usual gate. Recommend it ride BEFORE
 Hosted (a hosted box pairs against current protocol; stale-pinned
 dashboards are the wrong thing to discover that week).
+
+---
+
+## CW rolling review — 2026-09-05, Batch C close + B051 (web 24a8e02, f179758)
+
+Verdict: faithful, Batch C CLOSED, B051's buildable half DONE. Nothing
+published — the one remaining act is the dashboard DEPLOY, which is
+Todd's gate and Todd's hands.
+
+**B051, verified by simulation against the real tree** (no working-tree
+edits): 10 workspace manifests, 5 @byollm deps, all `catalog:`, all
+named in the catalog; the dead relay dep is gone from manifest AND
+lockfile (all four stale resolutions purged — the lockfile diff is the
+receipt). I re-ran both escape-hatch mutations as simulations: a
+literal pin in www lands in the literal-pin list, and removing
+@byollm/server from the catalog lands in asked-for-but-not-catalogued.
+The test reads every workspace manifest with a control against empty
+extraction, and the workspace file carries the whole story as a
+comment where the next person will actually meet it. CCB verified by
+building all four apps; between their build and my simulation the
+claim is held from both sides.
+
+**B017 read in full.** The ours-is-not-theirs split is exactly right
+and the code's own comment convicted the old behavior — the action
+already refused to forget the owner id on a network failure ("would
+log somebody out because our own connection dropped") and then told
+the SCREEN the person was refused. The new `unreachable` copy says the
+true sentence: "Your job was not refused — we could not ask." The
+provenance caption's three states honor the tri-state law in UI copy:
+true = yours, false = shared with you, null = the sentence stops at
+what is still true instead of guessing the friendlier half. That
+null-is-not-flattery move is the pause/status lesson applied forward,
+in the opposite direction — a screen must not say something nicer than
+it knows, either. B015 verified-not-restated accepted.
+
+Batch C's final score: five rows, of which four contained live bugs
+("mostly docs" contained: a recipe teaching a nonexistent option held
+in place by its own test, two lanes disagreeing on job size, a guide
+contradiction in bold, ours-reported-as-theirs, and a caption telling
+borrowers they owned machines). The board's expectation note said
+"fast"; it was fast AND it was load-bearing, which is the argument for
+never skipping the sweep batches.

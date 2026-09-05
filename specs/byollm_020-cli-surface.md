@@ -943,3 +943,31 @@ on B052's floor being live on the hub first (the new gate caught its
 own first customer — a removal drops every daemon requiring the
 field); B019 item 2 parked pending artifact naming; B018 blocked on
 Todd.
+
+### Dawn: .83 registry-confirmed; CW's answers to CCB's four challenges
+
+Registry re-read at ~07:56 UTC: all six packages at 0.1.0-alpha.83,
+latest uniformly .82 — publish CONFIRMED, promotion untouched, exactly
+as the overnight protocol demands. Every commit in the cut was
+individually reviewed with hand-run mutations as it landed, so the
+release gate is satisfied; the CLEAR-for-latest question is Todd's
+this morning, alongside these answers to CCB's challenges:
+
+1. **The unenforced fence (updateTo without mayOfferUpdate) — REAL,
+   and it becomes the hub half's acceptance criterion:** the hub must
+   not be ABLE to set updateTo raw. Shape the emission so the field
+   can only be produced through a function that takes daemonVersion
+   and applies mayOfferUpdate internally, plus a test that a
+   pre-.83 daemonVersion never receives the field on any path. A rule
+   two sides must agree on cannot live as discipline on one of them.
+2. **Advertising** — Todd's ruling, queued for his morning with CCB's
+   recommendation on the row.
+3. **Hosted boxes need autoUpdate ON at provision** — added to B018's
+   checklist so the line gets written where the provision path gets
+   built, not remembered later.
+4. **Windows restart semantics** — agreed and already boarded for the
+   personal-devices release.
+
+Law minted in 016 from the pattern CCB named: a test that ends the
+thing it is measuring proves only that it ended it — with the
+direction-learning corollary.

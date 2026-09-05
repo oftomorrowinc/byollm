@@ -7302,3 +7302,27 @@ of agreeing quietly. The fixed version is typed as the SDK's own
 constructor parameter and stops COMPILING if the option is renamed.
 Sibling of the re-reader law: a spelling in a test is a cache of the
 truth, and caches drift.
+
+## Law: a test that ends the thing it is measuring proves only that it ended it (CCB named the shape, CW minted, 2026-09-05 dawn)
+
+Four instances in one week, one shape: a fixture that replayed a
+single job id (the runner's own dedup declined the repeat, so the
+drain test passed with the drain deleted); an abort placed before a
+second attempt could occur (the no-retry test passed with the retry
+memory deleted); an ordering assertion built on indexOf (which returns
+-1 for a deleted call, and -1 sorts before everything); and a fetch
+count (which a throw satisfies exactly as well as a clean return).
+
+The law: when a test controls the lifetime of the loop, process, or
+sequence it is measuring, its passing may only prove the control
+worked. Measure in units the subject produces (cycles of the stimulus
+arriving, outcomes emitted, effects observed) — never in units the
+harness imposes — and before trusting any such test, run the mutation
+it exists for and watch it fail.
+
+Corollary, from the same night: a guard built from one incident learns
+that incident's DIRECTION. The response-key gate caught additions
+because an addition had just burned us, and the very next board row
+was a removal. When a hazard has a mirror image, check the mirror
+before shipping the guard — the board often already knows about the
+next fire.

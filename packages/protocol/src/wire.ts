@@ -626,6 +626,29 @@ export const HeartbeatResponse = z
      * exchange is a confusion nobody untangles from a log.
      */
     awaitingConsent: z.array(z.string().min(1)),
+    /**
+     * A version this daemon should move itself to — B053.
+     *
+     * The channel the auto-updater reads, and it is the channel the daemon
+     * already polls rather than a new phone-home, which is what the ruling
+     * asked for (016 §Auto-update).
+     *
+     * **The hub may not send this to every daemon.** This schema is
+     * `.strict()`, so a daemon built before the field exists does not ignore
+     * it — it rejects the whole heartbeat and stops working. Which would mean
+     * the message carrying the update is the message that breaks the machines
+     * it was meant to update.
+     *
+     * That is decidable without any new handshake, because the request
+     * already carries `daemonVersion`. {@link mayOfferUpdate} is the rule,
+     * kept here as code rather than as a paragraph in a runbook, so both
+     * sides read the same one.
+     *
+     * Exact versions only, never a tag: the daemon refuses anything else, and
+     * a fleet resolving one tag at different minutes is a fleet on different
+     * builds reporting one number.
+     */
+    updateTo: z.string().min(1).optional(),
   })
   .strict();
 export type HeartbeatResponse = z.infer<typeof HeartbeatResponse>;

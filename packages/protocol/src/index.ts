@@ -14,6 +14,11 @@
  */
 
 export {
+  UPDATE_OFFER_SINCE,
+  compareVersions,
+  mayOfferUpdate,
+} from "./update-offer.js";
+export {
   ABOUT,
   ABOUT_SHORT,
   ABOUT_SHORT_LEDE,

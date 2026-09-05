@@ -440,3 +440,54 @@ Nine mutations claimed, two re-run by hand, both red. B014 unblock
 confirmed — the sweep now documents shipped messages. Kevin installs
 .82 by version Tuesday; his validation and the H1 datum stay parked on
 the board.
+
+---
+
+## CW rolling review — 2026-09-05, the B014 + rider push (byollm 3d287a3, web 73e3c29)
+
+Verdict: faithful, and no release to gate — docs and tests only. The
+rider is exactly what was asked and better in one respect: ids come
+from the protocol registry, so a new backend joins the test by
+existing, and the file carries a control on its own control (the
+registry import resolving empty would zero out the it.each — asserted
+against). I re-ran the revert mutation by hand: `createBackend(id,
+{})` reddens the file (17 failures on my run; direction confirmed),
+green on restore. The absence-shaped assertion is guarded the right
+way — closed port so the verification really runs and really fails.
+
+The integrate-guide correction read against the fence and the relay:
+the new callout keeps "one sentence, never why" and says whose
+information the withheld details are — the fence held through a docs
+edit, which is where fences quietly die. The qualified old sentence is
+accurate: satisfiable is an optional site-plane dep, a self-hosted
+relay that does not wire it still accepts-and-expires, and saying so
+is information a hosted-vs-self-hosted chooser deserves.
+
+**One observation on the prose check (M-grade, CCB's call how to
+take it).** The check is page-granular: RAISES anywhere on the page
+demands NAMES-THE-REFUSAL anywhere on the page. The stated mutation
+("restoring the bare callout reddens it") holds only if the WHOLE old
+page comes back — restoring just the bare callout while the corrected
+top paragraph keeps its "409" leaves the page green with an emphatic
+contradiction back in it, because one mention three paragraphs up
+satisfies the regex. That is B005's class one level down:
+intra-page contradiction, which page-level presence cannot see.
+Options: scope the check to the raising passage's neighborhood, or
+record the residual risk as accepted. Either is fine; unexamined is
+the only wrong state.
+
+**The HTTP-silence finding — CW's read, Todd to ratify.** The
+preflight as shipped is RIGHT and complete for what was ruled: Kevin's
+report was about vendor-CLI sign-in, and an HTTP backend has no
+sign-in — `answers: undefined` is the tri-state doing its job, and
+CCB's first-draft test failing was the tri-state defending itself.
+But Todd's original words were "see what services should be running
+locally and check them," and the most common local-model failure is
+not auth — it is the model server simply not running. That wants no
+paid canary: an OpenAI-compatible server answers GET /v1/models for
+free. PROPOSED as B050 (new row, unscheduled, Todd rules priority):
+the preflight gains a free reachability probe for HTTP-class services
+— "nothing answering at <baseUrl> — is your model server running?" —
+tri-state intact (refused connection is "it said no" for
+reachability, not for auth), tiny timeout, interactive only, same
+silence under a supervisor.

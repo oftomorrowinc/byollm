@@ -1665,7 +1665,7 @@ async function runLoop(
    */
   if (signal?.aborted === true) controller.abort();
   const runners: Runner[] = [];
-  /** The version the hub named, if any — B053. Set once, by whichever site said it first. */
+  /** The newest version any paired site has named — B053. */
   let offered: string | undefined;
 
   for (const origin of origins) {
@@ -1716,10 +1716,20 @@ async function runLoop(
       ingress,
       onEvent: (event) => {
         report(origin, event, io);
-        /* B053. One offer is enough however many sites named it: the
-           machine has one copy of byollm, and a daemon paired with four
-           sites would otherwise start four updates. */
-        if (event.type === "update-offered") offered ??= event.version;
+        /**
+         * B053. The newest offer wins, whichever site named it.
+         *
+         * `??=` here at first, which held the FIRST offer forever — so a
+         * machine that rolled back once never updated again until somebody
+         * restarted it, because the version it had already failed on was
+         * still the only one this ever saw. CW's note, and it was a daemon
+         * bug rather than a hub one.
+         *
+         * Last writer wins is safe because the runner only fires this when
+         * the version changes, and the watcher below refuses to retry a
+         * version it has already tried.
+         */
+        if (event.type === "update-offered") offered = event.version;
         // The set follows consent, and the file follows the set — cloud_009
         // §5. Not awaited, for the reason the revocation branch below gives:
         // an event handler that throws takes the runner with it, and a file
@@ -1914,10 +1924,20 @@ export async function watchForUpdate(input: {
 }): Promise<boolean> {
   const wait =
     input.wait ?? ((ms: number) => new Promise<void>((w) => setTimeout(w, ms)));
+  /**
+   * Versions this process has already attempted.
+   *
+   * The offer keeps arriving until the machine takes it, so without this a
+   * failed update becomes a loop that reinstalls the same broken version
+   * every second. With it, a machine that rolled back sits on the version it
+   * has and waits for a different answer — which is what a rollback means.
+   */
+  const tried = new Set<string>();
   for (;;) {
     if (input.signal.aborted) return false;
     const version = input.offered();
-    if (version !== undefined) {
+    if (version !== undefined && !tried.has(version)) {
+      tried.add(version);
       const outcome = await update(DAEMON_VERSION, version, {
         ...realUpdateDeps({
           run: input.run ?? spawnCommand,
@@ -1945,7 +1965,10 @@ export async function watchForUpdate(input: {
       for (const runner of input.runners) {
         runner.resumeClaiming();
       }
-      return new Promise<boolean>(() => undefined);
+      /* And it keeps watching. Returning here — which it did — meant a
+         machine that failed one update never took another until it was
+         restarted, so the fix for a bad release could not reach exactly the
+         machines the bad release had landed on. */
     }
     await wait(UPDATE_POLL_MS);
   }

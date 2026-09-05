@@ -219,6 +219,39 @@ describe("what a daemon parses", () => {
     expect(found).toHaveProperty("HeartbeatResponse");
   });
 
+  it("has not LOST a key either, which breaks the same way", () => {
+    /**
+     * Found by reading the next task rather than by thinking harder here.
+     *
+     * B020 carries "drop `audience` from the cloud stub", and the first
+     * version of this check would have waved it through — it compared only
+     * for additions. A removal is breaking in the same direction and for the
+     * same reason: a daemon in the field parses this response with a schema
+     * where the field is REQUIRED, so a message without it fails, and the
+     * device stops working on the deploy that removed it.
+     *
+     * Additions and removals are one hazard wearing two signs. A check that
+     * knew only one of them would have been a check that passed on the very
+     * next change it was built for.
+     */
+    const found = responseShapes();
+    for (const [name, agreed] of Object.entries(AGREED)) {
+      const now = found[name] ?? [];
+      const gone = agreed.filter((path) => !now.includes(path));
+      expect(
+        gone,
+        `${name} lost ${gone.join(", ")}.\n\n` +
+          "A daemon in the field requires that key. A response without it " +
+          "fails\nits schema, and the device stops working on the deploy " +
+          "that removed it —\nthe same outage as adding one, from the other " +
+          "side.\n\n" +
+          "Removing a field needs the floor (B052) high enough that every " +
+          "daemon\nstill served has already stopped requiring it. Then " +
+          "update AGREED here,\nin the same commit.",
+      ).toEqual([]);
+    }
+  });
+
   it("has not grown a key since somebody last thought about it", () => {
     const found = responseShapes();
     for (const [name, agreed] of Object.entries(AGREED)) {

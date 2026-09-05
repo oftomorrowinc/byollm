@@ -15,8 +15,10 @@
 
 export {
   UPDATE_OFFER_SINCE,
+  checkDaemonFloor,
   compareVersions,
   mayOfferUpdate,
+  type FloorRefusal,
 } from "./update-offer.js";
 export {
   ABOUT,

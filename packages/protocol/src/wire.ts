@@ -813,6 +813,20 @@ export type ReleaseResponse = z.infer<typeof ReleaseResponse>;
 export const WireErrorCode = z.enum([
   "bad-request",
   "unsupported-protocol-version",
+  /**
+   * The daemon is older than this hub will serve — B052.
+   *
+   * Distinct from `unsupported-protocol-version`, which is about the
+   * contract; this is about the build. A daemon can speak protocol 1
+   * perfectly and still be old enough that we would rather move it than keep
+   * carrying it — and the two need different remedies in the message, since
+   * one is "your daemon and this server disagree" and the other is "yours
+   * works, and it is time".
+   *
+   * The floor is the backstop to the auto-updater (B053), and the only lever
+   * that reaches a machine which never opted into offers.
+   */
+  "daemon-below-floor",
   // "We do not know who you are." Exactly 401, and only that — cloud_008
   // §1.4d.
   "unauthorized",
@@ -881,6 +895,16 @@ export const WireError = z
      */
     supported: z.array(z.string().min(1)).optional(),
     minimum: z.string().min(1).optional(),
+    /**
+     * The oldest daemon this hub serves, on `daemon-below-floor` — B052.
+     *
+     * Carried for the same reason `supported` and `minimum` are: a refusal
+     * that cannot be branched on is a refusal a client can only print. The
+     * message already names the floor for a person; this names it for the
+     * code, so a surface can say "you are two versions under" without
+     * parsing English.
+     */
+    floor: z.string().min(1).optional(),
     /** Seconds; mirrors Retry-After for `rate-limited` and `server-error`. */
     retryAfter: z.number().int().nonnegative().optional(),
     /**
@@ -916,6 +940,21 @@ export const WireError = z
         message: `${error.error} must not carry serverTime or maxSkewMs`,
       });
     }
+    // And the floor's own field — B052, held to the same rule as the two
+    // above rather than added as a free-floating optional.
+    const floored = error.error === "daemon-below-floor";
+    if (floored && error.floor === undefined) {
+      ctx.addIssue({
+        code: "custom",
+        message: "daemon-below-floor must carry floor",
+      });
+    }
+    if (!floored && error.floor !== undefined) {
+      ctx.addIssue({
+        code: "custom",
+        message: `${error.error} must not carry floor`,
+      });
+    }
     // The same rule for the version fields — §B.4. A code-specific extra on
     // the wrong code is how an enumeration stops meaning anything: every
     // reader has to guess whether the field applies.
@@ -943,6 +982,20 @@ export const ERROR_STATUS: Readonly<Record<WireErrorCode, number>> =
   Object.freeze({
     "bad-request": 400,
     "unsupported-protocol-version": 400,
+    /**
+     * 426 Upgrade Required — B052, and it is the one status that says this.
+     *
+     * Not 403, which this daemon reads as a permission problem and which
+     * sits beside `revoked` in every log. Not 400, which reads as a
+     * malformed request; the request was perfect and the sender is old.
+     *
+     * It also fails safely on a daemon that predates the code: 426 is not in
+     * that switch, so it lands on the 4xx default — `rejected`, which is
+     * "never retried: the request is wrong, and repeating it stays wrong".
+     * Vaguer than the remedy, and the right behaviour, which is what a
+     * fallback has to be.
+     */
+    "daemon-below-floor": 426,
     unauthorized: 401,
     forbidden: 403,
     revoked: 403,

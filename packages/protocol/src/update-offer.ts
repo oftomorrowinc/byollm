@@ -110,3 +110,49 @@ export function mayOfferUpdate(daemonVersion: string): boolean {
   const order = compareVersions(daemonVersion, UPDATE_OFFER_SINCE);
   return order !== undefined && order >= 0;
 }
+
+/**
+ * The oldest daemon a hub will serve — B052, the floor.
+ *
+ * The updater's backstop and its opposite number. The updater moves machines
+ * that opted in; the floor is what moves the ones that did not, and it is the
+ * only mechanism that works on a daemon which is not listening for offers.
+ *
+ * Raising it is a deliberate act with a spec note, never automatic — a floor
+ * that followed `latest` would refuse every machine that had not updated in
+ * the last hour, which is the outage version of hygiene.
+ */
+export interface FloorRefusal {
+  readonly error: "daemon-below-floor";
+  readonly message: string;
+  readonly floor: string;
+}
+
+/**
+ * Is this daemon too old to serve?
+ *
+ * **An unreadable version is NOT refused**, and that is the deliberate
+ * asymmetry with {@link mayOfferUpdate}, which treats an unreadable version
+ * as "do not offer". The two point the same way once you ask what the
+ * mistake costs: there, guessing yes sends a field that breaks the
+ * heartbeat; here, guessing yes takes a working machine out of service over
+ * a string it could not parse. Both decline to act when they cannot tell,
+ * and declining to act means opposite booleans.
+ */
+export function checkDaemonFloor(input: {
+  readonly daemonVersion: string;
+  readonly floor: string;
+  /** How somebody fixes it. The floor is useless without the remedy. */
+  readonly upgradeCommand: string;
+}): FloorRefusal | null {
+  const order = compareVersions(input.daemonVersion, input.floor);
+  if (order === undefined || order >= 0) return null;
+  return {
+    error: "daemon-below-floor",
+    message:
+      `byollm ${input.daemonVersion} is below the supported floor ` +
+      `(${input.floor}). Run \`${input.upgradeCommand}\`, then ` +
+      "`byollm start`.",
+    floor: input.floor,
+  };
+}

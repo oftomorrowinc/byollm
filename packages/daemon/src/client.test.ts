@@ -466,3 +466,67 @@ describe("a clock-skew refusal tells you how to fix it", () => {
     expect(error?.message).toContain("Turn on network time");
   });
 });
+
+describe("a floor refusal is a version problem, not a permission one", () => {
+  /**
+   * B052. Named rather than left to the status code.
+   *
+   * Without the branch, a floor refusal arrives as whatever HTTP status
+   * carried it: a 403 reads as `forbidden`, which this daemon reports as a
+   * permission problem and goes on retrying against forever. It is neither.
+   * It is a version problem with a one-line fix, and the fix is already in
+   * the message the hub composed.
+   */
+  const refusing = (status: number) =>
+    new ProtocolClient({
+      origin: "https://app.test",
+      identity: TEST_SIGNER,
+      fetch: () =>
+        Promise.resolve(
+          new Response(
+            JSON.stringify({
+              error: "daemon-below-floor",
+              message:
+                "byollm 0.1.0-alpha.9 is below the supported floor " +
+                "(0.1.0-alpha.70). Run `npm i -g byollm@latest`, then " +
+                "`byollm start`.",
+              floor: "0.1.0-alpha.70",
+            }),
+            { status, headers: { "content-type": "application/json" } },
+          ),
+        ),
+    });
+
+  const beat = (client: ProtocolClient) =>
+    client
+      .heartbeat({
+        runnerId: "r1",
+        daemonVersion: "0.1.0-alpha.9",
+        capabilities: [],
+        paused: false,
+        activeLeases: [],
+      })
+      .then(() => null)
+      .catch((e: unknown) => e as { kind: string; message: string });
+
+  it("is reported as a version problem, and carries the hub's remedy", async () => {
+    const error = await beat(refusing(403));
+    expect(error?.kind).toBe("version-unsupported");
+    /* Passed through rather than paraphrased: the hub knows the floor and
+       the daemon does not, so the sentence naming both belongs to the hub. */
+    expect(error?.message).toContain("npm i -g byollm@latest");
+    expect(error?.message).toContain("0.1.0-alpha.70");
+  });
+
+  it("does not depend on which status the hub chose", async () => {
+    /* The control on the branch. If the mapping were reading the status
+       instead of the code, one of these would come back as something else —
+       and 403 in particular would read as a revocation-adjacent refusal. */
+    for (const status of [400, 403, 409, 426]) {
+      const error = await beat(refusing(status));
+      expect(error?.kind, `status ${String(status)}`).toBe(
+        "version-unsupported",
+      );
+    }
+  });
+});

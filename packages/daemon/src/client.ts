@@ -365,6 +365,21 @@ export class ProtocolClient {
     if (
       typeof body === "object" &&
       body !== null &&
+      (body as { error?: unknown }).error === "daemon-below-floor"
+    ) {
+      /**
+       * B052. Named rather than left to the status code, for the reason the
+       * revocation branch above gives: without this, a floor refusal arrives
+       * as whatever HTTP status carried it — a 403 reads as `forbidden`,
+       * which this daemon reports as a permission problem and retries
+       * against forever. It is neither. It is a version problem with a
+       * one-line fix, and the fix is already in the message.
+       */
+      return new ClientError("version-unsupported", message, retryAfter);
+    }
+    if (
+      typeof body === "object" &&
+      body !== null &&
       (body as { error?: unknown }).error === "clock-skew"
     ) {
       // The upstream sends its own time, so the message can name the drift

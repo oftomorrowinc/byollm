@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { HeartbeatResponse } from "./wire.js";
 import {
   UPDATE_OFFER_SINCE,
+  checkDaemonFloor,
   compareVersions,
   mayOfferUpdate,
 } from "./update-offer.js";
@@ -112,5 +113,51 @@ describe("what an old daemon would do with the field", () => {
       HeartbeatResponse.safeParse({ ...today, updateTo: "0.1.0-alpha.83" })
         .success,
     ).toBe(true);
+  });
+});
+
+describe("the floor — which daemons a hub will still serve", () => {
+  const floor = (daemonVersion: string) =>
+    checkDaemonFloor({
+      daemonVersion,
+      floor: "0.1.0-alpha.70",
+      upgradeCommand: "npm i -g byollm@latest",
+    });
+
+  it("serves a daemon at the floor, and above it", () => {
+    expect(floor("0.1.0-alpha.70")).toBeNull();
+    expect(floor("0.1.0-alpha.82")).toBeNull();
+    expect(floor("1.0.0")).toBeNull();
+  });
+
+  it("refuses one below it, and names the fix", () => {
+    const refused = floor("0.1.0-alpha.9");
+    expect(refused?.error).toBe("daemon-below-floor");
+    /* The remedy is the whole point. A floor without one is an outage with
+       a version number in it. */
+    expect(refused?.message).toContain("npm i -g byollm@latest");
+    expect(refused?.message).toContain("byollm start");
+    expect(refused?.message).toContain("0.1.0-alpha.70");
+  });
+
+  it("does not refuse a version it cannot read", () => {
+    /**
+     * The deliberate asymmetry with `mayOfferUpdate`, which treats an
+     * unreadable version as "do not offer". Both decline to act when they
+     * cannot tell, and declining to act means opposite booleans: there,
+     * guessing yes sends a field that breaks the heartbeat; here, guessing
+     * yes takes a working machine out of service over a string.
+     */
+    expect(floor("not-a-version")).toBeNull();
+    expect(floor("")).toBeNull();
+    /* And the control, so this cannot pass by refusing nothing at all. */
+    expect(floor("0.1.0-alpha.9")).not.toBeNull();
+  });
+
+  it("compares as versions here too", () => {
+    /* The same trap as the offer: `alpha.9` sorts after `alpha.70` as a
+       string, which would serve a daemon the floor exists to refuse. */
+    expect(floor("0.1.0-alpha.9")).not.toBeNull();
+    expect(floor("0.1.0-alpha.71")).toBeNull();
   });
 });

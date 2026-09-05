@@ -907,3 +907,39 @@ on the wire; JobStub is).
 
 B019 item 2 ("pin and projection") correctly NOT started — its two
 artifacts need naming, not guessing. On the board for the morning.
+
+### B054 reviewed + the .83 cut read — the night's close (5b9aba8, f096035)
+
+B054 is the 409-conflation flag from the B038 era, finally closed, and
+closed with B038's own law honored: `too-late` and `not-ready` share a
+409 and carry opposite instructions, so the fix branches on the CODE
+(third status-asked-a-code-question of the night) — and the first
+draft's `gone` routing was caught by the two-failure-directions law
+before it shipped: gone has a transient reading (three lease lapses,
+per B038), and there is no transient reading of a finished job — three
+lapses would be two more claims of work that no longer exists. `over`
+refuses at once. I re-ran the branch-deleted mutation: red on "stops
+asking for a job the upstream says has finished." Suite 1367 green.
+The test confession is a new entry for the vacuous-draft taxonomy:
+counting fetches could not distinguish fixed from broken (a throw
+exits a loop as effectively as a return); only the OUTCOME could, and
+the three-attempt path surfaced by printing both event streams and
+reading "attempt 1 of 3."
+
+**The .83 cut (f096035): commit exists; registry re-read shows all six
+NOT yet published and latest correctly at .82** — publish presumably
+in flight through the release workflow. Per the re-reader law I will
+NOT call this cut published until the registry says so; per overnight
+protocol latest does not move regardless. The cut's contents are
+precisely the night's reviewed work: update system daemon side, B050
+on-demand servers, both retry-loop closures. Once the registry
+confirms all six at .83, my gate review is effectively already done —
+every commit in the cut has been individually reviewed with hand-run
+mutations tonight — and the CLEAR-for-latest question waits for Todd's
+morning with the rest.
+
+Board state CCB left, all correct: B020's audience-stub drop BLOCKED
+on B052's floor being live on the hub first (the new gate caught its
+own first customer — a removal drops every daemon requiring the
+field); B019 item 2 parked pending artifact naming; B018 blocked on
+Todd.

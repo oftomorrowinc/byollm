@@ -491,3 +491,29 @@ the preflight gains a free reachability probe for HTTP-class services
 tri-state intact (refused connection is "it said no" for
 reachability, not for auth), tiny timeout, interactive only, same
 silence under a supervisor.
+
+### B050 RULED (Todd, 2026-09-05 night) — a real ping, disclosed
+
+Todd: "I would think we just do that and mention we run one tiny
+prompt on start to verify everything is working against each service
+on the device." So B050 is not the reachability-only shape CW
+proposed — it is a real tiny canary prompt per mapped service at
+interactive `start`/`run`, every backend class, with a one-line
+disclosure in the output. The tri-state's "no way to ask" case mostly
+disappears: HTTP services become askable, and unreachable becomes an
+answer instead of silence.
+
+CW riders, recorded with the ruling:
+- **Metered services consult the ledger first.** A ping against a
+  metered backend is real money; if today's cap is already spent, do
+  not ping — report "at today's cap" instead, which is itself the
+  verification (the service cannot serve regardless). The ping
+  otherwise counts in the spend ledger like any job. Never a path
+  where verification spends past a cap.
+- **Disclosure is one line, once per run,** e.g. "verifying services
+  (one tiny prompt each)…" — and the docs' setup/start pages say the
+  same sentence. Disclosed is the ruling's own word.
+- **Non-interactive stays byte-identical**: supervisors neither spend
+  nor print, exactly as B047 shipped.
+- The B047 sign-in offer is unchanged; this extends what "verify"
+  means for backends with no sign-in.

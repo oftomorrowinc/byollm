@@ -1,6 +1,7 @@
 import {
   ENDPOINTS,
   ERROR_STATUS,
+  MAX_ENVELOPE_BYTES,
   PROTOCOL_PREFIX,
   checkProtocolVersion,
   type Endpoint,
@@ -10,11 +11,21 @@ import { ByollmHandlers, type HandlerConfig } from "./handlers.js";
 /**
  * Largest protocol request body accepted, before schema validation.
  *
- * A payload is capped at 4 MB of text by the protocol; this leaves room for
- * JSON overhead and a batch of results, and refuses anything wilder at the
- * door rather than after parsing it.
+ * Derived, not chosen. This was `8 * 1024 * 1024` beside a comment saying the
+ * protocol caps a payload at 4 MB — true when it was written, and the cap has
+ * since moved to {@link MAX_ENVELOPE_BYTES}, which is 10 MiB. So the direct
+ * lane refused envelopes the protocol permits, and the hub — which derives
+ * its own limit the same way this now does — accepted them.
+ *
+ * That is the failure this codebase keeps finding in other clothes: one rule
+ * with two implementations, and only one of them moved. A site self-hosting
+ * the SDK and a site on the hub must not disagree about whether a job is too
+ * big, so neither of them gets to hold the number.
+ *
+ * The 512 KiB of headroom is for JSON overhead and a batch of results around
+ * the envelope, matching the hub's `MAX_ENVELOPE_BYTES + 512 * 1024`.
  */
-const MAX_BODY_BYTES = 8 * 1024 * 1024;
+const MAX_BODY_BYTES = MAX_ENVELOPE_BYTES + 512 * 1024;
 
 /**
  * Where the protocol endpoints are mounted.

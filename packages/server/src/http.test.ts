@@ -1,4 +1,5 @@
 import {
+  MAX_ENVELOPE_BYTES,
   PROTOCOL_VERSION,
   generateKeys,
   publicIdentityOf,
@@ -184,6 +185,57 @@ describe("fetch handler", () => {
       }),
     );
     expect(response.status).toBe(400);
+  });
+
+  /**
+   * The two lanes agree about what is too big — B016.
+   *
+   * This limit was a hardcoded 8 MiB beside a comment about a 4 MB payload
+   * cap. The protocol's envelope cap has since moved to 10 MiB and the hub
+   * derives its limit from it; the SDK did not, so a site self-hosting the
+   * direct lane refused envelopes the hosted lane accepted. One rule, two
+   * implementations, one of them left behind.
+   *
+   * The interesting case is the gap those two numbers made — bigger than the
+   * old constant, smaller than the protocol's — because that is the band
+   * where the lanes disagreed, and a test at 64 MiB never visits it.
+   */
+  it("accepts a body over the old 8 MiB constant, under the envelope cap", async () => {
+    const declared = 9 * 1024 * 1024;
+    expect(
+      declared,
+      "the gap this guards closed — if the envelope cap moves below this " +
+        "the case stops being a gap and this test stops meaning anything",
+    ).toBeLessThan(MAX_ENVELOPE_BYTES);
+
+    const response = await handler()(
+      new Request(url("pair"), {
+        method: "POST",
+        headers: { "content-length": String(declared) },
+        body: "{}",
+      }),
+    );
+    /* On the REASON, not the status. `{}` fails schema validation and that
+       is also a 400, so a status assertion here cannot tell "got past the
+       door and was judged on its contents" from "refused at the door" —
+       which is the entire distinction under test. */
+    expect(await response.text()).not.toContain("too large");
+  });
+
+  it("still refuses one past the envelope cap plus its headroom", async () => {
+    /* The control on the test above. Without it, "accepts 9 MiB" passes
+       equally well against a server that stopped checking size at all. */
+    const response = await handler()(
+      new Request(url("pair"), {
+        method: "POST",
+        headers: {
+          "content-length": String(MAX_ENVELOPE_BYTES + 1024 * 1024),
+        },
+        body: "{}",
+      }),
+    );
+    expect(response.status).toBe(400);
+    expect(await response.text()).toContain("too large");
   });
 
   it("never caches a protocol response", async () => {

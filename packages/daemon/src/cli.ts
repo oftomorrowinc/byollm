@@ -2,6 +2,8 @@ import { access } from "node:fs/promises";
 import { emphasise, terminalContext } from "./emphasis.js";
 import { backendVerifier, listModels, setModel, showModel } from "./model.js";
 import { preflight } from "./preflight.js";
+import { update } from "./update.js";
+import { realUpdateDeps } from "./update-deps.js";
 import { runLogin, type LoginCommand } from "./login.js";
 import { createBackend } from "./backends/index.js";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
@@ -86,6 +88,17 @@ in ~/.byollm/ingress.log — it is yours to read and yours to delete.
  * removed — {@link REMOVED} — and the difference is the point of the map:
  * this one promises the old word still does the old thing.
  */
+/**
+ * How long a drain waits for running work before an update proceeds — B053.
+ *
+ * A job that outlives this holds a lease the hub will reclaim anyway, and a
+ * machine cannot be held out of service indefinitely by one slow prompt.
+ */
+const UPDATE_DRAIN_MS = 120_000;
+
+/** How often the update watcher looks for an offer. Nothing is waiting on a person. */
+const UPDATE_POLL_MS = 1_000;
+
 const RENAMED: Readonly<Record<string, string>> = {
   install: "start",
   uninstall: "stop",
@@ -1652,6 +1665,8 @@ async function runLoop(
    */
   if (signal?.aborted === true) controller.abort();
   const runners: Runner[] = [];
+  /** The version the hub named, if any — B053. Set once, by whichever site said it first. */
+  let offered: string | undefined;
 
   for (const origin of origins) {
     const pairing = pairings.get(origin);
@@ -1701,6 +1716,10 @@ async function runLoop(
       ingress,
       onEvent: (event) => {
         report(origin, event, io);
+        /* B053. One offer is enough however many sites named it: the
+           machine has one copy of byollm, and a daemon paired with four
+           sites would otherwise start four updates. */
+        if (event.type === "update-offered") offered ??= event.version;
         // The set follows consent, and the file follows the set — cloud_009
         // §5. Not awaited, for the reason the revocation branch below gives:
         // an event handler that throws takes the runner with it, and a file
@@ -1837,9 +1856,99 @@ async function runLoop(
   );
 
   await ingress.applyRetention(Date.now());
-  await Promise.all(runners.map((runner) => runner.run(controller.signal)));
+
+  /**
+   * Take an offered update, if this machine was told to — B053.
+   *
+   * Raced against the runners rather than checked between ticks: `run()` is
+   * a long-lived promise and there is no between. The watcher resolves only
+   * when an update has been taken, so on every other path this is the same
+   * `await` it always was.
+   */
+  const updated = loaded.config.autoUpdate
+    ? watchForUpdate({
+        runners,
+        io,
+        signal: controller.signal,
+        offered: () => offered,
+      })
+    : new Promise<boolean>(() => undefined);
+
+  const tookUpdate = await Promise.race([
+    Promise.all(runners.map((runner) => runner.run(controller.signal))).then(
+      () => false,
+    ),
+    updated,
+  ]);
+  controller.abort();
   await Promise.all(runners.map((runner) => runner.shutdown("shutdown")));
+  if (tookUpdate) {
+    /* Exit so the supervisor starts the new binary. This process is the old
+       one — it cannot become the new one, and a daemon that installed an
+       update and went on running would report a version it is not. */
+    io.err("updated — exiting so the supervisor starts the new version.\n");
+  }
   return 0;
+}
+
+/**
+ * Wait for an offer, then take it — B053.
+ *
+ * Resolves `true` only when the machine actually moved, so the caller can
+ * exit and let the supervisor start the new binary. Every other outcome —
+ * refused, rolled back, stranded — leaves the daemon serving and never
+ * resolves, because none of them is a reason to stop working.
+ *
+ * Exported for the reason {@link spawnCommand} is: a private closure inside
+ * the loop is a seam nothing can exercise, and the paths worth exercising
+ * here are the ones where an update does not happen.
+ */
+export async function watchForUpdate(input: {
+  readonly runners: readonly Runner[];
+  readonly io: CliIo;
+  readonly signal: AbortSignal;
+  readonly offered: () => string | undefined;
+  readonly wait?: (ms: number) => Promise<void>;
+  readonly run?: CommandRunner;
+  readonly drainMs?: number;
+}): Promise<boolean> {
+  const wait =
+    input.wait ?? ((ms: number) => new Promise<void>((w) => setTimeout(w, ms)));
+  for (;;) {
+    if (input.signal.aborted) return false;
+    const version = input.offered();
+    if (version !== undefined) {
+      const outcome = await update(DAEMON_VERSION, version, {
+        ...realUpdateDeps({
+          run: input.run ?? spawnCommand,
+          drain: async () => {
+            await Promise.all(
+              input.runners.map((runner) =>
+                runner.drain(input.drainMs ?? UPDATE_DRAIN_MS),
+              ),
+            );
+          },
+          /* `byollm start` re-registers with the supervisor, which is what
+             the new entry point needs. It is not this process's own restart
+             — that is the supervisor's job, after we exit. */
+          reregister: async () =>
+            (await (input.run ?? spawnCommand)(["byollm", "start"])).code === 0,
+          report: (line) => {
+            input.io.err(`update: ${line}\n`);
+          },
+        }),
+      });
+      if (outcome.kind === "updated") return true;
+      /* Nothing moved, or it moved back. Either way this machine is still
+         the one it was, so it goes back to work rather than sitting drained
+         waiting for a restart nobody is going to perform. */
+      for (const runner of input.runners) {
+        runner.resumeClaiming();
+      }
+      return new Promise<boolean>(() => undefined);
+    }
+    await wait(UPDATE_POLL_MS);
+  }
 }
 
 /**

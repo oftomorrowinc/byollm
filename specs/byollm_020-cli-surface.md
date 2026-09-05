@@ -378,3 +378,65 @@ second (time-trigger) succeeds = H1 confirmed, the logon trigger is
 the gate. Both refused = policy or something in Settings (H3/H4). Both
 succeed = the original refusal was environmental and B036 may already
 be fixed on a clean run.
+
+---
+
+## CW rolling review — 2026-09-05 ~1am UTC, range 7b21352..56b79a6 (the .82 cut)
+
+Verdict: **CLEAR — latest may move to 0.1.0-alpha.82.** Verified
+independently: all six packages read back at .82 from
+registry.npmjs.org (latest uniformly .81 going in); full unit suite
+green at the cut (1276 passed); and I re-ran two mutations by hand —
+re-burying the upgrade line under the mechanics reddens the order test,
+and deleting the preflight's interactive gate reddens BOTH spend tests
+(start and run), proving the "asserts the spend, not the silence" claim
+in the strongest form: the test counts verifications, so a version that
+verified quietly cannot pass.
+
+What the diff shows, confirmed against every report claim: the
+preflight REPLACES the services.json read-back (signedOutLines has no
+callers left in cli.ts) and the test file contains the exact test the
+old design could not pass — "believes the backend, not a file written
+before the sign-out", written against a STALE file rather than an
+absent one, which is the precise Kevin case. refusalOf now returns the
+reading first and schtasks's own words under it ("it said: ..."), and
+— the detail I checked because it is where this class of fix fails —
+the negative case is guarded too: a non-permission error keeps its own
+words, so a disk error is not diagnosed as missing rights. runLogin
+reports before it swallows. loginPlan makes the Windows decision in a
+pure function, testable with no Windows. The remedy lives in BOTH
+refusal branches, including the one where even the fallback could not
+be written — the branch where the person has less. And `remove: byollm
+stop` quietly fixed a line that still said uninstall.
+
+**Challenge 1 (the Ollama crash), answered with a rider.** The fix is
+right — verify takes the whole ServiceConfig, backendFor passes
+baseUrl — and the report's own framing is the finding: caught by a
+revocation test, "the kind of luck not to rely on twice." The luck has
+not yet been replaced. I checked: every preflight test injects
+`verify`; no test exercises the DEFAULT verify path (backendFor +
+backendVerifier) interactively against an openai-http service. The
+comment and the wider type are the only guards, and the type would
+compile through a re-narrowing (baseUrl is optional). RIDER, rides
+B014's cut: one designed test — interactive start, openai-http config
+with an unreachable baseUrl, NO injected verify — asserting exit 0 and
+silence. It costs nothing (the canary refuses at a closed port,
+answers undefined, tri-state says nothing) and it turns the luck into
+a fixture.
+
+**Challenge 2 (the suite installing byollm on its host), answered:
+the fix is the right shape and the find outranks the fix.** appData
+injected as part of ServiceTarget with the ambient default preserved
+(a roaming profile moves APPDATA, so home-relative would be wrong for
+the product), environment arm tested as the control. The remaining
+ambient env read in service.ts (PATH, line ~196) is a read-only
+snapshot into unit contents — a different class, no host write, fine.
+CI runner pollution is ephemeral (github-hosted). Law minted in 016
+from the mechanism CCB named: the old tests never failed because the
+write SUCCEEDED — a destructive escape that succeeds is invisible to
+every test that only reads its own output.
+
+Nine mutations claimed, two re-run by hand, both red. B014 unblock
+confirmed — the sweep now documents shipped messages. Kevin installs
+.82 by version Tuesday; his validation and the H1 datum stay parked on
+the board.

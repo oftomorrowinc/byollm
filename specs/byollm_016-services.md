@@ -7264,3 +7264,22 @@ measurement instrument, and an instrument must be shown to be connected
 before its reading means anything. The same holds for every negative
 test: a test that passes because the scenario never fired protects
 nothing.
+
+## Law: an escape that succeeds is invisible — prove the sandbox by trying to leave it (CW, 2026-09-05, from CCB's CI find)
+
+The Windows fallback tests wrote a real byollm.cmd into the ambient
+Startup folder of whoever ran the suite, for as long as the tests have
+existed, and never failed once — because writing a file there succeeds.
+Every assertion read the suite's own output; none asked where the bytes
+went. It surfaced only when a NEW test tried to make that write fail
+and Windows answered EISDIR.
+
+The law: a test suite proves its sandbox the way it proves anything
+else — with a test that attempts the escape and asserts the refusal.
+Ambient destinations (env-derived paths, cwd, real supervisors) are
+injected as part of the target, the ambient arm is tested as a control
+without being exercised against the host, and one test per escape class
+tries to reach the host and expects to be stopped. A destructive
+operation that succeeds quietly is the one failure no output-reading
+test will ever see; the announcement-not-effect law's hardest case is
+an effect nobody is watching for at all.

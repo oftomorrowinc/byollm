@@ -871,3 +871,39 @@ boarded BLOCKED(on Todd) for the overnight for honest reasons
 (entitlement sits in the frozen purchase surface; fleet is a deploy;
 Your Devices' three actions all call unbuilt machinery). The protocol
 is doing exactly what it was written to do.
+
+### B019 item 1 reviewed — the response-compat gate, both directions (a40943b + f664385)
+
+Faithful, and this is the week's lessons compiled into a stop sign.
+The existing wire-shapes gate covered daemon->hub (requests growing
+keys the hub refuses — built after knownModels); the new one covers
+hub->daemon, where the failure is worse: a response key added is every
+field daemon rejecting the whole message at once, and "they cannot be
+told to upgrade because the channel that would tell them is the
+channel that is failing." updateTo was the live near-example — the
+update offer as the outage. The gate is honestly framed as a stop
+sign, not a solution: the two ways past it are the two real answers
+(withhold by version, or raise the floor), both of which now exist.
+
+Verified by hand: adding a key to HeartbeatResponse exactly the way
+updateTo was added reddens "has not grown a key since somebody last
+thought about it" (suite 1364 green after restore). The baseline is
+GENERATED from the schemas because the first hand-typed one was wrong
+in seven places — the spelling-anchor law eating its own cooking — and
+the third test fails on any new exported *Response with no agreed
+shape, so silence cannot be how the list stops meaning anything.
+
+The follow-up commit deserves its own note: the gate initially checked
+only additions, and CCB caught the gap BY READING THE NEXT BOARD TASK
+(B020 drops `audience` from the cloud stub — a removal, which a field
+daemon requiring the key experiences as the same outage from the other
+side). "Found by reading the next task rather than by thinking harder
+about this one, which is worth admitting: the addition case was the
+one I had just been burned by, so it was the one I built for." That
+sentence is the recency-bias failure mode of test design, named by its
+own author, and the removal mutation was performed as B020's own
+future change — which also misfired once correctly (ClaimedJob is not
+on the wire; JobStub is).
+
+B019 item 2 ("pin and projection") correctly NOT started — its two
+artifacts need naming, not guessing. On the board for the morning.

@@ -165,6 +165,29 @@ export const DaemonConfig = z
     defaults: z.partialRecord(JobKind, z.string().min(1)).prefault({}),
     /** How many jobs to run at once. */
     concurrency: z.number().int().min(1).max(32).default(2),
+    /**
+     * Take updates the hub offers, without being asked each time — B053.
+     *
+     * **Default off, and that is this release only.** The ruling (016
+     * §Auto-update) puts it on by default for personal machines behind
+     * setup's "Keep byollm up to date automatically? [Y/n]" — one release
+     * after this one, so the mechanism ships and gets watched on the fleet
+     * we own before it touches anybody's laptop. Hosted devices set it true
+     * at provision and are told so plainly on the provision page.
+     *
+     * Off is also the honest default for a config that predates the field:
+     * a machine whose owner has never been asked has not said yes, and
+     * turning it on for them because they upgraded is exactly the consent
+     * shortcut this product does not take.
+     *
+     * The trade this switch represents is written down rather than
+     * discovered: an auto-updating daemon means whoever controls the npm
+     * publish controls the fleet. The controls on that are 2FA at publish,
+     * exact-version installs (never a tag), the canary and rollback in
+     * `update.ts`, and staged cohorts. It is the Chrome trade, taken
+     * deliberately.
+     */
+    autoUpdate: z.boolean().default(false),
     // `prefault`, not `default`: zod 4's `.default()` takes an *output* value,
     // which would mean restating every nested default here where it could
     // drift. `prefault` feeds `{}` through the schema so the nested defaults

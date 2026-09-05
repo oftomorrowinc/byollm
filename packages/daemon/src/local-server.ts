@@ -97,13 +97,22 @@ export type StartOutcome =
 export async function ensureLocalServer(
   input: StartLocalInput,
 ): Promise<StartOutcome> {
-  if (await input.answers()) return "already-running";
-
+  /**
+   * Startability first, and health only if there is something we could do.
+   *
+   * The other order reads better and costs a request per job on every
+   * backend in the product — including the ones this module has no command
+   * for and the remote endpoints it would never touch. Asking a question
+   * whose answer cannot change what happens next is a request nobody
+   * needed, on the hot path.
+   */
   const command = startCommandFor(input.id);
   if (command === undefined) return "not-startable";
   if (input.baseUrl === undefined || !isLoopback(input.baseUrl)) {
     return "not-startable";
   }
+
+  if (await input.answers()) return "already-running";
 
   input.report(`${input.id} is not answering — starting it`);
   input.spawn(command);

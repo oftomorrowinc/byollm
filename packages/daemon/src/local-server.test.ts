@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import {
   ensureLocalServer,
@@ -98,6 +100,28 @@ describe("starting one on demand", () => {
     expect(h.said).toEqual([]);
   });
 
+  it("does not even ask when there is nothing it could do about it", async () => {
+    /**
+     * Startability is checked before health, and the order is the point: the
+     * other way round costs a request per job on every backend in the
+     * product, including the ones this has no command for and the remote
+     * endpoints it would never touch. A question whose answer cannot change
+     * what happens next is a request nobody needed, on the hot path.
+     */
+    const remote = harness({
+      answers: [false, true],
+      baseUrl: "https://models.example.com/v1",
+    });
+    expect(await ensureLocalServer(remote.input)).toBe("not-startable");
+    expect(remote.asked(), "a remote endpoint must not be probed").toBe(0);
+
+    const unknown = harness({ answers: [false, true] });
+    expect(await ensureLocalServer({ ...unknown.input, id: "vllm" })).toBe(
+      "not-startable",
+    );
+    expect(unknown.asked()).toBe(0);
+  });
+
   it("starts it, then waits for it to answer", async () => {
     const h = harness({ answers: [false, true] });
     expect(await ensureLocalServer(h.input)).toBe("started");
@@ -144,5 +168,58 @@ describe("starting one on demand", () => {
     const h = harness({ answers: [false, false, false, true] });
     expect(await ensureLocalServer(h.input)).toBe("started");
     expect(h.spawned).toHaveLength(1);
+  });
+});
+
+describe("the runner's own guard on starting servers", () => {
+  /**
+   * Read from the source, because the property is an absence and the thing
+   * that would break it is a line somebody deletes — B050.
+   *
+   * `spawnServer` is absent by default and only the job-running daemon
+   * passes one. Without that, `connect`, `services` and `status` — which all
+   * build a Runner to ask a question — could start a model server as a side
+   * effect of being run.
+   */
+  const runner = readFileSync(
+    fileURLToPath(new URL("./runner.ts", import.meta.url)),
+    "utf8",
+  );
+
+  it("does nothing when no spawn seam was given", () => {
+    const guard = runner.slice(
+      runner.indexOf("async #ensureLocalServer("),
+      runner.indexOf("async runJob("),
+    );
+    expect(guard).toContain("spawnServer === undefined) return");
+    /* First, before the class check and before anything is asked. */
+    expect(guard.indexOf("spawnServer === undefined")).toBeLessThan(
+      guard.indexOf("backendClass"),
+    );
+  });
+
+  it("only asks about HTTP-class services", () => {
+    /* A process backend has no url to start and no server behind it. */
+    const guard = runner.slice(
+      runner.indexOf("async #ensureLocalServer("),
+      runner.indexOf("async runJob("),
+    );
+    expect(guard).toContain('route.backendClass !== "http"');
+  });
+
+  it("is called at all, before the backend is asked to execute", () => {
+    /**
+     * Presence first, and that is not belt-and-braces — it is the bug this
+     * test had. `indexOf` returns -1 for a call that is not there, and -1 is
+     * less than every real index, so an ordering assertion on its own passes
+     * most convincingly when the thing has been deleted.
+     */
+    const body = runner.slice(runner.indexOf("async runJob("));
+    const ensure = body.indexOf("#ensureLocalServer(route, backend)");
+    const execute = body.indexOf("await backend.execute(");
+    expect(ensure, "the call is gone").toBeGreaterThan(-1);
+    expect(execute).toBeGreaterThan(-1);
+    /* After would be a start that helps the next job and not this one. */
+    expect(ensure).toBeLessThan(execute);
   });
 });

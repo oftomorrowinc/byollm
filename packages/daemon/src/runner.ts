@@ -1,3 +1,4 @@
+import { ensureLocalServer } from "./local-server.js";
 import type { ServiceReport } from "./service-line.js";
 import { knownModelsFor } from "./known-models.js";
 import { outcomeForSite } from "./site-outcome.js";
@@ -157,6 +158,16 @@ export interface RunnerOptions {
   readonly onEvent?: (event: RunnerEvent) => void;
   /** Injectable backend factory, so tests need no real model server. */
   readonly backendFactory?: (route: ResolvedRoute) => Backend;
+  /**
+   * Start a local model server — B050. Absent means never start one.
+   *
+   * Injected rather than imported, and ABSENT BY DEFAULT, because this
+   * spawns a process on somebody's machine. Every short-lived command that
+   * builds a Runner — `connect`, `services`, `status` — would otherwise be
+   * able to start a model server as a side effect of asking a question. Only
+   * the daemon that runs jobs passes one.
+   */
+  readonly spawnServer?: (command: readonly string[]) => void;
 }
 
 /**
@@ -191,6 +202,8 @@ export type RunnerEvent =
    * package would be a runner that could not be tested without one.
    */
   | { readonly type: "update-offered"; readonly version: string }
+  /** A local model server was found down and started — B050. */
+  | { readonly type: "local-server"; readonly detail: string }
   /** A pinned site's encryption key moved under its identity — refused. */
   | { readonly type: "site-key-changed"; readonly site: string }
   /**
@@ -1348,6 +1361,43 @@ export class Runner {
    * is touched ({@link MUSTS.INGRESS_LOGGED_BEFORE_EXECUTION}), so a job that
    * hangs the machine still leaves a record of what it was.
    */
+  /**
+   * Bring up the local server behind this route, if there is one to bring up.
+   *
+   * Everything it needs is asked of the route and the config rather than
+   * assumed: whether the service is HTTP-class at all, whether its url is on
+   * this machine, and whether the id is one whose start command we can say.
+   * Any "no" leaves the behaviour exactly as it was, and costs no request.
+   *
+   * **`spawnServer` absent means nothing is ever started.** The daemon that
+   * runs jobs passes one; `connect`, `services` and `status` build runners
+   * too, and none of them should be able to start a model server as a side
+   * effect of asking a question.
+   */
+  async #ensureLocalServer(
+    route: ResolvedRoute,
+    backend: Backend,
+  ): Promise<void> {
+    const spawnServer = this.#options.spawnServer;
+    if (spawnServer === undefined) return;
+    if (route.backendClass !== "http") return;
+    const baseUrl =
+      this.#options.loaded.config.services[route.service]?.baseUrl;
+    if (baseUrl === undefined) return;
+    await ensureLocalServer({
+      id: route.backendId,
+      baseUrl,
+      answers: async () => (await backend.health()).healthy,
+      spawn: (command) => {
+        spawnServer(command);
+      },
+      wait: (ms) => new Promise((wake) => setTimeout(wake, ms)),
+      report: (line) => {
+        this.#options.onEvent?.({ type: "local-server", detail: line });
+      },
+    });
+  }
+
   async runJob(job: ClaimedJob): Promise<JobOutcome> {
     const route = this.#routeFor(job.kind, job.service);
     if (!route) {
@@ -1391,6 +1441,15 @@ export class Runner {
 
     try {
       const backend = this.#backendFor(route);
+      /**
+       * Start the local server if this job needs one — B050.
+       *
+       * Here rather than at start-up, which is the whole ruling: nothing is
+       * pre-warmed, and a server nobody is asking anything of stays off.
+       * First-job latency pays the load, and the job's own deadline bounds
+       * it. Costs nothing on the paths it cannot help — see the guard.
+       */
+      await this.#ensureLocalServer(route, backend);
       const result = await backend.execute({
         prompt,
         model: route.model,

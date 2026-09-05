@@ -530,3 +530,56 @@ describe("a floor refusal is a version problem, not a permission one", () => {
     }
   });
 });
+
+describe("a finished job is not a job to keep asking about", () => {
+  /**
+   * `too-late` and `not-ready` arrive on the SAME 409 and carry opposite
+   * instructions: one says keep asking, the other says stop. The protocol's
+   * own note on `too-late` says a daemon "must stop rather than retry".
+   *
+   * Mapped by status, this daemon did the retrying — it polled a finished job
+   * until the payload deadline and then released a lease on work that had
+   * already ended. Flagged weeks ago as "every 409 becomes not-ready"; this
+   * is that, with the case that makes it matter.
+   */
+  const answering = (error: string) =>
+    new ProtocolClient({
+      origin: "https://app.test",
+      identity: TEST_SIGNER,
+      fetch: () =>
+        Promise.resolve(
+          new Response(
+            JSON.stringify({
+              error,
+              message:
+                error === "too-late"
+                  ? "this job has already finished"
+                  : "the site has not sealed this yet",
+            }),
+            { status: 409, headers: { "content-type": "application/json" } },
+          ),
+        ),
+    });
+
+  const fetching = (client: ProtocolClient) =>
+    client
+      .fetch({ runnerId: "r1", jobId: "job_1", leaseId: "lease_1" })
+      .then(() => null)
+      .catch((e: unknown) => e as { kind: string; message: string });
+
+  it("tells too-late apart from not-ready on the same status", async () => {
+    expect((await fetching(answering("too-late")))?.kind).toBe("too-late");
+    /* The control, and the whole point: the same status, the other code,
+       the opposite instruction. */
+    expect((await fetching(answering("not-ready")))?.kind).toBe("not-ready");
+  });
+
+  it("keeps the upstream's sentence, which is not 'no such job'", async () => {
+    /* Distinct from `rejected` for the log's sake: a device that says "no
+       such job" about a job it just finished is a device somebody goes
+       looking for a bug in. */
+    expect((await fetching(answering("too-late")))?.message).toContain(
+      "already finished",
+    );
+  });
+});

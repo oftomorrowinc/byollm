@@ -39,6 +39,22 @@ export type ClientErrorKind =
    */
   | "version-unsupported"
   /**
+   * The job is over, and asking again cannot change that.
+   *
+   * Its own kind because it arrives on the SAME 409 as `not-ready`, whose
+   * instruction is the opposite — that one says keep asking, this one says
+   * stop. The protocol's own note on `too-late` says a daemon "must stop
+   * rather than retry"; mapped by status, this daemon did the retrying,
+   * polling a finished job until the payload deadline and then releasing a
+   * lease on work that had already ended.
+   *
+   * Distinct from `rejected` too, which is "no such job for this device".
+   * The remedy is the same — stop — and the sentence in the log is not, and
+   * a device that says "no such job" about a job it just finished is a
+   * device somebody goes looking for a bug in.
+   */
+  | "too-late"
+  /**
    * This machine's clock is too far from the upstream's.
    *
    * Its own kind for the same reason `version-unsupported` has one: a retry
@@ -361,6 +377,16 @@ export class ProtocolClient {
       // The server already composed a message naming the fix; pass it through
       // rather than paraphrasing it into something vaguer.
       return new ClientError("version-unsupported", message, retryAfter);
+    }
+    if (
+      typeof body === "object" &&
+      body !== null &&
+      (body as { error?: unknown }).error === "too-late"
+    ) {
+      /* Before the status switch, because `too-late` and `not-ready` share a
+         409 and carry opposite instructions. The code is what a caller acts
+         on; the status is the class of the problem. */
+      return new ClientError("too-late", message, retryAfter);
     }
     if (
       typeof body === "object" &&

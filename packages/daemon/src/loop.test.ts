@@ -665,6 +665,92 @@ describe("the loop", () => {
     );
   });
 
+  it("stops asking for a job the upstream says has finished", async () => {
+    /**
+     * `too-late` and `not-ready` share a 409 and carry opposite instructions:
+     * one says keep asking, the other says stop. The protocol's own note on
+     * `too-late` says a daemon "must stop rather than retry" — and mapped by
+     * status, this daemon retried, polling a finished job until the payload
+     * deadline and then releasing a lease on work that had already ended.
+     *
+     * Counted in FETCHES, because the count is the defect. A version that
+     * reported the right thing after thirty seconds of polling would satisfy
+     * any assertion about the outcome.
+     */
+    let fetches = 0;
+    const releases: { reason?: string }[] = [];
+    const finished: typeof fetch = async (input, init) => {
+      const url = String(input instanceof Request ? input.url : input);
+      if (url.endsWith("/release")) {
+        const body = init?.body;
+        releases.push(
+          JSON.parse(typeof body === "string" ? body : "{}") as {
+            reason?: string;
+          },
+        );
+        return new Response(JSON.stringify({ released: [] }), {
+          headers: { "content-type": "application/json" },
+        });
+      }
+      if (url.endsWith("/fetch")) {
+        fetches += 1;
+        return new Response(
+          JSON.stringify({
+            error: "too-late",
+            message: "this job has already finished",
+          }),
+          { status: 409, headers: { "content-type": "application/json" } },
+        );
+      }
+      return routed({
+        claim: {
+          jobs: [
+            {
+              id: "job_1",
+              kind: "llm.generate",
+              audience: "private",
+              owner: "me",
+              site: TEST_SITE_ID,
+              sizeClass: "small",
+              streaming: false,
+              deadlineAt: Date.now() + 60_000,
+              lease: {
+                id: "lease_test",
+                runnerId: "runner_1",
+                expiresAt: Date.now() + 60_000,
+              },
+            },
+          ],
+          leaseMs: 60_000,
+        },
+      })(input, init);
+    };
+
+    const runner = await makeRunner(finished);
+    await runner.tick();
+    await settles(() => fetches > 0, "the payload to be asked for");
+    /* Give a retrying version room to retry. */
+    await new Promise((wake) => setTimeout(wake, 200));
+    expect(fetches, "a finished job must be asked about once").toBe(1);
+    expect(backend.seen).toEqual([]);
+    /* And it ends the RIGHT way: the upstream's own sentence, through the
+       gone path, rather than thrown as a generic failure. Both stop the
+       polling, and only one of them says what happened. */
+    /* And it ends the RIGHT way: refused at once, with the upstream's own
+       sentence — not routed through the three-attempt path that exists for
+       "could not fetch it", which would lease-lapse and re-claim a finished
+       job twice more. */
+    await settles(
+      () => events.some((e) => JSON.stringify(e).includes("is over")),
+      "the job to be reported over",
+    );
+    expect(JSON.stringify(events)).not.toContain("attempt 1 of");
+    expect(
+      releases.map((r) => r.reason),
+      "a finished job is refused, not left to lapse",
+    ).toContain("refused");
+  });
+
   it("refuses a stub naming a site it did not pair with", async () => {
     // Amendment A §A.3's daemon half. `stub.site` is the site's identity key
     // id precisely so a daemon can check it against the key it pinned, with no

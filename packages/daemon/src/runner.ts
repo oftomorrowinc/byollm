@@ -2000,6 +2000,30 @@ export class Runner {
     // the payload rode along with the claim.
     const fetched = await this.#fetchWhenSealed(job);
     if (!fetched) return;
+    if ("over" in fetched) {
+      /**
+       * The upstream says this job has already finished — refused at once.
+       *
+       * Not routed through the attempts counter below, which exists for
+       * "could not fetch it" and its transient reading. There is no
+       * transient reading of `too-late`: the upstream answered, and the
+       * answer will be the same in five seconds. Lease-lapsing three times
+       * here would be two more claims of work that no longer exists.
+       */
+      this.#gaveUpFetching.delete(job.id);
+      this.#options.onEvent?.({
+        type: "error",
+        message: `${job.id} is over (${fetched.over})`,
+      });
+      await this.#safely(() =>
+        this.#options.client.release({
+          runnerId: this.#options.runnerId,
+          leases: [{ jobId: job.id, leaseId: job.lease.id }],
+          reason: "refused",
+        }),
+      );
+      return;
+    }
     if ("gone" in fetched) {
       /**
        * Terminal *after a few tries*, not on the first — corrected
@@ -2206,7 +2230,9 @@ export class Runner {
    */
   async #fetchWhenSealed(
     job: ClaimedStub,
-  ): Promise<{ envelope: SealedEnvelope } | { gone: string } | null> {
+  ): Promise<
+    { envelope: SealedEnvelope } | { gone: string } | { over: string } | null
+  > {
     const deadline = Math.min(job.lease.expiresAt, this.#now() + 30_000);
     let delay = 50;
     for (;;) {
@@ -2230,6 +2256,21 @@ export class Runner {
            * the lease lapsing and the job being offered again is the right
            * recovery for those.
            */
+          /**
+           * `too-late` is its own outcome, not a `gone` — B038's lesson runs
+           * out here.
+           *
+           * `gone` means "we could not fetch it", which has a transient
+           * reading: refusing on the first 404 turned a slow seal into a
+           * permanent refusal, so it lease-lapses three times before it
+           * refuses. That is right for a 404 and wrong for this. The
+           * upstream is not failing to answer — it is answering, and the
+           * answer is that the job has ended. Three lease lapses on a
+           * finished job is two more claims of work that no longer exists.
+           */
+          if (error instanceof ClientError && error.kind === "too-late") {
+            return { over: error.message };
+          }
           if (error instanceof ClientError && error.kind === "rejected") {
             return { gone: error.message };
           }

@@ -732,3 +732,45 @@ continues) must pair the drain with resumeClaiming — otherwise a
 declined or failed offer leaves a daemon that quietly serves nothing,
 which is Kevin's original bug wearing the updater's clothes. I will
 test exactly this on the wiring cut.
+
+### B053 wiring reviewed — same night, one commit later (9cfe5f4)
+
+The wiring-time must-check was already answered before it was asked:
+9cfe5f4 (CCB, 02:37 their time, minutes before my foundation review
+landed) resumes claiming on every non-updated outcome and never
+resolves the watcher — "none of them is a reason to stop working" —
+and on success EXITS so the supervisor starts the new binary, because
+this process is the old one and cannot become the new one. I re-ran
+the stays-drained mutation by hand: deleting the resumeClaiming loop
+reddens "goes back to work when the update did not take." The
+refusal-above-drain ordering holds (a bad offer costs a machine
+nothing), and one-offer-per-machine stops a daemon paired with four
+sites from starting four updates of its one binary.
+
+CCB's own catches this cut, both worth the record:
+- The version canary matched the FIRST semver-shaped token in
+  `byollm --version` output — a rewording made it match node's version
+  from the second line and confidently roll back the whole fleet.
+  Anchored to the `byollm` line now; a reworded line yields undefined,
+  which fails the canary — wrong in the safe direction.
+- Two drain tests passed in first draft WITH THE DRAIN DELETED (the
+  fixture replayed one job id; the runner's own dedup declined the
+  repeat, so the test proved deduplication it was not about). Rebuilt
+  on fresh-work fixtures, counted at the CLAIM. The `paused` test it
+  replaced had the same shape — which is presumably why THAT never
+  caught anything either. The mutation-applied law, holding.
+
+**M-grade for the hub-half cut:** `offered ??=` sets once per process
+life. After a rolled-back update, a LATER offer of a strictly newer
+(fixed) version is ignored until the daemon restarts — so fleet
+recovery from a bad version rides on daemon restarts, not on the
+channel. Either let a strictly-newer offer re-arm the watcher, or
+state the restart-rides recovery plainly in the hub half's rollout
+notes. Also standing open (CCB's, correctly boarded not guessed):
+Windows Task Scheduler restarts on FAILURE, so exit-after-update may
+strand the daemon until next logon — answer before personal devices,
+not needed for hosted Linux.
+
+Remaining for B053: the HUB HALF (send updateTo behind mayOfferUpdate,
+staged cohorts/jitter, hosted-first) — needs a deploy, Todd's gate —
+and the provision-page copy (product copy, Todd's approval).

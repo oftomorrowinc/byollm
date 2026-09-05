@@ -683,3 +683,52 @@ contradiction in bold, ours-reported-as-theirs, and a caption telling
 borrowers they owned machines). The board's expectation note said
 "fast"; it was fast AND it was load-bearing, which is the argument for
 never skipping the sweep batches.
+
+---
+
+## CW rolling review — 2026-09-05 ~6:40am UTC, B053 foundation (byollm f3cd255..3f81a33)
+
+Verdict: faithful to the 016 ruling, and this is the FOUNDATION half —
+decision logic, drain, wire channel, config gate. Not yet present, as
+expected mid-build: the loop wiring (update-offered + autoUpdate ->
+run the updater) and the hub half (sending updateTo, staged
+cohorts/jitter, hosted-first). Suite green at the head (1333). Two
+mutations re-run by hand: string-comparing versions reddens the
+prerelease-numbers and release-above-prerelease tests (the exact
+alpha.9-sorts-after-alpha.83 trap the comparator exists for), and
+skipping the rollback canary reddens "stranded, not silent, when the
+rollback installs and does not take."
+
+What the diff shows, checked against the ruling point by point: drain
+is NOT shutdown (finishes the running job, claims nothing; shutdown
+cancels and releases — "an update is elective; a job is not"), and the
+timeout is lease-bounded by design. exactVersion refuses tags and
+ranges as a type, and update() refuses BEFORE draining when the target
+is bad — a refusal must not cost the jobs the machine was about to
+claim. The rollback keeps `from` as a value because "after a bad
+install the machine can no longer be asked what it used to be," the
+canary checks IDENTITY not liveness (a half-finished install leaves
+the old binary starting perfectly), and a failed rollback strands
+LOUDLY rather than looping. npm is argv-not-shell with exactVersion as
+the first fence. The updateTo channel solves the strict-schema
+ordering problem the RIGHT way — the hub declines to say what a
+listener cannot hear, decided from daemonVersion already on the wire,
+with the rule as code beside the field; the capability-list
+alternative is rejected in a comment for the ordering hole it has.
+UPDATE_OFFER_SINCE = .83 with "raising is safe, lowering is not."
+
+One deviation, APPROVED as sequencing not disobedience: autoUpdate
+defaults FALSE this release, with the ruling's default-yes arriving
+next release behind setup's question — the mechanism ships and gets
+watched on the fleet we own before it touches a laptop, and a config
+that predates the field must not have its owner's consent invented by
+an upgrade. That last sentence is the pause lesson applied to consent.
+
+**WIRING-TIME MUST-CHECK (recorded now so it is not discovered
+later):** `resumeClaiming()` exists and nothing calls it yet. When the
+loop wiring lands, every update outcome that does NOT end in a process
+restart (refused mid-flight, rolled-back where the same process
+continues) must pair the drain with resumeClaiming — otherwise a
+declined or failed offer leaves a daemon that quietly serves nothing,
+which is Kevin's original bug wearing the updater's clothes. I will
+test exactly this on the wiring cut.

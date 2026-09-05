@@ -580,3 +580,22 @@ version that serves the person (start it when they need it, check
 only what actually breaks) beat the thorough version that spends on
 ceremony. Ride: after Batch C with the rest, or wherever CCB slots
 daemon work next.
+
+### The prose check reads the passage — CW verify, 2026-09-05 (web 2b8f072)
+
+CCB closed the M-note within the hour: the check now windows ±900
+chars around each mention of the subject and demands the refusal
+inside the window, reporting offsets. Code read clean (the /g-regex
+lastIndex footgun is explicitly avoided — matchAll on the global,
+a fresh non-global clone for the control). I verified WITHOUT touching
+CCB's working tree, by running the window logic in python against the
+real page source: current page passes with zero stranded mentions; the
+exact partial revert from my note reddens with three.
+
+One margin worth recording: the reverted callout's nearest refusal
+token sits 912 chars away — the check catches today's layout by 12
+characters. Any constant has a boundary, and this one is on the right
+side of it, but if the corrected paragraph ever migrates ~15 chars
+closer to the callout position, the partial revert quietly passes
+again. Not a change request; a note so the number 900 is known to be
+load-bearing at its edge.

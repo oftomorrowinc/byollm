@@ -803,3 +803,32 @@ send updateTo, both behind their fences) — needs a deploy, Todd's
 gate. The daemon side of the entire update system is now built and
 reviewed, uncut; it presumably rides the next release with whatever
 Hosted needs.
+
+### The M-note closed, and it was worse than the note — 78fc6ad reviewed
+
+My M-grade said the HUB half would need to re-arm on strictly-newer
+offers; CCB found the daemon was the side dropping them, and TWO
+mechanisms held it: `??=` kept the first offer forever, and the
+watcher returned after a failure, ending the loop that would have
+seen the next one. Together: a machine that rolled back once never
+updated again until restarted — the fix for a bad release could not
+reach the machines the bad release landed on, the population an
+auto-updater exists for. Fixed as last-writer-wins plus a memory of
+attempted versions (without which the still-arriving offer becomes a
+reinstall-every-second loop), and the watcher keeps watching.
+
+Verified: suite 1347 green; I re-ran the memory-deleted mutation by
+hand — red on "does not retry a version it has already failed on."
+And the test carries its own confession worth the record: the first
+draft of that test PASSED with the memory deleted, because it aborted
+after the first attempt — before a forgetful watcher could make a
+second — so it stopped the loop and then asserted the loop had not
+run. Counted in cycles of the offer arriving now: five chances to
+retry are five chances the assertion can see. That is the
+mutation-applied law catching its second scalp of the night, this
+time before review ever saw the draft.
+
+B052+B053 daemon side: COMPLETE and reviewed, both M-grades resolved
+(re-arm fixed; Windows restart semantics stays boarded for the
+personal-devices release). Hub halves remain the only unbuilt pieces,
+both Todd-gated.

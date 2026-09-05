@@ -544,3 +544,39 @@ Non-interactive stays byte-identical. The setup-ceremony consent tier
 and hosted-box supervision tier of the icebox item are untouched —
 this is only the runtime tier, ruled preferred by Todd. Config gets a
 per-service off-switch for anyone who manages their own server.
+
+### B050 re-ruled (Todd, third pass, same night) — on-demand at job time, not pings at start
+
+Todd's correction supersedes both earlier shapes: "they should call
+the models to start them as needed, not keep them running when they
+aren't... If we can start them when needed, probably don't need to do
+so on start/run. We just need to check that subscriptions are
+logged-in since they are the ones that logout all the time."
+
+So the final shape, and it is smaller than either draft:
+- **The preflight stays exactly as B047 shipped.** Sign-in check for
+  subscription CLIs at interactive start/run — they are the things
+  that log out. No canary pings, no per-service prompts, no metered
+  spend at start. (The ledger rider dies with the pings it guarded.)
+- **B050 proper = on-demand local-server start at JOB time,** in the
+  daemon: a job routed to a local service (ollama/mlx) whose server
+  does not answer gets the server STARTED, the job run, and cleanup
+  left to the model runtime's own idle behavior (ollama unloads
+  models after keep_alive on its own — Todd's "I think they
+  auto-clean-up" is right for models; the server process left behind
+  is light). Nothing is pre-warmed and nothing is kept resident for
+  byollm's sake.
+- **Open for CCB (the one real design question):** advertising. The
+  daemon advertises models "actually there and healthy" — with
+  on-demand start, a configured-but-stopped server should advertise
+  as available (it IS available, one spawn away), which means the
+  health question becomes "installed and startable," not "answering
+  right now." First-job latency pays the model load; that is the
+  trade Todd chose and the job timeout already bounds it.
+
+CW note for the record: the ping-everything ruling lived for under an
+hour and its supersession is the process working — the cheapest
+version that serves the person (start it when they need it, check
+only what actually breaks) beat the thorough version that spends on
+ceremony. Ride: after Batch C with the rest, or wherever CCB slots
+daemon work next.

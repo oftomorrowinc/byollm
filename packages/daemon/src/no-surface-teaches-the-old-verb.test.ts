@@ -97,6 +97,25 @@ describe("what the daemon prints", () => {
     );
   });
 
+  it("reports what `start` did in the word `start` uses", () => {
+    /**
+     * CW's rider on this sweep, and it is the subtler half: `byollm start`
+     * printed "Installed." — a word that is no longer any command's name.
+     *
+     * Not an instruction, so the rule below does not see it, and no test
+     * asserted the line at all, which is how it survived three passes. It
+     * leaves the reader holding the old vocabulary at the one moment they
+     * are being taught the new one.
+     */
+    const install = readFileSync(`${HERE}install.ts`, "utf8");
+    const surface = printed(install);
+    expect(surface).toContain("Started.");
+    expect(
+      surface,
+      "`start` must not report its success as an install",
+    ).not.toContain("Installed.");
+  });
+
   it("never tells anybody to type one without naming the new one", () => {
     /* Roughly a screen either side, so a refusal that echoes what somebody
        typed and then points at the replacement is fine, and a bare

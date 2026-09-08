@@ -408,7 +408,7 @@ export async function installService(
             `  re-pair:  byollm connect`,
             `  ${REVOKED_RETURN}.`,
             "",
-            `Installing again will not change this — the refusal is the hub's,`,
+            `Starting it again will not change this — the refusal is the hub's,`,
             `and it stands until this device is approved again.`,
           ]
         : [
@@ -447,7 +447,12 @@ export async function installService(
   }
 
   const lines = [
-    `Installed. ${plan.supervisor} will keep byollm running and restart it if it stops.`,
+    /* "Installed." was the rename half-done — CW's rider on B055. `byollm
+       start` reporting a word that is no longer any command's name leaves
+       the reader holding the old vocabulary at the one moment they are being
+       taught the new one. What happened is that it started, and that it will
+       keep starting. */
+    `Started. ${plan.supervisor} will keep byollm running and restart it if it stops.`,
     "",
     `  service:  ${plan.unitPath}`,
     `  log:      ${plan.logPath}`,

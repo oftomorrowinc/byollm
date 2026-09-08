@@ -2,7 +2,9 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import {
+  binaryOnPath,
   ensureLocalServer,
+  isStartable,
   isLoopback,
   startCommandFor,
 } from "./local-server.js";
@@ -221,5 +223,100 @@ describe("the runner's own guard on starting servers", () => {
     expect(execute).toBeGreaterThan(-1);
     /* After would be a start that helps the next job and not this one. */
     expect(ensure).toBeLessThan(execute);
+  });
+});
+
+describe("whether a stopped server may still be advertised", () => {
+  /**
+   * B056 / D4. The ruling: a configured-but-stopped LOCAL server advertises,
+   * because it is available one spawn away and B050 starts it at job time.
+   *
+   * The line it must not cross is a config that names a server nobody
+   * installed. Advertising that turns a site's clean no-runner silence into a
+   * claimed-then-failed job — strictly worse for them than saying nothing —
+   * so "installed and startable" has to be answerable about the MACHINE, not
+   * about the file.
+   */
+  const present = () => Promise.resolve(true);
+  const absent = () => Promise.resolve(false);
+
+  it("advertises ollama that is installed and merely stopped", async () => {
+    expect(
+      await isStartable({
+        id: "ollama",
+        baseUrl: "http://127.0.0.1:11434/v1",
+        onPath: present,
+      }),
+    ).toBe(true);
+  });
+
+  it("refuses a config naming a server this machine does not have", async () => {
+    /* The whole point of asking PATH. Without it, `type: "ollama"` in a
+       config file is enough to claim work forever. */
+    expect(
+      await isStartable({
+        id: "ollama",
+        baseUrl: "http://127.0.0.1:11434/v1",
+        onPath: absent,
+      }),
+    ).toBe(false);
+  });
+
+  it("refuses a remote endpoint, however installed we are locally", async () => {
+    /* A local `ollama serve` does not fix a server on another machine, and
+       starting one would serve a DIFFERENT model than the config names. */
+    expect(
+      await isStartable({
+        id: "ollama",
+        baseUrl: "https://models.example.com/v1",
+        onPath: present,
+      }),
+    ).toBe(false);
+  });
+
+  it("refuses a backend whose start command we have not verified", async () => {
+    expect(
+      await isStartable({
+        id: "vllm",
+        baseUrl: "http://127.0.0.1:8000/v1",
+        onPath: present,
+      }),
+    ).toBe(false);
+  });
+});
+
+describe("finding a binary on PATH", () => {
+  it("finds one that is there, by looking rather than by running it", async () => {
+    /* `ollama --version` would answer this and would also start work on
+       somebody's machine as a side effect of an advertising decision — and
+       this runs on a heartbeat. */
+    expect(await binaryOnPath("sh", { PATH: "/bin:/usr/bin" }, "linux")).toBe(
+      true,
+    );
+  });
+
+  it("does not find one that is not", async () => {
+    expect(
+      await binaryOnPath(
+        "definitely-not-a-real-binary-9x",
+        {
+          PATH: "/bin:/usr/bin",
+        },
+        "linux",
+      ),
+    ).toBe(false);
+  });
+
+  it("says no rather than throwing when PATH is empty", async () => {
+    expect(await binaryOnPath("sh", {}, "linux")).toBe(false);
+  });
+
+  it("consults PATHEXT on Windows", async () => {
+    /* A Windows executable carries its extension, so looking for a bare name
+       finds nothing — which would report every Windows machine as having no
+       model server installed. */
+    expect(
+      await binaryOnPath("sh", { PATH: "/bin", PATHEXT: ".EXE" }, "win32"),
+    ).toBe(false);
   });
 });

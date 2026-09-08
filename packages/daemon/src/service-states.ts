@@ -31,6 +31,16 @@ const Stored = z.record(
         detail: z.string().optional(),
       }),
       z.object({ kind: z.literal("missing") }),
+      /**
+       * Installed here, not running, and startable — B056.
+       *
+       * Its own kind rather than `missing` or `unknown`, because the daemon
+       * ADVERTISES this one. A service that is advertised while `status`
+       * calls it "not found on this device" is a machine disagreeing with
+       * itself on two screens, which is the defect this codebase keeps
+       * finding under other names.
+       */
+      z.object({ kind: z.literal("stopped"), model: z.string() }),
       z.object({
         kind: z.literal("blocked"),
         detail: z.string().optional(),

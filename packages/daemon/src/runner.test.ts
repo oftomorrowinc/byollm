@@ -5,7 +5,7 @@ import {
   generateKeys,
   signRequest,
 } from "@byollm/protocol";
-import { mkdtemp } from "node:fs/promises";
+import { chmod, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -615,6 +615,98 @@ describe("status", () => {
     // And it stays withdrawn on the polling loop, which runs no canary and
     // would otherwise re-advertise it on the next heartbeat.
     expect(await runner.detectCapabilities()).toHaveLength(0);
+  });
+});
+
+describe("a local server that is installed and merely stopped", () => {
+  /**
+   * B056 / D4. The advertising ruling: a configured-but-stopped local server
+   * IS available — one spawn away — and B050 starts it when a job arrives.
+   *
+   * The line it must not cross is a config naming a server nobody installed.
+   * Advertising that turns a site's clean no-runner silence into a
+   * claimed-then-failed job, which is worse for them than saying nothing.
+   *
+   * Driven through the REAL PATH lookup with a real (empty, executable) file
+   * rather than an injected seam, because the thing under test is whether
+   * this machine has the binary — and a seam here would be a test of the
+   * seam. The port is closed, so health genuinely fails.
+   */
+  const ollamaService = {
+    local: {
+      model: "m",
+      kinds: ["llm.generate"],
+      type: "ollama",
+      baseUrl: "http://127.0.0.1:1/v1",
+      offer: "private",
+    },
+  };
+
+  /**
+   * A server that is not answering — which is the INPUT here, not the thing
+   * under test. Whether the daemon then consults the machine (start command,
+   * loopback, PATH) is what these two cases are about, and that half runs
+   * for real.
+   */
+  const stoppedServer = () =>
+    ({
+      health: () => Promise.resolve({ healthy: false, models: [] }),
+      execute: () =>
+        Promise.resolve({ ok: true as const, text: "", durationMs: 0 }),
+    }) as unknown as Backend;
+
+  let previousPath: string | undefined;
+  afterEach(() => {
+    if (previousPath === undefined) delete process.env["PATH"];
+    else process.env["PATH"] = previousPath;
+    previousPath = undefined;
+  });
+
+  async function withOllamaOnPath(present: boolean): Promise<void> {
+    const bin = await mkdtemp(join(tmpdir(), "byollm-path-"));
+    if (present) {
+      await writeFile(join(bin, "ollama"), "#!/bin/sh\nexit 0\n");
+      await chmod(join(bin, "ollama"), 0o755);
+    }
+    previousPath = process.env["PATH"];
+    process.env["PATH"] = bin;
+  }
+
+  it("is advertised, and says so rather than calling itself missing", async () => {
+    await withOllamaOnPath(true);
+    const states = new Map<string, { state: { kind: string } }>();
+    const { runner } = await makeRunner({
+      services: ollamaService,
+      backendFactory: () => stoppedServer(),
+      onServiceStates: (recorded) => {
+        for (const [name, report] of recorded) states.set(name, report);
+        return Promise.resolve();
+      },
+    });
+
+    const advertised = await runner.detectCapabilities();
+    expect(advertised, "installed and startable is available").toHaveLength(1);
+    /* And the two surfaces agree. A service advertised while `status` calls
+       it "not found on this device" is a machine contradicting itself. */
+    expect(states.get("local")?.state.kind).toBe("stopped");
+  });
+
+  it("is not advertised when the binary is not on this machine", async () => {
+    /* The control, and the whole reason PATH is consulted: without it,
+       `type: "ollama"` in a config file claims work forever. */
+    await withOllamaOnPath(false);
+    const states = new Map<string, { state: { kind: string } }>();
+    const { runner } = await makeRunner({
+      services: ollamaService,
+      backendFactory: () => stoppedServer(),
+      onServiceStates: (recorded) => {
+        for (const [name, report] of recorded) states.set(name, report);
+        return Promise.resolve();
+      },
+    });
+
+    expect(await runner.detectCapabilities()).toHaveLength(0);
+    expect(states.get("local")?.state.kind).toBe("missing");
   });
 });
 

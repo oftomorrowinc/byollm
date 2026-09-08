@@ -1,4 +1,4 @@
-import { ensureLocalServer } from "./local-server.js";
+import { ensureLocalServer, isStartable } from "./local-server.js";
 import type { ServiceReport } from "./service-line.js";
 import { knownModelsFor } from "./known-models.js";
 import { outcomeForSite } from "./site-outcome.js";
@@ -802,8 +802,31 @@ export class Runner {
         const remedy =
           backend.signIn === undefined ? {} : { signIn: backend.signIn };
         if (!health.healthy) {
+          /**
+           * Not running is not the same as not installed — B056 / D4.
+           *
+           * The ruling: a configured-but-stopped LOCAL server advertises,
+           * because it is available one spawn away and B050 starts it when a
+           * job arrives. What that must not become is advertising a config
+           * that names a server nobody installed — the fleet would claim work
+           * it cannot serve, turning a site's clean no-runner silence into a
+           * claimed-then-failed job, which is worse for them than saying
+           * nothing.
+           *
+           * So the question is asked of the MACHINE: do we know a start
+           * command, is the url on this machine, and is the binary actually
+           * on PATH. Any no leaves the behaviour exactly as it was.
+           */
+          const startable = await isStartable({
+            id: route.backendId,
+            baseUrl:
+              this.#options.loaded.config.services[route.service]?.baseUrl,
+          });
+          usable = startable;
           this.serviceStates.set(route.service, {
-            state: { kind: "missing" },
+            state: startable
+              ? { kind: "stopped", model: route.model }
+              : { kind: "missing" },
             ...remedy,
           });
         } else if (options.canary !== true || backend.canary === undefined) {

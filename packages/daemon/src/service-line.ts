@@ -20,6 +20,17 @@ export type ServiceState =
   /** The config names a binary this machine does not have. */
   | { readonly kind: "missing" }
   /**
+   * Installed here, not running, and startable — B056 / D4.
+   *
+   * Advertised, unlike `missing`, because it IS available: one spawn away,
+   * and the daemon starts it when a job arrives (B050). Its own kind rather
+   * than reusing `missing` or `unknown`, because this is the one state where
+   * the machine ADVERTISES the service — and a service advertised while
+   * `status` calls it "not found on this device" is a machine disagreeing
+   * with itself on two screens.
+   */
+  | { readonly kind: "stopped"; readonly model: string }
+  /**
    * Signed in, healthy, and out of quota until further notice — 019 §3.2.
    *
    * Its own state because its remedy is the opposite of signed-out's: this
@@ -94,6 +105,13 @@ export function serviceLine(input: {
         ...(state.detail === undefined ? {} : { detail: state.detail }),
       };
     }
+    case "stopped":
+      /* Not a problem and not a promise of speed. It says the two things
+         somebody needs: nothing is wrong, and the first job pays for the
+         start. */
+      return {
+        line: `${service} — ${state.model}, not running (starts when a job needs it)`,
+      };
     case "missing": {
       const remove = input.removeWith ?? `remove it from ~/.byollm/config.json`;
       return {

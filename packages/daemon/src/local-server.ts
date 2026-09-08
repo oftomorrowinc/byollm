@@ -136,3 +136,73 @@ export async function ensureLocalServer(
   input.report(`${input.id} did not come up in time`);
   return "gave-up";
 }
+
+/**
+ * Can this machine start the server behind a service — B056 / D4.
+ *
+ * The advertising ruling: a configured-but-stopped local server should
+ * advertise as available, because it IS available, one spawn away. First-job
+ * latency pays the model load and the job's deadline bounds it.
+ *
+ * **"Installed and startable" is not the same as "configured".** A config
+ * naming a server nobody ever installed must NOT advertise: the fleet would
+ * claim work it cannot serve, and a site's job would go from a clean
+ * no-runner silence to a claimed-then-failed job, which is strictly worse for
+ * them. So the question is asked of the machine, not of the file.
+ *
+ * Three things have to hold, and each rules out a real configuration:
+ *   · we know a start command for this backend  (not every local server has
+ *     one this module can say)
+ *   · the url is on this machine                (a remote endpoint that is
+ *     down is not something a local spawn fixes)
+ *   · the binary is actually on PATH            (the half that separates
+ *     "installed" from "written in a config file")
+ */
+export async function isStartable(input: {
+  readonly id: BackendId;
+  readonly baseUrl: string | undefined;
+  readonly onPath?: (binary: string) => Promise<boolean>;
+}): Promise<boolean> {
+  const command = startCommandFor(input.id);
+  if (command === undefined) return false;
+  if (input.baseUrl === undefined || !isLoopback(input.baseUrl)) return false;
+  return await (input.onPath ?? binaryOnPath)(command[0]);
+}
+
+/**
+ * Is this program on PATH?
+ *
+ * Resolved by looking, not by running it. `ollama --version` would answer the
+ * question and would also start work on somebody's machine as a side effect
+ * of an advertising decision — and this runs on a heartbeat.
+ *
+ * Windows executables carry their extension, so PATHEXT is consulted there;
+ * everywhere else the file simply has to be executable by us.
+ */
+export async function binaryOnPath(
+  binary: string,
+  env: NodeJS.ProcessEnv = process.env,
+  platform: NodeJS.Platform = process.platform,
+): Promise<boolean> {
+  const { access } = await import("node:fs/promises");
+  const { join, delimiter } = await import("node:path");
+  const { constants } = await import("node:fs");
+
+  const dirs = (env["PATH"] ?? "").split(delimiter).filter((d) => d !== "");
+  const suffixes =
+    platform === "win32"
+      ? (env["PATHEXT"] ?? ".COM;.EXE;.BAT;.CMD").split(";")
+      : [""];
+
+  for (const dir of dirs) {
+    for (const suffix of suffixes) {
+      try {
+        await access(join(dir, `${binary}${suffix}`), constants.X_OK);
+        return true;
+      } catch {
+        // Not here, or not executable by us. Both mean keep looking.
+      }
+    }
+  }
+  return false;
+}

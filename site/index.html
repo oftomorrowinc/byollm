@@ -166,7 +166,7 @@
   <h1>Your users' AI,<br>on <span class="g">their own computers</span>.</h1>
   <p class="sub">Let your app run its LLM jobs on your users' own models and subscriptions — their Ollama box, their Mac running MLX, their <span class="mono">claude</span> CLI — through a tiny daemon they run and control. No keys leave their computer. No tunnels. No inbound ports.</p>
   <div class="cmd mono">
-    <span class="p">$</span><span class="c">npx byollm@alpha connect https://your-app.com</span>
+    <span class="p">$</span><span class="c">npx byollm@latest connect https://your-app.com</span>
     <button class="cp" id="cp" aria-label="Copy the connect command">copy</button>
   </div>
   <div class="cta">
@@ -223,7 +223,7 @@
   <p class="eyebrow">For users</p>
   <h2>One command. Your models. Your rules.</h2>
   <div class="steps">
-    <div class="step"><span class="n">1</span><div><h4>Connect</h4><p><code>npx byollm@alpha connect https://the-app.com</code> — opens your browser to pair with one click. Nothing to configure on your network.</p></div></div>
+    <div class="step"><span class="n">1</span><div><h4>Connect</h4><p><code>npx byollm@latest connect https://the-app.com</code> — opens your browser to pair with one click. Nothing to configure on your network.</p></div></div>
     <div class="step"><span class="n">2</span><div><h4>Route your models</h4><p>Map job kinds to whatever you've got installed: <code>"llm.generate": { "backend": "local", "model": "gemma3:12b" }</code>. The daemon only advertises models that are actually there and healthy.</p></div></div>
     <div class="step"><span class="n">3</span><div><h4>Stay in control</h4><p><code>byollm log</code> shows every prompt that ever ran on your device. <code>byollm stop</code> stops it. The daemon is your meter — that's the point.</p></div></div>
   </div>
@@ -328,7 +328,7 @@
     if (!b || !navigator.clipboard) { if (b) b.hidden = true; return; }
     b.addEventListener("click", function () {
       navigator.clipboard
-        .writeText("npx byollm@alpha connect https://your-app.com")
+        .writeText("npx byollm@latest connect https://your-app.com")
         .then(function () {
           b.textContent = "copied";
           setTimeout(function () { b.textContent = "copy"; }, 1600);

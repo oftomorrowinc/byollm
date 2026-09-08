@@ -186,10 +186,10 @@ export interface ServiceTarget {
  * diagnostic that reads a different environment than the thing it diagnoses is
  * worse than no diagnostic, because it is believed.
  *
- * So the installer captures the `PATH` of the shell that ran `byollm install`.
+ * So the installer captures the `PATH` of the shell that ran `byollm start`.
  * That is the environment the person set up on purpose, and it is the only one
  * available at the moment the service is defined. It is a snapshot: a CLI
- * installed to a new directory afterwards needs `byollm install` again, which
+ * installed to a new directory afterwards needs `byollm start` again, which
  * `byollm services` now says out loud when it notices the difference.
  */
 function servicePath(): string {
@@ -487,8 +487,8 @@ export function refuseToSupervise(scriptPath: string): string | null {
       `this copy of byollm lives in npx's cache (${scriptPath}), which npm ` +
       `deletes without warning — a service pointing at it would stop working ` +
       `at some later boot, silently.\n\n` +
-      `  Install it properly first:  npm install -g byollm@alpha\n` +
-      `  Then:                       byollm install`
+      `  Install it properly first:  npm install -g byollm@latest\n` +
+      `  Then:                       byollm start`
     );
   }
   return null;

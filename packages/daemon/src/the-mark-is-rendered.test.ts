@@ -215,7 +215,7 @@ describe("byollm install, on a revoked device", () => {
     const said = result.lines.join("\n");
     expect(said).toContain(REVOKED_SENTENCE);
     expect(said).toContain("byollm connect");
-    expect(said).not.toContain("retry:    byollm install");
+    expect(said).not.toContain("retry:    byollm start");
   });
 
   it("keeps the retry line when retrying is the right advice", async () => {
@@ -227,7 +227,7 @@ describe("byollm install, on a revoked device", () => {
       () => Promise.resolve(),
       false,
     );
-    expect(result.lines.join("\n")).toContain("retry:    byollm install");
+    expect(result.lines.join("\n")).toContain("retry:    byollm start");
   });
 });
 

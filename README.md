@@ -1,7 +1,7 @@
 > [!WARNING]
 > **Alpha (`0.1.0-alpha.83`) — under active development. Don't use this yet.**
 >
-> Install it as `byollm@alpha`, deliberately. npm forces a `latest` tag onto a
+> Install it as `byollm@latest`, deliberately. npm forces a `latest` tag onto a
 > package's first publish and will not let it be removed, so a bare install
 > resolves here too — this notice is the only guard, and that is on purpose:
 > an npm deprecation would read as *abandoned* rather than *early*. The
@@ -103,7 +103,7 @@
 > restated what the service lines already say.
 >
 > **`alpha.50` — the background daemon can find your CLIs. Reinstall the
-> service after upgrading:** `byollm uninstall && byollm install`.
+> service after upgrading:** `byollm stop && byollm start`.
 >
 > A supervised daemon runs with the service manager's environment, not yours.
 > launchd hands an agent `/usr/bin:/bin:/usr/sbin:/sbin`, and `claude` installs
@@ -113,7 +113,7 @@
 > health probe, and the daemon cannot tell it from "installed somewhere I
 > cannot see". systemd user units had the same gap.
 >
-> `byollm install` now captures your shell's PATH. It is a snapshot — install a
+> `byollm start` now captures your shell's PATH. It is a snapshot — install a
 > CLI somewhere new and run it again.
 >
 > **`byollm services` no longer speaks for the daemon.** It said "healthy and
@@ -346,7 +346,7 @@
 
 **Bring Your Own LLM.** Let your app's users run its AI on *their* models and *their* subscriptions — their Ollama box, their Mac running MLX, their `claude` CLI — through a tiny daemon they run and control.
 
-`npx byollm@alpha connect https://your-app.com`
+`npx byollm@latest connect https://your-app.com`
 
 [![npm](https://img.shields.io/badge/npm-%40byollm-cb3837)](https://www.npmjs.com/org/byollm) · [![license](https://img.shields.io/badge/license-MIT-blue)](#license) · [![status](https://img.shields.io/badge/status-alpha-orange)](#status)
 
@@ -439,7 +439,7 @@ That's the whole integration: **one route, one store, one `enqueue`.** If no dae
 ### For users
 
 ```bash
-npx byollm@alpha connect https://your-app.com   # opens a browser to pair — one click
+npx byollm@latest connect https://your-app.com   # opens a browser to pair — one click
 byollm status                                # what's connected, what's running
 ```
 
@@ -521,7 +521,7 @@ We're precise about the boundary: BYOLLM makes **breakout** impossible; **prompt
 | Package | What it is |
 |---|---|
 | [`@byollm/protocol`](packages/protocol) | The wire contract — types, schemas, the normative spec. |
-| [`byollm`](packages/daemon) | What users run (`npx byollm@alpha`). Backends, routing, the trust log. |
+| [`byollm`](packages/daemon) | What users run (`npx byollm@latest`). Backends, routing, the trust log. |
 | [`@byollm/server`](packages/server) | Drop-in handlers + a Supabase adapter for your backend. |
 | [`@byollm/conformance`](packages/conformance) | The compatibility contract — certify any server with one command. |
 

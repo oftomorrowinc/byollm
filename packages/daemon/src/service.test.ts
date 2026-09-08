@@ -196,7 +196,10 @@ describe("refusing to supervise a copy that will vanish", () => {
       "/Users/todd/.npm/_npx/1a2b3c/node_modules/@byollm/daemon/dist/bin.js",
     );
     expect(refusal).not.toBeNull();
-    expect(refusal).toContain("npm install -g byollm@alpha");
+    /* `@latest`, not `@alpha` — the same ruling the docs took in B014: the
+       alpha tag moves FIRST and is reviewed last, so telling somebody to ask
+       for it explicitly sends them to the least-scrutinised build. */
+    expect(refusal).toContain("npm install -g byollm@latest");
   });
 
   it("allows a global install", () => {
@@ -503,7 +506,7 @@ describe("the CLI's own service commands", () => {
 
     expect(code).toBe(0);
     expect(out).toContain("service: not installed");
-    expect(out).toContain("byollm install");
+    expect(out).toContain("byollm start");
   });
 
   it("says loudly on `status` when installed but stopped", async () => {
@@ -552,7 +555,7 @@ describe("the CLI's own service commands", () => {
     });
 
     expect(code).toBe(1);
-    expect(err).toContain("npm install -g byollm@alpha");
+    expect(err).toContain("npm install -g byollm@latest");
     /**
      * And it does not tell them to go and test a device that is not running —
      * ruled 2026-09-02.

@@ -830,7 +830,7 @@ describe("byollm services speaks for the shell, not the daemon", () => {
 
     await runCli(["services"], { paths, io: io(), service });
     expect(out).toContain("your shell's view");
-    expect(out).toContain("byollm uninstall && byollm install");
+    expect(out).toContain("byollm stop && byollm start");
   });
 
   it("says nothing about it when no service is installed", async () => {

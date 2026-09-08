@@ -603,7 +603,7 @@ async function commandInstall(
    * The same moment, reached the other way.
    *
    * `byollm setup` ends here for most people, but somebody who paired earlier
-   * and ran `byollm install` on its own has arrived at exactly the point where
+   * and ran `byollm start` on its own has arrived at exactly the point where
    * the device is running and the promise becomes true — and had nothing
    * telling them so. One sentence, one definition, both callers.
    */
@@ -697,7 +697,7 @@ async function supervisionLine(
           ? ""
           : `\n  the program it runs is missing: ${program.path}\n` +
             `  (the node it was installed with was removed or upgraded — ` +
-            `\`byollm install\` records the current one)\n`;
+            `\`byollm start\` records the current one)\n`;
       return (
         `service: installed but NOT running (${state.detail}) — ` +
         `this device is on rosters and serving nothing. See ${plan.logPath}\n` +
@@ -727,7 +727,7 @@ async function supervisionLine(
           `  startup: ${fallback.unitPath}\n`
         );
       }
-      return `service: not installed — jobs only run while \`byollm run\` is open (\`byollm install\` fixes that)\n`;
+      return `service: not installed — jobs only run while \`byollm run\` is open (\`byollm start\` fixes that)\n`;
     }
   }
 }
@@ -1289,7 +1289,7 @@ async function commandConnect(
    */
   io.out(
     `\nPaired. Nothing is running yet — pairing and running are separate:\n` +
-      `  byollm install     keep it running in the background (recommended)\n` +
+      `  byollm start       keep it running in the background (recommended)\n` +
       `  byollm run         run in this terminal, Ctrl-C to stop\n`,
   );
 
@@ -3215,7 +3215,7 @@ async function commandServices(
         ? `\nThis is your shell's view. The daemon runs under a service manager\n` +
           `with its own environment, so what it can reach may differ. Compare\n` +
           `with the device's page, and after installing a new CLI run\n` +
-          `\`byollm uninstall && byollm install\` so the service picks up your PATH.\n`
+          `\`byollm stop && byollm start\` so the service picks up your PATH.\n`
         : ""),
   );
   return advertised.length === 0 ? 1 : 0;

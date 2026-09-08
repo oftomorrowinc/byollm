@@ -16,7 +16,7 @@
  *
  * ## Why it is a constant
  *
- * Two callers print it: the end of `byollm setup`, and `byollm install` on its
+ * Two callers print it: the end of `byollm setup`, and `byollm start` on its
  * own — the same moment reached two ways, and somebody who installs standalone
  * has exactly as much reason to be told. Written out twice it would be two
  * sentences within a month, and the walk that found this found it by reading

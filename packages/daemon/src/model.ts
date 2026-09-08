@@ -215,7 +215,7 @@ export async function setModel(
   await writeFile(input.configPath, `${JSON.stringify(config, null, 2)}\n`);
   io.out(
     `\n  ${input.service} is now on ${input.model}.\n` +
-      "  Restart the daemon to pick it up: `byollm install` if it runs in " +
+      "  Restart the daemon to pick it up: `byollm start` if it runs in " +
       "the\n  background, or Ctrl-C and `byollm run` if it is in a " +
       "terminal.\n",
   );

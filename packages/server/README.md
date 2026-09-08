@@ -112,16 +112,16 @@
 > ordering without the column it stores the grant in.
 
 <!-- release-note 0.1.0-alpha.40 -->
-**`byollm install` — stop keeping a terminal open.** The daemon can now run
+**`byollm start` — stop keeping a terminal open.** The daemon can now run
 under your computer's own supervisor and restart itself if it stops: a launchd
 agent on macOS, a `systemd --user` unit on Linux, a logon task on Windows. All
-user-level — no root, no system directories, and `byollm uninstall` takes it
+user-level — no root, no system directories, and `byollm stop` takes it
 away. `byollm status` gained a line saying whether it is actually supervised
 right now, including the state that matters most: installed but not running,
 which looks fine from an app's dashboard and serves nothing.
 
 If you are running via `npx`, install properly first (`npm install -g
-byollm@alpha`) — `install` refuses to supervise a copy in npx's cache, because
+byollm@latest`) — `install` refuses to supervise a copy in npx's cache, because
 npm deletes that directory and the service would fail at some later boot.
 
 <!-- release-note 0.1.0-alpha.41 -->

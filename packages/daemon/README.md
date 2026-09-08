@@ -1,7 +1,7 @@
 > [!WARNING]
 > **Alpha (`0.1.0-alpha.83`) — under active development. Don't use this yet.**
 >
-> Install it deliberately: `npx byollm@alpha`, or `npm install byollm@alpha`.
+> Install it deliberately: `npx byollm@latest`, or `npm install byollm@latest`.
 >
 > The protocol is v0 and **will** change without a deprecation path, this has
 > never run outside its own test suite, and nothing here has production miles.
@@ -92,16 +92,16 @@
 > ordering without the column it stores the grant in.
 
 <!-- release-note 0.1.0-alpha.40 -->
-**`byollm install` — stop keeping a terminal open.** The daemon can now run
+**`byollm start` — stop keeping a terminal open.** The daemon can now run
 under your computer's own supervisor and restart itself if it stops: a launchd
 agent on macOS, a `systemd --user` unit on Linux, a logon task on Windows. All
-user-level — no root, no system directories, and `byollm uninstall` takes it
+user-level — no root, no system directories, and `byollm stop` takes it
 away. `byollm status` gained a line saying whether it is actually supervised
 right now, including the state that matters most: installed but not running,
 which looks fine from an app's dashboard and serves nothing.
 
 If you are running via `npx`, install properly first (`npm install -g
-byollm@alpha`) — `install` refuses to supervise a copy in npx's cache, because
+byollm@latest`) — `install` refuses to supervise a copy in npx's cache, because
 npm deletes that directory and the service would fail at some later boot.
 
 <!-- release-note 0.1.0-alpha.41 -->
@@ -127,7 +127,7 @@ What end users run. Connects **outbound** to an app you trust, claims only the
 jobs you have agreed to run, and executes them on your own models.
 
 ```bash
-npx byollm@alpha connect https://your-app.com
+npx byollm@latest connect https://your-app.com
 ```
 
 There is nothing to open on your network. The daemon never listens.
@@ -144,7 +144,7 @@ ollama pull gemma3:12b
 Then:
 
 ```bash
-npx byollm@alpha connect https://your-app.com
+npx byollm@latest connect https://your-app.com
 ```
 
 ```
@@ -200,9 +200,9 @@ telling anyone, and if it is on a team's roster, the first person to notice is
 a teammate whose job did not run.
 
 ```bash
-byollm install     # keep running in the background, and restart if it stops
+byollm start       # keep running in the background, and restart if it stops
 byollm status      # says whether it is actually supervised right now
-byollm uninstall
+byollm stop
 ```
 
 It installs at the user level on every platform — a launchd `LaunchAgent` on
@@ -212,12 +212,12 @@ every file it wrote. Output goes to `~/.byollm/service.log` on all three.
 
 Two things worth knowing:
 
-- **Install `byollm` properly first.** `byollm install` refuses to supervise a
+- **Install `byollm` properly first.** `byollm start` refuses to supervise a
   copy running from `npx`'s cache, because npm deletes that directory without
   warning and the service would stop working at some later boot with nothing
-  to show for it. `npm install -g byollm@alpha` first.
+  to show for it. `npm install -g byollm@latest` first.
 - **On Linux, `systemd --user` stops when you log out** unless lingering is
-  enabled. `byollm install` prints the one command for that rather than
+  enabled. `byollm start` prints the one command for that rather than
   running it — it changes something outside your session, so it is your call.
 
 `byollm status` reports three states, not two: running under supervision,

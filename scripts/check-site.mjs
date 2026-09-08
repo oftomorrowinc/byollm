@@ -99,10 +99,23 @@ check(
   "the alpha banner names a different version than package.json",
 );
 
-// 5. Install commands must ask for @alpha — a bare `npx byollm` resolves to
-//    whatever `latest` happens to point at.
-const bareNpx = /npx byollm(?!@alpha)(?!-certify)/.test(html);
-check("every npx invocation pins @alpha", !bareNpx);
+// 5. Install commands must ask for @latest, and must ask for something.
+//
+//    This required `@alpha`, and the reason it gave was true when it was
+//    written: a bare `npx byollm` resolves to whatever `latest` happens to
+//    point at, and `latest` pointed at nothing anybody should install.
+//
+//    It is the wrong way round now. `alpha` is the tag the release publishes
+//    under — it moves FIRST, on every cut — and `latest` moves later, by
+//    hand, after a review says the build is fit to be the default. So
+//    demanding `@alpha` sent every new reader to the least-scrutinised build
+//    in the registry, which is the opposite of what pinning was for.
+//
+//    Ruled in byollm-cloud-web as B014 and enforced there since; this
+//    repository went on enforcing the old rule, which is two repositories
+//    giving opposite instructions for the same command.
+const bareNpx = /npx byollm(?!@latest)(?!-certify)/.test(html);
+check("every npx invocation pins @latest", !bareNpx);
 
 // 6. Internal anchors must resolve.
 const anchors = [...html.matchAll(/href="#([\w-]+)"/g)].map((m) => m[1]);
@@ -268,7 +281,10 @@ for (const rel of READMES) {
     `${name}: every npx byollm invocation is pinned`,
     !/npx byollm(?![@\w-])/.test(text),
   );
-  check(`${name}: every pin is @alpha`, !/npx byollm@(?!alpha\b)/.test(text));
+  /* @latest, not @alpha — see the note on check 5. The tag that moves first
+     is reviewed last, so asking for it explicitly is asking for the build
+     nobody has looked at yet. */
+  check(`${name}: every pin is @latest`, !/npx byollm@(?!latest\b)/.test(text));
 }
 
 process.stdout.write(

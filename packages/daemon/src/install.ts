@@ -430,14 +430,14 @@ export async function installService(
                     `  the program this service runs no longer exists:`,
                     `    ${program.path}`,
                     `  that happens when the node it was installed with was`,
-                    `  removed or upgraded. Re-running install records the`,
-                    `  current one.`,
+                    `  removed or upgraded. Running \`byollm start\` again records`,
+                    `  the current one.`,
                     "",
                   ];
             })()),
             `  log:      ${plan.logPath}`,
             `  service:  ${plan.unitPath}`,
-            `  retry:    byollm install`,
+            `  retry:    byollm start`,
             `  instead:  byollm run     runs in this terminal, and prints why`,
             "",
             `Nothing is serving until this is sorted — this device will appear on`,
@@ -452,7 +452,7 @@ export async function installService(
     `  service:  ${plan.unitPath}`,
     `  log:      ${plan.logPath}`,
     `  check:    byollm status`,
-    `  remove:   byollm uninstall`,
+    `  remove:   byollm stop`,
   ];
 
   if (plan.platform === "linux") {

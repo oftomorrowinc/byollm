@@ -1,5 +1,6 @@
 import {
   UPDATE_OFFER_SINCE,
+  mentionsWireField,
   cryptoReady,
   generateKeys,
   publicIdentityOf,
@@ -137,16 +138,29 @@ describe("who is told about a new version", () => {
      * cannot spell `updateTo:` without failing here.
      */
     const src = fileURLToPath(new URL("../src/", import.meta.url));
-    /* Comments stripped first, and the reason is this file: the note beside
-       the emission site says there must be no `updateTo:` anywhere, and it
-       had to write the words to say so. A check that reads prose finds its
-       own explanation. */
-    const code = (text: string) =>
-      text.replace(/\/\*[\s\S]*?\*\//g, " ").replace(/^[ \t]*\/\/.*$/gm, " ");
+    /**
+     * A WORD, not a spelling — B063, found by CW against the shipped
+     * version of this test.
+     *
+     * It scanned for `/\bupdateTo\s*:/`, and four of the six ordinary ways
+     * to set a property walk past it: `"updateTo": offer` (a quoted key,
+     * the most ordinary variant of the thing it guards), `res.updateTo =
+     * offer`, `res["updateTo"] = offer`, and shorthand in a spread. The
+     * claim was "there is nowhere else to call from"; the enforcement was
+     * one syntax.
+     *
+     * Sixth instance of our own law, and the first inside a test written to
+     * be structural rather than remembered — which is the part worth
+     * keeping. Being structural is not the same as being right.
+     *
+     * `mentionsWireField` lives in the protocol package so the hub runs the
+     * same copy: the hazard is fleet-wide and crosses a repository, which is
+     * where a duplicated rule stops being the same rule.
+     */
     const offenders = readdirSync(src, { recursive: true, encoding: "utf8" })
       .filter((name) => name.endsWith(".ts"))
       .filter((name) =>
-        /\bupdateTo\s*:/.test(code(readFileSync(`${src}${name}`, "utf8"))),
+        mentionsWireField(readFileSync(`${src}${name}`, "utf8"), "updateTo"),
       );
     expect(
       offenders,

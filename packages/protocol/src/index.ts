@@ -20,6 +20,8 @@ export {
   compareVersions,
   mayOfferUpdate,
   updateOfferFor,
+  mentionsWireField,
+  withoutComments,
   type FloorRefusal,
 } from "./update-offer.js";
 export {

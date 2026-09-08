@@ -200,3 +200,43 @@ function exactOffer(value: string): string | undefined {
     ? value
     : undefined;
 }
+
+/**
+ * Source with its comments removed, for the checks below.
+ *
+ * Comments go first because a rule about a field has to be explainable in
+ * prose beside the code it governs — and the first version of the relay's
+ * fence test flagged its own explanation, which was written to say there
+ * must be no such write anywhere.
+ */
+export function withoutComments(source: string): string {
+  return source
+    .replace(/\/\*[\s\S]*?\*\//g, " ")
+    .replace(/^[ \t]*\/\/.*$/gm, " ");
+}
+
+/**
+ * Does this source mention a wire field at all?
+ *
+ * **A word, not a spelling.** The relay's fence test shipped scanning for
+ * `/\bupdateTo\s*:/`, which is one syntax of one way to set a property —
+ * `"updateTo": offer`, `res.updateTo = offer`, `res["updateTo"] = offer` and
+ * shorthand in a spread all walk straight past it. The check's claim was
+ * "there is nowhere else to call from"; what it enforced was a spelling.
+ * That is our own recurring law, and this is its sixth instance — the first
+ * inside a test written to be structural rather than remembered.
+ *
+ * So the question this asks is deliberately blunter than the rule it serves.
+ * A mention is not a write, and the false positives are the point: anything
+ * that names the field in code has to be looked at by a person, because the
+ * cost of the miss is every daemon that predates the field rejecting every
+ * heartbeat.
+ *
+ * Lives here, beside {@link updateOfferFor}, so the hub and the relay run one
+ * copy rather than two that drift — the field's hazard is fleet-wide and it
+ * crosses a repository boundary, which is exactly where a duplicated rule
+ * stops being the same rule.
+ */
+export function mentionsWireField(source: string, field: string): boolean {
+  return new RegExp(`\\b${field}\\b`).test(withoutComments(source));
+}

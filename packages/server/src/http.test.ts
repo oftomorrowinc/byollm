@@ -235,7 +235,49 @@ describe("fetch handler", () => {
       }),
     );
     expect(response.status).toBe(400);
-    expect(await response.text()).toContain("too large");
+    const said = await response.text();
+    /**
+     * The sentence, not the fact — B061, and it is Kevin's bisection.
+     *
+     * This said "request body too large" and nothing else, at both call
+     * sites, with both numbers already in scope. Somebody who hits it learns
+     * that something was too big and not what, not by how much, not whether
+     * the limit is per-message or per-account, and not what to do. The only
+     * way forward is to bisect.
+     *
+     * The relay has answered this properly for a while: two implementations
+     * of one refusal, and the one the SDK ships — which is the one a site
+     * self-hosting the direct lane meets — was the thin one.
+     */
+    expect(said, "how big it was").toMatch(/this message is [\d.]+ MB/);
+    expect(said, "and what the limit is").toMatch(/the limit is [\d.]+ MB/);
+    expect(said, "per message, not per account").toContain("one message");
+    expect(said, "and what to do about it").toContain("Split the work");
+  });
+
+  it("rounds the size up, so the refusal cannot contradict itself", async () => {
+    /* One byte over printed "this message is 10.5 MB and the limit is 10.5
+       MB" under `toFixed`, which reads as nonsense to somebody who now has
+       no idea what to change. Up is also the honest direction: overstating
+       by a tenth costs nothing, understating sends them to trim a hundred
+       bytes off something that needs to lose a megabyte. */
+    const response = await handler()(
+      new Request(url("pair"), {
+        method: "POST",
+        headers: {
+          "content-length": String(MAX_ENVELOPE_BYTES + 512 * 1024 + 1),
+        },
+        body: "{}",
+      }),
+    );
+    const said = await response.text();
+    const [size, limit] = [...said.matchAll(/([\d.]+) MB/g)].map((m) =>
+      Number(m[1]),
+    );
+    expect(
+      size,
+      "a message over the line must not print as equal to it",
+    ).toBeGreaterThan(limit ?? 0);
   });
 
   it("never caches a protocol response", async () => {

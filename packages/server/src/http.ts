@@ -28,6 +28,36 @@ import { ByollmHandlers, type HandlerConfig } from "./handlers.js";
 const MAX_BODY_BYTES = MAX_ENVELOPE_BYTES + 512 * 1024;
 
 /**
+ * What a message that is too big is told — B061, Kevin's bisection.
+ *
+ * This said "request body too large" and nothing else, at both call sites.
+ * Both numbers were already in scope. Somebody who hits it learns that
+ * something was too big and not what, not by how much, not whether the limit
+ * is per-message or per-account, and not what to do — so the only way
+ * forward is to bisect, which is exactly what Kevin did.
+ *
+ * The relay has answered this properly for a while. Two implementations of
+ * one refusal, and the one the SDK ships — the one a site self-hosting the
+ * direct lane meets — was the thin one.
+ *
+ * Rounded UP, and only ever up, for the reason the relay's version records:
+ * `toFixed` rounds to nearest, so a message one byte over printed "this
+ * message is 10.0 MB and the limit is 10.0 MB", which reads as a
+ * contradiction to somebody who now has no idea what to change. Overstating
+ * by a tenth costs them nothing; understating sends them to trim a hundred
+ * bytes off something that needs to lose a megabyte.
+ */
+function tooLarge(bytes: number): string {
+  const mb = (n: number) =>
+    `${(Math.ceil((n / (1024 * 1024)) * 10) / 10).toFixed(1)} MB`;
+  return (
+    `this message is ${mb(bytes)} and the limit is ${mb(MAX_BODY_BYTES)} — ` +
+    "it is a limit on one message rather than on how many you send. Split " +
+    "the work into smaller jobs and send them separately."
+  );
+}
+
+/**
  * Where the protocol endpoints are mounted.
  *
  * Defaults to {@link PROTOCOL_PREFIX}. Pass the real mount point when it is
@@ -141,7 +171,7 @@ export function createFetchHandler(
     if (declared !== null && Number(declared) > MAX_BODY_BYTES) {
       return json(400, {
         error: "bad-request",
-        message: "request body too large",
+        message: tooLarge(Number(declared)),
       });
     }
 
@@ -153,7 +183,7 @@ export function createFetchHandler(
       if (text.length > MAX_BODY_BYTES) {
         return json(400, {
           error: "bad-request",
-          message: "request body too large",
+          message: tooLarge(text.length),
         });
       }
       body = JSON.parse(text);

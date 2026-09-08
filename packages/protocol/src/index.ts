@@ -13,11 +13,13 @@
  * @packageDocumentation
  */
 
+export { UPGRADE_COMMAND } from "./wire.js";
 export {
   UPDATE_OFFER_SINCE,
   checkDaemonFloor,
   compareVersions,
   mayOfferUpdate,
+  updateOfferFor,
   type FloorRefusal,
 } from "./update-offer.js";
 export {

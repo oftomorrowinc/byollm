@@ -6,6 +6,7 @@ import { update } from "./update.js";
 import { realUpdateDeps } from "./update-deps.js";
 import { runLogin, type LoginCommand } from "./login.js";
 import { createBackend } from "./backends/index.js";
+import type { Backend } from "./backends/types.js";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { hostname, userInfo } from "node:os";
 import { dirname } from "node:path";
@@ -200,10 +201,10 @@ const defaultIo: CliIo = {
  * `byollm run` for every Ollama user, and the test that caught it was one
  * about revocation, which is the kind of luck not to rely on twice.
  */
-function backendFor(config: {
+export function backendFor(config: {
   readonly type: BackendId;
   readonly baseUrl?: string | undefined;
-}) {
+}): Backend {
   return createBackend(
     config.type,
     config.baseUrl === undefined ? {} : { baseUrl: config.baseUrl },

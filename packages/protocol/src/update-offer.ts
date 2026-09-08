@@ -156,3 +156,47 @@ export function checkDaemonFloor(input: {
     floor: input.floor,
   };
 }
+
+/**
+ * The only way to put `updateTo` on a heartbeat — D1's first deploy
+ * condition, made structural.
+ *
+ * The condition was "the hub must not be ABLE to set `updateTo` raw". A rule
+ * that says "remember to call `mayOfferUpdate` first" is a rule that holds
+ * until somebody adds a second return site — and the heartbeat handler
+ * already has two. So the fence is not a thing to remember; it is the only
+ * function that produces the field, and it applies the check inside itself.
+ *
+ * Returns a spreadable object rather than a value, so the call site reads
+ * `...updateOfferFor(...)` and there is no `updateTo:` anywhere for a later
+ * hand to copy.
+ *
+ * Absent `offer` means this deployment is offering nothing, which is the
+ * default and the safe one: a hub that has not been told a version says
+ * nothing to anybody.
+ */
+export function updateOfferFor(input: {
+  readonly offer: string | undefined;
+  readonly daemonVersion: string;
+}): { readonly updateTo?: string } {
+  const { offer, daemonVersion } = input;
+  if (offer === undefined) return {};
+  /* Not a tag, ever — the daemon refuses one, and a hub that sends one has
+     told every device in the fleet to install "whatever is current when you
+     get around to it". Checked here too because the daemon's refusal is the
+     second fence, not the first. */
+  if (exactOffer(offer) === undefined) return {};
+  if (!mayOfferUpdate(daemonVersion)) return {};
+  /* Nothing to say to a daemon already there. It would refuse itself, and a
+     hub that keeps offering a version somebody is running produces an
+     "already on" line on every heartbeat. */
+  if (daemonVersion === offer) return {};
+  return { updateTo: offer };
+}
+
+/** A literal version, by the same rule the daemon's updater applies. */
+function exactOffer(value: string): string | undefined {
+  return /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/.test(value)
+    ? value
+    : undefined;
+}

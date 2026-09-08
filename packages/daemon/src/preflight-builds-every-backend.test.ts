@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { backendDescriptor, BACKENDS } from "@byollm/protocol";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { runCli, type CliIo } from "./cli.js";
+import { backendFor, runCli, type CliIo } from "./cli.js";
 import { daemonPaths, type DaemonPaths } from "./paths.js";
 import { removeTemp } from "./test-support.js";
 
@@ -59,7 +59,26 @@ describe("the preflight's default verify path", () => {
     );
   });
 
-  it.each(ids)("builds %s without throwing", async (id) => {
+  it.each(ids)("builds %s without throwing", (id) => {
+    /**
+     * Construction, which is where the crash was: an HTTP-class transport
+     * throws without its `baseUrl`, and the first preflight built backends
+     * from the id alone.
+     *
+     * NOT through the whole CLI, which is how this was written first. That
+     * spends the default verifier, and the default verifier for a process
+     * backend spawns the vendor CLI — so on a machine that has `claude` and
+     * `codex` installed it runs them, and the suite hangs on somebody's
+     * laptop and not on ours. A unit test may not invoke another program.
+     */
+    expect(() =>
+      backendFor({ type: id, baseUrl: "http://127.0.0.1:1/v1" }),
+    ).not.toThrow();
+  });
+
+  it("reaches that path from `run`, for the class that crashed", async () => {
+    /* One end-to-end case, HTTP-class only: a closed port fails fast and
+       spawns nothing. This is the wiring the unit cases above cannot see. */
     await mkdir(paths.root, { recursive: true });
     await writeFile(
       paths.config,
@@ -68,19 +87,12 @@ describe("the preflight's default verify path", () => {
           only: {
             model: "m",
             kinds: ["llm.generate"],
-            type: id,
-            /* Meaningless to a process backend and required by an HTTP one.
-               Port 1 is closed, so the HTTP canary makes a real attempt and
-               fails, rather than being skipped. */
+            type: "ollama",
             baseUrl: "http://127.0.0.1:1/v1",
           },
         },
       }),
     );
-
-    /* No `verify` and no `login` — the defaults are the thing under test.
-       `ask` is injected because a signed-out answer would otherwise reach
-       for a terminal that is not there. */
     const code = await runCli(["run"], {
       paths,
       io: io(),
@@ -89,28 +101,8 @@ describe("the preflight's default verify path", () => {
       platform: "linux",
       ask: () => Promise.resolve("n"),
     });
-
-    /* Nothing is paired, so `run` refuses with 2 — reached only by getting
-       through the preflight, which is the whole assertion. A throw would
-       come out of runCli, not as an exit code. */
+    /* Nothing paired, so `run` refuses with 2 — reached only by getting
+       through the preflight, which is the assertion. */
     expect(code).toBe(2);
-
-    /**
-     * Deliberately NOT asserting that a line was printed.
-     *
-     * The first draft of this asserted the signed-out line for HTTP-class
-     * services and failed, and the code was right: HTTP backends have no
-     * canary, so `backendVerifier` returns `answers: undefined` — "there was
-     * no way to ask", which the tri-state exists to keep distinct from "it
-     * said no". A local model server is not signed out; it is unasked. So
-     * the preflight is silent for every HTTP service by design, and an
-     * assertion that it spoke would have been an assertion that the
-     * tri-state was broken.
-     *
-     * What keeps this from being a test that passes by running nothing is
-     * not an assertion here. It is the registry control above, and the
-     * mutation on the record: reverting to `createBackend(id, {})` reddens
-     * six of these cases.
-     */
   });
 });

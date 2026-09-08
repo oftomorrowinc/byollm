@@ -13,6 +13,9 @@ import {
   keyId,
   verifyRequest,
   verifyPublicIdentity,
+  updateOfferFor,
+  checkDaemonFloor,
+  UPGRADE_COMMAND,
   PublicIdentity,
   ERROR_STATUS,
   type CapabilityMatrix,
@@ -142,6 +145,29 @@ export interface DaemonPlaneDeps {
   readonly projection: Projection;
   readonly now: () => number;
   readonly leaseMs: number;
+  /**
+   * A version this deployment wants daemons to move to — B053, D1.
+   *
+   * ABSENT BY DEFAULT, and that is the deploy condition rather than a
+   * preference: a hub that has not been told a version says nothing to
+   * anybody, so shipping this code changes no byte on the wire until
+   * somebody sets it deliberately.
+   *
+   * Never read directly at a return site. {@link updateOfferFor} is the only
+   * thing that turns it into a field, because it is the only thing that
+   * applies the version fence.
+   */
+  readonly updateOffer?: string | undefined;
+  /**
+   * The oldest daemon this deployment will serve — B052, D1.
+   *
+   * ABSENT BY DEFAULT, and that is the second deploy condition rather than a
+   * preference: a floor set optimistically on deploy day takes working
+   * machines down, which is B052's opposite-boolean hazard arriving as an
+   * ops mistake instead of a coding one. Shipping the code refuses nobody;
+   * raising it is a separate, deliberate act.
+   */
+  readonly daemonFloor?: string | undefined;
   /**
    * Where pending pairing codes live — cloud_009.
    *
@@ -773,6 +799,41 @@ export class DaemonPlane {
       body,
       HeartbeatRequest,
       async (request, device) => {
+        /**
+         * Too old to serve — B052, checked here because here is where the
+         * version is.
+         *
+         * The spec said "connect/claim". `ClaimRequest` carries no
+         * `daemonVersion`, so claim cannot ask the question at all; the
+         * heartbeat and the pairing are the two requests that name a
+         * version, and a daemon heartbeats every few seconds, so this
+         * refuses a straggler within one beat and it cannot claim without a
+         * pairing anyway. Saying so rather than quietly enforcing somewhere
+         * the spec did not mean.
+         */
+        const belowFloor =
+          this.#deps.daemonFloor === undefined
+            ? null
+            : checkDaemonFloor({
+                daemonVersion: request.daemonVersion,
+                floor: this.#deps.daemonFloor,
+                upgradeCommand: UPGRADE_COMMAND,
+              });
+        if (belowFloor !== null) {
+          /* `floor` travels as a field, not only inside the sentence, so a
+             surface can say "two versions under" without parsing English —
+             the same rule the version handshake's `supported`/`minimum`
+             follow, and the WireError refinement requires it on this code. */
+          return {
+            status: ERROR_STATUS["daemon-below-floor"],
+            body: {
+              error: belowFloor.error,
+              message: belowFloor.message,
+              floor: belowFloor.floor,
+            },
+          };
+        }
+
         const now = this.#deps.now();
         await this.#deps.state.sweep();
 
@@ -855,6 +916,10 @@ export class DaemonPlane {
           return ok({
             sites,
             ...rotations,
+            ...updateOfferFor({
+              offer: this.#deps.updateOffer,
+              daemonVersion: request.daemonVersion,
+            }),
             awaitingConsent,
             cancel: [],
             lost: request.activeLeases.map((lease) => ({
@@ -889,6 +954,21 @@ export class DaemonPlane {
         return ok({
           sites,
           ...rotations,
+          /**
+           * The update offer — B053, and the ONLY way this field is set.
+           *
+           * `updateOfferFor` applies `mayOfferUpdate` inside itself and
+           * returns a spreadable object, so there is no `updateTo:` anywhere
+           * for a later hand to copy to a third return site. There are
+           * already two, which is how a remember-to-check rule fails.
+           *
+           * HeartbeatResponse is `.strict()`: a wrong emission is not a bad
+           * offer, it is every pre-.83 daemon rejecting every heartbeat.
+           */
+          ...updateOfferFor({
+            offer: this.#deps.updateOffer,
+            daemonVersion: request.daemonVersion,
+          }),
           awaitingConsent,
           cancel,
           lost,

@@ -84,6 +84,20 @@ export interface RelayOptions {
    */
   readonly controlPlanePublic?: string | undefined;
   /**
+   * A version this deployment offers daemons — B053, D1.
+   *
+   * Absent means no offer reaches anybody, which is how this ships: the code
+   * changes no byte on the wire until a deployment sets it deliberately.
+   */
+  readonly updateOffer?: string | undefined;
+  /**
+   * The oldest daemon this deployment serves — B052, D1.
+   *
+   * Absent means the floor refuses nobody. A floor picked optimistically on
+   * deploy day takes working machines down.
+   */
+  readonly daemonFloor?: string | undefined;
+  /**
    * Whether a purpose can be satisfied for this person, asked at enqueue.
    *
    * The relay does not hold the answer and must not: one that filtered on
@@ -218,6 +232,12 @@ export class Relay {
       ...(options.authorGrant === undefined
         ? {}
         : { authorGrant: options.authorGrant }),
+      ...(options.updateOffer === undefined
+        ? {}
+        : { updateOffer: options.updateOffer }),
+      ...(options.daemonFloor === undefined
+        ? {}
+        : { daemonFloor: options.daemonFloor }),
     });
     /**
      * A relay that promises grants and cannot author them is refused here.

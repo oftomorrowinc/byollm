@@ -76,6 +76,14 @@ export interface PostureContext {
 
 export interface PostureOutcome {
   readonly passed: boolean;
+  /**
+   * Did this check actually put its question? Absent means yes.
+   *
+   * A posture that could not be measured does not pass — a gate that waves
+   * through what it could not look at passes hardest when it is blindest —
+   * and it is not a breach either. Unproven is a third state.
+   */
+  readonly measured?: boolean;
   /** What actually happened, in a sentence someone can act on. */
   readonly detail: string;
 }
@@ -156,6 +164,33 @@ async function refusedByByollm(
 
 const outcome = (passed: boolean, detail: string): PostureOutcome => ({
   passed,
+  detail,
+});
+
+/**
+ * A posture this run could not measure — B065.
+ *
+ * **Not a pass, and not a breach.** It does not pass, because a gate that
+ * waves through what it could not look at is a gate that passes hardest when
+ * it is blindest. It is not a FAIL either: "the origin refused a stranger"
+ * and "nobody asked the origin" are different facts, and printing them in one
+ * word tells an operator a stranger got somewhere when nobody did.
+ *
+ * Unproven is a third state — the rule this project already applies to a poll
+ * that cannot read an answer and to a release check that cannot read a
+ * version. It arrives here because three of these checks need the origin's
+ * address, and without it they were reporting "a stranger got somewhere"
+ * about a question they had not put.
+ */
+/*
+ * Exported for the one assertion that matters about it — that it does not
+ * pass. A test that builds its own result objects can prove the FORMATTER
+ * distinguishes the three states and prove nothing about the constructor,
+ * which is exactly what the first draft of that test did.
+ */
+export const unmeasured = (detail: string): PostureOutcome => ({
+  passed: false,
+  measured: false,
   detail,
 });
 
@@ -532,8 +567,7 @@ export const POSTURE_CHECKS: readonly PostureCheck[] = Object.freeze([
         // have no separate origin — and that test failed it immediately. The
         // reasoning was wrong in the way this whole audit exists to catch:
         // "probably fine" and "verified" must not print the same.
-        return outcome(
-          false,
+        return unmeasured(
           "no origin address given — this posture was not measured " +
             "(pass the origin's address as the third argument)",
         );
@@ -614,8 +648,7 @@ export const POSTURE_CHECKS: readonly PostureCheck[] = Object.freeze([
       // certificate actually served rather than one somebody configured.
       const host = new URL(origin).host;
       if (originAddress === undefined) {
-        return outcome(
-          false,
+        return unmeasured(
           "no origin address given — this posture was not measured. " +
             "Asking the hostname reads the edge's certificate, which names it " +
             "by construction and proves nothing about the origin",
@@ -663,8 +696,7 @@ export const POSTURE_CHECKS: readonly PostureCheck[] = Object.freeze([
       // real.
       const host = new URL(origin).host;
       if (originAddress === undefined) {
-        return outcome(
-          false,
+        return unmeasured(
           "no origin address given — this posture was not measured " +
             "(the edge's certificate is Cloudflare's to renew, not ours)",
         );
@@ -746,7 +778,12 @@ const describe = (check: PostureCheck) => ({
 export function formatPostureReport(report: PostureReport): string {
   const lines = [`deployment posture — ${report.origin}`, ""];
   for (const result of report.results) {
-    lines.push(`  ${result.passed ? "ok  " : "FAIL"}  ${result.id}`);
+    const mark = result.passed
+      ? "ok  "
+      : result.measured === false
+        ? "?   "
+        : "FAIL";
+    lines.push(`  ${mark}  ${result.id}`);
     lines.push(`        ${result.title}`);
     lines.push(`        ${result.detail}`);
     if (result.cites.length > 0) {
@@ -754,11 +791,30 @@ export function formatPostureReport(report: PostureReport): string {
     }
   }
   const passed = report.results.filter((result) => result.passed).length;
+  const unasked = report.results.filter(
+    (result) => result.measured === false,
+  ).length;
+  const breached = report.results.length - passed - unasked;
+  /**
+   * Three numbers, because there are three outcomes — B065.
+   *
+   * This said "a stranger got somewhere" whenever anything did not pass, and
+   * three of these checks do not pass when they are given no origin address:
+   * they had not asked. An operator reading that sentence would go looking
+   * for a breach that nobody had reported.
+   */
   lines.push(
     "",
     report.passed
       ? `${String(passed)}/${String(report.results.length)} — a stranger got nowhere.`
-      : `${String(passed)}/${String(report.results.length)} — a stranger got somewhere. See FAIL above.`,
+      : breached > 0
+        ? `${String(passed)}/${String(report.results.length)} — a stranger got somewhere. ` +
+          `See FAIL above.` +
+          (unasked > 0
+            ? ` (${String(unasked)} not measured — see ? above.)`
+            : "")
+        : `${String(passed)}/${String(report.results.length)} — nothing was breached, and ` +
+          `${String(unasked)} posture(s) could not be measured. See ? above.`,
     "",
   );
   return lines.join("\n");

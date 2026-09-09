@@ -29,7 +29,26 @@ export type ServiceState =
    * `status` calls it "not found on this device" is a machine disagreeing
    * with itself on two screens.
    */
-  | { readonly kind: "stopped"; readonly model: string }
+  | {
+      readonly kind: "stopped";
+      readonly model: string;
+      /**
+       * Whether anything on this device will actually start it — B087.
+       *
+       * The comment above says "the daemon starts it when a job arrives
+       * (B050)", and until this field existed that was not true: the starter
+       * is behind a `spawnServer` seam nothing passes, so a stopped server
+       * was advertised and a job routed to it reached nothing listening —
+       * the claimed-then-failed outcome B056's own ruling forbids.
+       *
+       * Optional, and absent means NO. `byollm status` is a different
+       * process reading what the daemon wrote, so a file written before this
+       * field existed is read by a daemon that has it — and the honest
+       * default for "I cannot tell whether anything starts this" is not to
+       * promise that something will.
+       */
+      readonly starts?: boolean | undefined;
+    }
   /**
    * Signed in, healthy, and out of quota until further notice — 019 §3.2.
    *
@@ -108,9 +127,18 @@ export function serviceLine(input: {
     case "stopped":
       /* Not a problem and not a promise of speed. It says the two things
          somebody needs: nothing is wrong, and the first job pays for the
-         start. */
+         start.
+
+         And only when a start is actually going to happen — B087. The
+         parenthetical was printed unconditionally while nothing could start
+         anything, which is a promise the device could not keep, on the one
+         screen an owner checks to find out what their device is doing. */
       return {
-        line: `${service} — ${state.model}, not running (starts when a job needs it)`,
+        line:
+          `${service} — ${state.model}, not running` +
+          (state.starts === true
+            ? " (starts when a job needs it)"
+            : " — start it to offer it"),
       };
     case "missing": {
       const remove = input.removeWith ?? `remove it from ~/.byollm/config.json`;

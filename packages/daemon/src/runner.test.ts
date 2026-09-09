@@ -122,6 +122,8 @@ async function makeRunner(
     onServiceStates?: (
       states: ReadonlyMap<string, { state: { kind: string } }>,
     ) => Promise<void>;
+    /** The starter seam — B087, and whether it exists decides advertising. */
+    spawnServer?: (command: readonly string[]) => void;
   } = {},
 ) {
   const loaded = resolveConfig(
@@ -152,6 +154,9 @@ async function makeRunner(
   });
 
   const runner = new Runner({
+    ...(options.spawnServer === undefined
+      ? {}
+      : { spawnServer: options.spawnServer }),
     // Every runner in this file has a control plane, so admission is a
     // signed document rather than a device-local list: `job()` attaches a
     // genuine grant, and a test that wants one refused bends a field.
@@ -697,7 +702,49 @@ describe("a local server that is installed and merely stopped", () => {
     process.env["PATH"] = bin;
   }
 
-  it("is advertised, and says so rather than calling itself missing", async () => {
+  it("is advertised when something will actually start it", async () => {
+    /**
+     * **B087 narrowed this, and the narrowing is the point.** B056's ruling
+     * was that a stopped-but-installed server is available "one spawn away",
+     * which was true of everything except the spawn: the starter sits behind
+     * a `spawnServer` seam that nothing in the repository passed, so `.86`
+     * advertised a port with nothing listening.
+     *
+     * So the condition is now the whole sentence rather than half of it —
+     * installed, startable, AND something to do the starting. This case
+     * supplies the seam and gets B056's behaviour unchanged.
+     */
+    await withOllamaOnPath(true);
+    const states = new Map<string, { state: { kind: string } }>();
+    const { runner } = await makeRunner({
+      services: ollamaService,
+      backendFactory: () => stoppedServer(),
+      spawnServer: () => {
+        /* Its existence is the fact under test; it never has to run. */
+      },
+      onServiceStates: (recorded) => {
+        for (const [name, report] of recorded) states.set(name, report);
+        return Promise.resolve();
+      },
+    });
+
+    const advertised = await runner.detectCapabilities();
+    expect(advertised, "installed and startable is available").toHaveLength(1);
+    /* And the two surfaces agree. A service advertised while `status` calls
+       it "not found on this device" is a machine contradicting itself. */
+    expect(states.get("local")?.state.kind).toBe("stopped");
+  });
+
+  it("is NOT advertised when nothing will start it — the .86 defect", async () => {
+    /**
+     * The shipped bug, from the outside. Binary present, port closed, no
+     * starter: `.86` offered this and a job routed to it reached nothing.
+     *
+     * B056's own comment forbids the outcome — *"the fleet would claim work
+     * it cannot serve, turning a site's clean no-runner silence into a
+     * claimed-then-failed job, which is worse for them than saying
+     * nothing."* It guarded the uninstalled case and left this one open.
+     */
     await withOllamaOnPath(true);
     const states = new Map<string, { state: { kind: string } }>();
     const { runner } = await makeRunner({
@@ -709,10 +756,12 @@ describe("a local server that is installed and merely stopped", () => {
       },
     });
 
-    const advertised = await runner.detectCapabilities();
-    expect(advertised, "installed and startable is available").toHaveLength(1);
-    /* And the two surfaces agree. A service advertised while `status` calls
-       it "not found on this device" is a machine contradicting itself. */
+    expect(
+      await runner.detectCapabilities(),
+      "a stopped server was advertised with nothing to start it",
+    ).toHaveLength(0);
+    /* Still `stopped` rather than `missing`: the binary IS there, and
+       telling the owner it is not found would be a second untruth. */
     expect(states.get("local")?.state.kind).toBe("stopped");
   });
 

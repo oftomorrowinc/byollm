@@ -867,10 +867,36 @@ export class Runner {
               ? {}
               : { onPath: this.#options.onPath }),
           });
-          usable = startable;
+          /**
+           * Startable is not the same as started — B087, a defect shipped in
+           * .86.
+           *
+           * B056 advertises a stopped-but-installed server "because it is
+           * available one spawn away and B050 starts it when a job arrives."
+           * The first half is true and the second was not: the starter sits
+           * behind a `spawnServer` seam that nothing in the repository
+           * passes, so `ensureLocalServer` returns before it can do anything
+           * and the job reaches a port with nothing listening.
+           *
+           * That is the exact outcome B056's own comment forbids — *"the
+           * fleet would claim work it cannot serve, turning a site's clean
+           * no-runner silence into a claimed-then-failed job, which is worse
+           * for them than saying nothing."* It guarded the uninstalled case
+           * and the installed-but-stopped case produced the same result by a
+           * different route.
+           *
+           * So advertising is tied to the starter EXISTING rather than
+           * switched off with a constant. Wire `spawnServer` and this
+           * resumes on its own; leave it unwired and nothing is promised.
+           * The two facts cannot drift apart, which a `false` here would
+           * have allowed the moment somebody wired the seam and did not
+           * think to look at this line.
+           */
+          const starts = this.#options.spawnServer !== undefined;
+          usable = startable && starts;
           this.serviceStates.set(route.service, {
             state: startable
-              ? { kind: "stopped", model: route.model }
+              ? { kind: "stopped", model: route.model, starts }
               : { kind: "missing" },
             ...remedy,
           });

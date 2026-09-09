@@ -40,7 +40,12 @@ const Stored = z.record(
        * itself on two screens, which is the defect this codebase keeps
        * finding under other names.
        */
-      z.object({ kind: z.literal("stopped"), model: z.string() }),
+      z.object({
+        kind: z.literal("stopped"),
+        model: z.string(),
+        /* B087. Absent means no — see the field's note in service-line.ts. */
+        starts: z.boolean().optional(),
+      }),
       z.object({
         kind: z.literal("blocked"),
         detail: z.string().optional(),

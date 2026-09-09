@@ -210,6 +210,11 @@ async function runOneJob(options: {
     ...(options.spawnServer === undefined
       ? {}
       : { spawnServer: options.spawnServer }),
+    /* The machine does not decide whether this test runs. Without it the
+       ollama route is "not startable" on any box without ollama installed,
+       the job never dispatches, and the failure reads as a timeout — which
+       is what CI reported while this passed on a laptop that had it. */
+    onPath: () => Promise.resolve(true),
     backendFactory: () => options.backend,
     onEvent: (event) => {
       if (

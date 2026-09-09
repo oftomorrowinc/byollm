@@ -191,6 +191,21 @@ export interface RunnerOptions {
    * — an absent guard that stays quiet is indistinguishable from one that is
    * passing everything.
    */
+  /**
+   * Whether a binary is on PATH — injected for the same reason the clock is.
+   *
+   * `isStartable` already took this seam and the Runner never passed one, so
+   * the advertising decision consulted the real machine. That made a test of
+   * the memory guard's ORDERING pass on a laptop with `ollama` installed and
+   * fail on CI, which had none: the route was not startable there, the job
+   * never dispatched, and the failure named a timeout rather than the
+   * missing binary.
+   *
+   * A test that reads the host is a test whose verdict depends on the host.
+   * Absent still means the real lookup, so production is unchanged.
+   */
+  readonly onPath?: (binary: string) => Promise<boolean>;
+
   readonly readMemory?: () => Promise<{
     readonly memory: MemoryReading;
     readonly pressure: MemoryPressure;
@@ -848,6 +863,9 @@ export class Runner {
             id: route.backendId,
             baseUrl:
               this.#options.loaded.config.services[route.service]?.baseUrl,
+            ...(this.#options.onPath === undefined
+              ? {}
+              : { onPath: this.#options.onPath }),
           });
           usable = startable;
           this.serviceStates.set(route.service, {

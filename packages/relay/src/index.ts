@@ -472,7 +472,17 @@ export {
   RelayFixture as RelayFixtureSchema,
   EMPTY_FIXTURE,
 } from "./fixture.js";
-export { AWAITING_PAYLOAD_MS } from "./state.js";
+/**
+ * The two numbers a store implementation has to agree with — B042.
+ *
+ * `AWAITING_PAYLOAD_MS` bounds one wait; `SEAL_ATTEMPTS_BEFORE_EVICTION`
+ * bounds how many of them a job gets before the hub lets it go. Exported
+ * together because `byollm-cloud`'s Valkey store reimplements the sweep in
+ * Lua and has to use these values rather than its own — `valkey-store.ts`
+ * imports the first with the note *"Imported rather than restated"*, and the
+ * second was left unexported, which made it impossible to obey that rule.
+ */
+export { AWAITING_PAYLOAD_MS, SEAL_ATTEMPTS_BEFORE_EVICTION } from "./state.js";
 /**
  * How a (site, owner) route is written — cloud_009 §3.
  *

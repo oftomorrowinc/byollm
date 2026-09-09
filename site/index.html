@@ -4,16 +4,16 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>BYOLLM — Bring Your Own LLM</title>
-<meta name="description" content="Let your app's users run its AI on their own models and subscriptions — their Ollama box, their Mac running MLX, their claude CLI — through a tiny daemon they run and control.">
+<meta name="description" content="Your app's LLM jobs run on hardware your users already own: their Ollama box, their Mac running MLX, their claude CLI. Outbound-only daemon, typed jobs, no shared keys.">
 <link rel="canonical" href="https://byo-llm.com/">
 <meta property="og:type" content="website">
 <meta property="og:url" content="https://byo-llm.com/">
 <meta property="og:title" content="BYOLLM — Bring Your Own LLM">
-<meta property="og:description" content="Let your app's users run its AI on their own models and subscriptions, through a tiny outbound daemon they run and control. Alpha.">
+<meta property="og:description" content="Your app's LLM jobs run on hardware your users already own: their Ollama box, their Mac running MLX, their claude CLI. Outbound-only daemon, typed jobs, no shared keys.">
 <meta property="og:image" content="https://byo-llm.com/og.svg">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="BYOLLM — Bring Your Own LLM">
-<meta name="twitter:description" content="Your users' AI on devices they control. Outbound-only daemon, typed jobs, no shared keys. Alpha.">
+<meta name="twitter:description" content="Stop renting the compute your users already own. Outbound-only daemon, typed jobs, no shared keys. Alpha.">
 <meta name="twitter:image" content="https://byo-llm.com/og.svg">
 <!-- The green dot from the nav, as the tab icon. Inline so the page stays
      dependency-free and openable straight from the filesystem. -->
@@ -163,8 +163,8 @@
 
 <header class="hero"><div class="wrap">
   <span class="kicker">Bring Your Own LLM</span>
-  <h1>Your users' AI<br>on <span class="g">devices they control</span>.</h1>
-  <p class="sub">Let your app run its LLM jobs on your users' own models and subscriptions — their Ollama box, their Mac running MLX, their <span class="mono">claude</span> CLI — through a tiny daemon they run and control. No tunnels. No inbound ports. No shared keys.</p>
+  <h1>Stop renting the compute<br>your users <span class="g">already own</span>.</h1>
+  <p class="sub">AI features bill you per token, per user, forever, while the hardware already in your users' hands sits idle. byollm lets your app run its LLM jobs there instead: their Ollama box, their Mac running MLX, their <span class="mono">claude</span> CLI. No tunnels. No inbound ports. No shared keys.</p>
   <div class="cmd mono">
     <span class="p">$</span><span class="c">npx byollm@latest connect https://your-app.com</span>
     <button class="cp" id="cp" aria-label="Copy the connect command">copy</button>
@@ -222,6 +222,7 @@
 <section id="users" class="band"><div class="wrap">
   <p class="eyebrow">For users</p>
   <h2>One command. Your models. Your rules.</h2>
+  <p class="lead">The prompt never leaves the user. byollm runs the app's LLM jobs on your own device, on the model you already have, so your data stays with you and your compute does the work instead of their API account.</p>
   <div class="steps">
     <div class="step"><span class="n">1</span><div><h4>Connect</h4><p><code>npx byollm@latest connect https://the-app.com</code> — opens your browser to pair with one click. Nothing to configure on your network.</p></div></div>
     <div class="step"><span class="n">2</span><div><h4>Route your models</h4><p>Name a service for whatever you&rsquo;ve got installed, and say which job kinds it answers: <code>"ollama-local": { "type": "ollama", "model": "gemma3:12b", "kinds": ["llm.generate"] }</code>. The daemon only advertises models you approve. And only ones it can actually run.</p></div></div>

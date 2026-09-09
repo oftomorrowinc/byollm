@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { Audience } from "./audience.js";
 import { SignedGrant } from "./grant.js";
+import { jsonLength } from "./json-size.js";
 import { BackendClass } from "./backends.js";
 import { ChatPayload, GeneratePayload, JobKind } from "./kinds.js";
 
@@ -464,6 +465,26 @@ export const MAX_ENVELOPE_BYTES = 10 * 1024 * 1024;
  * this function is that one number answers both questions.
  */
 export function envelopeBytes(envelope: unknown): number {
+  /**
+   * Counted rather than built, where it can be — B060.
+   *
+   * This ran `JSON.stringify` purely to measure the result, which on the
+   * shared hub means holding the oversized thing a second time in order to
+   * find out that it is oversized, per enqueue and per result, exactly when
+   * the payload is at its largest. {@link jsonLength} walks the value and
+   * sums what the serialiser would emit.
+   *
+   * **The number is unchanged, and that is the requirement rather than a
+   * nicety** — it is the meter as well as the cap, so a cheaper number that
+   * differed would let a job be accepted at one size and billed at another.
+   * `jsonLength` returns `undefined` for anything it cannot promise exactly
+   * (a `toJSON`, a cycle, a value outside the JSON domain) and this falls
+   * back to serialising, which is what it did before. The failure direction
+   * is "no saving", never "a wrong number".
+   */
+  const counted = jsonLength(envelope);
+  if (counted !== undefined) return counted;
+
   // Annotated, because the lib types are wrong about this one and the lint
   // believes them: `JSON.stringify` is declared to return `string`, and
   // `JSON.stringify(undefined)` returns `undefined` at runtime. Writing the

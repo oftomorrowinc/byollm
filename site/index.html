@@ -9,7 +9,7 @@
 <meta property="og:type" content="website">
 <meta property="og:url" content="https://byo-llm.com/">
 <meta property="og:title" content="BYOLLM — Bring Your Own LLM">
-<meta property="og:description" content="Your app's LLM jobs run on hardware your users already own: their Ollama box, their Mac running MLX, their claude CLI. Outbound-only daemon, typed jobs, no shared keys.">
+<meta property="og:description" content="Your app's LLM jobs run on hardware your users already own: their Ollama box, their Mac running MLX, their claude CLI. Outbound-only daemon, typed jobs, no shared keys. Alpha software, under active development.">
 <meta property="og:image" content="https://byo-llm.com/og.svg">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="BYOLLM — Bring Your Own LLM">
@@ -222,7 +222,7 @@
 <section id="users" class="band"><div class="wrap">
   <p class="eyebrow">For users</p>
   <h2>One command. Your models. Your rules.</h2>
-  <p class="lead">The prompt never leaves the user. byollm runs the app's LLM jobs on your own device, on the model you already have, so your data stays with you and your compute does the work instead of their API account.</p>
+  <p class="lead">You decide what runs, and where. A local model means the prompt never leaves your machine; a service you already pay for means the job goes where you already send it, on your account. And byollm never holds your key.</p>
   <div class="steps">
     <div class="step"><span class="n">1</span><div><h4>Connect</h4><p><code>npx byollm@latest connect https://the-app.com</code> — opens your browser to pair with one click. Nothing to configure on your network.</p></div></div>
     <div class="step"><span class="n">2</span><div><h4>Route your models</h4><p>Name a service for whatever you&rsquo;ve got installed, and say which job kinds it answers: <code>"ollama-local": { "type": "ollama", "model": "gemma3:12b", "kinds": ["llm.generate"] }</code>. The daemon only advertises models you approve. And only ones it can actually run.</p></div></div>

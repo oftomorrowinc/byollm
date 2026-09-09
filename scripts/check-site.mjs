@@ -245,6 +245,25 @@ const RETIRED_CLAIMS = Object.freeze([
     "actually there and healthy",
     "consent and reachability are two promises; one clause strained",
   ],
+  [
+    /**
+     * B095, and the exact phrase matters more here than anywhere else in
+     * this list.
+     *
+     * The banned claim is the UNSCOPED promise: "the prompt never leaves the
+     * user" is false for twelve of the eighteen providers on the same page —
+     * ten `metered` rows and both `subscription` CLIs send the prompt
+     * off-device, which is what they are for.
+     *
+     * It is NOT "the prompt never leaves", because the approved replacement
+     * says *"the prompt never leaves your machine"* about a LOCAL model,
+     * which is true and has to stay legal. A ban one word wider would forbid
+     * the sentence that fixes this one.
+     */
+    "the prompt never leaves the user",
+    "false for the metered and subscription providers on the same page — " +
+      "scoped to a local model it is true, and the approved copy scopes it",
+  ],
 ]);
 /* Compared in lowercase, and CW proved why in one line: putting *"no keys
    leave their computer"* back with a lowercase `n` failed nothing. A banned

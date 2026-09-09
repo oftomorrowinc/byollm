@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { appendFile, mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import type { Audience } from "@byollm/protocol";
+import type { MemoryPressure, MemoryReading } from "./memory.js";
 import { z } from "zod";
 
 /**
@@ -67,9 +68,44 @@ export const OutcomeEntry = z
   .strict();
 export type OutcomeEntry = z.infer<typeof OutcomeEntry>;
 
+/**
+ * What the memory guard decided, and the numbers it decided on — B080.
+ *
+ * byollm_022 asks for every decision to be logged, and gives the reason:
+ * **the 2 GB floor should be tuned from a distribution rather than from one
+ * laptop.** A refusal alone cannot do that — a log holding only refusals says
+ * nothing about how close the admits were, which is the whole question when
+ * choosing a threshold. So admits are written too, with their readings.
+ *
+ * Only where the guard is actually active. A proxy route holds no model on
+ * this machine, and a line saying so on every job would be volume without a
+ * fact in it.
+ *
+ * `jobId` is deliberately optional: the decision can precede a job, and a
+ * shape that demands one would push the caller into inventing an id.
+ */
+const MemoryEntry = z
+  .object({
+    type: z.literal("memory"),
+    at: z.number().int().positive(),
+    jobId: z.string().min(1).optional(),
+    backendId: z.string().min(1),
+    admit: z.boolean(),
+    why: z.string().min(1),
+    /** Absent when memory could not be read — that is the guard being off. */
+    availableBytes: z.number().int().nonnegative().optional(),
+    totalBytes: z.number().int().nonnegative().optional(),
+    swapFreeBytes: z.number().int().nonnegative().optional(),
+    swapTotalBytes: z.number().int().nonnegative().optional(),
+    pressure: z.enum(["normal", "warn", "critical", "unknown"]),
+  })
+  .strict();
+type MemoryEntry = z.infer<typeof MemoryEntry>;
+
 export const IngressEntry = z.discriminatedUnion("type", [
   PromptEntry,
   OutcomeEntry,
+  MemoryEntry,
 ]);
 export type IngressEntry = z.infer<typeof IngressEntry>;
 
@@ -155,6 +191,39 @@ export class IngressLog {
         ? {}
         : { outputChars: input.outputChars }),
       ...(input.detail === undefined ? {} : { detail: input.detail }),
+    });
+  }
+
+  /** Record what the memory guard decided — B080. */
+  async recordMemory(input: {
+    at: number;
+    jobId?: string;
+    backendId: string;
+    decision: { admit: boolean; why: string };
+    memory: MemoryReading;
+    pressure: MemoryPressure;
+  }): Promise<void> {
+    const read = input.memory.kind === "read" ? input.memory : undefined;
+    await this.#append({
+      type: "memory",
+      at: input.at,
+      ...(input.jobId === undefined ? {} : { jobId: input.jobId }),
+      backendId: input.backendId,
+      admit: input.decision.admit,
+      why: input.decision.why,
+      ...(read === undefined
+        ? {}
+        : {
+            availableBytes: read.availableBytes,
+            totalBytes: read.totalBytes,
+            ...(read.swapFreeBytes === undefined
+              ? {}
+              : { swapFreeBytes: read.swapFreeBytes }),
+            ...(read.swapTotalBytes === undefined
+              ? {}
+              : { swapTotalBytes: read.swapTotalBytes }),
+          }),
+      pressure: input.pressure,
     });
   }
 

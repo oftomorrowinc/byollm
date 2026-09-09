@@ -219,13 +219,34 @@ describe("the runner's own guard on starting servers", () => {
      * less than every real index, so an ordering assertion on its own passes
      * most convincingly when the thing has been deleted.
      */
-    const body = runner.slice(runner.indexOf("async runJob("));
+    const body = runner.slice(runner.indexOf("async #runOnBackend("));
     const ensure = body.indexOf("#ensureLocalServer(route, backend)");
-    const execute = body.indexOf("await backend.execute(");
+    const execute = body.indexOf("backend.execute(");
     expect(ensure, "the call is gone").toBeGreaterThan(-1);
     expect(execute).toBeGreaterThan(-1);
     /* After would be a start that helps the next job and not this one. */
     expect(ensure).toBeLessThan(execute);
+
+    /**
+     * And both are on the far side of the memory guard — B080.
+     *
+     * They were moved into `#runOnBackend` for exactly that reason: starting
+     * a server and asking it are the two expensive halves, and the gate has
+     * to precede both. This test found the move, correctly, by the call not
+     * being where it looked.
+     *
+     * The ordering itself is proven behaviourally in `memory-caller.test.ts`
+     * — a refused job never spawns, with the control that a job with room
+     * does — which is stronger than reading source. This line only holds the
+     * two calls together so they cannot drift back apart onto opposite sides
+     * of the guard.
+     */
+    const caller = runner.slice(runner.indexOf("async runJob("));
+    const gate = caller.indexOf("#memoryDecision(route, job.id)");
+    const runOn = caller.indexOf("#runOnBackend(");
+    expect(gate, "the guard is gone").toBeGreaterThan(-1);
+    expect(runOn).toBeGreaterThan(-1);
+    expect(gate).toBeLessThan(runOn);
   });
 });
 

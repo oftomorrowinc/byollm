@@ -41,6 +41,13 @@ const FOR_SITE: Readonly<
     { code: string; message: string; retryable: boolean }
   >
 > = Object.freeze({
+  /* Retryable, and honestly so: memory frees up. It is the one refusal in
+     this table that is expected to stop being true within minutes. */
+  "insufficient-memory": {
+    code: "service_unavailable",
+    message: SERVICE_UNAVAILABLE,
+    retryable: true,
+  },
   "backend-unreachable": {
     code: "service_unavailable",
     message: SERVICE_UNAVAILABLE,

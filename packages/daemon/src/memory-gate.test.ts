@@ -402,6 +402,53 @@ describe("the memory gate", () => {
     ).toBe(1);
   });
 
+  it("does not refuse on a swap store that grows on demand", () => {
+    /**
+     * The second landmine in the same three lines. The first was
+     * `swapTotal === 0` meaning "no swap configured" rather than "swap
+     * exhausted"; this one is a store that is FULL not being a store that is
+     * EXHAUSTED, because macOS enlarges its swap file when it needs to.
+     *
+     * Measured on the machine this row exists for: 15.0 GB swap total one
+     * night, 24.0 GB the next morning. Same Mac, file grown. Reading the
+     * first as "headroom gone" would refuse a laptop that is fine, which is
+     * `os.freemem()`'s mistake wearing a different number.
+     *
+     * byollm_022: keep SwapFree on Linux, drop swap as a refusal condition
+     * on macOS entirely.
+     */
+    const mac = memoryGate({
+      ...LOCAL,
+      memory: {
+        kind: "read",
+        availableBytes: 8 * GB,
+        totalBytes: 36 * GB,
+        swapFreeBytes: 0,
+        swapTotalBytes: 24 * GB,
+        swapGrows: true,
+      },
+      pressure: "normal",
+    });
+    expect(mac.admit, mac.why).toBe(true);
+
+    /* The control, and it is the same numbers: a store that does NOT grow,
+       full, is the real signal Linux reports. Without this the case above
+       would pass against a gate that had simply stopped reading swap. */
+    const fixed = memoryGate({
+      ...LOCAL,
+      memory: {
+        kind: "read",
+        availableBytes: 8 * GB,
+        totalBytes: 36 * GB,
+        swapFreeBytes: 0,
+        swapTotalBytes: 24 * GB,
+      },
+      pressure: "normal",
+    });
+    expect(fixed.admit).toBe(false);
+    expect(mac.admit).not.toBe(fixed.admit);
+  });
+
   it("has a floor low enough not to fire in ordinary use", () => {
     /* 8 GB would have refused on the machine this row exists for, tonight. */
     expect(DEFAULT_FLOOR_BYTES).toBeLessThan(6.6 * GB);

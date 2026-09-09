@@ -30,6 +30,9 @@ import { diagnoseRoute } from "./diagnose.js";
 import { DaemonConfig, loadConfig } from "./config.js";
 import { connect } from "./connect.js";
 import { IngressLog, stripControlChars } from "./ingress.js";
+import { readHostMemory } from "./memory.js";
+import type { MemoryPressure, MemoryReading } from "./memory.js";
+import { DEFAULT_FLOOR_BYTES } from "./memory-gate.js";
 import { DeviceIdentity } from "./identity.js";
 import { Pairings, recordSites } from "./pairings.js";
 import { SpendLedger } from "./spend.js";
@@ -1715,6 +1718,18 @@ async function runLoop(
       spend,
       spentGrants,
       ingress,
+      /**
+       * The memory guard, wired here and nowhere else — B080.
+       *
+       * Same rule as `spawnServer`: only the daemon that runs jobs gets one,
+       * because `connect`, `services` and `status` build runners to ask
+       * questions and none of them should be spawning `vm_stat` to do it.
+       *
+       * This is the line that makes the guard exist. Without it `memoryGate`
+       * is a function with tests and no reader — which is the state B080 sat
+       * in for two commits, and the state `spawnServer` is still in.
+       */
+      readMemory: readHostMemory,
       onEvent: (event) => {
         report(origin, event, io);
         /**
@@ -2135,6 +2150,36 @@ function report(origin: string, event: RunnerEvent, io: CliIo): void {
 
 // -- status ------------------------------------------------------------------
 
+/**
+ * What `byollm status` says about the memory guard.
+ *
+ * Separate from the command so it can be tested against readings nobody can
+ * arrange on a laptop — a machine with 1 GB free, a platform with no reader.
+ * The command reads the host; this decides what that means.
+ */
+export function memoryGuardLines(input: {
+  memory: MemoryReading;
+  pressure: MemoryPressure;
+}): string {
+  const gb = (n: number) => `${(n / 1024 ** 3).toFixed(1)} GB`;
+  if (input.memory.kind !== "read") {
+    return (
+      `memory guard: NOT ACTIVE\n` +
+      `  ${input.memory.why}, so jobs are admitted without checking whether\n` +
+      `  this machine has room to load a model. Nothing here is refusing on\n` +
+      `  memory — which is not the same as nothing needing to be refused.\n`
+    );
+  }
+  const floor = gb(DEFAULT_FLOOR_BYTES);
+  return (
+    `memory guard: active\n` +
+    `  ${gb(input.memory.availableBytes)} available of ` +
+    `${gb(input.memory.totalBytes)}, pressure ${input.pressure}\n` +
+    `  a job that loads a model is refused below ${floor} available, or at\n` +
+    `  critical pressure.\n`
+  );
+}
+
 async function commandStatus(
   paths: DaemonPaths,
   io: CliIo,
@@ -2234,6 +2279,23 @@ async function commandStatus(
     );
   }
   io.out(await supervisionLine(plan, supervision, revoked !== undefined));
+  io.out("\n");
+
+  /**
+   * The memory guard, and whether it is actually guarding — B080.
+   *
+   * byollm_022 requires this line for the unknown case specifically: if the
+   * reader cannot answer, the gate admits normally, and **an absent guard
+   * that stays quiet is indistinguishable from one that is passing
+   * everything.** That is `stopReasons`' `unavailable` one layer down — we
+   * looked, there was nothing to read, and the honest move is to say so.
+   *
+   * Read directly here rather than through a Runner. The rule that `status`
+   * must not spawn is about starting a model server as a side effect of
+   * asking a question; this IS the question, asked once, on the screen whose
+   * job is to answer it.
+   */
+  io.out(memoryGuardLines(await readHostMemory()));
   io.out("\n");
 
   io.out("paired apps\n");
@@ -2555,6 +2617,29 @@ async function commandLog(
             ? ""
             : ` ${String(entry.durationMs)}ms`) +
           `${entry.detail === undefined ? "" : `  ${stripControlChars(entry.detail)}`}\n`,
+      );
+      continue;
+    }
+
+    /**
+     * The memory guard's decisions — B080.
+     *
+     * Rendered here rather than left to `jq` because this is the log an owner
+     * is pointed at, and a decision nobody can read is the tuning data
+     * byollm_022 asked for sitting in a file nobody opens. Admits included:
+     * the question the 2 GB floor needs answered is how close the admits ran,
+     * and a log of refusals alone cannot answer it.
+     */
+    if (entry.type === "memory") {
+      const gb = (n: number) => `${(n / 1024 ** 3).toFixed(1)} GB`;
+      io.out(
+        `${at}  ${(entry.admit ? "admit" : "REFUSE").padEnd(8)} ` +
+          entry.backendId +
+          (entry.availableBytes === undefined
+            ? ""
+            : `  ${gb(entry.availableBytes)} free`) +
+          `  pressure ${entry.pressure}` +
+          `  ${stripControlChars(entry.why)}\n`,
       );
       continue;
     }

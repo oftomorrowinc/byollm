@@ -169,6 +169,19 @@ export type BackendResult =
  * sentence from one whose job hit its timeout.
  */
 export type BackendErrorCode =
+  /**
+   * This device does not have the memory to load a model right now — B080.
+   *
+   * Its own code because this union's own rule is that different truths must
+   * never share a message. "The server is down" and "the server is fine and
+   * this machine has no room" are different things to be told, and only one
+   * of them is fixed by starting something.
+   *
+   * It reaches a site as `service_unavailable`, like every other fact about
+   * somebody's machine — telling a site that this device is low on memory is
+   * telling it about the device, which is what that mapping exists to stop.
+   */
+  | "insufficient-memory"
   | "backend-unreachable"
   | "backend-error"
   | "model-not-found"

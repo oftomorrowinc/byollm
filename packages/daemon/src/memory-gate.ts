@@ -82,6 +82,23 @@ export type GateDecision =
   | { readonly admit: true; readonly why: string }
   | { readonly admit: false; readonly why: string };
 
+/**
+ * Does this route hold a model on this machine at all?
+ *
+ * Exported so the caller can decide whether reading memory is worth a
+ * `vm_stat` spawn per job, and defined here so that decision is the SAME
+ * decision the gate makes rather than a second one that agrees today. That
+ * is the whole lesson of B085, which arrived because a second place answered
+ * a question this file already answers.
+ */
+export function guardApplies(input: {
+  readonly backendId: BackendId;
+  readonly baseUrl: string | undefined;
+  readonly model: string | undefined;
+}): boolean {
+  return resolveCost(input.backendId, input.baseUrl, input.model) === "free";
+}
+
 export function memoryGate(input: GateInput): GateDecision {
   /**
    * Ask, never read the field.
@@ -95,11 +112,13 @@ export function memoryGate(input: GateInput): GateDecision {
    * claim is a prediction, so it ships with the test that catches it — see
    * "an unreachable premise" in the suite.
    */
-  const cost = resolveCost(input.backendId, input.baseUrl, input.model);
-  if (cost !== "free") {
+  if (!guardApplies(input)) {
     return {
       admit: true,
-      why: `${input.backendId} resolves to ${cost}, so it holds no model here`,
+      why:
+        `${input.backendId} resolves to ` +
+        `${resolveCost(input.backendId, input.baseUrl, input.model)}, ` +
+        `so it holds no model here`,
     };
   }
 
@@ -152,10 +171,16 @@ export function memoryGate(input: GateInput): GateDecision {
    * not empty, the way `unavailable` is not `unverified` and `"unknown"` is
    * not `"end"`.
    */
-  const { swapTotalBytes, swapFreeBytes } = input.memory;
+  const { swapTotalBytes, swapFreeBytes, swapGrows } = input.memory;
   if (
     swapTotalBytes !== undefined &&
     swapTotalBytes > 0 &&
+    /* A store that grows on demand cannot be exhausted by being full. macOS
+       enlarges its swap file as it needs to — Todd's read 15 GB one night
+       and 24 GB the next morning — so "free near zero" there is the current
+       file filling, not the machine running out. Second landmine in the same
+       three lines: absent is not empty, and full is not exhausted. */
+    swapGrows !== true &&
     swapFreeBytes !== undefined &&
     swapFreeBytes < 64 * 1024 * 1024
   ) {

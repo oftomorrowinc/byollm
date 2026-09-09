@@ -1,4 +1,7 @@
+import { execFile } from "node:child_process";
+import { readFile } from "node:fs/promises";
 import { totalmem, freemem, platform as hostPlatform } from "node:os";
+import { promisify } from "node:util";
 
 /**
  * How much memory this machine can actually give a job — byollm_022, B080.
@@ -50,6 +53,29 @@ export type MemoryReading =
       /** Absent where the platform does not report it — Windows, for now. */
       readonly swapFreeBytes?: number;
       readonly swapTotalBytes?: number;
+      /**
+       * Whether the swap store grows on demand — and it decides whether
+       * "free" here is a headroom figure at all.
+       *
+       * On Linux swap is a partition or a file of fixed size, so `SwapFree`
+       * near zero means the machine has nowhere left to page: a real signal.
+       * **On macOS the swap file is grown by the kernel as it is needed**, so
+       * `vm.swapusage` free near zero means the CURRENT file is full and
+       * about to be enlarged — not that the machine is out of room.
+       *
+       * Measured, not assumed. Todd's Mac read a 15.0 GB swap total one
+       * night and 24.0 GB the next morning: the same machine, the file
+       * grown, no reinstall. A refusal rule reading that as "headroom gone"
+       * would fire on a laptop that is fine — `os.freemem()`'s mistake with
+       * a different number, which is the failure this whole row exists to
+       * avoid.
+       *
+       * byollm_022 rules it directly: keep `SwapFree` on Linux, "drop swap
+       * as a refusal condition on macOS entirely". This is how — as a
+       * property of the reading, so the gate stays platform-agnostic and
+       * cannot grow a `process.platform` branch of its own.
+       */
+      readonly swapGrows?: boolean;
     }
   | {
       /**
@@ -178,7 +204,14 @@ export async function readMemory(
     const reading = parseVmStat(text, totalmem());
     if (reading.kind !== "read") return reading;
     const swap = await run(["sysctl", "vm.swapusage"]);
-    return { ...reading, ...(swap === undefined ? {} : parseSwapUsage(swap)) };
+    /* Read and reported, but flagged as growable — it belongs in the log
+       where a person is tuning a default, and not in a refusal. */
+    return {
+      ...reading,
+      ...(swap === undefined
+        ? {}
+        : { ...parseSwapUsage(swap), swapGrows: true }),
+    };
   }
   if (platform === "win32") {
     return { kind: "read", availableBytes: freemem(), totalBytes: totalmem() };
@@ -242,4 +275,48 @@ export async function readPressure(
     return text === undefined ? "unknown" : parsePsi(text);
   }
   return "unknown";
+}
+
+/**
+ * The reader the daemon actually runs — B080.
+ *
+ * Everything above this line is injected and tested against captured output.
+ * This is the one place that touches the host, and it exists so that the
+ * injection point has something to inject: a guard nobody wires is dead code
+ * wearing an API, which is a thing this codebase has already shipped once.
+ *
+ * Failures are swallowed into `unknown` rather than thrown. A machine where
+ * `vm_stat` is missing is a machine where the guard cannot run, and that is
+ * the third state the reader already models — it must not be a crashed
+ * daemon, and it must not be silence either. {@link readMemory} says which,
+ * and `byollm status` says it out loud.
+ */
+export async function readHostMemory(): Promise<{
+  memory: MemoryReading;
+  pressure: MemoryPressure;
+}> {
+  const run: ReadCommand = async ([command, ...args]) => {
+    try {
+      const { stdout } = await promisify(execFile)(command, args, {
+        // Fixed argv, no shell — the security caveat byollm_022 names for
+        // spawning at all, answered rather than skipped.
+        shell: false,
+        timeout: 2000,
+      });
+      return stdout;
+    } catch {
+      return undefined;
+    }
+  };
+  const read = async (path: string): Promise<string | undefined> => {
+    try {
+      return await readFile(path, "utf8");
+    } catch {
+      return undefined;
+    }
+  };
+  return {
+    memory: await readMemory(run, read),
+    pressure: await readPressure(run, read),
+  };
 }

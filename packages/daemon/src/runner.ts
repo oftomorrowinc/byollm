@@ -1,4 +1,6 @@
 import { ensureLocalServer, isStartable } from "./local-server.js";
+import { guardApplies, memoryGate } from "./memory-gate.js";
+import type { MemoryPressure, MemoryReading } from "./memory.js";
 import type { ServiceReport } from "./service-line.js";
 import { knownModelsFor } from "./known-models.js";
 import { outcomeForSite } from "./site-outcome.js";
@@ -34,7 +36,11 @@ import {
   type SignedGrant,
   verifyGrant,
 } from "@byollm/protocol";
-import { createBackend, type Backend } from "./backends/index.js";
+import {
+  createBackend,
+  type Backend,
+  type BackendResult,
+} from "./backends/index.js";
 import { SpentGrants } from "./spent-grants.js";
 import type { Budgets } from "./budgets.js";
 import { ClientError, type ProtocolClient } from "./client.js";
@@ -168,6 +174,27 @@ export interface RunnerOptions {
    * the daemon that runs jobs passes one.
    */
   readonly spawnServer?: (command: readonly string[]) => void;
+
+  /**
+   * How this machine's memory is read — B080, injected for the reason the
+   * clock is.
+   *
+   * A guard that reads the host inside its own tests is a guard whose tests
+   * pass or fail with whatever else is running, and the readings that matter
+   * here (2 GB free, pressure critical) are ones you cannot arrange on a
+   * developer's laptop on purpose.
+   *
+   * **Absent means the guard is not active**, the same shape as
+   * `spawnServer`: `connect`, `services` and `status` build runners to ask
+   * questions, and none of them should be spawning `vm_stat`. The daemon that
+   * runs jobs passes one, and `byollm status` says out loud when nothing does
+   * — an absent guard that stays quiet is indistinguishable from one that is
+   * passing everything.
+   */
+  readonly readMemory?: () => Promise<{
+    readonly memory: MemoryReading;
+    readonly pressure: MemoryPressure;
+  }>;
 }
 
 /**
@@ -1397,6 +1424,100 @@ export class Runner {
    * too, and none of them should be able to start a model server as a side
    * effect of asking a question.
    */
+  /**
+   * Should this machine take a job that loads a model right now — B080.
+   *
+   * Returns the decision, or `undefined` when there was nothing to decide:
+   * no reader injected, or a route that holds no model here. Both are
+   * silence rather than an admit, because an admit gets logged and a line
+   * per job saying "this is a proxy" is volume with no fact in it.
+   *
+   * Asked HERE, at dispatch, and not at start-up. The hazard that actually
+   * happened on 09-08 was not a stopped server being started — it was a
+   * running one loading 17 GB because a job arrived, and the only moment
+   * that can be refused is the moment the job arrives.
+   *
+   * Memory is read only when the guard applies, so the `vm_stat` spawn is
+   * paid on the routes it can protect and on no others. `guardApplies` is
+   * the gate's own function, not a second opinion — B085 was exactly a
+   * second place answering a question this one already answers.
+   */
+  async #memoryDecision(
+    route: ResolvedRoute,
+    jobId: string,
+  ): Promise<{ admit: boolean; why: string } | undefined> {
+    const read = this.#options.readMemory;
+    if (read === undefined) return undefined;
+    if (
+      !guardApplies({
+        backendId: route.backendId,
+        baseUrl: route.baseUrl,
+        model: route.model,
+      })
+    ) {
+      return undefined;
+    }
+    const { memory, pressure } = await read();
+    const decision = memoryGate({
+      backendId: route.backendId,
+      baseUrl: route.baseUrl,
+      model: route.model,
+      memory,
+      pressure,
+    });
+    /* Every decision, admits included — byollm_022 asks for the distribution,
+       and a log of refusals alone cannot say how close the admits ran. */
+    await this.#options.ingress.recordMemory({
+      at: this.#now(),
+      jobId,
+      backendId: route.backendId,
+      decision,
+      memory,
+      pressure,
+    });
+    return decision;
+  }
+
+  /**
+   * Start the server if needed, then run the job on it.
+   *
+   * Extracted so the gate above reads as one decision with two outcomes
+   * rather than an early return threaded past a long call — and so that
+   * "start the server" and "ask the server" stay on the same side of the
+   * guard. They have to: starting one is the expensive half.
+   */
+  async #runOnBackend(
+    route: ResolvedRoute,
+    backend: Backend,
+    prompt: string,
+    context: {
+      community: boolean;
+      limits: LoadedConfig["config"];
+      signal: AbortSignal;
+    },
+  ): Promise<BackendResult> {
+    await this.#ensureLocalServer(route, backend);
+    const { community, limits } = context;
+    return backend.execute({
+      prompt,
+      model: route.model,
+      // Community jobs run under the owner's tighter ceiling.
+      timeoutMs: community
+        ? Math.min(
+            limits.community.maxWallClockMs,
+            limits.limits.maxWallClockMs,
+          )
+        : limits.limits.maxWallClockMs,
+      maxOutputBytes: community
+        ? Math.min(
+            limits.community.maxOutputBytes,
+            limits.limits.maxOutputBytes,
+          )
+        : limits.limits.maxOutputBytes,
+      signal: context.signal,
+    });
+  }
+
   async #ensureLocalServer(
     route: ResolvedRoute,
     backend: Backend,
@@ -1472,25 +1593,28 @@ export class Runner {
        * First-job latency pays the load, and the job's own deadline bounds
        * it. Costs nothing on the paths it cannot help — see the guard.
        */
-      await this.#ensureLocalServer(route, backend);
-      const result = await backend.execute({
-        prompt,
-        model: route.model,
-        // Community jobs run under the owner's tighter ceiling.
-        timeoutMs: community
-          ? Math.min(
-              limits.community.maxWallClockMs,
-              limits.limits.maxWallClockMs,
-            )
-          : limits.limits.maxWallClockMs,
-        maxOutputBytes: community
-          ? Math.min(
-              limits.community.maxOutputBytes,
-              limits.limits.maxOutputBytes,
-            )
-          : limits.limits.maxOutputBytes,
-        signal: controller.signal,
-      });
+      /**
+       * The guard, and it sits BEFORE the server is started or asked — B080.
+       *
+       * After this line the model is being loaded, and nothing downstream can
+       * take that back. The refusal is shaped like a backend failure because
+       * that is what it is from every reader's point of view: the job did not
+       * run, and the reason belongs to this machine.
+       */
+      const gate = await this.#memoryDecision(route, job.id);
+      const result: BackendResult =
+        gate !== undefined && !gate.admit
+          ? {
+              ok: false,
+              code: "insufficient-memory",
+              message: gate.why,
+              durationMs: 0,
+            }
+          : await this.#runOnBackend(route, backend, prompt, {
+              community,
+              limits,
+              signal: controller.signal,
+            });
 
       /**
        * A service that cannot authenticate stops being advertised, after one

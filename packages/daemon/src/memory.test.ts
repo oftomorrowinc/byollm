@@ -279,4 +279,27 @@ describe("swap, where it is reported at all", () => {
        which is the landmine the gate is built around. */
     expect(parseSwapUsage("vm.swapusage: nonsense")).toEqual({});
   });
+
+  it("flags macOS swap as growable, because the kernel grows it", async () => {
+    /* The reading carries the platform fact so the gate does not have to
+       know the platform. Todd's Mac: 15.0 GB total one night, 24.0 GB the
+       next morning. */
+    const reading = await readMemory(
+      ([cmd]) =>
+        Promise.resolve(
+          cmd === "vm_stat"
+            ? "Mach Virtual Memory Statistics: (page size of 16384 bytes)\n" +
+                "Pages free:                          100000.\n" +
+                "Pages inactive:                       50000.\n" +
+                "Pages purgeable:                      10000.\n"
+            : "vm.swapusage: total = 24576.00M  used = 24576.00M  free = 0.00M",
+        ),
+      () => Promise.resolve(undefined),
+      "darwin",
+    );
+    expect(reading.kind).toBe("read");
+    if (reading.kind !== "read") return;
+    expect(reading.swapGrows).toBe(true);
+    expect(reading.swapTotalBytes).toBeGreaterThan(0);
+  });
 });

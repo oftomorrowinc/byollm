@@ -1,3 +1,4 @@
+import { z } from "zod";
 import type { BackendClass, BackendId } from "@byollm/protocol";
 
 /**
@@ -71,6 +72,24 @@ export type StopReasonMapping =
       readonly why: string;
     };
 
+/**
+ * The closed set, as a schema — so the values exist once.
+ *
+ * A bare union would mean anything that has to VALIDATE a stop reason (the
+ * ingress log, and the wire when step 4 lands) retyping the four strings
+ * beside it. Instruction 9: one definition, both ends, and where a consumer
+ * needs a runtime check the definition has to be one it can run.
+ *
+ * The type below is inferred from this rather than written twice, so the
+ * compiler and the validator cannot disagree about what a stop reason is.
+ */
+export const StopReasonSchema = z.enum([
+  "end",
+  "length",
+  "stop-sequence",
+  "unknown",
+]);
+
 export type StopReason =
   /** The model finished on its own. */
   | "end"
@@ -92,6 +111,13 @@ export type StopReason =
    * know" is a thing a site can act on; "it finished" when it did not is not.
    */
   | "unknown";
+/* Asserted rather than assumed: the hand-written union above carries the
+   documentation and this keeps it identical to the schema. If somebody adds a
+   fifth reason to one and not the other, this line stops compiling. */
+type _StopReasonsAgree = [
+  z.infer<typeof StopReasonSchema> extends StopReason ? true : never,
+  StopReason extends z.infer<typeof StopReasonSchema> ? true : never,
+];
 
 /**
  * The stop reason a result actually carries, with absence resolved.

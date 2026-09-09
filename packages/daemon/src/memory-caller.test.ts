@@ -80,13 +80,15 @@ class CountingBackend implements Backend {
   health(): Promise<{ healthy: boolean; models: string[] }> {
     return Promise.resolve({ healthy: this.answering, models: ["m"] });
   }
+  /** What this double reports it stopped for — B064 step 3. */
+  stop: "end" | "length" | undefined = "end";
   execute(_request: BackendRequest): Promise<BackendResult> {
     this.calls += 1;
     return Promise.resolve({
       ok: true,
       text: "answered",
       durationMs: 1,
-      stop: "end" as const,
+      ...(this.stop === undefined ? {} : { stop: this.stop }),
     });
   }
 }
@@ -509,5 +511,66 @@ describe("what `byollm status` says about the guard", () => {
     expect(text).not.toContain("NOT ACTIVE");
     expect(text).toContain("13.1 GB available of 36.0 GB");
     expect(text).toContain("pressure normal");
+  });
+});
+
+describe("a truncated answer reaches the owner's log — B064 step 3", () => {
+  /**
+   * The wiring, end to end, through a real Runner and a real ingress file.
+   *
+   * Everything below `stopReasonOf` shipped in .86 and nothing called it, so
+   * the daemon knew and no surface said. This asserts the fact survives the
+   * whole path — execute, record, read back — because that path is the
+   * feature and the function was already tested.
+   */
+  it("records why generation stopped, and distinguishes it from finishing", async () => {
+    const truncated = new CountingBackend();
+    truncated.stop = "length";
+    const cut = await runOneJob({
+      backend: truncated,
+      readMemory: () =>
+        Promise.resolve({ memory: reading(12), pressure: "normal" }),
+    });
+    /* The control the spec asks for by name: the same double, the same path,
+       an answer that finished. A test that only checks `length` passes
+       against an adapter reporting `length` for everything. */
+    const whole = new CountingBackend();
+    whole.stop = "end";
+    const done = await runOneJob({
+      backend: whole,
+      readMemory: () =>
+        Promise.resolve({ memory: reading(12), pressure: "normal" }),
+    });
+
+    /**
+     * Both runs share this test's ingress file, so the pair is read from one
+     * log rather than one from each — which is the stronger assertion
+     * anyway: the two values coexist in the record an owner actually reads.
+     *
+     * Read as a list for a reason. The first draft used `find`, which
+     * returned the truncated job's outcome for both and would have passed if
+     * the second run had recorded nothing at all.
+     */
+    void cut;
+    const stops = done.ingress
+      .filter((entry) => entry.type === "outcome")
+      .map((entry) => entry.stop);
+    expect(stops).toEqual(["length", "end"]);
+  });
+
+  it("records unknown for an adapter that reports nothing, never end", async () => {
+    /* The default that makes this a fix rather than a field, asserted where
+       it actually matters — on the record an owner reads, not in the
+       function. */
+    const silent = new CountingBackend();
+    silent.stop = undefined;
+    const { ingress } = await runOneJob({
+      backend: silent,
+      readMemory: () =>
+        Promise.resolve({ memory: reading(12), pressure: "normal" }),
+    });
+    expect(ingress.find((entry) => entry.type === "outcome")).toMatchObject({
+      stop: "unknown",
+    });
   });
 });

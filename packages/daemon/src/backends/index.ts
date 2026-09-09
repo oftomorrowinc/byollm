@@ -74,8 +74,10 @@ function createProcessBackend(id: BackendId): Backend {
 export { ClaudeCliBackend, childEnv, claudeArgv } from "./claude-cli.js";
 export { CodexCliBackend, codexArgv } from "./codex-cli.js";
 export { OpenAiHttpBackend } from "./openai-http.js";
+export { stopReasonOf } from "./types.js";
 export type {
   Backend,
+  StopReason,
   BackendErrorCode,
   BackendHealth,
   BackendInit,

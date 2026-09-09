@@ -38,6 +38,7 @@ import {
 } from "@byollm/protocol";
 import {
   createBackend,
+  stopReasonOf,
   type Backend,
   type BackendResult,
 } from "./backends/index.js";
@@ -1853,6 +1854,21 @@ export class Runner {
         durationMs: result.durationMs,
         outputChars: result.ok ? result.text.length : 0,
         ...(result.ok ? {} : { detail: result.message }),
+        /**
+         * Why generation stopped — B064 step 3, and the first production
+         * reader `stopReasonOf` has ever had.
+         *
+         * Detection shipped in .86 and nothing called it, so the daemon knew
+         * an answer had been cut off and no surface said so. This is the
+         * owner's own log on the owner's own machine: no wire change, and it
+         * works for every site already in the field.
+         *
+         * Read through `stopReasonOf` rather than off `result.stop`, which
+         * is the whole point of that function — an adapter that was never
+         * taught to report one must not be mistaken for a model that ran to
+         * completion.
+         */
+        ...(result.ok ? { stop: stopReasonOf(result) } : {}),
       });
 
       // Community work on a metered backend spends the owner's money, so it

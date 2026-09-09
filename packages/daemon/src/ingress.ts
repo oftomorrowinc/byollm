@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { appendFile, mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import type { Audience } from "@byollm/protocol";
+import { StopReasonSchema, type StopReason } from "./backends/types.js";
 import type { MemoryPressure, MemoryReading } from "./memory.js";
 import { z } from "zod";
 
@@ -64,6 +65,18 @@ export const OutcomeEntry = z
     outputChars: z.number().int().nonnegative().optional(),
     /** Why, for `error` and `refused`. */
     detail: z.string().optional(),
+    /**
+     * Why generation stopped — B064 step 3.
+     *
+     * Local only. This log is the owner's own file, read by `byollm log` on
+     * the same machine that wrote it, so recording the reason here is not a
+     * wire change and reaches every site already in the field.
+     *
+     * Optional because it is meaningless on the arms where nothing ran: a
+     * refused job has no model to have stopped, and an entry written before
+     * this field existed is read by a daemon that has it.
+     */
+    stop: StopReasonSchema.optional(),
   })
   .strict();
 export type OutcomeEntry = z.infer<typeof OutcomeEntry>;
@@ -177,6 +190,7 @@ export class IngressLog {
     durationMs?: number;
     outputChars?: number;
     detail?: string;
+    stop?: StopReason;
   }): Promise<void> {
     await this.#append({
       type: "outcome",
@@ -191,6 +205,7 @@ export class IngressLog {
         ? {}
         : { outputChars: input.outputChars }),
       ...(input.detail === undefined ? {} : { detail: input.detail }),
+      ...(input.stop === undefined ? {} : { stop: input.stop }),
     });
   }
 

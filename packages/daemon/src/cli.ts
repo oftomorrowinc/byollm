@@ -32,6 +32,7 @@ import { DaemonConfig, loadConfig } from "./config.js";
 import { connect } from "./connect.js";
 import { IngressLog, stripControlChars } from "./ingress.js";
 import { readHostMemory } from "./memory.js";
+import { stopLine } from "./stop-remedy.js";
 import type { MemoryPressure, MemoryReading } from "./memory.js";
 import { DeviceIdentity } from "./identity.js";
 import { Pairings, recordSites } from "./pairings.js";
@@ -2665,15 +2666,41 @@ async function commandLog(
     return 0;
   }
 
+  /**
+   * Which backend ran each job — B064 step 3.
+   *
+   * The outcome entry does not carry it and the prompt entry does, and a
+   * prompt is always written before its own outcome
+   * ({@link MUSTS.INGRESS_LOGGED_BEFORE_EXECUTION} puts it before the backend
+   * is touched at all). So walking in order is enough, and this needs no
+   * second field on the wire or in the log.
+   *
+   * It matters because the remedy is per-backend: "raise `num_predict`" is
+   * useful for Ollama and meaningless for a subscription CLI, and telling an
+   * owner to turn a knob that does not exist is worse than saying nothing.
+   */
+  const ranOn = new Map<string, BackendId>();
+
   for (const entry of shown) {
     const at = new Date(entry.at).toISOString().replace("T", " ").slice(0, 19);
+    if (entry.type === "prompt")
+      ranOn.set(entry.jobId, entry.backendId as BackendId);
     if (entry.type === "outcome") {
+      const backendId = ranOn.get(entry.jobId);
+      const stopped =
+        entry.stop === undefined || backendId === undefined
+          ? undefined
+          : stopLine(backendId, entry.stop);
       io.out(
         `${at}  ${entry.outcome.padEnd(8)} ${entry.jobId}` +
           (entry.durationMs === undefined
             ? ""
             : ` ${String(entry.durationMs)}ms`) +
-          `${entry.detail === undefined ? "" : `  ${stripControlChars(entry.detail)}`}\n`,
+          `${entry.detail === undefined ? "" : `  ${stripControlChars(entry.detail)}`}\n` +
+          /* Its own line, indented under the outcome: this is the sentence
+             the owner is meant to act on, and appending it to a line that
+             already carries an id and a duration is how it gets skimmed. */
+          (stopped === undefined ? "" : `             ${stopped}\n`),
       );
       continue;
     }

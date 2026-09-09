@@ -209,6 +209,52 @@ const endpointCount = Array.isArray(ENDPOINTS)
   ? ENDPOINTS.length
   : Object.keys(ENDPOINTS).length;
 /**
+ * Claims we have retired, wherever they are — B083.
+ *
+ * The h1 and the hero trio were changed and the SAME two claims were sitting
+ * in `twitter:description`, which is the copy every link preview on X and
+ * LinkedIn reads. Fix the visible one and the shared one goes on saying the
+ * old thing to everybody who never opens the page. Fifth and sixth instance
+ * of the one-fact-many-places shape this sweep exists for.
+ *
+ * A retired claim is not a typo — it is a sentence somebody decided was no
+ * longer true, and the decision has to reach every copy of it or the decision
+ * did not happen. So the words are banned rather than corrected: the check
+ * cannot know where the next copy will be, and does not need to.
+ *
+ * `README.md`'s "the compute comes from the user" is NOT here, deliberately.
+ * byollm_018 falsifies it and 018 has not shipped, so banning it now would
+ * redden CI for a sentence that is still true. It is noted on 018's copy
+ * section, which is where instruction 7 says a sentence with a known expiry
+ * belongs.
+ */
+const RETIRED_CLAIMS = Object.freeze([
+  [
+    "no keys leaving the box",
+    "keys are shared with nobody; they do not merely stay put",
+  ],
+  [
+    "No keys leave their computer",
+    "same claim, same reason — 'no shared keys'",
+  ],
+  [
+    "on their own computers",
+    "replaced by 'on devices they control' — a device is not always a computer",
+  ],
+  [
+    "actually there and healthy",
+    "consent and reachability are two promises; one clause strained",
+  ],
+]);
+for (const [claim, why] of RETIRED_CLAIMS) {
+  check(
+    `does not repeat the retired claim "${claim.slice(0, 34)}"`,
+    !html.includes(claim),
+    why,
+  );
+}
+
+/**
  * The cost classes the table shows, against the classes that exist.
  *
  * The table's Cost column is a list the registry owns — `free`, `metered`,

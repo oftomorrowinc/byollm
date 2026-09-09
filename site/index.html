@@ -13,7 +13,7 @@
 <meta property="og:image" content="https://byo-llm.com/og.svg">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="BYOLLM — Bring Your Own LLM">
-<meta name="twitter:description" content="Your users' AI, on their own computers. Outbound-only daemon, typed jobs, no keys leaving the box. Alpha.">
+<meta name="twitter:description" content="Your users' AI on devices they control. Outbound-only daemon, typed jobs, no shared keys. Alpha.">
 <meta name="twitter:image" content="https://byo-llm.com/og.svg">
 <!-- The green dot from the nav, as the tab icon. Inline so the page stays
      dependency-free and openable straight from the filesystem. -->
@@ -163,8 +163,8 @@
 
 <header class="hero"><div class="wrap">
   <span class="kicker">Bring Your Own LLM</span>
-  <h1>Your users' AI,<br>on <span class="g">their own computers</span>.</h1>
-  <p class="sub">Let your app run its LLM jobs on your users' own models and subscriptions — their Ollama box, their Mac running MLX, their <span class="mono">claude</span> CLI — through a tiny daemon they run and control. No keys leave their computer. No tunnels. No inbound ports.</p>
+  <h1>Your users' AI<br>on <span class="g">devices they control</span>.</h1>
+  <p class="sub">Let your app run its LLM jobs on your users' own models and subscriptions — their Ollama box, their Mac running MLX, their <span class="mono">claude</span> CLI — through a tiny daemon they run and control. No tunnels. No inbound ports. No shared keys.</p>
   <div class="cmd mono">
     <span class="p">$</span><span class="c">npx byollm@latest connect https://your-app.com</span>
     <button class="cp" id="cp" aria-label="Copy the connect command">copy</button>
@@ -224,7 +224,7 @@
   <h2>One command. Your models. Your rules.</h2>
   <div class="steps">
     <div class="step"><span class="n">1</span><div><h4>Connect</h4><p><code>npx byollm@latest connect https://the-app.com</code> — opens your browser to pair with one click. Nothing to configure on your network.</p></div></div>
-    <div class="step"><span class="n">2</span><div><h4>Route your models</h4><p>Name a service for whatever you&rsquo;ve got installed, and say which job kinds it answers: <code>"ollama-local": { "type": "ollama", "model": "gemma3:12b", "kinds": ["llm.generate"] }</code>. The daemon only advertises models that are actually there and healthy.</p></div></div>
+    <div class="step"><span class="n">2</span><div><h4>Route your models</h4><p>Name a service for whatever you&rsquo;ve got installed, and say which job kinds it answers: <code>"ollama-local": { "type": "ollama", "model": "gemma3:12b", "kinds": ["llm.generate"] }</code>. The daemon only advertises models you approve. And only ones it can actually run.</p></div></div>
     <div class="step"><span class="n">3</span><div><h4>Stay in control</h4><p><code>byollm log</code> shows every prompt that ever ran on your device. <code>byollm stop</code> stops it. The daemon is your meter — that's the point.</p></div></div>
   </div>
 </div></section>

@@ -23,6 +23,7 @@ pnpm run format:check
 pnpm run build
 pnpm run smoke
 pnpm run check:site
+pnpm run check:releasing
 pnpm run lint
 pnpm run typecheck
 pnpm run test:coverage

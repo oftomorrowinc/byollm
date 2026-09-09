@@ -26,7 +26,11 @@ concurrency:
   cancel-in-progress: false
 
 permissions:
-  contents: read
+  # Write, only so the release note can become a GitHub release — B084. A
+  # release with no note ships as the tag's subject line truncated, which is
+  # how an approved paragraph sat unpublished for a week. The alternative was
+  # a token, and widening the workflow's own scope is the smaller change.
+  contents: write
   # Reading CI's verdict on this commit — the `ci` job below.
   actions: read
   # The whole point: this is what lets the runner mint an OIDC token npm will
@@ -383,8 +387,9 @@ jobs:
       # Verify the artifact, not the run.
       #
       # `set -e` already fails this job if a publish fails — that is how
-      # `alpha.6` went red. What it did not tell anyone is that four packages
-      # were live by then. A partial release is the dangerous state: some
+      # `alpha.6` went red. What it did not tell anyone is that three packages
+      # were live by then (the registry's word, checked in B084 — this comment
+      # and the runbook both said four). A partial release is the dangerous state: some
       # packages at the new version, others behind, and every one of them
       # resolvable by anyone who installs.
       #
@@ -405,6 +410,49 @@ jobs:
       - name: Verify the registry actually has it
         if: ${{ !inputs.dry_run }}
         run: node scripts/release-check.mjs "${{ steps.version.outputs.version }}"
+
+      # ---------------------------------------------------------------------
+      # Publish the note — B084.
+      #
+      # There were ZERO GitHub releases in this repository. Not thin ones:
+      # none. What a person sees at `/releases/tag/v0.1.0-alpha.86` is the tag
+      # page rendering the annotation's subject, which is why an approved
+      # paragraph looked like it had been dropped when it had simply never
+      # been collected.
+      #
+      # `tag.sh` refuses to tag without `docs/release-notes/<version>.md`, so
+      # by the time this runs the file exists. Gating on a file nothing
+      # publishes would have been the other half of the same bug — a note with
+      # no reader.
+      #
+      # AFTER the registry check, deliberately: a release object is an
+      # announcement, and announcing a publish that did not land is worse than
+      # announcing nothing. A prerelease is marked as one, from the same
+      # version string the dist-tag is derived from, so this cannot call an
+      # alpha a stable release.
+      # ---------------------------------------------------------------------
+      - name: Publish the release note
+        if: ${{ !inputs.dry_run }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          V="${{ steps.version.outputs.version }}"
+          NOTE="docs/release-notes/$V.md"
+          if [ ! -s "$NOTE" ]; then
+            echo "::error::$NOTE is missing or empty. tag.sh refuses this, so"
+            echo "::error::  reaching here means the tag was not made by it."
+            exit 1
+          fi
+          PRERELEASE=""
+          case "$V" in *-*) PRERELEASE="--prerelease" ;; esac
+          # Idempotent: a re-run of a release that already announced itself
+          # updates the body rather than failing on "already exists".
+          if gh release view "v$V" >/dev/null 2>&1; then
+            gh release edit "v$V" --notes-file "$NOTE"
+          else
+            gh release create "v$V" --title "$V" --notes-file "$NOTE" $PRERELEASE
+          fi
 
       # ---------------------------------------------------------------------
       # The `latest` retag — deliberately NOT attempted here.

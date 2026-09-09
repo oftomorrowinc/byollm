@@ -58,7 +58,28 @@ if git rev-parse -q --verify "refs/tags/$wanted" >/dev/null; then
   exit 1
 fi
 
-# 3. Tag what is committed, not what is lying around.
+# 3. A release says what changed, or it is not ready to be one.
+#
+# B079's copy was approved and never shipped. It was not dropped — the runbook
+# was six steps (bump, verify, commit, tag, publish, retag) and none of them
+# was "write the note", so there was nowhere to put it. `v0.1.0-alpha.86`'s
+# page is the tag annotation's subject line, because that is the only prose
+# the release process ever collected.
+#
+# Refusing here is the same move this script already makes twice: the runbook
+# said "remember", and remembering is what a gate is for. The workflow then
+# publishes this file as the release body, so writing it is the thing that
+# makes it reach a reader.
+note="docs/release-notes/$version.md"
+if [ ! -s "$note" ]; then
+  echo "refusing to tag: $note is missing or empty." >&2
+  echo "  A release with no note ships as a truncated tag subject, which is" >&2
+  echo "  how an approved paragraph went unpublished for a week. Write what" >&2
+  echo "  changed for the people installing it, then tag." >&2
+  exit 1
+fi
+
+# 4. Tag what is committed, not what is lying around.
 if [ -n "$(git status --porcelain)" ]; then
   echo "refusing to tag: the working tree is dirty." >&2
   echo "  A tag names a commit, and this one would not be the tree you built." >&2

@@ -19,7 +19,8 @@ Authorize the workflow once per package. Use the CLI — it is exact, it is
 reviewable in a diff, and it does not depend on finding a page:
 
 ```bash
-for pkg in "@byollm/protocol" "@byollm/server" byollm "@byollm/conformance" "@byollm/relay"; do
+for pkg in "@byollm/protocol" "@byollm/server" byollm "@byollm/conformance" \
+           "@byollm/relay" "@byollm/control-plane"; do
   npm trust github "$pkg" \
     --file release.yml \
     --repo oftomorrowinc/byollm \
@@ -74,28 +75,42 @@ workflow filename first; it is the usual culprit, and it must include the
 `.yml`.
 
 The package's `repository.url` must also match the GitHub repo. It already does
-for all four — but it did not while the repo was private, when those fields were
+for all six — but it did not while the repo was private, when those fields were
 stripped, so re-check if manifests are ever edited.
 
 ## Cutting a release
 
 ```bash
-# 1. Bump all four packages. They move in lockstep; the workflow refuses
-#    to publish if they disagree.
-#    packages/{protocol,server,daemon,conformance}/package.json
-#    and packages/daemon/src/index.ts (DAEMON_VERSION)
-#    and the alpha warning in the five READMEs and site/index.html
+# 1. Bump. Every publishable package moves in lockstep; the workflow
+#    refuses to publish if they disagree. Do not type the list — this
+#    script reads `packages/`, which is why it did not miss `@byollm/relay`
+#    when the list was hardcoded in four places and did.
+node scripts/bump-version.mjs <version>
 
-# 2. Verify locally. CI runs this too, and so does the release workflow —
+#    It covers the manifests, packages/daemon/src/index.ts (DAEMON_VERSION),
+#    and the alpha warning in every README and site/index.html.
+
+# 2. Write the note: docs/release-notes/<version>.md. This is the step that
+#    did not exist, which is why B079's approved copy sat unshipped — it was
+#    never dropped, it was never collected. `tag.sh` refuses without it and
+#    the workflow publishes it as the GitHub release body, so this is the
+#    only thing standing between what you changed and the people installing
+#    it. Write it for them, not for the commit log.
+
+# 3. Verify locally. CI runs this too, and so does the release workflow —
 #    but finding it here is cheaper than finding it mid-release.
 pnpm run verify
 
-# 3. Commit, push, and let CI go green.
+# 4. Commit, push, and let CI go green.
 
-# 4. Tag it. `tag.sh` refuses to make one this repository cannot publish,
-#    and one that disagrees with packages/ — see below.
+# 5. Tag it. `tag.sh` refuses to make one this repository cannot publish,
+#    one that disagrees with packages/, and one with no release note — see
+#    below.
 ./scripts/tag.sh
-git push origin v0.1.0-alpha.4
+
+# 6. Push the tag. `tag.sh` prints the exact command; copy it from there
+#    rather than typing a version, which is how this line came to name
+#    `alpha.4` long after `alpha.86` shipped.
 ```
 
 ### Why `tag.sh` rather than `git tag`
@@ -158,7 +173,7 @@ Each guard is a mistake that would otherwise happen silently:
 - **A tag that disagrees with the version.** `v0.1.0-alpha.4` pointing at a
   commit where the manifests say `.3`.
 - **A version already on npm.** npm versions are immutable, so this would fail
-  anyway — but partway through, with two of four packages already public.
+  anyway — but partway through, with two of six packages already public.
 - **A prerelease reaching `latest` by accident.** The dist-tag is derived from
   the version string: `-alpha.` → `alpha`, `-beta.` → `beta`, any other
   prerelease → `next`, and only a clean version → `latest`.
@@ -233,7 +248,7 @@ You should not need to. If the workflow is broken and a release cannot wait:
 
 ```bash
 pnpm run verify
-for pkg in protocol server daemon conformance; do
+for pkg in protocol server daemon conformance relay control-plane; do
   ( cd "packages/$pkg" && pnpm publish --tag alpha --access public --no-git-checks )
 done
 ```
@@ -283,9 +298,15 @@ Not that one.
 
 The registry has no such ambiguity. A version is there or it is not, and the
 `alpha` tag points at it or it does not. The release workflow now runs this as
-its final step, so a partial publish — the `alpha.6` state, four packages live
-and one missing, every one of them resolvable — fails the job with the name of
-the package that is missing.
+its final step, so a partial publish — the `alpha.6` state, three packages
+live and two missing, every one of them resolvable — fails the job with the
+name of the package that is missing.
+
+(This paragraph said *"four packages live and one missing"* until B084, which
+contradicted the account four paragraphs above it. The registry is the
+arbiter and it says three: `@byollm/protocol`, `@byollm/conformance` and
+`byollm` carry a `0.1.0-alpha.6`; `@byollm/relay` and `@byollm/server` do
+not.)
 
 `latest` is reported and never asserted: moving it needs a human with 2FA, on
 purpose, so a `latest` behind `alpha` is a decision nobody has made yet rather

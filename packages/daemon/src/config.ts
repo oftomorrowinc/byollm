@@ -10,6 +10,7 @@ import {
   type BackendId,
 } from "@byollm/protocol";
 import { z } from "zod";
+import { DEFAULT_FLOOR_BYTES } from "./memory-gate.js";
 import { checkBaseUrl } from "./ssrf.js";
 
 /**
@@ -188,6 +189,50 @@ export const DaemonConfig = z
      * deliberately.
      */
     autoUpdate: z.boolean().default(false),
+    /**
+     * The memory floor this device refuses model work below — B090.
+     *
+     * Named for what it is rather than for what it reads. Both halves of
+     * `minAvailableMemoryBytes` are load-bearing and each closes a different
+     * misreading:
+     *
+     * **`min`** stops an owner setting their machine's TOTAL here. A field
+     * called `availableMemoryBytes` reads as a *reading* — "tell byollm how
+     * much memory this machine has" — and 24 GB in that box refuses every
+     * job forever. That is the broken-closed failure this whole guard exists
+     * to prevent, arriving through the config instead of through
+     * `os.freemem()`.
+     *
+     * **`available`** is the distinction the guard was built on: 0.28 GB
+     * free against 7.51 GB available, on the machine that actually wedged.
+     * Free is not available, and a floor compared against the wrong one is a
+     * floor that fires on a machine that is fine.
+     *
+     * ## Two gigabytes, and the Windows argument is what sets it
+     *
+     * Low on purpose. An 8 GB floor would refuse on the laptop this guard
+     * was written for while it holds 7.5 GB and serves jobs — `os.freemem()`
+     * wearing a different number. But it cannot be token either:
+     * {@link readPressure} returns `"unknown"` on every platform except
+     * darwin and linux, **so on Windows this floor is the only guard there
+     * is**, and a model server needs headroom past the weights for KV cache
+     * and runtime.
+     *
+     * Owners with a large model are told to raise it — the release note says
+     * so — because byollm does not check whether a model FITS, only whether
+     * there is room to be going on with. That asymmetry is deliberate: the
+     * size of a model is a fact about a file we do not have, and guessing it
+     * would be the kind of derivation this codebase keeps refusing.
+     */
+    minAvailableMemoryBytes: z
+      .number()
+      .int()
+      .positive()
+      /* The gate's own constant, not a second 2 GB written here. One fact in
+         two places is how the release runbook came to say four packages when
+         there were six — and a floor that disagreed with the gate's default
+         would be that bug with a machine wedging at the end of it. */
+      .default(DEFAULT_FLOOR_BYTES),
     // `prefault`, not `default`: zod 4's `.default()` takes an *output* value,
     // which would mean restating every nested default here where it could
     // drift. `prefault` feeds `{}` through the schema so the nested defaults

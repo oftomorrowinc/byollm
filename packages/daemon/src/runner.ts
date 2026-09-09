@@ -1578,6 +1578,17 @@ export class Runner {
       model: route.model,
       memory,
       pressure,
+      /**
+       * The owner's floor, and passing it is the whole of B090 — B090.
+       *
+       * The field without this line is the worse half of the two: it would
+       * parse, validate, appear in `byollm status`, and change nothing,
+       * because the gate would go on using {@link DEFAULT_FLOOR_BYTES}. An
+       * owner who followed the release note would set a number that does
+       * nothing — which is worse than the note being wrong, since it fails
+       * silently and looks like it worked.
+       */
+      floorBytes: this.#options.loaded.config.minAvailableMemoryBytes,
     });
     /* Every decision, admits included — byollm_022 asks for the distribution,
        and a log of refusals alone cannot say how close the admits ran. */

@@ -32,7 +32,6 @@ import { connect } from "./connect.js";
 import { IngressLog, stripControlChars } from "./ingress.js";
 import { readHostMemory } from "./memory.js";
 import type { MemoryPressure, MemoryReading } from "./memory.js";
-import { DEFAULT_FLOOR_BYTES } from "./memory-gate.js";
 import { DeviceIdentity } from "./identity.js";
 import { Pairings, recordSites } from "./pairings.js";
 import { SpendLedger } from "./spend.js";
@@ -77,6 +76,10 @@ const USAGE = `byollm — run an app's LLM jobs on your own models.
 
 Config lives in ~/.byollm/config.json. Everything this daemon has ever run is
 in ~/.byollm/ingress.log — it is yours to read and yours to delete.
+
+minAvailableMemoryBytes in that config is the memory this device keeps free: a
+job that would load a model is refused below it. It does not know how big your
+models are, so set it to fit your largest one.
 `;
 
 /**
@@ -2160,6 +2163,16 @@ function report(origin: string, event: RunnerEvent, io: CliIo): void {
 export function memoryGuardLines(input: {
   memory: MemoryReading;
   pressure: MemoryPressure;
+  /**
+   * The owner's floor, not the default — B090.
+   *
+   * This printed {@link DEFAULT_FLOOR_BYTES} unconditionally, which was
+   * right for exactly as long as the floor was not configurable. An owner
+   * who raises it to 8 GB and then reads "refused below 2.0 GB" is being
+   * told their setting did not take, on the one screen that exists to say
+   * what this device is doing.
+   */
+  floorBytes: number;
 }): string {
   const gb = (n: number) => `${(n / 1024 ** 3).toFixed(1)} GB`;
   if (input.memory.kind !== "read") {
@@ -2170,7 +2183,7 @@ export function memoryGuardLines(input: {
       `  memory — which is not the same as nothing needing to be refused.\n`
     );
   }
-  const floor = gb(DEFAULT_FLOOR_BYTES);
+  const floor = gb(input.floorBytes);
   return (
     `memory guard: active\n` +
     `  ${gb(input.memory.availableBytes)} available of ` +
@@ -2295,7 +2308,12 @@ async function commandStatus(
    * asking a question; this IS the question, asked once, on the screen whose
    * job is to answer it.
    */
-  io.out(memoryGuardLines(await readHostMemory()));
+  io.out(
+    memoryGuardLines({
+      ...(await readHostMemory()),
+      floorBytes: loaded.config.minAvailableMemoryBytes,
+    }),
+  );
   io.out("\n");
 
   io.out("paired apps\n");

@@ -20,6 +20,7 @@ import { DaemonConfig, resolveConfig } from "./config.js";
 import { IngressLog, type IngressEntry } from "./ingress.js";
 import type { MemoryPressure, MemoryReading } from "./memory.js";
 import { memoryGuardLines } from "./cli.js";
+import { DEFAULT_FLOOR_BYTES } from "./memory-gate.js";
 import { Runner } from "./runner.js";
 import { SpendLedger } from "./spend.js";
 import { removeTemp } from "./test-support.js";
@@ -123,6 +124,7 @@ const JOB = {
 
 async function runOneJob(options: {
   backend: Backend;
+  minAvailableMemoryBytes?: number;
   spawnServer?: (command: readonly string[]) => void;
   service?: Record<string, unknown>;
   readMemory?: () => Promise<{
@@ -132,6 +134,9 @@ async function runOneJob(options: {
 }): Promise<{ ingress: IngressEntry[]; reported: BackendResult | undefined }> {
   const loaded = resolveConfig(
     DaemonConfig.parse({
+      ...(options.minAvailableMemoryBytes === undefined
+        ? {}
+        : { minAvailableMemoryBytes: options.minAvailableMemoryBytes }),
       services: {
         primary: options.service ?? {
           model: "m",
@@ -356,6 +361,50 @@ describe("the memory guard, from a job's point of view", () => {
     expect(alsoSpawned).toEqual([["ollama", "serve"]]);
   }, 40_000);
 
+  it("refuses at the floor the OWNER set, not the one we shipped — B090", async () => {
+    /**
+     * The half of B090 that would have been missed. A field added without
+     * being threaded into the gate parses, validates, shows up in `byollm
+     * status`, and changes nothing — the gate keeps using its own default,
+     * and an owner who followed the release note has set a number that does
+     * nothing. That fails silently and looks like it worked, which is worse
+     * than the note being wrong.
+     *
+     * So this asserts the refusal happened at the CONFIGURED floor: 8 GB
+     * available is comfortably above the 2 GB default and comfortably below
+     * an owner's 16 GB, and only a wired floor can tell those apart.
+     */
+    const backend = new CountingBackend();
+    const { ingress } = await runOneJob({
+      backend,
+      minAvailableMemoryBytes: 16 * GB,
+      readMemory: () =>
+        Promise.resolve({ memory: reading(8), pressure: "normal" }),
+    });
+    expect(
+      backend.calls,
+      "the job ran, so the gate used its own default and not the owner's floor",
+    ).toBe(0);
+    const decision = ingress.find((entry) => entry.type === "memory");
+    expect(decision).toMatchObject({ admit: false });
+    if (decision?.type === "memory") {
+      /* And it says the number it used, so an owner reading the log can tell
+         which floor refused them. */
+      expect(decision.why).toContain("16.0 GB");
+    }
+
+    /* The control, and it is the same 8 GB: with the default floor this job
+       runs. Without it, "refuses at 8 GB" would pass against a gate that
+       refuses everything. */
+    const roomy = new CountingBackend();
+    await runOneJob({
+      backend: roomy,
+      readMemory: () =>
+        Promise.resolve({ memory: reading(8), pressure: "normal" }),
+    });
+    expect(roomy.calls).toBe(1);
+  });
+
   it("is silent and inactive when no reader is injected", async () => {
     /* `connect`, `services` and `status` build runners to ask questions. None
        of them should spawn `vm_stat`, and none of them should be refusing
@@ -405,10 +454,42 @@ describe("what `byollm status` says about the guard", () => {
     const text = memoryGuardLines({
       memory: { kind: "unknown", why: "no memory reader for freebsd" },
       pressure: "unknown",
+      floorBytes: DEFAULT_FLOOR_BYTES,
     });
     expect(text).toContain("NOT ACTIVE");
     expect(text).toContain("no memory reader for freebsd");
     expect(text).toContain("admitted without checking");
+  });
+
+  it("prints the floor it was given, not the one we shipped", () => {
+    /**
+     * B090. An owner who raises the floor to 16 GB and then reads "refused
+     * below 2.0 GB" is being told their setting did not take — on the one
+     * screen that exists to say what this device is doing. A mutation
+     * putting {@link DEFAULT_FLOOR_BYTES} back here passed every other test
+     * in this file.
+     */
+    const text = memoryGuardLines({
+      memory: {
+        kind: "read",
+        availableBytes: 20 * GB,
+        totalBytes: 36 * GB,
+      },
+      pressure: "normal",
+      floorBytes: 16 * GB,
+    });
+    expect(text).toContain("16.0 GB");
+    expect(text).not.toContain("2.0 GB");
+  });
+
+  it("ships one floor, not two — the config default IS the gate's", () => {
+    /* One fact in two places is how the release runbook came to say four
+       packages when there were six. Here the two places are a config default
+       and a gate default, and the failure at the end of the drift is a
+       machine wedging rather than a stale sentence. */
+    expect(DaemonConfig.parse({ services: {} }).minAvailableMemoryBytes).toBe(
+      DEFAULT_FLOOR_BYTES,
+    );
   });
 
   it("says active, with the numbers, when it can", () => {
@@ -422,6 +503,7 @@ describe("what `byollm status` says about the guard", () => {
         totalBytes: 36 * 1024 ** 3,
       },
       pressure: "normal",
+      floorBytes: DEFAULT_FLOOR_BYTES,
     });
     expect(text).toContain("active");
     expect(text).not.toContain("NOT ACTIVE");

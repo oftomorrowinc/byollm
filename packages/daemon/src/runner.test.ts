@@ -665,8 +665,14 @@ describe("a local server that is installed and merely stopped", () => {
   async function withOllamaOnPath(present: boolean): Promise<void> {
     const bin = await mkdtemp(join(tmpdir(), "byollm-path-"));
     if (present) {
-      await writeFile(join(bin, "ollama"), "#!/bin/sh\nexit 0\n");
-      await chmod(join(bin, "ollama"), 0o755);
+      /* Both spellings, so this finds it on any host: POSIX wants the bare
+         name executable, Windows wants one of PATHEXT's extensions. The
+         first version wrote only the bare name and CI's Windows runner
+         correctly reported the binary as absent. */
+      for (const name of ["ollama", "ollama.EXE", "ollama.CMD"]) {
+        await writeFile(join(bin, name), "#!/bin/sh\nexit 0\n");
+        await chmod(join(bin, name), 0o755);
+      }
     }
     previousPath = process.env["PATH"];
     process.env["PATH"] = bin;

@@ -1,6 +1,9 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { describe, expect, it } from "vitest";
+import { chmod, mkdtemp, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { beforeEach, describe, expect, it } from "vitest";
 import {
   binaryOnPath,
   ensureLocalServer,
@@ -286,29 +289,41 @@ describe("whether a stopped server may still be advertised", () => {
 });
 
 describe("finding a binary on PATH", () => {
+  /**
+   * Against a directory this test makes, never against the host's own.
+   *
+   * The first version looked for `/bin/sh`, which is a POSIX assumption
+   * wearing a `platform` argument — that argument only chooses PATHEXT, and
+   * Windows CI has no `/bin/sh` to find. Caught by the one platform I cannot
+   * run here, which is the second time this week.
+   */
+  let bin: string;
+  beforeEach(async () => {
+    bin = await mkdtemp(join(tmpdir(), "byollm-onpath-"));
+    await writeFile(join(bin, "probe"), "#!/bin/sh\nexit 0\n");
+    await chmod(join(bin, "probe"), 0o755);
+    /* Executable too: POSIX checks the execute bit and Windows has none, so
+       without the chmod this passes on CI and fails on a laptop — the same
+       host-dependence in the other direction. */
+    await writeFile(join(bin, "winonly.EXE"), "");
+    await chmod(join(bin, "winonly.EXE"), 0o755);
+  });
+
   it("finds one that is there, by looking rather than by running it", async () => {
     /* `ollama --version` would answer this and would also start work on
        somebody's machine as a side effect of an advertising decision — and
        this runs on a heartbeat. */
-    expect(await binaryOnPath("sh", { PATH: "/bin:/usr/bin" }, "linux")).toBe(
-      true,
-    );
+    expect(await binaryOnPath("probe", { PATH: bin }, "linux")).toBe(true);
   });
 
   it("does not find one that is not", async () => {
     expect(
-      await binaryOnPath(
-        "definitely-not-a-real-binary-9x",
-        {
-          PATH: "/bin:/usr/bin",
-        },
-        "linux",
-      ),
+      await binaryOnPath("definitely-not-here-9x", { PATH: bin }, "linux"),
     ).toBe(false);
   });
 
   it("says no rather than throwing when PATH is empty", async () => {
-    expect(await binaryOnPath("sh", {}, "linux")).toBe(false);
+    expect(await binaryOnPath("probe", {}, "linux")).toBe(false);
   });
 
   it("consults PATHEXT on Windows", async () => {
@@ -316,7 +331,15 @@ describe("finding a binary on PATH", () => {
        finds nothing — which would report every Windows machine as having no
        model server installed. */
     expect(
-      await binaryOnPath("sh", { PATH: "/bin", PATHEXT: ".EXE" }, "win32"),
+      await binaryOnPath("winonly", { PATH: bin, PATHEXT: ".EXE" }, "win32"),
+    ).toBe(true);
+  });
+
+  it("does not match a bare name on Windows", async () => {
+    /* The control on the case above: `probe` exists with no extension, and
+       on Windows that is not an executable name. */
+    expect(
+      await binaryOnPath("probe", { PATH: bin, PATHEXT: ".EXE" }, "win32"),
     ).toBe(false);
   });
 });

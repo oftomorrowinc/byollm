@@ -145,7 +145,7 @@
 <div class="alpha"><div class="wrap">
   <b>Alpha (0.1.0-alpha.86) — under active development. Don't use this in production yet.</b>
   The protocol is v1 and will change without a deprecation path. Nothing here has production miles.
-  <b>alpha.62 adds team routing:</b> share a model on your device with people you name — each job they send carries a signed, single-use grant your device verifies first.
+  <b>Team routing:</b> share a model on your device with people you name. Each job they send carries a signed, single-use grant your device verifies first.
   <a href="https://github.com/oftomorrowinc/byollm#status">What that means →</a>
 </div></div>
 
@@ -224,7 +224,7 @@
   <h2>One command. Your models. Your rules.</h2>
   <div class="steps">
     <div class="step"><span class="n">1</span><div><h4>Connect</h4><p><code>npx byollm@latest connect https://the-app.com</code> — opens your browser to pair with one click. Nothing to configure on your network.</p></div></div>
-    <div class="step"><span class="n">2</span><div><h4>Route your models</h4><p>Map job kinds to whatever you've got installed: <code>"llm.generate": { "backend": "local", "model": "gemma3:12b" }</code>. The daemon only advertises models that are actually there and healthy.</p></div></div>
+    <div class="step"><span class="n">2</span><div><h4>Route your models</h4><p>Map job kinds to whatever you've got installed: <code>"llm.generate": { "backend": "ollama", "model": "gemma3:12b" }</code>. The daemon only advertises models that are actually there and healthy.</p></div></div>
     <div class="step"><span class="n">3</span><div><h4>Stay in control</h4><p><code>byollm log</code> shows every prompt that ever ran on your device. <code>byollm stop</code> stops it. The daemon is your meter — that's the point.</p></div></div>
   </div>
 </div></section>
@@ -299,7 +299,7 @@
   <div class="grid g2">
     <div class="card"><div class="ic">⌘</div><h3>No command line, ever</h3><p>HTTP backends receive the prompt as a request body; process backends (the <span class="mono">claude</span> CLI) receive it on stdin with a fixed argv. Either way, <span class="mono">--flags</span>, <span class="mono">$(…)</span> and shell metacharacters are just characters the model reads — no code path turns a payload into a command.</p></div>
     <div class="card"><div class="ic">⚙</div><h3>Config is local-only</h3><p>Model, backend, and flags come from the owner's config. A job can never name a model, a path, a URL, or a flag. Unknown job kind is refused, not guessed.</p></div>
-    <div class="card"><div class="ic">▣</div><h3>Sandboxed children</h3><p>Process backends spawn with a stripped environment (no API key), an empty scratch directory, no inherited file descriptors, and hard timeout and output caps. HTTP backends spawn nothing at all. Either way a job can't wedge or OOM the computer.</p></div>
+    <div class="card"><div class="ic">▣</div><h3>Sandboxed children</h3><p>Process backends spawn with a stripped environment (no API key), an empty scratch directory, no inherited file descriptors, and hard timeout and output caps. A job cannot become a process of its own choosing.</p></div>
     <div class="card"><div class="ic">✓</div><h3>An adversarial gate</h3><p>A named corpus of command-injection, argv-injection, path-traversal and exfiltration payloads runs as a blocking CI check. Every backend ships its own hostile-payload suite before it can be added.</p></div>
   </div>
   <p class="note">We're precise about the boundary: BYOLLM makes <span class="hl">breakout</span> impossible; <span class="hl">prompt injection</span> — steering the model's words — is the model's problem, bounded here because the model has no tools and the output is inert. We don't promise more than we can keep.</p>
@@ -313,6 +313,8 @@
     <div class="card"><h3 class="mono"><a href="https://www.npmjs.com/package/byollm">byollm</a></h3><p>What users run. Pluggable backends, model routing, and the append-only trust log.</p></div>
     <div class="card"><h3 class="mono"><a href="https://www.npmjs.com/package/@byollm/server">@byollm/server</a></h3><p>Drop-in handlers plus a first-party Supabase adapter for your backend.</p></div>
     <div class="card"><h3 class="mono"><a href="https://www.npmjs.com/package/@byollm/conformance">@byollm/conformance</a></h3><p>The compatibility contract. Certify any server implementation with one command.</p></div>
+    <div class="card"><h3 class="mono"><a href="https://www.npmjs.com/package/@byollm/relay">@byollm/relay</a></h3><p>The reference relay. Routes sealed jobs between sites and devices, holding no key that opens either.</p></div>
+    <div class="card"><h3 class="mono"><a href="https://www.npmjs.com/package/@byollm/control-plane">@byollm/control-plane</a></h3><p>The reference control plane. Resolves whose device answers a purpose, and signs one grant per job.</p></div>
   </div>
 </div></section>
 

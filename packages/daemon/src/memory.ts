@@ -31,6 +31,16 @@ import { totalmem, freemem, platform as hostPlatform } from "node:os";
  * discipline as the process backends, and the same shape as B056's PATH check
  * that looks rather than executes.
  */
+/**
+ * The OS's own answer to "is memory tight right now" — byollm_022.
+ *
+ * Separate from how many bytes are available, because the two disagree in the
+ * direction that matters. This Mac reads `warn` while holding 6.6 GB
+ * available and serving jobs perfectly, so a gate that refused on pressure
+ * alone would refuse on an ordinary evening.
+ */
+export type MemoryPressure = "normal" | "warn" | "critical" | "unknown";
+
 export type MemoryReading =
   | {
       readonly kind: "read";
@@ -174,4 +184,62 @@ export async function readMemory(
     return { kind: "read", availableBytes: freemem(), totalBytes: totalmem() };
   }
   return { kind: "unknown", why: `no memory reader for ${platform}` };
+}
+
+/**
+ * macOS pressure, from the kernel's own level.
+ *
+ * `kern.memorystatus_vm_pressure_level`: 1 normal, 2 warn, 4 critical — the
+ * number Activity Monitor's pressure graph draws.
+ *
+ * **Verified on the Mac, and it corrects the assumption this was designed
+ * on.** The spec expected `normal` here; it reads **2, warn**, stably across
+ * samples, on a machine with 6.6 GB available that is serving jobs fine. That
+ * is not a problem with the signal — it is the reason the threshold is
+ * CRITICAL and not warn. Refusing at warn would refuse tonight, on a laptop
+ * whose owner would rightly call that broken.
+ */
+export function parsePressureLevel(text: string): MemoryPressure {
+  const found = /(\d+)\s*$/.exec(text.trim());
+  if (found === null) return "unknown";
+  const levels: Readonly<Record<number, MemoryPressure>> = {
+    1: "normal",
+    2: "warn",
+    4: "critical",
+  };
+  return levels[Number(found[1])] ?? "unknown";
+}
+
+/**
+ * Linux pressure, from PSI.
+ *
+ * `full avg10` is the share of the last ten seconds in which EVERY task was
+ * stalled on memory. Anything sustained there is a machine already thrashing,
+ * which is the same "already in trouble" the macOS critical level means.
+ */
+export function parsePsi(text: string): MemoryPressure {
+  const full = /^full .*avg10=([\d.]+)/m.exec(text);
+  if (full === null) return "unknown";
+  return Number(full[1]) >= 10 ? "critical" : "normal";
+}
+
+/** What the OS says about pressure, per platform. */
+export async function readPressure(
+  run: ReadCommand,
+  readFile: (path: string) => Promise<string | undefined>,
+  platform: NodeJS.Platform = hostPlatform(),
+): Promise<MemoryPressure> {
+  if (platform === "darwin") {
+    const text = await run([
+      "sysctl",
+      "-n",
+      "kern.memorystatus_vm_pressure_level",
+    ]);
+    return text === undefined ? "unknown" : parsePressureLevel(text);
+  }
+  if (platform === "linux") {
+    const text = await readFile("/proc/pressure/memory");
+    return text === undefined ? "unknown" : parsePsi(text);
+  }
+  return "unknown";
 }

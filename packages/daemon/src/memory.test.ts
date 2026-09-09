@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
   parseMemInfo,
+  parsePressureLevel,
+  parsePsi,
+  readPressure,
   parseSwapUsage,
   parseVmStat,
   readMemory,
@@ -177,5 +180,103 @@ describe("per platform, because one call means different things", () => {
       "win32",
     );
     expect(reading.kind).toBe("read");
+  });
+});
+
+describe("what the OS says about pressure", () => {
+  /**
+   * Separate from how many bytes are free, because on this Mac the two
+   * disagree in the direction that decides the design: it reads `warn` while
+   * holding 6.6 GB and serving jobs perfectly.
+   */
+  it("maps the kernel's own levels", () => {
+    expect(parsePressureLevel("1")).toBe("normal");
+    expect(parsePressureLevel("2")).toBe("warn");
+    expect(parsePressureLevel("4")).toBe("critical");
+  });
+
+  it("reads the value this Mac actually reports", () => {
+    /* Verified live and stable across samples. The spec expected `normal`
+       here; it is `warn`, which is precisely why the gate refuses only at
+       critical — refusing at warn would refuse tonight. */
+    expect(parsePressureLevel("kern.memorystatus_vm_pressure_level: 2")).toBe(
+      "warn",
+    );
+  });
+
+  it("says unknown for a level it does not recognise", () => {
+    /* 3 is not one of the documented levels. Guessing which side of the line
+       it falls on is guessing whether to refuse somebody's job. */
+    expect(parsePressureLevel("3")).toBe("unknown");
+    expect(parsePressureLevel("nothing numeric")).toBe("unknown");
+  });
+
+  it("reads Linux PSI, and calls a quiet machine normal", () => {
+    /* `full avg10` is the share of the last ten seconds in which EVERY task
+       was stalled. A live box reads 0.00. */
+    const quiet =
+      "some avg10=0.00 avg60=0.00 avg300=0.00 total=0\nfull avg10=0.00 avg60=0.00 avg300=0.00 total=0\n";
+    expect(parsePsi(quiet)).toBe("normal");
+  });
+
+  it("calls a thrashing machine critical", () => {
+    const stalled =
+      "some avg10=52.00 avg60=40.00 avg300=9.00 total=1\nfull avg10=31.00 avg60=20.00 avg300=4.00 total=1\n";
+    expect(parsePsi(stalled)).toBe("critical");
+  });
+
+  it("says unknown when PSI is absent, rather than assuming quiet", () => {
+    /* PSI needs a kernel built for it. Absent is not calm. */
+    expect(parsePsi("some avg10=0.00\n")).toBe("unknown");
+  });
+
+  it("asks each platform the way that platform answers", async () => {
+    const asked: string[][] = [];
+    const mac = await readPressure(
+      (cmd) => {
+        asked.push([...cmd]);
+        return Promise.resolve("2");
+      },
+      () => Promise.resolve(undefined),
+      "darwin",
+    );
+    expect(mac).toBe("warn");
+    expect(asked).toEqual([
+      ["sysctl", "-n", "kern.memorystatus_vm_pressure_level"],
+    ]);
+
+    const linux = await readPressure(
+      () => Promise.resolve(undefined),
+      () => Promise.resolve("full avg10=0.00\n"),
+      "linux",
+    );
+    expect(linux).toBe("normal");
+
+    /* And a platform with no pressure signal says so rather than guessing. */
+    expect(
+      await readPressure(
+        () => Promise.resolve(undefined),
+        () => Promise.resolve(undefined),
+        "win32",
+      ),
+    ).toBe("unknown");
+  });
+
+  it("says unknown when the command will not run", async () => {
+    expect(
+      await readPressure(
+        () => Promise.resolve(undefined),
+        () => Promise.resolve(undefined),
+        "darwin",
+      ),
+    ).toBe("unknown");
+  });
+});
+
+describe("swap, where it is reported at all", () => {
+  it("carries neither number when sysctl says nothing useful", () => {
+    /* Absent is not zero — a missing reading must not become "no swap free",
+       which is the landmine the gate is built around. */
+    expect(parseSwapUsage("vm.swapusage: nonsense")).toEqual({});
   });
 });

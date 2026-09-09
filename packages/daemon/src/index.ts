@@ -12,10 +12,14 @@ import { PROTOCOL_VERSION } from "@byollm/protocol";
 
 export {
   readMemory,
+  readPressure,
+  parsePressureLevel,
+  parsePsi,
   parseMemInfo,
   parseVmStat,
   parseSwapUsage,
   type MemoryReading,
+  type MemoryPressure,
   type ReadCommand,
 } from "./memory.js";
 export { normalizeOrigin, UnusableOrigin } from "./origins.js";

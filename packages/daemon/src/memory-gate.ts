@@ -1,4 +1,4 @@
-import { BACKENDS, type BackendId } from "@byollm/protocol";
+import { type BackendId, resolveCost } from "@byollm/protocol";
 import type { MemoryPressure, MemoryReading } from "./memory.js";
 
 /**
@@ -9,19 +9,37 @@ import type { MemoryPressure, MemoryReading } from "./memory.js";
  * Ollama loaded 17 GB into 5.2 GiB free because nothing asked whether there
  * was room — not Ollama, and not us.
  *
- * ## It gates on the BACKEND, not on the deployment
+ * ## It gates on the RESOLVED cost, and it must ASK
  *
- * The registry already carries the fact that matters: only `cost: "free"`
- * backends serve a model out of local memory. Everything `metered` or
- * `subscription` is a proxy to somebody else's hardware, and there is nothing
- * for a memory gate to protect.
+ * Only a service that resolves `free` serves a model out of local memory.
+ * Everything `metered` or `subscription` is a proxy to somebody else's
+ * hardware, and there is nothing for a memory gate to protect.
  *
- * That one rule does three things at once. Hosted boxes are inert by
- * construction rather than by luck, since 018 forbids local serving on one
- * and every service there is a proxy. Three of Todd's four configured
- * services are exempt with no special case — `glm-5.2:cloud` is
- * cloud-proxied, `claude` and `codex` are subscriptions. And it is one more
- * fact derived from `BACKENDS` rather than a list somebody maintains.
+ * **Which service is free is a question, not a field.** The first draft of
+ * this gate read `BACKENDS[id].cost` — and `openai-http` declares `null`,
+ * because its cost is classified from where the request goes rather than
+ * declared by the registry. So `cost !== "free"` was true, and the gate
+ * admitted the generic backend without ever looking at memory: 100 MB
+ * available, `{"admit": true, "why": "openai-http is a proxy (detected)"}`.
+ *
+ * That is precisely the backend this row exists for. `openai-http` at a
+ * loopback address is the documented way to reach a local model server — the
+ * site says *"Not listed? openai-http reaches anything OpenAI-compatible"* —
+ * and it is what Todd's own MLX server on port 6999 is configured as. The
+ * gate called his local model a proxy and skipped the check.
+ *
+ * The law was already written, in the function being bypassed:
+ * {@link resolveCost}'s signature was hardened after `byollm offer` passed
+ * two of three arguments, and its comment records that *"the
+ * no-re-derivation law was breached through the gap rather than by anybody
+ * copying the logic."* Then it was the wrong arguments; here it was reading
+ * the raw field instead of asking. Same law, same shape, one turn later —
+ * so this asks, and takes the same no-partial-askers discipline: `baseUrl`
+ * and `model` are required keys that may hold `undefined`, never optional
+ * ones a caller can forget.
+ *
+ * Hosted boxes stay inert by construction, since 018 forbids local serving
+ * on one and every service there resolves to a proxy.
  *
  * ## It refuses rarely, on purpose
  *
@@ -34,6 +52,14 @@ import type { MemoryPressure, MemoryReading } from "./memory.js";
  */
 export interface GateInput {
   readonly backendId: BackendId;
+  /**
+   * The service's configured address and model — required keys, so that
+   * omitting either is a decision at the call site rather than a default
+   * nobody notices. See {@link resolveCost}, whose signature this mirrors and
+   * whose classification this defers to.
+   */
+  readonly baseUrl: string | undefined;
+  readonly model: string | undefined;
   readonly memory: MemoryReading;
   readonly pressure: MemoryPressure;
   /** Bytes. Deliberately low — see {@link DEFAULT_FLOOR_BYTES}. */
@@ -57,11 +83,23 @@ export type GateDecision =
   | { readonly admit: false; readonly why: string };
 
 export function memoryGate(input: GateInput): GateDecision {
-  const cost = BACKENDS[input.backendId].cost;
+  /**
+   * Ask, never read the field.
+   *
+   * The one unknown-shaped answer this can return — `metered` because the
+   * address is absent or unreadable — would make the gate skip a check it
+   * should run, which is the wrong failure direction for a guard even though
+   * it is the right one for a bill. It is unreachable rather than handled:
+   * `validateConfig` refuses an HTTP-class service whose `baseUrl` is missing
+   * or unparseable, so no such service is ever dispatched. That reachability
+   * claim is a prediction, so it ships with the test that catches it — see
+   * "an unreachable premise" in the suite.
+   */
+  const cost = resolveCost(input.backendId, input.baseUrl, input.model);
   if (cost !== "free") {
     return {
       admit: true,
-      why: `${input.backendId} is a proxy (${cost ?? "detected"}), so it holds no model here`,
+      why: `${input.backendId} resolves to ${cost}, so it holds no model here`,
     };
   }
 

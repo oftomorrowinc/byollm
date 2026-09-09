@@ -208,6 +208,35 @@ const { ENDPOINTS } = await import(
 const endpointCount = Array.isArray(ENDPOINTS)
   ? ENDPOINTS.length
   : Object.keys(ENDPOINTS).length;
+/**
+ * The config the page tells somebody to write, put through the real schema.
+ *
+ * B081b changed `"backend": "local"` to `"backend": "ollama"` and left a
+ * snippet the daemon still rejects, because the VALUE was not the only thing
+ * wrong with it: `backend` was renamed to `type`, and config is keyed by
+ * service name with `kinds` listing the job kinds rather than keyed by job
+ * kind. Two people looked at that line in one evening and both fixed the part
+ * they were pointed at.
+ *
+ * So this stops reading it and starts running it. A snippet that parses is a
+ * snippet somebody can paste; anything less is a guess about a schema that is
+ * sitting right there and can be asked.
+ */
+const { DaemonConfig } = await import(
+  new URL("packages/daemon/dist/index.js", root)
+);
+const snippet = /<code>("[\w.:-]+"\s*:\s*\{[^<]*\})<\/code>/.exec(html);
+check(
+  "the page's config snippet is one the daemon would accept",
+  snippet !== null &&
+    DaemonConfig.safeParse({
+      services: JSON.parse(`{${snippet[1].replaceAll("&quot;", '"')}}`),
+    }).success,
+  snippet === null
+    ? "no config snippet found on the page — if it moved, this check went quiet with it"
+    : "the page shows a config the daemon rejects; run it through DaemonConfig rather than reading it",
+);
+
 /* Cards, counted the way a reader counts them: one npm link each. */
 const cardCount = new Set(
   [...html.matchAll(/npmjs\.com\/package\/(@?[\w/-]+)/g)].map((m) => m[1]),

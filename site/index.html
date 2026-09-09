@@ -224,7 +224,7 @@
   <h2>One command. Your models. Your rules.</h2>
   <div class="steps">
     <div class="step"><span class="n">1</span><div><h4>Connect</h4><p><code>npx byollm@latest connect https://the-app.com</code> — opens your browser to pair with one click. Nothing to configure on your network.</p></div></div>
-    <div class="step"><span class="n">2</span><div><h4>Route your models</h4><p>Map job kinds to whatever you've got installed: <code>"llm.generate": { "backend": "ollama", "model": "gemma3:12b" }</code>. The daemon only advertises models that are actually there and healthy.</p></div></div>
+    <div class="step"><span class="n">2</span><div><h4>Route your models</h4><p>Name a service for whatever you&rsquo;ve got installed, and say which job kinds it answers: <code>"ollama-local": { "type": "ollama", "model": "gemma3:12b", "kinds": ["llm.generate"] }</code>. The daemon only advertises models that are actually there and healthy.</p></div></div>
     <div class="step"><span class="n">3</span><div><h4>Stay in control</h4><p><code>byollm log</code> shows every prompt that ever ran on your device. <code>byollm stop</code> stops it. The daemon is your meter — that's the point.</p></div></div>
   </div>
 </div></section>
@@ -314,7 +314,7 @@
     <div class="card"><h3 class="mono"><a href="https://www.npmjs.com/package/@byollm/server">@byollm/server</a></h3><p>Drop-in handlers plus a first-party Supabase adapter for your backend.</p></div>
     <div class="card"><h3 class="mono"><a href="https://www.npmjs.com/package/@byollm/conformance">@byollm/conformance</a></h3><p>The compatibility contract. Certify any server implementation with one command.</p></div>
     <div class="card"><h3 class="mono"><a href="https://www.npmjs.com/package/@byollm/relay">@byollm/relay</a></h3><p>The reference relay. Routes sealed jobs between sites and devices, holding no key that opens either.</p></div>
-    <div class="card"><h3 class="mono"><a href="https://www.npmjs.com/package/@byollm/control-plane">@byollm/control-plane</a></h3><p>The reference control plane. Resolves whose device answers a purpose, and signs one grant per job.</p></div>
+    <div class="card"><h3 class="mono"><a href="https://www.npmjs.com/package/@byollm/control-plane">@byollm/control-plane</a></h3><p>The reference control plane. Decides whose device answers, and signs one grant per job.</p></div>
   </div>
 </div></section>
 

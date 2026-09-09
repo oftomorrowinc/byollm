@@ -168,7 +168,7 @@ check(
 //    "Google Gemini (your API key)" and a cell reading "Gemini" are the same
 //    thing — a guess that fails open, which is the direction that lets a
 //    provider quietly go missing.
-const { BACKEND_IDS } = await import(
+const { BACKEND_IDS, BACKENDS } = await import(
   new URL("packages/protocol/dist/index.js", root)
 );
 
@@ -208,6 +208,38 @@ const { ENDPOINTS } = await import(
 const endpointCount = Array.isArray(ENDPOINTS)
   ? ENDPOINTS.length
   : Object.keys(ENDPOINTS).length;
+/**
+ * The cost classes the table shows, against the classes that exist.
+ *
+ * The table's Cost column is a list the registry owns — `free`, `metered`,
+ * `subscription` — restated as prose. Nothing checked that the page shows all
+ * of them or that everything it shows is real, so a fourth class would arrive
+ * with the table silently one short, and a typo in a cell would read as a
+ * class nobody has.
+ *
+ * Same shape as the counts above, and the same reason: this page keeps
+ * restating things the build can compute.
+ */
+const registryCosts = new Set(
+  BACKEND_IDS.map((id) => BACKENDS[id].cost).filter((cost) => cost !== null),
+);
+/* Any `tag` span, not one CSS class of them: the page styles `free` as
+   `tag self` and `metered`/`subscription` as `tag lock`, and a check that
+   knew only the first would report the page missing two classes it shows
+   plainly. Which is what the first version of this did. */
+const shownCosts = new Set(
+  [...html.matchAll(/<span class="tag [\w-]+">(\w+)<\/span>/g)].map(
+    (m) => m[1],
+  ),
+);
+for (const cost of registryCosts) {
+  check(
+    `the providers table shows the ${cost} cost class`,
+    shownCosts.has(cost),
+    `the registry has a ${cost} class and the table never shows it`,
+  );
+}
+
 /**
  * The config the page tells somebody to write, put through the real schema.
  *

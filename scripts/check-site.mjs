@@ -171,6 +171,62 @@ check(
 const { BACKEND_IDS } = await import(
   new URL("packages/protocol/dist/index.js", root)
 );
+
+/**
+ * The numbers the page says out loud, against the things they count.
+ *
+ * Added after adding two package cards left "Four small pieces" above six of
+ * them — and the same read found "Five endpoints" beside a protocol that has
+ * six. Neither was caught by anything here: this file asserted that the NAMES
+ * on the page exist, and never that a COUNT on the page was the count.
+ *
+ * A number in prose is a claim about a list, and this codebase already has
+ * the rule for that one level down — a registry is a schema, an enum value is
+ * the contract. A count is the contract too, and it is the kind that goes
+ * wrong silently the moment somebody adds the thing being counted, which is
+ * exactly how it went wrong.
+ *
+ * Written as words on the page because that is how the page reads, so the
+ * check has to speak both.
+ */
+const WORDS = Object.freeze({
+  1: "One",
+  2: "Two",
+  3: "Three",
+  4: "Four",
+  5: "Five",
+  6: "Six",
+  7: "Seven",
+  8: "Eight",
+  9: "Nine",
+  10: "Ten",
+  19: "Nineteen",
+});
+const { ENDPOINTS } = await import(
+  new URL("packages/protocol/dist/index.js", root)
+);
+const endpointCount = Array.isArray(ENDPOINTS)
+  ? ENDPOINTS.length
+  : Object.keys(ENDPOINTS).length;
+/* Cards, counted the way a reader counts them: one npm link each. */
+const cardCount = new Set(
+  [...html.matchAll(/npmjs\.com\/package\/(@?[\w/-]+)/g)].map((m) => m[1]),
+).size;
+
+for (const [label, count, sentence] of [
+  ["package cards", cardCount, "small pieces"],
+  ["protocol endpoints", endpointCount, "endpoints, lease semantics"],
+  /* The provider count is asserted below, by the check that already owned
+     it — one fact, one assertion. */
+]) {
+  const word = WORDS[count];
+  check(
+    `the page's ${label} count says ${String(count)}`,
+    word !== undefined && html.includes(`${word} ${sentence}`),
+    `the page should read "${String(word)} ${sentence}" — there are ` +
+      `${String(count)}, and a number in prose is a claim about a list`,
+  );
+}
 // `openai-http` is the escape hatch, described in prose below the table
 // rather than listed as a row — it is a way to reach a provider, not one.
 const shipped = BACKEND_IDS.filter((id) => id !== "openai-http");

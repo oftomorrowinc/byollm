@@ -60,6 +60,23 @@ export type RoutedState =
 export const AWAITING_PAYLOAD_MS = 10_000;
 
 /**
+ * How many devices wait for a payload before the hub gives up on the job —
+ * B042.
+ *
+ * Three, matching the daemon's own patience, and for the same reason: a site
+ * that is slow, restarting, or briefly unreachable deserves more than one
+ * chance, and a site that is gone should not cost the whole fleet a turn
+ * each. At {@link AWAITING_PAYLOAD_MS} apiece this is thirty seconds of
+ * waiting before a job that nobody can complete is dropped.
+ *
+ * Dropped rather than marked terminal, exactly as a passed deadline is: the
+ * relay is a router, the site holds the authoritative record, and a stub
+ * nobody may run is not routing state. A daemon mid-flight learns through
+ * `renewLeases`, which reports a job the store no longer holds as `lost`.
+ */
+export const SEAL_ATTEMPTS_BEFORE_EVICTION = 3;
+
+/**
  * How long a device waits before asking about a job it could not run — the
  * rate every transient refusal needs.
  *
@@ -109,6 +126,22 @@ export interface RoutedJob {
   };
   /** When {@link AWAITING_PAYLOAD_MS} runs out for this claim. */
   awaitingUntil?: number;
+  /**
+   * How many devices have waited for this payload and not received it — B042.
+   *
+   * A job whose site never seals is offered, waited on, requeued, and offered
+   * again — to a different device each time. Every one of them does the same
+   * ten seconds of nothing, and none of them can tell that the last one
+   * already tried: the daemon's own patience is per-device by construction,
+   * so the fleet works through itself one machine at a time until the job's
+   * deadline, which can be an hour away.
+   *
+   * That is the poison at its source. **The daemon-side breaker (B041) stops
+   * one device looping; only the hub can stop the job.** Counted here rather
+   * than inferred from `awaitingUntil`, because a requeue clears that clock
+   * and the count has to survive it.
+   */
+  sealAttempts?: number;
   /**
    * Runners that released this job with reason `refused` — cloud_008 §2.1.
    *
@@ -788,6 +821,11 @@ export class RelayState implements RoutingStore {
     job.payload = input.envelope;
     job.state = "ready";
     delete job.awaitingUntil;
+    /* The site sealed, so the count of devices that waited in vain resets —
+       B042. It measures CONSECUTIVE failures to seal; without this it would
+       become a lifetime quota, and a job requeued twice for ordinary lease
+       lapses would be evicted for a payload problem it does not have. */
+    delete job.sealAttempts;
     return Promise.resolve({ state: job.state });
   }
 
@@ -927,6 +965,10 @@ export class RelayState implements RoutingStore {
     delete job.claimedBy;
     delete job.awaitingUntil;
     delete job.payload;
+    /* `sealAttempts` is deliberately NOT cleared. It counts how many devices
+       have waited on this job, and a requeue is exactly the event it counts —
+       clearing it here would reset the counter on every tick and the job
+       would be handed round forever, which is the bug B042 is about. */
   }
 
   /**
@@ -962,6 +1004,22 @@ export class RelayState implements RoutingStore {
         continue;
       }
       if (job.state === "awaiting-payload" && (job.awaitingUntil ?? 0) <= now) {
+        /**
+         * Counted before it is requeued, and evicted once the count is spent
+         * — B042.
+         *
+         * The requeue is what makes this a fleet-wide problem rather than
+         * one device's: it puts the job back for somebody else to wait on.
+         * After three that is no longer patience, it is a queue handing the
+         * same dead job around.
+         */
+        const attempts = (job.sealAttempts ?? 0) + 1;
+        if (attempts >= SEAL_ATTEMPTS_BEFORE_EVICTION) {
+          this.#forget(job);
+          expired.push(job);
+          continue;
+        }
+        job.sealAttempts = attempts;
         this.#requeue(job);
         requeued.push(job);
       }

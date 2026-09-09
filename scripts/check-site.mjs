@@ -168,7 +168,7 @@ check(
 //    "Google Gemini (your API key)" and a cell reading "Gemini" are the same
 //    thing — a guess that fails open, which is the direction that lets a
 //    provider quietly go missing.
-const { BACKEND_IDS, BACKENDS } = await import(
+const { BACKEND_IDS, BACKENDS, resolveCost } = await import(
   new URL("packages/protocol/dist/index.js", root)
 );
 
@@ -289,6 +289,114 @@ for (const cost of registryCosts) {
     `the providers table shows the ${cost} cost class`,
     shownCosts.has(cost),
     `the registry has a ${cost} class and the table never shows it`,
+  );
+}
+
+/**
+ * And the other direction, which was missing — B082.
+ *
+ * The loop above asks the page to show every class the registry has. Nothing
+ * asked whether what the page shows is real, so a cell typed `meterd` passed
+ * green: CW mutation-verified it. Half a check, and the half that fails is
+ * the one a typo trips.
+ *
+ * The naive reverse — every `tag` span must be a cost class — flags `public`,
+ * because the same span shape carries offer scopes elsewhere on the page. So
+ * the extraction is scoped to the Cost cell of each `data-provider` row,
+ * which is the only place a cost class is claimed.
+ *
+ * Being scoped that way makes a stronger check available for free, and it is
+ * the one worth having: each row names its backend id, so the cell is
+ * compared to THAT backend's registry cost rather than to the set of legal
+ * classes. A row showing a real class for the wrong provider is the error
+ * this page would actually make — every one of these is prose restating a
+ * field, and there are eighteen chances to restate one wrong.
+ */
+const providerRows = [
+  ...html.matchAll(/<tr data-provider="([\w-]+)">([\s\S]*?)<\/tr>/g),
+];
+check(
+  `the providers table is extractable (${providerRows.length} rows)`,
+  providerRows.length > 0,
+  "no row matched, so every per-row assertion below is vacuous",
+);
+for (const [, id, body] of providerRows) {
+  const cells = [...body.matchAll(/<td>([\s\S]*?)<\/td>/g)].map((m) => m[1]);
+  const shown = (cells
+    .at(-1)
+    ?.match(/<span class="tag [\w-]+">([\w-]+)<\/span>/) ?? [])[1];
+  check(
+    `${id}'s cost cell says what the registry says`,
+    BACKENDS[id] !== undefined && shown === BACKENDS[id].cost,
+    BACKENDS[id] === undefined
+      ? `the page has a row for \`${id}\`, which is not a backend`
+      : `the page says ${String(shown)}, the registry says ${String(BACKENDS[id].cost)}`,
+  );
+}
+
+/**
+ * The "Not listed?" sentence, run rather than read — B082.
+ *
+ * *"`openai-http` reaches anything OpenAI-compatible — its cost class is
+ * detected from where it points, and remote is never free."* Three claims,
+ * and this page's own rule is that it must not state what the build can
+ * compute. Two of them are computable and are computed here.
+ *
+ * The third — that it reaches anything OpenAI-compatible — is not something
+ * a static check can answer, so it was answered by doing it: the real
+ * `OpenAiHttpBackend` against an MLX server on `127.0.0.1:6999` returned
+ * `{"ok":true,"text":"Reachable","stop":"end"}`, with `health()` listing the
+ * server's three models. Recorded here because the next person to doubt the
+ * sentence should not have to re-derive how it was settled.
+ */
+const notListed = /Not listed\?[\s\S]{0,240}?<\/p>/.exec(html)?.[0] ?? "";
+check(
+  "the `Not listed?` sentence is still on the page",
+  notListed.includes("openai-http"),
+  "the assertions below describe a sentence that is no longer there",
+);
+if (notListed.includes("detected from where it points")) {
+  check(
+    "openai-http's cost really is detected from where it points",
+    resolveCost("openai-http", "http://127.0.0.1:6999/v1", "qwen") === "free" &&
+      resolveCost("openai-http", "https://api.together.xyz/v1", "qwen") ===
+        "metered",
+    "the page says the address decides, and it does not",
+  );
+}
+if (notListed.includes("remote is never free")) {
+  /* MUSTS.REMOTE_IS_NEVER_FREE, asked of every backend the page lists rather
+     than of the one the sentence is about — a rule stated as universal on a
+     page listing eighteen providers is a claim about all of them. */
+  const freeWhenRemote = BACKEND_IDS.filter(
+    (id) =>
+      BACKENDS[id].cost === null &&
+      resolveCost(id, "https://api.example.com/v1", "some-model") === "free",
+  );
+  check(
+    "remote is never free",
+    freeWhenRemote.length === 0,
+    `${freeWhenRemote.join(", ")} resolves free at a remote address`,
+  );
+}
+
+/**
+ * Every provider in the registry has a row, unless it has no cost to show.
+ *
+ * `openai-http` is the whole exemption, and it is principled rather than a
+ * name on a list: its cost is `null` because it is CLASSIFIED from the
+ * address rather than declared, so there is no single cell it could carry.
+ * The page handles it in prose instead. Anything else added to the registry
+ * and forgotten here fails — which is the "Nineteen providers" family of
+ * error, arriving from the other end.
+ */
+const rowIds = new Set(providerRows.map(([, id]) => id));
+for (const id of BACKEND_IDS) {
+  if (rowIds.has(id)) continue;
+  check(
+    `${id} has no row only because it has no declared cost`,
+    BACKENDS[id].cost === null,
+    `the registry declares ${id} as ${String(BACKENDS[id].cost)} and the table omits it`,
   );
 }
 

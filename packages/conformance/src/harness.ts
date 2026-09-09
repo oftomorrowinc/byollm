@@ -42,6 +42,14 @@ import type { ConformanceTarget } from "./target.js";
  * every respect except the thing at the very end of the call.
  */
 export class EchoBackend implements Backend {
+  /* The conformance kit's own backend, answering the question every adapter
+     must — byollm_021. It echoes rather than generating, so there is no
+     model ceiling to hit and nothing to read. */
+  readonly stopReasons = {
+    kind: "unavailable" as const,
+    why: "the conformance echo backend generates nothing, so no model ever stops early",
+  };
+
   readonly id = "openai-http" as const;
   readonly class = "http" as const;
   /** Prompts this backend was asked to run, in order. */

@@ -38,6 +38,13 @@ let dir: string;
 const NOW = 1_800_000_000_000;
 
 class Echo implements Backend {
+  /* A test double, and the compiler now insists it answer the question every
+     adapter answers — byollm_021. Doubles have no vendor to read, so they say
+     so rather than claiming a reason they cannot know. */
+  readonly stopReasons = {
+    kind: "unavailable" as const,
+    why: "a test double reads no vendor signal",
+  };
   readonly id = "openai-http" as const;
   readonly class = "http" as const;
   readonly seen: string[] = [];

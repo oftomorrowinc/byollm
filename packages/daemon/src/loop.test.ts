@@ -91,6 +91,13 @@ const TEST_SIGNER = {
  */
 
 class StubBackend implements Backend {
+  /* A test double, and the compiler now insists it answer the question every
+     adapter answers — byollm_021. Doubles have no vendor to read, so they say
+     so rather than claiming a reason they cannot know. */
+  readonly stopReasons = {
+    kind: "unavailable" as const,
+    why: "a test double reads no vendor signal",
+  };
   readonly id = "openai-http" as const;
   readonly class = "http" as const;
   readonly seen: string[] = [];
@@ -171,6 +178,7 @@ async function makeRunner(
     backendFactory: (route) => ({
       id: backend.id,
       class: backend.class,
+      stopReasons: backend.stopReasons,
       health: () => backend.health(),
       execute: (request) => {
         over.onBackend?.(route.service);

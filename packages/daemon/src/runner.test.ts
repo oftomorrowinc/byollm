@@ -39,6 +39,13 @@ const TEST_SIGNER = {
 
 /** A backend that records what it was asked to run. */
 class SpyBackend implements Backend {
+  /* A test double, and the compiler now insists it answer the question every
+     adapter answers — byollm_021. Doubles have no vendor to read, so they say
+     so rather than claiming a reason they cannot know. */
+  readonly stopReasons = {
+    kind: "unavailable" as const,
+    why: "a test double reads no vendor signal",
+  };
   readonly id = "openai-http" as const;
   readonly class = "http" as const;
   readonly seen: string[] = [];
@@ -534,6 +541,10 @@ describe("status", () => {
       backendFactory: () => ({
         id: "claude-cli" as const,
         class: "process" as const,
+        stopReasons: {
+          kind: "unavailable" as const,
+          why: "a test double reads no vendor signal",
+        },
         health: () =>
           // Healthy, which is the whole point: the probe cannot see this.
           Promise.resolve({ healthy: true, models: [] }),
@@ -570,6 +581,10 @@ describe("status", () => {
     const backend = {
       id: "claude-cli" as const,
       class: "process" as const,
+      stopReasons: {
+        kind: "unavailable" as const,
+        why: "a test double reads no vendor signal",
+      },
       health: () => Promise.resolve({ healthy: true, models: [] }),
       canary: () => {
         canaries += 1;
@@ -596,6 +611,10 @@ describe("status", () => {
       backendFactory: () => ({
         id: "claude-cli" as const,
         class: "process" as const,
+        stopReasons: {
+          kind: "unavailable" as const,
+          why: "a test double reads no vendor signal",
+        },
         // Healthy — `--version` needs no credentials.
         health: () => Promise.resolve({ healthy: true, models: [] }),
         canary: () =>

@@ -1,6 +1,8 @@
 import type { BackendClass, BackendId } from "@byollm/protocol";
 import { checkBaseUrl } from "../ssrf.js";
 import type {
+  StopReason,
+  StopReasonMapping,
   Backend,
   BackendHealth,
   BackendInit,
@@ -26,7 +28,37 @@ import type {
  * redirects are refused so a permitted URL cannot become a forbidden one in
  * flight ({@link MUSTS.HTTP_BASE_URL_SAFE}).
  */
+/**
+ * OpenAI's `finish_reason`, mapped — byollm_021.
+ *
+ * **Verified by running it**, per the `login.ts` precedent, against
+ * ollama 0.x on this machine, both directions from the same model:
+ *   · `max_tokens: 5`  -> `finish_reason: "length"`, content empty
+ *   · room to finish   -> `finish_reason: "stop"`,   content complete
+ *
+ * `"stop"` maps to `"end"` and NOT to `"stop-sequence"`, which is the one
+ * judgement here. OpenAI reports `stop` for a model finishing on its own AND
+ * for a configured stop token being hit; the field cannot tell them apart, so
+ * claiming `"stop-sequence"` would be inventing a distinction the wire does
+ * not carry. `"end"` is what we can honestly say.
+ *
+ * `tool_calls` and `content_filter` are OpenAI's and unmapped here on
+ * purpose: this daemon sends no tools, and a filtered response is a refusal
+ * rather than a stop reason. Anything unlisted resolves to `"unknown"`, which
+ * is the honest answer rather than the flattering one.
+ */
+const FINISH_REASONS = Object.freeze({
+  stop: "end",
+  length: "length",
+}) as Readonly<Record<string, StopReason>>;
+
 export class OpenAiHttpBackend implements Backend {
+  readonly stopReasons: StopReasonMapping = {
+    kind: "declared",
+    from: "choices[0].finish_reason",
+    map: FINISH_REASONS,
+  };
+
   readonly id: BackendId = "openai-http";
   readonly class: BackendClass = "http";
   readonly #baseUrl: URL;
@@ -172,15 +204,20 @@ export class OpenAiHttpBackend implements Backend {
         );
       }
 
-      const content = extractContent(text);
-      if (content === null) {
+      const answer = extractContent(text);
+      if (answer === null) {
         return this.#fail(
           "backend-error",
           "the model server's response was not in OpenAI chat-completion shape",
           started,
         );
       }
-      return { ok: true, text: content, durationMs: Date.now() - started };
+      return {
+        ok: true,
+        text: answer.content,
+        durationMs: Date.now() - started,
+        stop: answer.stop,
+      };
     } catch (error) {
       if (request.signal.aborted) {
         return this.#fail("canceled", "the job was canceled", started);
@@ -274,7 +311,9 @@ function concat(chunks: readonly Uint8Array[], total: number): Uint8Array {
 }
 
 /** Pull the assistant text out of an OpenAI chat-completion response. */
-function extractContent(raw: string): string | null {
+function extractContent(
+  raw: string,
+): { content: string; stop: StopReason } | null {
   let parsed: unknown;
   try {
     parsed = JSON.parse(raw);
@@ -287,7 +326,17 @@ function extractContent(raw: string): string | null {
   const message = (choices[0] as { message?: unknown }).message;
   if (typeof message !== "object" || message === null) return null;
   const content = (message as { content?: unknown }).content;
-  return typeof content === "string" ? content : null;
+  if (typeof content !== "string") return null;
+  const finish = (choices[0] as { finish_reason?: unknown }).finish_reason;
+  return {
+    content,
+    /* Absent, or a value we have not mapped, is `unknown` — never `end`. An
+       adapter that cannot tell must not be able to claim completion. */
+    stop:
+      typeof finish === "string"
+        ? (FINISH_REASONS[finish] ?? "unknown")
+        : "unknown",
+  };
 }
 
 /** Model ids from an OpenAI `/v1/models` response. */

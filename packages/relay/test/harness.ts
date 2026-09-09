@@ -74,6 +74,13 @@ export function siteHeaders(
 }
 
 export class EchoBackend implements Backend {
+  /* The relay harness's own backend — byollm_021 makes every adapter answer
+     this, doubles included. It echoes, so no model ever stops early here. */
+  readonly stopReasons = {
+    kind: "unavailable" as const,
+    why: "the relay harness echo backend generates nothing, so no model ever stops early",
+  };
+
   readonly id = "openai-http" as const;
   readonly class = "http" as const;
   readonly seen: string[] = [];

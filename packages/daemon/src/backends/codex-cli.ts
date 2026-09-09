@@ -4,6 +4,7 @@ import { childEnv, resolveCliLaunch } from "./claude-cli.js";
 import { isAuthFailure, runProcessJob } from "./process-backend.js";
 import { quotaBlock, type Observation } from "./quota.js";
 import type {
+  StopReasonMapping,
   Backend,
   BackendErrorCode,
   BackendHealth,
@@ -266,6 +267,20 @@ export function parseCodexOutput(
  * the disables are verified rather than trusted.
  */
 export class CodexCliBackend implements Backend {
+  /**
+   * Nothing to read — checked by running it (byollm_021).
+   *
+   * A complete `codex exec --json` stream on this machine is four events:
+   * `thread.started`, `turn.started`, `item.completed` carrying the text, and
+   * `turn.completed` carrying token usage. **`turn.completed` has counts and
+   * no stop reason**, which is the near-miss worth writing down: it is the
+   * event that would carry one, and it does not.
+   */
+  readonly stopReasons: StopReasonMapping = {
+    kind: "unavailable",
+    why: "`codex exec --json` ends with turn.completed, which carries token usage and no stop reason",
+  };
+
   readonly id: BackendId = "codex-cli";
   readonly class: BackendClass = "process";
   readonly signIn = "run `codex login`";

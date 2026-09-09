@@ -23,6 +23,60 @@ describe("adversarial coverage [byollm_004 §5]", () => {
     }
   });
 
+  it("has a declared stop-reason mapping for every registered backend", () => {
+    /**
+     * byollm_021, and it is Todd's ruling made structural: "each service
+     * adapter should state its truncated message output along with other
+     * errors." The type makes it a compile error to omit; this makes it a
+     * gate that a NEW backend passes through, exactly as the corpus is.
+     *
+     * `unavailable` and `unverified` are legitimate answers — the point is
+     * that an adapter cannot arrive silent, because silence would be read as
+     * completion, which is the bug.
+     */
+    for (const id of BACKEND_IDS) {
+      const backend = createBackend(id, { baseUrl: "http://127.0.0.1:1/v1" });
+      const mapping = backend.stopReasons;
+      expect(mapping, id).toBeDefined();
+      if (mapping.kind === "declared") {
+        /* A declared mapping that maps nothing is a declaration in name
+           only, and it would satisfy any check that only asked for the
+           field's presence. */
+        expect(Object.keys(mapping.map).length, id).toBeGreaterThan(0);
+        expect(mapping.from.length, id).toBeGreaterThan(0);
+        for (const [signal, reason] of Object.entries(mapping.map)) {
+          expect(
+            ["end", "length", "stop-sequence", "unknown"],
+            `${id} maps ${signal} to something that is not a StopReason`,
+          ).toContain(reason);
+        }
+      } else {
+        /* Said out loud, because the owner surface prints it. "Nobody
+           looked" and "we looked and there is nothing" reach a person as
+           different sentences. */
+        expect(mapping.why.length, id).toBeGreaterThan(20);
+      }
+    }
+  });
+
+  it("does not let every backend answer `unavailable`", () => {
+    /**
+     * The control on the check above, and it is the shape this week keeps
+     * teaching: a coverage check that accepts "nothing to read" from
+     * everybody is satisfied by an implementation that reads nothing at all.
+     * At least one registered backend must actually map a real signal.
+     */
+    const declared = BACKEND_IDS.filter(
+      (id) =>
+        createBackend(id, { baseUrl: "http://127.0.0.1:1/v1" }).stopReasons
+          .kind === "declared",
+    );
+    expect(
+      declared.length,
+      "if no backend reads a stop reason, the feature is a type and not a fix",
+    ).toBeGreaterThan(0);
+  });
+
   it("constructs every backend the protocol registers, as its declared class", () => {
     // cloud_008 Tier 3, finding 15. This compared `IMPLEMENTED_BACKEND_IDS`
     // to `BACKEND_IDS` — and the constant was *defined* as `BACKEND_IDS`, so

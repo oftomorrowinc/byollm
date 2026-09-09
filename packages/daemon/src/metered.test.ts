@@ -55,6 +55,13 @@ afterEach(async () => {
 
 /** Answers instantly with a fixed-length reply, so spend is predictable. */
 class EchoBackend implements Backend {
+  /* A test double, and the compiler now insists it answer the question every
+     adapter answers — byollm_021. Doubles have no vendor to read, so they say
+     so rather than claiming a reason they cannot know. */
+  readonly stopReasons = {
+    kind: "unavailable" as const,
+    why: "a test double reads no vendor signal",
+  };
   readonly id = "openai" as const;
   readonly class = "http" as const;
 

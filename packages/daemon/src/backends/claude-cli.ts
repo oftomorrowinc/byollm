@@ -4,6 +4,7 @@ import { delimiter, join } from "node:path";
 import type { BackendClass, BackendId } from "@byollm/protocol";
 import { runProcessJob } from "./process-backend.js";
 import type {
+  StopReasonMapping,
   Backend,
   BackendHealth,
   BackendRequest,
@@ -321,6 +322,24 @@ function resolveUncached(
  * output cap.
  */
 export class ClaudeCliBackend implements Backend {
+  /**
+   * Nothing to read — checked, not assumed (byollm_021).
+   *
+   * {@link FIXED_ARGV} runs `--output-format text`, and text is exactly what
+   * comes back: an answer with no envelope around it, deliberately, because
+   * an envelope is a thing to misparse. So there is no field carrying a stop
+   * reason and no amount of parsing invents one.
+   *
+   * `--output-format json` would very likely carry it. Changing the frozen
+   * argv is not a thing to do inside a mapping declaration: that argv is what
+   * the adversarial suite asserts every hostile payload produces, and moving
+   * it is its own decision with its own review.
+   */
+  readonly stopReasons: StopReasonMapping = {
+    kind: "unavailable",
+    why: "`claude --output-format text` returns the answer and nothing else — no field says why generation stopped",
+  };
+
   readonly id: BackendId = "claude-cli";
   readonly class: BackendClass = "process";
   readonly signIn = "run `claude` in a terminal";

@@ -21,8 +21,105 @@ export interface BackendRequest {
   readonly signal: AbortSignal;
 }
 
+/**
+ * Why a model stopped generating — byollm_021, and it is a closed set for the
+ * same reason {@link BackendErrorCode} is.
+ *
+ * That union's own note says different truths must never share a message: an
+ * owner whose model server is down needs a different sentence from one whose
+ * job hit its timeout. **Truncation is a different truth, and until now it
+ * shared the success message.** A model that hits its own `max_tokens`
+ * returned an unfinished answer reported as a finished one — Kevin found the
+ * wall by trial and error, because trial and error was the only instrument
+ * we gave anybody.
+ *
+ * Sharper: this codebase already has `output-too-large`, which is OUR
+ * ceiling. We gave our own truncation a distinct code and gave the model's
+ * none, and the guard we built is what taught us we were covered.
+ */
+/**
+ * An adapter's answer to "how do you know why the model stopped".
+ *
+ * Two shapes because there are two honest answers, and "I have not checked"
+ * must not be able to masquerade as "there is nothing to check".
+ */
+export type StopReasonMapping =
+  | {
+      readonly kind: "declared";
+      /** The vendor field this reads, named so a reviewer can go and look. */
+      readonly from: string;
+      /** That field's values, mapped onto ours. */
+      readonly map: Readonly<Record<string, StopReason>>;
+    }
+  | {
+      /**
+       * Checked, and this adapter's output carries no such signal.
+       *
+       * Distinct from `unverified`, and the distinction is the same one this
+       * codebase keeps arriving at: "nobody looked" and "we looked and there
+       * is nothing" are different facts, and an owner surface that prints one
+       * for the other is telling somebody to go and find something that does
+       * not exist.
+       */
+      readonly kind: "unavailable";
+      /** What was checked and what it did not carry. */
+      readonly why: string;
+    }
+  | {
+      readonly kind: "unverified";
+      /** Why not, in words — this is said out loud on the owner surface. */
+      readonly why: string;
+    };
+
+export type StopReason =
+  /** The model finished on its own. */
+  | "end"
+  /** The model stopped at its own output ceiling. */
+  | "length"
+  /** A configured stop token ended it. */
+  | "stop-sequence"
+  /**
+   * The adapter cannot tell, and says so.
+   *
+   * **The default, and never `"end"`.** An adapter nobody has updated — or
+   * one somebody adds next year — must not be able to claim completion by
+   * saying nothing. If absence meant "end", every un-updated adapter would go
+   * on telling exactly the lie this exists to fix, and every new adapter
+   * would inherit it in silence.
+   *
+   * It is the opposite-boolean rule this codebase keeps arriving at: when you
+   * cannot tell, guess toward silence rather than toward a claim. "We do not
+   * know" is a thing a site can act on; "it finished" when it did not is not.
+   */
+  | "unknown";
+
+/**
+ * The stop reason a result actually carries, with absence resolved.
+ *
+ * Read through this rather than off the field, so an adapter that has not
+ * been taught to report one cannot be mistaken for a model that ran to
+ * completion.
+ */
+export function stopReasonOf(result: BackendResult): StopReason {
+  return result.ok ? (result.stop ?? "unknown") : "unknown";
+}
+
 export type BackendResult =
-  | { readonly ok: true; readonly text: string; readonly durationMs: number }
+  | {
+      readonly ok: true;
+      readonly text: string;
+      readonly durationMs: number;
+      /**
+       * Why generation ended — byollm_021.
+       *
+       * Optional on the type and NOT optional in practice: every registered
+       * adapter must declare a mapping, and the adversarial coverage check
+       * enforces that, the same way it enforces a hostile-payload corpus.
+       * Absent resolves to `"unknown"` through {@link stopReasonOf}, which is
+       * the honest reading and not `"end"`.
+       */
+      readonly stop?: StopReason;
+    }
   | {
       readonly ok: false;
       readonly code: BackendErrorCode;
@@ -139,6 +236,23 @@ export interface Backend {
    * than a sentence naming a command that does not exist.
    */
   readonly signIn?: string;
+
+  /**
+   * How this adapter reads its own vendor's stop signal — byollm_021.
+   *
+   * **Required, and that is Todd's ruling made structural**: "each service
+   * adapter should state its truncated message output along with other
+   * errors." A required field means an adapter cannot be added without
+   * answering the question, the same way `BACKENDS` cannot be extended
+   * without an adversarial corpus. A rule you have to remember holds until
+   * somebody adds the next one.
+   *
+   * `unverified` is a legitimate answer and an honest one. The mappings here
+   * are checked by running the thing, per the `login.ts` and
+   * `startCommandFor` precedent — a guessed field name produces a gate that
+   * silently never fires, which is this bug with extra steps.
+   */
+  readonly stopReasons: StopReasonMapping;
 
   /** Run one model call. The only thing a job is permitted to cause. */
   execute(request: BackendRequest): Promise<BackendResult>;

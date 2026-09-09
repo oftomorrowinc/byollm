@@ -474,6 +474,50 @@ export function envelopeBytes(envelope: unknown): number {
   return serialised === undefined ? 0 : serialised.length;
 }
 
+/**
+ * A size somebody can act on, rounded **up** and only ever up.
+ *
+ * The rounding rule, in one place, because it has now been got wrong twice —
+ * B072. `toFixed` rounds to nearest, so a message one byte over the line
+ * printed "this message is 10.5 MB and the limit is 10.5 MB": a refusal that
+ * reads as a contradiction, given to somebody who now has no idea what to
+ * change.
+ *
+ * The relay found that, fixed it, and wrote the reasoning down beside the
+ * fix. The SDK's refusal then rediscovered the identical bug, because it
+ * copied the SENTENCE rather than the function — which is the same shape as
+ * `MAX_BODY_BYTES` diverging from `MAX_ENVELOPE_BYTES`, and the same answer:
+ * neither side holds the rule.
+ *
+ * Up is also the honest direction. Understating how far over a message is
+ * sends somebody to trim a hundred bytes off something that needs to lose a
+ * megabyte; overstating by a tenth costs them nothing.
+ */
+export function describeBytes(bytes: number): string {
+  return `${(Math.ceil((bytes / (1024 * 1024)) * 10) / 10).toFixed(1)} MB`;
+}
+
+/**
+ * What a message that is too big is told, minus anything about pricing.
+ *
+ * Shared because both planes refuse the same thing for the same reason. What
+ * is NOT shared is the relay's "every plan has the same ceiling" — a hosted
+ * sentence, and meaningless to somebody self-hosting the direct lane, where
+ * there are no plans. One rule, two audiences: the rule travels, the words
+ * about our billing do not.
+ */
+export function tooLargeMessage(input: {
+  readonly bytes: number;
+  readonly limit: number;
+}): string {
+  return (
+    `this message is ${describeBytes(input.bytes)} and the limit is ` +
+    `${describeBytes(input.limit)} — it is a limit on one message rather ` +
+    "than on how many you send. Split the work into smaller jobs and send " +
+    "them separately."
+  );
+}
+
 /** Where the bucket boundaries sit, in characters of payload text. */
 export const SIZE_CLASS_LIMITS = Object.freeze({
   small: 4_000,

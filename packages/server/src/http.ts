@@ -2,6 +2,7 @@ import {
   ENDPOINTS,
   ERROR_STATUS,
   MAX_ENVELOPE_BYTES,
+  tooLargeMessage,
   PROTOCOL_PREFIX,
   checkProtocolVersion,
   type Endpoint,
@@ -30,32 +31,21 @@ const MAX_BODY_BYTES = MAX_ENVELOPE_BYTES + 512 * 1024;
 /**
  * What a message that is too big is told — B061, Kevin's bisection.
  *
- * This said "request body too large" and nothing else, at both call sites.
- * Both numbers were already in scope. Somebody who hits it learns that
+ * This said "request body too large" and nothing else, at both call sites,
+ * with both numbers already in scope. Somebody who hits it learns that
  * something was too big and not what, not by how much, not whether the limit
  * is per-message or per-account, and not what to do — so the only way
  * forward is to bisect, which is exactly what Kevin did.
  *
- * The relay has answered this properly for a while. Two implementations of
- * one refusal, and the one the SDK ships — the one a site self-hosting the
- * direct lane meets — was the thin one.
- *
- * Rounded UP, and only ever up, for the reason the relay's version records:
- * `toFixed` rounds to nearest, so a message one byte over printed "this
- * message is 10.0 MB and the limit is 10.0 MB", which reads as a
- * contradiction to somebody who now has no idea what to change. Overstating
- * by a tenth costs them nothing; understating sends them to trim a hundred
- * bytes off something that needs to lose a megabyte.
+ * The sentence and its rounding come from the protocol now — B072. The first
+ * version of this copied the relay's WORDS and rediscovered the relay's bug
+ * with them: `toFixed` rounds to nearest, so one byte over printed "this
+ * message is 10.5 MB and the limit is 10.5 MB". The relay had already found
+ * that, fixed it, and written the reasoning beside the fix. Copying a
+ * sentence copies everything about it except the part that was learned.
  */
-function tooLarge(bytes: number): string {
-  const mb = (n: number) =>
-    `${(Math.ceil((n / (1024 * 1024)) * 10) / 10).toFixed(1)} MB`;
-  return (
-    `this message is ${mb(bytes)} and the limit is ${mb(MAX_BODY_BYTES)} — ` +
-    "it is a limit on one message rather than on how many you send. Split " +
-    "the work into smaller jobs and send them separately."
-  );
-}
+const tooLarge = (bytes: number): string =>
+  tooLargeMessage({ bytes, limit: MAX_BODY_BYTES });
 
 /**
  * Where the protocol endpoints are mounted.

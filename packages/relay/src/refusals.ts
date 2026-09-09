@@ -1,4 +1,5 @@
 import {
+  tooLargeMessage,
   ERROR_STATUS,
   MAX_CLOCK_SKEW_MS,
   MAX_ENVELOPE_BYTES,
@@ -70,29 +71,24 @@ export function clockSkewRefusal(now: number): PlaneResult {
  */
 export function tooLargeRefusal(bytes: number): PlaneResult {
   /**
-   * Rounded **up**, and only ever up.
+   * The sentence comes from the protocol; the pricing clause stays here.
    *
-   * `toFixed` rounds to nearest, so a message one byte over the line printed
-   * as "this message is 10.0 MB and the limit is 10.0 MB" — a refusal that
-   * reads as a contradiction, given to somebody who now has no idea what to
-   * change. Found by rendering the sentence rather than by asserting on it.
+   * This file held the rounding rule and the reasoning for it, and the SDK's
+   * refusal then rediscovered the same bug by copying the sentence rather
+   * than the function — B072. `describeBytes` and `tooLargeMessage` are the
+   * shared halves now, and neither side holds the rule.
    *
-   * Ceiling is also the honest direction. Understating how far over a message
-   * is would send somebody to trim a hundred bytes off something that needs to
-   * lose a megabyte; overstating by a tenth costs them nothing.
+   * "Every plan has the same ceiling" does not travel with them: it is a
+   * hosted sentence, and it means nothing to somebody self-hosting the
+   * direct lane, where there are no plans.
    */
-  const mb = (n: number) =>
-    `${(Math.ceil((n / (1024 * 1024)) * 10) / 10).toFixed(1)} MB`;
-  const limit = `${(MAX_ENVELOPE_BYTES / (1024 * 1024)).toFixed(1)} MB`;
   return {
     status: ERROR_STATUS["bad-request"],
     body: {
       error: "bad-request",
       message:
-        `this message is ${mb(bytes)} and the limit is ` +
-        `${limit} — every plan has the same ceiling, and it ` +
-        "is a limit on one message rather than on how many you send. Split " +
-        "the work into smaller jobs and send them separately.",
+        `${tooLargeMessage({ bytes, limit: MAX_ENVELOPE_BYTES })} ` +
+        "Every plan has the same ceiling.",
     },
   };
 }

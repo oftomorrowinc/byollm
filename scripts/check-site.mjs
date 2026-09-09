@@ -246,10 +246,16 @@ const RETIRED_CLAIMS = Object.freeze([
     "consent and reachability are two promises; one clause strained",
   ],
 ]);
+/* Compared in lowercase, and CW proved why in one line: putting *"no keys
+   leave their computer"* back with a lowercase `n` failed nothing. A banned
+   claim differing by one capital is exactly the form a sentence takes when it
+   is re-flowed mid-paragraph rather than pasted — which is the way this copy
+   actually moves. */
+const lowerHtml = html.toLowerCase();
 for (const [claim, why] of RETIRED_CLAIMS) {
   check(
     `does not repeat the retired claim "${claim.slice(0, 34)}"`,
-    !html.includes(claim),
+    !lowerHtml.includes(claim.toLowerCase()),
     why,
   );
 }

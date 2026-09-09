@@ -10,6 +10,14 @@
 
 import { PROTOCOL_VERSION } from "@byollm/protocol";
 
+export {
+  readMemory,
+  parseMemInfo,
+  parseVmStat,
+  parseSwapUsage,
+  type MemoryReading,
+  type ReadCommand,
+} from "./memory.js";
 export { normalizeOrigin, UnusableOrigin } from "./origins.js";
 
 export { main, runCli, type CliIo, type ExitCode } from "./cli.js";

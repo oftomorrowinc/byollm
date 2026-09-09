@@ -1,0 +1,177 @@
+import { totalmem, freemem, platform as hostPlatform } from "node:os";
+
+/**
+ * How much memory this machine can actually give a job — byollm_022, B080.
+ *
+ * Built because nothing in this daemon reads memory at all, and neither does
+ * Ollama: its own scheduler logged 17 GB into 5.2 GiB free with zero swap and
+ * loaded anyway. On a 36 GB machine that was a wedge, about thirty daemons
+ * restarting at once, and a person watching their laptop stop.
+ *
+ * ## `available`, not `free`, and the difference is the whole reader
+ *
+ * `os.freemem()` on macOS reports pages that are free *right now* — 0.28 GB
+ * on a machine with 6.41 GB it could hand over on demand. A gate built on it
+ * is not conservative, it is **broken closed**: it refuses every job forever
+ * on a machine that is working perfectly, and that failure looks exactly like
+ * the product deciding it can never serve. Available is free plus what the
+ * kernel can reclaim without asking anybody.
+ *
+ * ## Zero dependencies, and the macOS spawn named rather than skipped
+ *
+ * `systeminformation` computes exactly this and would be one import. It is
+ * also large, per-platform, and shells out — into a daemon whose security
+ * story is a small fixed audited spawn surface, against a `docs/deps.md` that
+ * says dependency minimalism and means it.
+ *
+ * So the method is taken and the package is not. **The dependency would not
+ * avoid the `vm_stat` spawn; it would hide it behind a code path per
+ * platform.** Doing it here means one known command, with fixed argv, no
+ * shell, and nothing derived from a job, a payload or a config — the same
+ * discipline as the process backends, and the same shape as B056's PATH check
+ * that looks rather than executes.
+ */
+export type MemoryReading =
+  | {
+      readonly kind: "read";
+      /** Free plus reclaimable, in bytes. */
+      readonly availableBytes: number;
+      readonly totalBytes: number;
+      /** Absent where the platform does not report it — Windows, for now. */
+      readonly swapFreeBytes?: number;
+      readonly swapTotalBytes?: number;
+    }
+  | {
+      /**
+       * We could not measure, which is not the same as "there is no room".
+       *
+       * `stopReasons`' `unavailable` one layer down: we looked, there is
+       * nothing readable, and the honest move is to say so rather than let an
+       * absence read as a pass — or as a refusal. The gate admits normally
+       * here and `byollm status` says the guard is not active on this
+       * machine, because a guard nobody knows is off is worse than no guard.
+       */
+      readonly kind: "unknown";
+      readonly why: string;
+    };
+
+/** Runs a fixed argv and returns its stdout, or undefined. */
+export type ReadCommand = (
+  command: readonly [string, ...string[]],
+) => Promise<string | undefined>;
+
+/**
+ * Linux: one file read, no spawn.
+ *
+ * `MemAvailable` is the kernel's own answer to this exact question, which is
+ * why it exists — confirmed on a live box at 3,707,608 kB against a `MemFree`
+ * of 3,381,836 kB, with `os.freemem()` agreeing with the latter.
+ */
+export function parseMemInfo(text: string): MemoryReading {
+  const kb = (key: string): number | undefined => {
+    const found = new RegExp(`^${key}:\\s+(\\d+) kB$`, "m").exec(text);
+    return found === null ? undefined : Number(found[1]) * 1024;
+  };
+  const available = kb("MemAvailable");
+  const total = kb("MemTotal");
+  if (available === undefined || total === undefined) {
+    return { kind: "unknown", why: "/proc/meminfo carried no MemAvailable" };
+  }
+  const swapTotal = kb("SwapTotal");
+  const swapFree = kb("SwapFree");
+  return {
+    kind: "read",
+    availableBytes: available,
+    totalBytes: total,
+    ...(swapFree === undefined ? {} : { swapFreeBytes: swapFree }),
+    ...(swapTotal === undefined ? {} : { swapTotalBytes: swapTotal }),
+  };
+}
+
+/**
+ * macOS: `vm_stat`, because no Node API exposes inactive and purgeable pages.
+ *
+ * Available is free + inactive + speculative + purgeable — the pages the
+ * kernel will hand over without anybody being asked. The page size is read
+ * from `vm_stat`'s own header rather than assumed 4096: this machine reports
+ * 16384, and assuming would have understated available memory fourfold, which
+ * is the broken-closed failure arriving through a constant instead.
+ */
+export function parseVmStat(text: string, total: number): MemoryReading {
+  const page = /page size of (\d+) bytes/.exec(text);
+  if (page === null) {
+    return { kind: "unknown", why: "vm_stat did not report its page size" };
+  }
+  const pageSize = Number(page[1]);
+  const pages = (label: string): number | undefined => {
+    const found = new RegExp(`^Pages ${label}:\\s+(\\d+)\\.`, "m").exec(text);
+    return found === null ? undefined : Number(found[1]);
+  };
+  const free = pages("free");
+  const inactive = pages("inactive");
+  if (free === undefined || inactive === undefined) {
+    return {
+      kind: "unknown",
+      why: "vm_stat carried no free or inactive count",
+    };
+  }
+  const reclaimable =
+    free + inactive + (pages("speculative") ?? 0) + (pages("purgeable") ?? 0);
+  return {
+    kind: "read",
+    availableBytes: reclaimable * pageSize,
+    totalBytes: total,
+  };
+}
+
+/** macOS swap, from `sysctl vm.swapusage`. */
+export function parseSwapUsage(text: string): {
+  swapFreeBytes?: number;
+  swapTotalBytes?: number;
+} {
+  const mb = (key: string): number | undefined => {
+    const found = new RegExp(`${key} = ([\\d.]+)M`).exec(text);
+    return found === null ? undefined : Number(found[1]) * 1024 * 1024;
+  };
+  const free = mb("free");
+  const total = mb("total");
+  return {
+    ...(free === undefined ? {} : { swapFreeBytes: free }),
+    ...(total === undefined ? {} : { swapTotalBytes: total }),
+  };
+}
+
+/**
+ * What this machine can give, per platform.
+ *
+ * Windows is `os.freemem()` and that is not the macOS mistake repeated: on
+ * Windows that call already reports available physical memory rather than a
+ * near-zero free count. Same function, different meaning, and the difference
+ * is exactly why this is a per-platform table rather than one call.
+ */
+export async function readMemory(
+  run: ReadCommand,
+  readFile: (path: string) => Promise<string | undefined>,
+  platform: NodeJS.Platform = hostPlatform(),
+): Promise<MemoryReading> {
+  if (platform === "linux") {
+    const text = await readFile("/proc/meminfo");
+    return text === undefined
+      ? { kind: "unknown", why: "/proc/meminfo could not be read" }
+      : parseMemInfo(text);
+  }
+  if (platform === "darwin") {
+    const text = await run(["vm_stat"]);
+    if (text === undefined) {
+      return { kind: "unknown", why: "vm_stat could not be run" };
+    }
+    const reading = parseVmStat(text, totalmem());
+    if (reading.kind !== "read") return reading;
+    const swap = await run(["sysctl", "vm.swapusage"]);
+    return { ...reading, ...(swap === undefined ? {} : parseSwapUsage(swap)) };
+  }
+  if (platform === "win32") {
+    return { kind: "read", availableBytes: freemem(), totalBytes: totalmem() };
+  }
+  return { kind: "unknown", why: `no memory reader for ${platform}` };
+}

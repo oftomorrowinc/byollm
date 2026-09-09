@@ -1,14 +1,17 @@
-import { readFileSync } from "node:fs";
+import type { spawn } from "node:child_process";
+import { existsSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { chmod, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
+import { removeTemp } from "./test-support.js";
 import {
   binaryOnPath,
   ensureLocalServer,
   isStartable,
   isLoopback,
+  spawnLocalServer,
   startCommandFor,
 } from "./local-server.js";
 
@@ -362,5 +365,132 @@ describe("finding a binary on PATH", () => {
     expect(
       await binaryOnPath("probe", { PATH: bin, PATHEXT: ".EXE" }, "win32"),
     ).toBe(false);
+  });
+});
+
+describe("starting a local server for real — B092", () => {
+  /**
+   * The production spawn, run rather than described.
+   *
+   * `spawnServer` sat unpassed for four releases with its own comment saying
+   * the daemon that runs jobs passes one — while none did. The seam is now
+   * wired, and the thing on the end of it is exercised here: an inline
+   * closure in `cli.ts` would be a line nothing could reach.
+   */
+  it("actually runs the command it is given", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "byollm-spawn-"));
+    try {
+      const marker = join(dir, "started");
+      const errors: string[] = [];
+      spawnLocalServer(
+        [
+          process.execPath,
+          "-e",
+          `require("node:fs").writeFileSync(${JSON.stringify(marker)}, "up")`,
+        ],
+        (message) => errors.push(message),
+      );
+
+      /* Waited for rather than slept on: the child is detached, so there is
+         no exit to await, and a fixed sleep would encode a guess about how
+         fast a process starts on a loaded CI runner. */
+      const deadline = Date.now() + 10_000;
+      while (Date.now() < deadline && !existsSync(marker)) {
+        await new Promise((wake) => setTimeout(wake, 20));
+      }
+      expect(
+        existsSync(marker),
+        "the spawned command never ran — the seam is wired to nothing",
+      ).toBe(true);
+      expect(errors).toEqual([]);
+    } finally {
+      await removeTemp(dir);
+    }
+  });
+
+  it("survives a binary that is not there, rather than taking the daemon down", async () => {
+    /**
+     * `isStartable` checked PATH a moment earlier; this is the race between
+     * then and now — an uninstall, a PATH change, a package manager mid-swap.
+     * An unhandled `error` on a child process ends the process that is
+     * supposed to be serving jobs, so "ollama went away" has to be a job that
+     * fails and not a daemon that dies.
+     */
+    const errors: string[] = [];
+    expect(() => {
+      spawnLocalServer(["byollm-no-such-program-exists", "serve"], (message) =>
+        errors.push(message),
+      );
+    }).not.toThrow();
+
+    const deadline = Date.now() + 5_000;
+    while (Date.now() < deadline && errors.length === 0) {
+      await new Promise((wake) => setTimeout(wake, 20));
+    }
+    expect(errors[0], "the failure was swallowed silently").toContain(
+      "could not start byollm-no-such-program-exists",
+    );
+  });
+
+  it("detaches, ignores stdio, and never uses a shell", () => {
+    /**
+     * The three properties that make a spawned server safe to leave running,
+     * asserted on the options rather than inferred from behaviour — each has
+     * a failure that only shows up later. `shell: false` is the one that
+     * would matter if `startCommandFor` ever returned something with a space
+     * in it; the other two decide whether a daemon restart kills the server
+     * and whether a chatty server can block the daemon.
+     */
+    const seen: Record<string, unknown>[] = [];
+    const noop = () => {
+      /* The double never has to do anything — the options are the subject. */
+    };
+    spawnLocalServer(["ollama", "serve"], noop, ((
+      _program: string,
+      _args: string[],
+      options: Record<string, unknown>,
+    ) => {
+      seen.push(options);
+      return { on: noop, unref: noop };
+    }) as unknown as typeof spawn);
+    expect(seen[0]).toMatchObject({
+      detached: true,
+      stdio: "ignore",
+      shell: false,
+    });
+  });
+
+  it("is passed by the daemon that runs jobs, and by nothing else", () => {
+    /**
+     * The assertion B092 exists for. The seam being absent by default is a
+     * safety property — `status`, `connect` and `services` each build a
+     * Runner to ANSWER something and must not launch a process as a side
+     * effect. What was missing was passing it in the one place that should:
+     * the long-running daemon.
+     *
+     * Read from the source, because the property is "exactly one call site"
+     * and the failure it guards is a line nobody adds. Its absence was noted
+     * in a comment for four releases and noticed by nobody, which is the
+     * argument for a check rather than a note.
+     */
+    const cli = readFileSync(
+      fileURLToPath(new URL("./cli.ts", import.meta.url)),
+      "utf8",
+    );
+    const passes = [...cli.matchAll(/^\s*spawnServer:/gm)];
+    expect(passes, "nothing passes spawnServer — B092 regressed").toHaveLength(
+      1,
+    );
+    /* And it is the daemon's Runner, not one of the question-answering ones:
+       the same options object that carries `readMemory`, which only the
+       job-running daemon gets. */
+    const daemonOptions = cli.slice(
+      cli.indexOf("readMemory: readHostMemory"),
+      cli.indexOf(
+        "onEvent: (event) => {",
+        cli.indexOf("readMemory: readHostMemory"),
+      ),
+    );
+    expect(daemonOptions).toContain("spawnServer:");
   });
 });

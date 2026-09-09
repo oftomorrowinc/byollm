@@ -1,3 +1,4 @@
+import { spawn } from "node:child_process";
 import type { BackendId } from "@byollm/protocol";
 
 /**
@@ -158,6 +159,47 @@ export async function ensureLocalServer(
  *   · the binary is actually on PATH            (the half that separates
  *     "installed" from "written in a config file")
  */
+/**
+ * Start a local model server, and let it go — B092.
+ *
+ * The production half of {@link ensureLocalServer}'s `spawn` seam. Extracted
+ * from the daemon's Runner options so it can be run in a test: an inline
+ * closure in `cli.ts` is a line nothing can exercise, and B092 exists because
+ * a seam nobody passed sat unnoticed for four releases while its own comment
+ * described the problem.
+ *
+ * **Detached, unreferenced, and no stdio.** A model server is not this
+ * daemon's child in any sense that matters — it should outlive a daemon
+ * restart exactly as it would if its owner had started it, and holding its
+ * pipes would let a full output buffer block the process that is meant to be
+ * serving jobs.
+ *
+ * **No shell, and nothing from a job reaches the argv.**
+ * {@link startCommandFor} returns a hardcoded literal for a known backend id,
+ * so there is nothing here to quote and nothing to smuggle.
+ *
+ * `onError` rather than a throw: an unhandled `error` on a child process
+ * takes the whole daemon down, and "the binary went away between the PATH
+ * check and now" has to be a job that fails, not a daemon that dies.
+ */
+export function spawnLocalServer(
+  command: readonly string[],
+  onError: (message: string) => void,
+  spawnImpl: typeof spawn = spawn,
+): void {
+  const [program, ...args] = command;
+  if (program === undefined) return;
+  const child = spawnImpl(program, args, {
+    detached: true,
+    stdio: "ignore",
+    shell: false,
+  });
+  child.on("error", (error: Error) => {
+    onError(`could not start ${program}: ${error.message}`);
+  });
+  child.unref();
+}
+
 export async function isStartable(input: {
   readonly id: BackendId;
   readonly baseUrl: string | undefined;

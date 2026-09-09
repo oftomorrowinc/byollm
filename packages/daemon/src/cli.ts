@@ -1,3 +1,4 @@
+import { spawnLocalServer } from "./local-server.js";
 import { access } from "node:fs/promises";
 import { emphasise, terminalContext } from "./emphasis.js";
 import { backendVerifier, listModels, setModel, showModel } from "./model.js";
@@ -1730,9 +1731,47 @@ async function runLoop(
        *
        * This is the line that makes the guard exist. Without it `memoryGate`
        * is a function with tests and no reader — which is the state B080 sat
-       * in for two commits, and the state `spawnServer` is still in.
+       * in for two commits, and the state `spawnServer` was still in until
+       * B092 wired it directly below.
        */
       readMemory: readHostMemory,
+      /**
+       * On-demand start, finally connected to something — B092.
+       *
+       * `ensureLocalServer` has had no production caller since B050 built
+       * it: the seam existed, the start command existed, and nothing ever
+       * passed this. So a configured-but-stopped server was advertised
+       * (B056) and then never started, which is the claimed-then-failed job
+       * B087 stopped by refusing to advertise it at all.
+       *
+       * **The seam being absent by default is right and stays.** `status`,
+       * `connect` and `services` each build a Runner to ANSWER something,
+       * and none of them may launch a process as a side effect of being
+       * asked. What was missing was passing it in the one place that should
+       * have it: the long-running daemon, here.
+       *
+       * Three things had to be true before this was safe, and now are.
+       * The memory guard refuses BEFORE the start rather than after, which
+       * is the check that was missing on 09-08. B087 makes advertising
+       * self-heal, so this one line restores B056's ruling with nothing
+       * else to remember. And B079's headline — "byollm now starts a local
+       * model server when a job needs one" — becomes true here, which is
+       * why the sentence and this line ship in the same release.
+       *
+       * **Detached and unreferenced, with no stdio.** A model server is not
+       * this daemon's child in any sense that matters: it outlives a daemon
+       * restart the way it would if its owner had started it, and holding
+       * its pipes would mean a full output buffer could block the process
+       * that is supposed to be serving jobs. `startCommandFor` supplies a
+       * hardcoded argv and nothing from a job reaches it
+       * ({@link MUSTS.NO_PAYLOAD_ROUTING}), so there is no shell here and
+       * nothing to quote.
+       */
+      spawnServer: (command) => {
+        spawnLocalServer(command, (message) => {
+          io.err(`${message}\n`);
+        });
+      },
       onEvent: (event) => {
         report(origin, event, io);
         /**

@@ -131,6 +131,17 @@ async function makeRunner(
     services?: Record<string, unknown>;
     defaults?: Record<string, string>;
     onBackend?: (service: string) => void;
+    /**
+     * The daemon's clock, for the cases that tick more than once — B041.
+     *
+     * Repeated ticks in this file stand for repeated OFFERS, which in a
+     * running system are separated by a lease lapsing: a minute or more
+     * apart, not the fifty milliseconds a loop here takes. That was a
+     * harmless compression until the daemon grew a rule about how often it
+     * will start the same job, and then the compression became the thing
+     * under test rather than a detail of it.
+     */
+    now?: () => number;
   } = {},
 ) {
   const loaded = resolveConfig(
@@ -154,6 +165,7 @@ async function makeRunner(
   await spend.load(Date.now());
 
   return new Runner({
+    ...(over.now === undefined ? {} : { now: over.now }),
     client: new ProtocolClient({
       origin: "https://app.test",
       identity: TEST_SIGNER,
@@ -436,11 +448,18 @@ describe("the loop", () => {
        job that never hands over its payload is refused, which is what stops
        the hub offering it to this device again. */
     const released: { reason?: string }[] = [];
-    const runner = await makeRunner(relayThatCannotSeal(released));
+    /* Each tick is a separate offer, and offers arrive a lapsed lease apart.
+       Said with a clock rather than left implicit, because the daemon now
+       has a rule about how often it starts the same job — B041. */
+    let clock = 1_800_000_000_000;
+    const runner = await makeRunner(relayThatCannotSeal(released), "me", {
+      now: () => clock,
+    });
 
     for (let attempt = 0; attempt < 3; attempt += 1) {
       await runner.tick();
       await new Promise((resolve) => setTimeout(resolve, 50));
+      clock += 60_000;
     }
 
     expect(released).toHaveLength(1);
@@ -484,44 +503,52 @@ describe("the loop", () => {
       lease: { id: "lease_test", runnerId: "runner_1", expiresAt: Date.now() },
     });
 
-    const runner = await makeRunner((input, init) => {
-      const url = String(input instanceof Request ? input.url : input);
-      const endpoint = url.split("/").pop() ?? "";
-      const json = (value: unknown, status = 200) =>
-        Promise.resolve(
-          new Response(JSON.stringify(value), {
-            status,
-            headers: { "content-type": "application/json" },
-          }),
+    /* Offers are a lapsed lease apart, said with a clock — see the sibling
+       case above and B041. */
+    let clock = 1_800_000_000_000;
+    const runner = await makeRunner(
+      (input, init) => {
+        const url = String(input instanceof Request ? input.url : input);
+        const endpoint = url.split("/").pop() ?? "";
+        const json = (value: unknown, status = 200) =>
+          Promise.resolve(
+            new Response(JSON.stringify(value), {
+              status,
+              headers: { "content-type": "application/json" },
+            }),
+          );
+        if (endpoint === "fetch") {
+          // 409 — the relay holds it and has nothing to hand over yet.
+          return json({ error: "not-ready", message: "no payload yet" }, 409);
+        }
+        if (endpoint === "release") {
+          const body = typeof init?.body === "string" ? init.body : "";
+          expect(body, "the release body was not a string").not.toBe("");
+          released.push(JSON.parse(body) as { reason?: string });
+          return json({ released: [] });
+        }
+        return json(
+          endpoint === "claim"
+            ? { jobs: [stub()], leaseMs: 600_000 }
+            : endpoint === "heartbeat"
+              ? {
+                  sites: HEARTBEAT_SITES,
+                  awaitingConsent: [],
+                  cancel: [],
+                  lost: [],
+                  serverTime: Date.now(),
+                }
+              : { accepted: true, state: "ok" },
         );
-      if (endpoint === "fetch") {
-        // 409 — the relay holds it and has nothing to hand over yet.
-        return json({ error: "not-ready", message: "no payload yet" }, 409);
-      }
-      if (endpoint === "release") {
-        const body = typeof init?.body === "string" ? init.body : "";
-        expect(body, "the release body was not a string").not.toBe("");
-        released.push(JSON.parse(body) as { reason?: string });
-        return json({ released: [] });
-      }
-      return json(
-        endpoint === "claim"
-          ? { jobs: [stub()], leaseMs: 600_000 }
-          : endpoint === "heartbeat"
-            ? {
-                sites: HEARTBEAT_SITES,
-                awaitingConsent: [],
-                cancel: [],
-                lost: [],
-                serverTime: Date.now(),
-              }
-            : { accepted: true, state: "ok" },
-      );
-    });
+      },
+      "me",
+      { now: () => clock },
+    );
 
     // Patience first: a site that is merely slow keeps its job.
     await runner.tick();
     await new Promise((resolve) => setTimeout(resolve, 60));
+    clock += 60_000; // the lease lapses and the hub offers it again
     expect(
       released,
       "a first give-up must let the lease lapse, not refuse the job",
@@ -531,6 +558,7 @@ describe("the loop", () => {
     for (let attempt = 0; attempt < 2; attempt += 1) {
       await runner.tick();
       await new Promise((resolve) => setTimeout(resolve, 60));
+      clock += 60_000;
     }
 
     expect(

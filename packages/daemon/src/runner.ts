@@ -401,6 +401,64 @@ const FETCH_ATTEMPTS_BEFORE_GONE = 3;
 /** How long a give-up is remembered. Past this the job cannot be offered. */
 const GAVE_UP_TTL_MS = 10 * 60_000;
 
+/**
+ * The backstop that does not have to be clever — B041.
+ *
+ * {@link FETCH_ATTEMPTS_BEFORE_GONE} ends one poison loop: a job whose
+ * payload never arrives. It is the right fix for that failure and it is
+ * scoped to it, and the loop it closed was found the way these are always
+ * found — by watching one happen.
+ *
+ * Every other way a job can fail on the way to a result has the same shape.
+ * A payload that opens but does not verify, a route that throws, a backend
+ * that dies on one particular prompt, an ingress write that cannot land: the
+ * daemon does not report a result, the lease lapses, the hub offers the job
+ * again, and this device takes it again forever. **Each of those wants its
+ * own remedy and none of them should need one for the loop to end.**
+ *
+ * So this counts attempts on a job id ACROSS CLAIMS and refuses after
+ * {@link MAX_JOB_ATTEMPTS}, regardless of why. It is deliberately the
+ * dumbest possible rule: a classifier that has to be right about every
+ * failure mode is a classifier that will be wrong about the next one, and
+ * the next one is the one that loops.
+ */
+const MAX_JOB_ATTEMPTS = 3;
+
+/**
+ * How long the same job id waits between attempts on this device.
+ *
+ * Not a timer, and deliberately not: a job arriving inside its own backoff
+ * is simply not worked, and the lease lapses exactly as it does for a fetch
+ * give-up. The hub re-offers when the lease expires, so the LEASE is the
+ * spacing mechanism and this is only the floor under it. That is the same
+ * "do nothing and let it lapse" the fetch path settled on, and it asks for
+ * no reason code that would be untrue on the wire — `release` has
+ * `shutdown`, `pause`, `revoked`, `backend-down` and `refused`, and none of
+ * them means "not yet, offer it later".
+ */
+const ATTEMPT_BACKOFF_MS = 30_000;
+
+/** How long an attempt record is kept — same reasoning as the give-up TTL. */
+const ATTEMPT_TTL_MS = 10 * 60_000;
+
+/**
+ * A job id is only unique WITHIN a site — B041, found by an existing test.
+ *
+ * Two sites can each have a `job_1`, and `two-sites.test.ts` claims exactly
+ * that pair in one response, on purpose. Per-job bookkeeping keyed on the id
+ * alone therefore merges two unrelated jobs: one site's failures are counted
+ * against the other's work, and the second site's job is refused for a loop
+ * it had no part in.
+ *
+ * `#gaveUpFetching` had this too, and it is shipped. Narrow — it needs two
+ * sites using the same id inside ten minutes — but the failure is a job
+ * refused for somebody else's reason, which is the kind that is very hard to
+ * read from the outside.
+ */
+function jobKey(job: { id: string; site?: string }): string {
+  return `${job.site ?? "direct"}:${job.id}`;
+}
+
 const AUTH_RECHECK_MS = 60_000;
 
 /**
@@ -523,6 +581,18 @@ export class Runner {
     string,
     { attempts: number; at: number }
   >();
+
+  /**
+   * How many times this device has begun each job id — B041.
+   *
+   * Separate from {@link #gaveUpFetching} rather than folded into it,
+   * because they answer different questions and merging them would blunt
+   * both: that one counts a specific, diagnosable failure and reports it by
+   * name, this one counts attempts and refuses to care why. Pruned on use,
+   * like its neighbour, so it cannot become the leak this project has
+   * already fixed once.
+   */
+  readonly #attempts = new Map<string, { attempts: number; at: number }>();
   /** What was last handed to the writer, so an unchanged pass writes nothing. */
   #lastWritten: string | undefined;
 
@@ -2153,6 +2223,46 @@ export class Runner {
     }
   }
 
+  /**
+   * Has this device already had its turns at this job id — B041.
+   *
+   * `"go"` records the attempt; `"wait"` and `"poison"` do not, so a job
+   * refused inside its backoff does not burn one of its own chances.
+   */
+  #attemptVerdict(key: string): "go" | "wait" | "poison" {
+    /* Pruned here because this is the only place that learns time has
+       passed for these entries — the same reasoning as the give-up map, and
+       the same reason a timer would be the wrong instrument. */
+    for (const [id, entry] of this.#attempts) {
+      if (this.#now() - entry.at > ATTEMPT_TTL_MS) this.#attempts.delete(id);
+    }
+
+    const seen = this.#attempts.get(key);
+    if (seen === undefined) {
+      this.#attempts.set(key, { attempts: 1, at: this.#now() });
+      return "go";
+    }
+    if (seen.attempts >= MAX_JOB_ATTEMPTS) return "poison";
+    if (this.#now() - seen.at < ATTEMPT_BACKOFF_MS) return "wait";
+    this.#attempts.set(key, {
+      attempts: seen.attempts + 1,
+      at: this.#now(),
+    });
+    return "go";
+  }
+
+  /**
+   * This job reached an end, so its attempt history stops mattering — B041.
+   *
+   * Called wherever the job leaves this device for good. Forgetting on
+   * success is what keeps the breaker a breaker rather than a lifetime quota
+   * on a job id: a site that legitimately re-runs the same id after a
+   * completed job should not find this device counting from two.
+   */
+  #jobSettled(job: { id: string; site?: string }): void {
+    this.#attempts.delete(jobKey(job));
+  }
+
   async #handle(job: ClaimedStub): Promise<void> {
     this.#options.onEvent?.({
       type: "claimed",
@@ -2160,8 +2270,60 @@ export class Runner {
       kind: job.kind,
     });
 
+    /**
+     * The circuit breaker, before anything else looks at this job — B041.
+     *
+     * First, so that it covers every way the work below can fail to produce
+     * a result. A breaker placed after the interesting code protects against
+     * the failures somebody already thought of, which are exactly the ones
+     * that already have remedies.
+     */
+    const verdict = this.#attemptVerdict(jobKey(job));
+    if (verdict === "wait") {
+      /* Not worked and NOT released: the lease lapses and the hub offers it
+         again later, which is the spacing. Releasing would need a reason
+         code, and none of the five means "not yet". */
+      return;
+    }
+    if (verdict === "poison") {
+      this.#refused += 1;
+      await this.#options.ingress.recordOutcome({
+        at: this.#now(),
+        jobId: job.id,
+        site: job.site,
+        outcome: "refused",
+        detail:
+          `this device began this job ${String(MAX_JOB_ATTEMPTS)} times ` +
+          `without finishing it`,
+      });
+      this.#options.onEvent?.({
+        type: "refused",
+        jobId: job.id,
+        reason:
+          `began ${String(MAX_JOB_ATTEMPTS)} times without finishing — ` +
+          `refusing it rather than taking it again`,
+      });
+      /* `refused` is what stops the hub re-offering to this device, which is
+         what ends the loop. The job is not declared broken for everybody: a
+         different device may well complete it, and this one has no standing
+         to say otherwise. */
+      await this.#safely(() =>
+        this.#options.client.release({
+          runnerId: this.#options.runnerId,
+          leases: [{ jobId: job.id, leaseId: job.lease.id }],
+          reason: "refused",
+        }),
+      );
+      this.#jobSettled(job);
+      return;
+    }
+
     const admission = this.admit(job);
     if (!admission.ok) {
+      /* Refused on this device's own rules, permanently — so the attempt
+         history is spent bookkeeping about a job that will not come back
+         (B041). */
+      this.#jobSettled(job);
       this.#refused += 1;
       await this.#options.ingress.recordOutcome({
         at: this.#now(),
@@ -2201,7 +2363,7 @@ export class Runner {
        * answer will be the same in five seconds. Lease-lapsing three times
        * here would be two more claims of work that no longer exists.
        */
-      this.#gaveUpFetching.delete(job.id);
+      this.#gaveUpFetching.delete(jobKey(job));
       this.#options.onEvent?.({
         type: "error",
         message: `${job.id} is over (${fetched.over})`,
@@ -2250,9 +2412,9 @@ export class Runner {
           this.#gaveUpFetching.delete(id);
         }
       }
-      const seen = this.#gaveUpFetching.get(job.id);
+      const seen = this.#gaveUpFetching.get(jobKey(job));
       const attempts = (seen?.attempts ?? 0) + 1;
-      this.#gaveUpFetching.set(job.id, { attempts, at: this.#now() });
+      this.#gaveUpFetching.set(jobKey(job), { attempts, at: this.#now() });
       this.#options.onEvent?.({
         type: "error",
         message:
@@ -2269,7 +2431,8 @@ export class Runner {
       /* Now it is gone. `refused` is what stops the hub re-offering to this
          device, which is what ends the loop — a silent abandon is what made
          it one. */
-      this.#gaveUpFetching.delete(job.id);
+      this.#gaveUpFetching.delete(jobKey(job));
+      this.#jobSettled(job);
       await this.#safely(() =>
         this.#options.client.release({
           runnerId: this.#options.runnerId,
@@ -2280,7 +2443,7 @@ export class Runner {
       return;
     }
     // It arrived. Whatever this job did before, it is not a poison job.
-    this.#gaveUpFetching.delete(job.id);
+    this.#gaveUpFetching.delete(jobKey(job));
     const payload = await this.#openPayload(job, fetched.envelope);
 
     // The grant's resolution, carried into the opened job. A relayed job runs
@@ -2288,6 +2451,16 @@ export class Runner {
     const resolved = job.grant?.service;
     const route = this.#routeFor(job.kind, resolved);
     const outcome = await this.runJob({ ...job, payload, service: resolved });
+
+    /**
+     * It ran — so whatever it did before, it is not poison (B041).
+     *
+     * Forgetting on a completed run is what keeps this a breaker rather than
+     * a lifetime quota on a job id. It mirrors the line above that clears
+     * the fetch counter for the same reason and in the same words: whatever
+     * this job did before, it is not that any more.
+     */
+    this.#jobSettled(job);
 
     // The site's consent ended while this ran — V1-7. There is nothing to
     // seal to: the pin went with the consent, and an answer sealed to a

@@ -159,6 +159,17 @@ export async function ensureLocalServer(
  *   · the binary is actually on PATH            (the half that separates
  *     "installed" from "written in a config file")
  */
+export async function isStartable(input: {
+  readonly id: BackendId;
+  readonly baseUrl: string | undefined;
+  readonly onPath?: (binary: string) => Promise<boolean>;
+}): Promise<boolean> {
+  const command = startCommandFor(input.id);
+  if (command === undefined) return false;
+  if (input.baseUrl === undefined || !isLoopback(input.baseUrl)) return false;
+  return await (input.onPath ?? binaryOnPath)(command[0]);
+}
+
 /**
  * Start a local model server, and let it go — B092.
  *
@@ -198,17 +209,6 @@ export function spawnLocalServer(
     onError(`could not start ${program}: ${error.message}`);
   });
   child.unref();
-}
-
-export async function isStartable(input: {
-  readonly id: BackendId;
-  readonly baseUrl: string | undefined;
-  readonly onPath?: (binary: string) => Promise<boolean>;
-}): Promise<boolean> {
-  const command = startCommandFor(input.id);
-  if (command === undefined) return false;
-  if (input.baseUrl === undefined || !isLoopback(input.baseUrl)) return false;
-  return await (input.onPath ?? binaryOnPath)(command[0]);
 }
 
 /**

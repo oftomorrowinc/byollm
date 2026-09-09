@@ -432,7 +432,7 @@ describe("starting a local server for real — B092", () => {
     );
   });
 
-  it("detaches, ignores stdio, and never uses a shell", () => {
+  it("detaches, unreferences, ignores stdio, and never uses a shell", () => {
     /**
      * The three properties that make a spawned server safe to leave running,
      * asserted on the options rather than inferred from behaviour — each has
@@ -442,8 +442,9 @@ describe("starting a local server for real — B092", () => {
      * and whether a chatty server can block the daemon.
      */
     const seen: Record<string, unknown>[] = [];
+    let unreferenced = false;
     const noop = () => {
-      /* The double never has to do anything — the options are the subject. */
+      /* The double never has to do anything — the call is the subject. */
     };
     spawnLocalServer(["ollama", "serve"], noop, ((
       _program: string,
@@ -451,13 +452,34 @@ describe("starting a local server for real — B092", () => {
       options: Record<string, unknown>,
     ) => {
       seen.push(options);
-      return { on: noop, unref: noop };
+      return {
+        on: noop,
+        unref: () => {
+          unreferenced = true;
+        },
+      };
     }) as unknown as typeof spawn);
     expect(seen[0]).toMatchObject({
       detached: true,
       stdio: "ignore",
       shell: false,
     });
+    /**
+     * `unref`, and CW's mutation walked straight through its absence — all
+     * 28 tests stayed green with the call deleted.
+     *
+     * `detached` and `unref` sound like one idea and are two. Detached puts
+     * the child in its own process group so it survives its parent; unref
+     * takes it off this process's event loop so **byollm can exit at all**
+     * while the server it started keeps running. Without it a daemon told to
+     * stop stays alive holding a handle to a model server, which is the
+     * opposite of the property the doc claims — and the doc said
+     * "unreferenced" while nothing checked it.
+     */
+    expect(
+      unreferenced,
+      "the child was never unref'd — byollm cannot exit while it runs",
+    ).toBe(true);
   });
 
   it("is passed by the daemon that runs jobs, and by nothing else", () => {

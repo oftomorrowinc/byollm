@@ -1,5 +1,9 @@
-import { z } from "zod";
-import type { BackendClass, BackendId } from "@byollm/protocol";
+import {
+  StopReasonSchema,
+  type StopReason,
+  type BackendClass,
+  type BackendId,
+} from "@byollm/protocol";
 
 /**
  * The text of one model call, already composed by the daemon.
@@ -72,52 +76,9 @@ export type StopReasonMapping =
       readonly why: string;
     };
 
-/**
- * The closed set, as a schema — so the values exist once.
- *
- * A bare union would mean anything that has to VALIDATE a stop reason (the
- * ingress log, and the wire when step 4 lands) retyping the four strings
- * beside it. Instruction 9: one definition, both ends, and where a consumer
- * needs a runtime check the definition has to be one it can run.
- *
- * The type below is inferred from this rather than written twice, so the
- * compiler and the validator cannot disagree about what a stop reason is.
- */
-export const StopReasonSchema = z.enum([
-  "end",
-  "length",
-  "stop-sequence",
-  "unknown",
-]);
-
-export type StopReason =
-  /** The model finished on its own. */
-  | "end"
-  /** The model stopped at its own output ceiling. */
-  | "length"
-  /** A configured stop token ended it. */
-  | "stop-sequence"
-  /**
-   * The adapter cannot tell, and says so.
-   *
-   * **The default, and never `"end"`.** An adapter nobody has updated — or
-   * one somebody adds next year — must not be able to claim completion by
-   * saying nothing. If absence meant "end", every un-updated adapter would go
-   * on telling exactly the lie this exists to fix, and every new adapter
-   * would inherit it in silence.
-   *
-   * It is the opposite-boolean rule this codebase keeps arriving at: when you
-   * cannot tell, guess toward silence rather than toward a claim. "We do not
-   * know" is a thing a site can act on; "it finished" when it did not is not.
-   */
-  | "unknown";
-/* Asserted rather than assumed: the hand-written union above carries the
-   documentation and this keeps it identical to the schema. If somebody adds a
-   fifth reason to one and not the other, this line stops compiling. */
-type _StopReasonsAgree = [
-  z.infer<typeof StopReasonSchema> extends StopReason ? true : never,
-  StopReason extends z.infer<typeof StopReasonSchema> ? true : never,
-];
+/* Re-exported so adapter code keeps importing one module, while the
+   definition itself lives where the wire vocabulary lives — B064 step 4. */
+export { StopReasonSchema, type StopReason };
 
 /**
  * The stop reason a result actually carries, with absence resolved.

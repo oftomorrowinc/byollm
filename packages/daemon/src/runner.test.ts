@@ -396,7 +396,7 @@ describe("runJob [INGRESS_LOGGED_BEFORE_EXECUTION]", () => {
 
   it("returns the model's text", async () => {
     const { runner } = await makeRunner();
-    const outcome = await runner.runJob(job());
+    const { outcome } = await runner.runJob(job());
     expect(outcome).toEqual({ outcome: "ok", text: "echo: hello" });
   });
 
@@ -409,7 +409,7 @@ describe("runJob [INGRESS_LOGGED_BEFORE_EXECUTION]", () => {
 
   it("reports an unroutable kind rather than throwing", async () => {
     const { runner } = await makeRunner();
-    const outcome = await runner.runJob(job({ kind: "llm.chat" }));
+    const { outcome } = await runner.runJob(job({ kind: "llm.chat" }));
     expect(outcome).toMatchObject({ outcome: "error", code: "no-capability" });
   });
 
@@ -434,7 +434,9 @@ describe("runJob [INGRESS_LOGGED_BEFORE_EXECUTION]", () => {
     while (backend.seen.length === 0) await new Promise(setImmediate);
     // By lease, because a cancel names the grant — V1-3.
     runner.cancelLease("lease_test");
-    expect(await running).toEqual({ outcome: "canceled" });
+    /* `runJob` reports how it ran as well as what it produced — B064 step 4 —
+       so a cancelled job carries metadata too: it reached a backend. */
+    expect((await running).outcome).toEqual({ outcome: "canceled" });
   });
 
   it("aborts everything on cancelAll", async () => {
@@ -443,7 +445,9 @@ describe("runJob [INGRESS_LOGGED_BEFORE_EXECUTION]", () => {
     const running = runner.runJob(job());
     while (backend.seen.length === 0) await new Promise(setImmediate);
     runner.cancelAll();
-    expect(await running).toEqual({ outcome: "canceled" });
+    /* `runJob` reports how it ran as well as what it produced — B064 step 4 —
+       so a cancelled job carries metadata too: it reached a backend. */
+    expect((await running).outcome).toEqual({ outcome: "canceled" });
   });
 });
 
@@ -864,7 +868,7 @@ describe("which service runs a job — byollm_016 Phase B", () => {
     });
     // `runJob` takes the *opened* job, whose `service` is the resolution the
     // grant carried — so these cases set it where the control plane would.
-    const outcome = await made.runner.runJob({ ...job(), ...over });
+    const { outcome } = await made.runner.runJob({ ...job(), ...over });
     return { seen, outcome };
   };
 
@@ -948,7 +952,7 @@ describe("what leaves the machine when a backend fails", () => {
         failing("the claude CLI failed: /Users/todd/.claude missing"),
     });
 
-    const outcome = await runner.runJob(job());
+    const { outcome } = await runner.runJob(job());
     expect(outcome).toMatchObject({
       outcome: "error",
       code: "service_unavailable",
@@ -973,7 +977,7 @@ describe("what leaves the machine when a backend fails", () => {
         failing("the claude CLI is not signed in", "unauthorized"),
     });
 
-    const outcome = await runner.runJob(job());
+    const { outcome } = await runner.runJob(job());
     expect(outcome).toMatchObject({ code: "service_unavailable" });
   });
 
@@ -988,7 +992,7 @@ describe("what leaves the machine when a backend fails", () => {
         ),
     });
 
-    const outcome = await runner.runJob(job());
+    const { outcome } = await runner.runJob(job());
     expect(outcome).toMatchObject({
       code: "service_unavailable",
       message: SERVICE_UNAVAILABLE,
@@ -1415,10 +1419,10 @@ describe("what leaves the machine when a backend fails", () => {
       const { runner } = await makeRunner({
         backendFactory: () => failing(`the claude CLI failed: ${code}`, code),
       });
-      const outcome = (await runner.runJob(job())) as {
-        code: string;
-        message: string;
-        retryable: boolean;
+      /* `runJob` reports how a job ran as well as what it produced — B064
+         step 4. The outcome is the half these cases are about. */
+      const { outcome } = (await runner.runJob(job())) as unknown as {
+        outcome: { code: string; message: string; retryable: boolean };
       };
       expect(outcome.code).toBe("service_unavailable");
       answers.add(JSON.stringify([outcome.code, outcome.retryable]));
@@ -1439,7 +1443,9 @@ describe("what leaves the machine when a backend fails", () => {
     const { runner } = await makeRunner({
       backendFactory: () => failing("took too long", "timeout"),
     });
-    const outcome = (await runner.runJob(job())) as { retryable: boolean };
+    const { outcome } = (await runner.runJob(job())) as unknown as {
+      outcome: { retryable: boolean };
+    };
     expect(outcome.retryable).toBe(true);
   });
 
@@ -1479,7 +1485,7 @@ describe("what leaves the machine when a backend fails", () => {
         }) as unknown as Backend,
     });
 
-    const outcome = await runner.runJob(job());
+    const { outcome } = await runner.runJob(job());
     expect(outcome).toMatchObject({ code: "timeout", retryable: true });
     expect(JSON.stringify(outcome)).not.toMatch(/claude/i);
   });

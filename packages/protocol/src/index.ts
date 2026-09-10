@@ -100,6 +100,8 @@ export {
   MAX_ENVELOPE_BYTES,
   describeBytes,
   envelopeBytes,
+  StopReasonSchema,
+  type StopReason,
   tooLargeMessage,
   sizeClassCeiling,
   sizeClassOf,

@@ -4,6 +4,7 @@ import { join } from "node:path";
 import {
   generateKeys,
   keyId,
+  open,
   publicIdentityOf,
   seal,
   signRequest,
@@ -133,7 +134,12 @@ async function runOneJob(options: {
     memory: MemoryReading;
     pressure: MemoryPressure;
   }>;
-}): Promise<{ ingress: IngressEntry[]; reported: BackendResult | undefined }> {
+}): Promise<{
+  ingress: IngressEntry[];
+  reported: BackendResult | undefined;
+  /* What the daemon sealed, opened as the site would — B064 step 4. */
+  sealed: { ran?: Record<string, unknown> } | undefined;
+}> {
   const loaded = resolveConfig(
     DaemonConfig.parse({
       ...(options.minAvailableMemoryBytes === undefined
@@ -161,6 +167,7 @@ async function runOneJob(options: {
   });
 
   let reported: BackendResult | undefined;
+  let sealedBody: { envelope?: unknown } | undefined;
   /* The job finishes after `tick` returns, so every assertion below has to
      wait for it. A fixed sleep would encode a guess about how many round
      trips the protocol takes; this waits for the job to actually end. */
@@ -186,6 +193,12 @@ async function runOneJob(options: {
           reported = JSON.parse(
             typeof init?.body === "string" ? init.body : "{}",
           ) as BackendResult;
+          /* The sealed envelope, kept so a test can open it the way the site
+             does — B064 step 4. Reading `ran` off the daemon's own inputs
+             would prove nothing about what actually travelled. */
+          sealedBody = JSON.parse(
+            typeof init?.body === "string" ? init.body : "{}",
+          ) as { envelope?: unknown };
         }
         const body = url.endsWith("/claim")
           ? JSON.stringify({ jobs: [JOB], leaseMs: 60_000 })
@@ -246,7 +259,37 @@ async function runOneJob(options: {
     .split("\n")
     .filter((line) => line.length > 0)
     .map((line) => JSON.parse(line) as IngressEntry);
-  return { ingress: entries, reported };
+  /**
+   * Open what the daemon sealed, as the site would — B064 step 4.
+   *
+   * The envelope is sealed to the site's encryption key and signed by the
+   * device, so this is the same operation `handlers.ts` performs, with the
+   * same keys. Anything less is a test of the daemon's local variables.
+   */
+  /* Typed structurally rather than as `SealedOutcome`: this is a test
+     reading a decrypted blob, and the assertions below name the fields they
+     care about. */
+  let sealed: { ran?: Record<string, unknown> } | undefined;
+  if (sealedBody?.envelope !== undefined) {
+    const opened = await open({
+      envelope: sealedBody.envelope as never,
+      recipientKeys: SITE_KEYS,
+      senderIdentityPublic: publicIdentityOf(DEVICE_KEYS).identity,
+      expected: {
+        jobId: "job_1",
+        senderKeyId: keyId(publicIdentityOf(DEVICE_KEYS).identity),
+        recipientKeyId: keyId(publicIdentityOf(SITE_KEYS).identity),
+        direction: "result",
+      },
+    });
+    if (opened.ok) {
+      sealed = JSON.parse(opened.plaintext) as {
+        ran?: Record<string, unknown>;
+      };
+    }
+  }
+
+  return { ingress: entries, reported, sealed };
 }
 
 describe("the memory guard, from a job's point of view", () => {
@@ -585,5 +628,62 @@ describe("a truncated answer reaches the owner's log — B064 step 3", () => {
     expect(ingress.find((entry) => entry.type === "outcome")).toMatchObject({
       stop: "unknown",
     });
+  });
+});
+
+describe("what the site is told about how a job ran — B064 step 4", () => {
+  /**
+   * The sealed half. Step 3 put the reason in the owner's log; this is the
+   * only thing a site developer on another machine can see.
+   *
+   * Read out of the envelope the daemon actually sealed, rather than off the
+   * value passed in — the point of the row is that the fact survives the trip
+   * through `RunMetadata`, and asserting the input would prove nothing about
+   * the output.
+   */
+  const sealedRan = async (options: {
+    stop: "end" | "length" | undefined;
+  }): Promise<Record<string, unknown>> => {
+    const backend = new CountingBackend();
+    backend.stop = options.stop;
+    const { sealed } = await runOneJob({
+      backend,
+      readMemory: () =>
+        Promise.resolve({ memory: reading(12), pressure: "normal" }),
+    });
+    return sealed?.ran ?? {};
+  };
+
+  it("carries the stop reason, and whether the adapter could report one", async () => {
+    /**
+     * Two fields, because `unknown` is two facts. A site told only `unknown`
+     * would say "we do not know why this stopped" for a `claude-cli` job
+     * forever — true — and for a `content_filter` result, which is not the
+     * same thing. That is the defect B064's third mapping kind exists to
+     * prevent, and putting a bare `stop` on the wire would re-commit it.
+     */
+    expect(await sealedRan({ stop: "length" })).toMatchObject({
+      stop: "length",
+      stopReported: false,
+    });
+
+    /* The pair, from the same double: a finished answer is a different value
+       and not an absent one. */
+    expect(await sealedRan({ stop: "end" })).toMatchObject({ stop: "end" });
+  });
+
+  it("reports the measured duration, which used to be the literal zero", async () => {
+    /**
+     * `RunMetadata.durationMs` is documented as "wall-clock milliseconds the
+     * backend call took" and was written as `0` at the seal on every result
+     * any site has ever received — the real figure went to the local log and
+     * the event and stopped there.
+     *
+     * Asserted as a property of the shape rather than a number: the double
+     * reports 1ms, so this checks the value travelled rather than that a
+     * particular clock ran.
+     */
+    const ran = await sealedRan({ stop: "end" });
+    expect(ran["durationMs"], "the sealed duration is still hardcoded").toBe(1);
   });
 });

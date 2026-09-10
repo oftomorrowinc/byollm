@@ -171,7 +171,7 @@ describe("resolution is the owner's, by kind", () => {
     // the wrong guess is the metered one — so the kind is not served at all
     // until they say which.
     const { runner, asked } = await device({ alpha: http(), beta: http() });
-    const outcome = await runner.runJob(job());
+    const { outcome } = await runner.runJob(job());
     expect(outcome.outcome).toBe("error");
     expect(asked).toEqual([]);
   });

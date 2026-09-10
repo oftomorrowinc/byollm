@@ -500,6 +500,23 @@ function sameKey(a: PublicIdentity, b: PublicIdentity): boolean {
  * audience check, the budget check, and the ingress write that precedes
  * execution. The loop itself is deliberately dull.
  */
+/**
+ * What a job produced, and how — B064 step 4.
+ *
+ * `runJob` returned only the outcome, so everything {@link RunMetadata}
+ * needs had to be reconstructed at the seal from whatever the caller still
+ * had in scope. What it did not have was the duration, which was therefore
+ * written as `0` on every result any site has ever received.
+ *
+ * `ran` is absent when no backend ran at all — a job with no route on this
+ * device. That is not the same as a job that ran and failed, which HAS
+ * metadata: a model, a class, and a real duration.
+ */
+export interface RanJob {
+  readonly outcome: JobOutcome;
+  readonly ran?: RunMetadata;
+}
+
 export class Runner {
   readonly #options: RunnerOptions;
   readonly #backends = new Map<string, Backend>();
@@ -1668,17 +1685,35 @@ export class Runner {
     });
   }
 
-  async runJob(job: ClaimedJob): Promise<JobOutcome> {
+  /**
+   * Run one job, and report HOW it ran as well as what it produced — B064
+   * step 4.
+   *
+   * This returned a bare `JobOutcome`, so everything the caller needed for
+   * {@link RunMetadata} had to be reconstructed or invented at the seal —
+   * and `durationMs` was invented, as the literal `0`, on every result the
+   * site has ever received. The signed account of how a job was produced
+   * said each one took no time at all.
+   *
+   * Returning the metadata with the outcome is what makes the stop reason
+   * reachable at the seal, and fixing the duration falls out of the same
+   * plumbing rather than being a second change.
+   */
+  async runJob(job: ClaimedJob): Promise<RanJob> {
     const route = this.#routeFor(job.kind, job.service);
     if (!route) {
       return {
-        outcome: "error",
-        code: "no-capability",
-        message: "this device has no route for that job kind",
-        /* Not retryable, and not from the class table: this is the runner's
-           own refusal rather than a backend failure. A device with no route
-           for a kind will not grow one by being asked again. */
-        retryable: false,
+        outcome: {
+          outcome: "error",
+          code: "no-capability",
+          message: "this device has no route for that job kind",
+          /* Not retryable, and not from the class table: this is the runner's
+             own refusal rather than a backend failure. A device with no route
+             for a kind will not grow one by being asked again. */
+          retryable: false,
+        },
+        /* No route, so no backend, so nothing to say about how it ran. The
+           caller falls back to what it knows about the job itself. */
       };
     }
 
@@ -1902,7 +1937,27 @@ export class Runner {
         outcome: outcome.outcome,
         durationMs: result.durationMs,
       });
-      return outcome;
+      return {
+        outcome,
+        ran: {
+          model: route.model,
+          backendClass: route.backendClass,
+          /* The measured one. This was the literal `0` at the seal — see
+             `runJob`'s note. */
+          durationMs: result.durationMs,
+          /**
+           * Only on `ok`, because a failed call has no generation to have
+           * ended, and both facts because `unknown` is two of them — an
+           * adapter that cannot report, and one whose word we do not map.
+           */
+          ...(result.ok
+            ? {
+                stop: stopReasonOf(result),
+                stopReported: backend.stopReasons.kind === "declared",
+              }
+            : {}),
+        },
+      };
     } finally {
       this.#active.delete(job.lease.id);
     }
@@ -2486,7 +2541,11 @@ export class Runner {
     // on the service the person mapped; a direct one on the owner's default.
     const resolved = job.grant?.service;
     const route = this.#routeFor(job.kind, resolved);
-    const outcome = await this.runJob({ ...job, payload, service: resolved });
+    const { outcome, ran } = await this.runJob({
+      ...job,
+      payload,
+      service: resolved,
+    });
 
     /**
      * It ran — so whatever it did before, it is not poison (B041).
@@ -2513,11 +2572,26 @@ export class Runner {
       return;
     }
 
-    const envelope = await this.#sealOutcome(job, outcome, {
-      model: route?.model ?? "unknown",
-      backendClass: route?.backendClass ?? "http",
-      durationMs: 0,
-    });
+    /**
+     * What the run reported, not what this scope could guess — B064 step 4.
+     *
+     * The fallback is for the one case `runJob` returns no metadata: no route
+     * on this device, so no backend, so nothing ran. Everything else — model,
+     * class, the measured duration, and now the stop reason — comes from the
+     * call that actually happened.
+     *
+     * `durationMs: 0` used to be unconditional here, so the site's signed
+     * account said every job took no time at all.
+     */
+    const envelope = await this.#sealOutcome(
+      job,
+      outcome,
+      ran ?? {
+        model: route?.model ?? "unknown",
+        backendClass: route?.backendClass ?? "http",
+        durationMs: 0,
+      },
+    );
 
     await this.#safely(() =>
       this.#options.client.result({

@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   detectInstalled,
+  InputEnded,
   runSetup,
   terminalIo,
   type Detector,
@@ -391,21 +392,137 @@ describe("the real terminal adapter", () => {
 });
 
 describe("asking, on a real readline", () => {
+  /** A real readline over a pipe, with the transcript captured. */
+  const piped = () => {
+    const input = new PassThrough();
+    const output = new PassThrough();
+    let said = "";
+    output.on("data", (chunk: Buffer) => {
+      said += chunk.toString();
+    });
+    return {
+      input,
+      io: terminalIo(
+        () => undefined,
+        () => undefined,
+        input,
+        output,
+      ),
+      said: () => said,
+    };
+  };
+
   it("returns what was typed", async () => {
     // The one path that touches the user's actual stdin. Driven through a
     // pipe rather than a terminal, so it is exercised here instead of only
     // ever running on somebody's laptop.
-    const input = new PassThrough();
-    const output = new PassThrough();
-    const io = terminalIo(
-      () => undefined,
-      () => undefined,
-      input,
-      output,
-    );
+    const { input, io } = piped();
     const asked = io.ask("name? ");
     input.write("studio-mac\n");
     expect(await asked).toBe("studio-mac");
+    io.close();
+  });
+
+  it("keeps answers that arrived before the question — B114", async () => {
+    /**
+     * The defect, and it is the whole row. `ask` opened a NEW readline per
+     * question and closed it after, so every line delivered before the first
+     * prompt was consumed by that first interface and thrown away with it —
+     * question two then waited forever for input that had already been sent.
+     *
+     * A person typing one line at a time never met it. **A script always
+     * does**, and a script is what answers the box console.
+     */
+    const { input, io } = piped();
+    input.write("one\ntwo\nthree\n");
+    expect(await io.ask("a? ")).toBe("one");
+    expect(await io.ask("b? ")).toBe("two");
+    expect(await io.ask("c? ")).toBe("three");
+    io.close();
+  });
+
+  it("still waits when the question comes first", async () => {
+    /* The control on the queue: parking lines must not break the ordinary
+       order, which is the one a person produces. */
+    const { input, io } = piped();
+    const asked = io.ask("a? ");
+    input.write("later\n");
+    expect(await asked).toBe("later");
+    io.close();
+  });
+
+  it("mixes both orders in one conversation", async () => {
+    const { input, io } = piped();
+    input.write("first\n");
+    expect(await io.ask("a? ")).toBe("first");
+    const asked = io.ask("b? ");
+    input.write("second\nthird\n");
+    expect(await asked).toBe("second");
+    expect(await io.ask("c? ")).toBe("third");
+    io.close();
+  });
+
+  it("prints every prompt, in order", async () => {
+    /**
+     * A transcript with an answer and no question is one nobody can read
+     * back, and the parked-line path is where a prompt is easiest to skip:
+     * the answer is already in hand, so writing the question can look
+     * optional. It is not — the question is what the answer means.
+     */
+    const { input, io, said } = piped();
+    /* The first `ask` is what opens the interface, so nothing can be parked
+       until one exists — and it must not be awaited before the input arrives
+       or it waits forever. Two lines at once: the first answers it, the
+       second parks. Without this the "parked" case is the waiting case in
+       disguise, which is how a mutation that skipped the prompt on the parked
+       path survived. */
+    const first = io.ask("a? ");
+    input.write("one\nparked\n");
+    expect(await first).toBe("one");
+    expect(await io.ask("b? ")).toBe("parked");
+    io.close();
+    expect(said()).toContain("a? ");
+    expect(said()).toContain("b? ");
+    expect(said().indexOf("a? ")).toBeLessThan(said().indexOf("b? "));
+  });
+
+  it("treats the end of input as a third thing, not as Enter", async () => {
+    /**
+     * **Not `""`.** Every screen reads a blank line as "keep the default", so
+     * an ended stdin returning `""` would answer every remaining question
+     * with its default — `byollm setup < /dev/null` would pair the device and
+     * install a background service on the strength of an empty file.
+     *
+     * It rejects, the waiting question included, and every later one.
+     */
+    const { input, io } = piped();
+    const asked = io.ask("a? ");
+    input.end();
+    await expect(asked).rejects.toBeInstanceOf(InputEnded);
+    await expect(io.ask("b? ")).rejects.toBeInstanceOf(InputEnded);
+    io.close();
+  });
+
+  it("hands over what was already sent before it reports the end", async () => {
+    /* Order matters here: input that arrived is input that was given, and
+       ending the stream does not retract it. */
+    const { input, io } = piped();
+    input.write("one\n");
+    input.end();
+    expect(await io.ask("a? ")).toBe("one");
+    await expect(io.ask("b? ")).rejects.toBeInstanceOf(InputEnded);
+    io.close();
+  });
+
+  it("closes without having been asked anything", async () => {
+    /* `close()` runs in a `finally`, so it must be safe on the path where the
+       command refused before the first question — the non-TTY refusal, which
+       is the common one. */
+    const { io } = piped();
+    expect(() => {
+      io.close();
+    }).not.toThrow();
+    await Promise.resolve();
   });
 });
 

@@ -13,7 +13,7 @@ import { hostname, userInfo } from "node:os";
 import { dirname } from "node:path";
 import { createInterface } from "node:readline/promises";
 import { FAILURES_BEFORE_ALARM, readHealth } from "./health.js";
-import { runSetup, terminalIo } from "./setup.js";
+import { InputEnded, runSetup, terminalIo, type TerminalIo } from "./setup.js";
 import {
   manageServices,
   readExistingConfig,
@@ -883,16 +883,53 @@ async function commandSetup(
   io: CliIo,
   signal?: AbortSignal,
 ): Promise<ExitCode> {
+  const terminal = terminalIo(
+    (text) => {
+      io.out(text);
+    },
+    (text) => {
+      io.err(text);
+    },
+  );
+  try {
+    return await setupWith(paths, io, terminal, signal);
+  } catch (error) {
+    return endedOrThrow(error, io);
+  } finally {
+    /* An open readline holds stdin, so a command that does not close it does
+       not exit — B114. */
+    terminal.close();
+  }
+}
+
+/**
+ * Input that ran out, reported once rather than as a stack trace — B114.
+ *
+ * Both screens read a blank line as "keep the default", so an ended stdin must
+ * not arrive as `""`: `byollm setup < /dev/null` would then answer every
+ * question with its default, pair the device and install a service, on the
+ * strength of a file with nothing in it. It stops instead, and says that is
+ * what happened.
+ */
+function endedOrThrow(error: unknown, io: CliIo): ExitCode {
+  if (!(error instanceof InputEnded)) throw error;
+  io.err(
+    "\nStopped: the input ran out before the questions did.\n" +
+      "  Nothing further was written. Run this again on a terminal, or\n" +
+      "  edit ~/.byollm/config.json by hand.\n",
+  );
+  return 1;
+}
+
+async function setupWith(
+  paths: DaemonPaths,
+  io: CliIo,
+  terminal: TerminalIo,
+  signal?: AbortSignal,
+): Promise<ExitCode> {
   const result = await runSetup(
     paths,
-    terminalIo(
-      (text) => {
-        io.out(text);
-      },
-      (text) => {
-        io.err(text);
-      },
-    ),
+    terminal,
     undefined,
     undefined,
     undefined,
@@ -3381,6 +3418,21 @@ async function commandServicesManage(
       io.err(text);
     },
   );
+  try {
+    return await manageWith(paths, io, terminal, signal);
+  } catch (error) {
+    return endedOrThrow(error, io);
+  } finally {
+    terminal.close();
+  }
+}
+
+async function manageWith(
+  paths: DaemonPaths,
+  io: CliIo,
+  terminal: TerminalIo,
+  signal?: AbortSignal,
+): Promise<ExitCode> {
   const existing = await readExistingConfig(paths.config);
   const outcome = await manageServices({
     io: terminal,

@@ -1,4 +1,4 @@
-import { createInterface } from "node:readline/promises";
+import { createInterface } from "node:readline";
 import type { LoginCommand } from "./login.js";
 import {
   detectInstalled,
@@ -290,19 +290,92 @@ function defaultDeviceName(): string {
 }
 
 /**
- * The real terminal, wired to readline.
+ * Input that has ended, said as a fact rather than as a hang — B114.
  *
- * Streams are parameters so `ask` can be exercised without a terminal. It was
- * the one path here a test could not reach, and an unreachable path in the
- * only function that touches the user's actual stdin is the wrong thing to
- * leave dark — that is where a hang would live.
+ * Its own error class because two commands catch it and neither should be
+ * matching on a message. It is not a failure of the thing being asked: it
+ * means the answers ran out, which for a person is Ctrl-D and for a script is
+ * the end of the file.
  */
+export class InputEnded extends Error {
+  constructor() {
+    super("no more input");
+    this.name = "InputEnded";
+  }
+}
+
+/**
+ * The real terminal, wired to readline — one interface, with a line queue.
+ *
+ * ## What was wrong, and how far it went
+ *
+ * `ask` opened a NEW `readline` interface per question and closed it after.
+ * A person typing one line at a time never noticed. **A script did:** every
+ * answer arrives before the first prompt opens, the first interface consumes
+ * the lot, and closing it throws them away — so question two waits forever for
+ * input that was delivered and dropped. Found building B100a, where the screen
+ * asks eight questions in a row instead of three.
+ *
+ * **A single long-lived interface is not the fix on its own, and running it is
+ * what showed that.** `readline` emits `line` as input arrives whether or not
+ * anybody is asking, so lines that land between questions are still lost —
+ * and `rl.question()` never settles at end of input, so one interface turns a
+ * visible abort into a silent hang. Both verified by running them rather than
+ * reasoned about.
+ *
+ * ## So: one interface, a queue, and an end that is an answer
+ *
+ * Every line is caught and either handed to a waiting question or parked. A
+ * question takes a parked line if there is one and waits otherwise. Order
+ * stops mattering, which is the only property that makes this safe for a
+ * caller that is a program.
+ *
+ * End of input rejects with {@link InputEnded} — the waiting question and
+ * every later one. **It is a third state, not an empty answer**: returning
+ * `""` would look like somebody pressing Enter, and the screens read Enter as
+ * "keep the default", so a finished stdin would silently accept every
+ * default including the one that pairs this device.
+ *
+ * ## `close()` is the caller's, and it is not optional
+ *
+ * An open interface holds `process.stdin`, so a command that does not close it
+ * does not exit. Both callers close in a `finally`.
+ */
+export interface TerminalIo extends SetupIo {
+  /** Release stdin. A command that forgets this does not exit. */
+  close(): void;
+}
+
 export function terminalIo(
   out: (text: string) => void,
   err: (text: string) => void,
   input: NodeJS.ReadableStream = process.stdin,
   output: NodeJS.WritableStream = process.stdout,
-): SetupIo {
+): TerminalIo {
+  /** Lines that arrived before anybody asked for them. */
+  const parked: string[] = [];
+  /** Questions that arrived before their line did. */
+  const waiting: {
+    resolve: (line: string) => void;
+    reject: (why: Error) => void;
+  }[] = [];
+  let ended = false;
+  let rl: ReturnType<typeof createInterface> | undefined;
+
+  const open = (): void => {
+    if (rl !== undefined) return;
+    rl = createInterface({ input, output });
+    rl.on("line", (line: string) => {
+      const next = waiting.shift();
+      if (next === undefined) parked.push(line);
+      else next.resolve(line);
+    });
+    rl.on("close", () => {
+      ended = true;
+      for (const next of waiting.splice(0)) next.reject(new InputEnded());
+    });
+  };
+
   return {
     out,
     err,
@@ -313,13 +386,22 @@ export function terminalIo(
     // deleting it puts `undefined` into a field typed `boolean`.
     // eslint-disable-next-line @typescript-eslint/no-unnecessary-boolean-literal-compare
     interactive: process.stdin.isTTY === true,
-    async ask(question: string): Promise<string> {
-      const rl = createInterface({ input, output });
-      try {
-        return await rl.question(question);
-      } finally {
-        rl.close();
-      }
+    ask(question: string): Promise<string> {
+      open();
+      /* The prompt is written whatever happens next, because a transcript
+         that shows an answer with no question is a transcript nobody can
+         read back. */
+      output.write(question);
+      const already = parked.shift();
+      if (already !== undefined) return Promise.resolve(already);
+      if (ended) return Promise.reject(new InputEnded());
+      return new Promise<string>((resolve, reject) => {
+        waiting.push({ resolve, reject });
+      });
+    },
+    close(): void {
+      rl?.close();
+      rl = undefined;
     },
   };
 }

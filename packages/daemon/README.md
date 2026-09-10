@@ -161,25 +161,55 @@ password and never accepts a pasted secret.
 
 `~/.byollm/config.json`. Everything the daemon will ever do is in this file.
 
-```jsonc
+```json
 {
-  "backends": {
-    // One HTTP backend covers Ollama, MLX, llama.cpp and vLLM — they all
-    // speak OpenAI-compatible /v1/chat/completions.
-    "local": {
-      "backend": "openai-http",
+  "services": {
+    "qwen": {
+      "type": "ollama",
       "baseUrl": "http://127.0.0.1:11434/v1",
+      "model": "qwen3:8b",
+      "kinds": ["llm.generate", "llm.chat"],
+      "offer": "private"
     },
-    "mlx": { "backend": "openai-http", "baseUrl": "http://127.0.0.1:8080/v1" },
-    "claude": { "backend": "claude-cli" },
+    "claude": {
+      "type": "claude-cli",
+      "model": "sonnet",
+      "kinds": ["llm.generate", "llm.chat"],
+      "offer": "private"
+    }
   },
-  "routes": {
-    "llm.generate": { "backend": "local", "model": "gemma3:12b" },
-    "llm.chat": { "backend": "claude", "model": "claude-opus-5" },
+  "defaults": {
+    "llm.generate": "qwen",
+    "llm.chat": "claude"
   },
   "concurrency": 2,
+  "minAvailableMemoryBytes": 2147483648
 }
 ```
+
+Each service names its own `type`, its `baseUrl` where it has one, the `model`
+it serves, and the `kinds` of job it answers. `offer` is who may use it —
+`private` is your own work only, `team` widens it to people you have shared the
+device with.
+
+`type` is the provider, not the transport, and it is worth getting right: a
+service that names `ollama` can be started for you when a job needs it, and one
+that names the generic `openai-http` cannot, because nothing tells byollm what
+to start. Use `openai-http` for a server byollm does not know by name.
+
+`defaults` only matters where two services answer the same kind. One claimant
+serves without ceremony; two and the device will not advertise that kind at all
+until you say which wins, rather than picking for you.
+
+`minAvailableMemoryBytes` is the memory this device keeps free: a job that would
+load a model on this machine is refused below it, and so is starting a server
+for one. It defaults to 2 GB. **It does not know how big your models are**, so
+set it to fit your largest. It does not apply to services whose compute happens
+somewhere else — a hosted model reached through a local port loads nothing here.
+
+You do not have to write any of this by hand. `byollm services manage` asks
+what this machine has and writes the file for you, and it is safe to re-run:
+it shows what is already there.
 
 A job's `kind` selects a route **you defined**, and a job can never name a
 model, a URL, a path or a flag — there is no field on the wire for any of

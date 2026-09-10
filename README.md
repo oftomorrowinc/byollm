@@ -232,8 +232,8 @@
 > chosen". Nothing changes for sites or for daemons that do not run a relay.
 >
 > **`alpha.44` replaces the config shape. Every existing `~/.byollm/config.json`
-> must be rewritten — there is no compatibility path, and the daemon refuses the
-> old one by name rather than failing with a schema error.**
+> must be rewritten — there is no compatibility path, and the old one is
+> refused rather than guessed at.**
 >
 > `backends` and `routes` are gone. A backend and the route that pointed at it
 > were always one decision written in two places; they are now one **service**:
@@ -242,7 +242,7 @@
 > {
 >   "services": {
 >     "ollama": {
->       "type": "openai-http",
+>       "type": "ollama",
 >       "baseUrl": "http://127.0.0.1:11434/v1",
 >       "model": "llama3.2",
 >       "kinds": ["llm.generate", "llm.chat"],
@@ -445,20 +445,32 @@ byollm status                                # what's connected, what's running
 
 Point it at your models:
 
-```jsonc
-// ~/.byollm/config.json
+```json
 {
   "services": {
-    // One HTTP type covers Ollama, MLX, llama.cpp and vLLM — they all speak
-    // OpenAI-compatible /v1/chat/completions. Configure as many as you run.
-    "local":  { "type": "openai-http", "baseUrl": "http://127.0.0.1:11434/v1",
-                "model": "gemma3:12b", "kinds": ["llm.generate"],
-                "offer": "private" },               // or "team" to share it
-    "claude": { "type": "claude-cli", "model": "claude-opus-5",
-                "kinds": ["llm.chat"] }             // subscriptions are locked to "private"
+    "local": {
+      "type": "ollama",
+      "baseUrl": "http://127.0.0.1:11434/v1",
+      "model": "gemma3:12b",
+      "kinds": ["llm.generate"],
+      "offer": "private"
+    },
+    "claude": {
+      "type": "claude-cli",
+      "model": "claude-opus-5",
+      "kinds": ["llm.chat"],
+      "offer": "private"
+    }
   }
 }
 ```
+
+That lives in `~/.byollm/config.json`, and `byollm services manage` writes it
+for you if you would rather not. `type` is the provider: name it and byollm can
+start that server when a job needs it. `openai-http` is the generic transport
+for a server byollm does not know by name — it works, and nothing can be
+started for it. `offer` is `private` for your own work or `team` to share;
+subscriptions are locked to `private` whatever the file says.
 
 ```bash
 byollm services       # what's installed, healthy, advertised — and who each is offered to

@@ -374,7 +374,22 @@ describe("byollm_007 — cost class and providers", () => {
   });
 });
 
-describe("the pre-alpha.44 shape", () => {
+/**
+ * The pre-alpha.44 shape, and its detector, are gone — B086.
+ *
+ * `legacyShape` caught a config carrying `backends`/`routes` and explained the
+ * rewrite. Todd ruled it out on 09-09: *"All users are on the new format. No
+ * need to have it in the docs either."* Alpha.43 is forty-odd releases back and
+ * instruction 10 is explicit that nothing is backwards compatible until we are
+ * live — a leniency layer for users who do not exist is code, an attack
+ * surface, and a thing to keep true.
+ *
+ * **What remains is the shape it existed to catch, refused as what it is.** A
+ * config with unknown top-level keys meets `DaemonConfig`'s own `.strict()`,
+ * which names them. That is a worse message than the bespoke one and it is the
+ * honest amount of effort to spend on a format nobody runs.
+ */
+describe("a config written against a format we no longer accept", () => {
   async function write(config: unknown): Promise<string> {
     const dir = await mkdtemp(join(tmpdir(), "byollm-config-"));
     const path = join(dir, "config.json");
@@ -382,11 +397,7 @@ describe("the pre-alpha.44 shape", () => {
     return path;
   }
 
-  it("names what changed instead of emitting a schema error", async () => {
-    // An upgrade is the moment the owner is least equipped to read a zod
-    // issue list. The refusal has to say which shape it found and what
-    // replaced it, or the config that ran yesterday just stops with
-    // "unrecognized keys" and the owner has nowhere to go.
+  it("is refused, by the schema rather than by a special case", async () => {
     const path = await write({
       backends: {
         ollama: {
@@ -397,16 +408,13 @@ describe("the pre-alpha.44 shape", () => {
       routes: { "llm.generate": { backend: "ollama", model: "llama3.2" } },
     });
     await expect(loadConfig(path)).rejects.toThrow(
-      /pre-alpha\.44 config shape \(`backends` and `routes`\)/,
+      /is not a valid byollm config/,
     );
-    await expect(loadConfig(path)).rejects.toThrow(/one `services` map/);
-  });
-
-  it("names only the half that is present", async () => {
-    const path = await write({
-      routes: { "llm.generate": { backend: "ollama" } },
-    });
-    await expect(loadConfig(path)).rejects.toThrow(/shape \(`routes`\)/);
+    /* And the retired detector's words go with it: a sentence this codebase
+       no longer produces must not be one a test still asserts. Checked as a
+       real negative — the same assertion with a string that IS in the message
+       fails, which is what makes this line more than decoration. */
+    await expect(loadConfig(path)).rejects.not.toThrow(/pre-alpha/);
   });
 
   it("leaves a current config alone", async () => {

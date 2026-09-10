@@ -581,6 +581,57 @@ for (const rel of READMES) {
      is reviewed last, so asking for it explicitly is asking for the build
      nobody has looked at yet. */
   check(`${name}: every pin is @latest`, !/npx byollm@(?!latest\b)/.test(text));
+
+  /**
+   * Every config sample, run through the schema the daemon loads — B086.
+   *
+   * `packages/daemon/README.md` taught a `backends`/`routes` block with
+   * `"backend": "local"` in it — the pre-alpha.44 shape, which `config.ts` had
+   * a purpose-built error for. **So somebody who copied the README got a
+   * message the daemon wrote specially for them.** The same wrong value was
+   * fixed on the SITE in B081b, because the site's snippet is checked and the
+   * READMEs' were not: one fact, two places, and we fixed the less-read one.
+   *
+   * It was fenced ```jsonc with comments and trailing commas, which is a
+   * second defect in the same block — `loadConfig` runs `JSON.parse`, so that
+   * sample could not have been pasted even after the shape was right. Parsing
+   * it here is what makes the fence honest: a sample that parses is a sample
+   * somebody can paste.
+   *
+   * **Both fences, and blockquotes unwrapped.** `jsonc` is included on
+   * purpose rather than excused: a sample fenced as JSON-with-comments is
+   * still a sample somebody pastes into a file `JSON.parse` reads, so the
+   * fence is not a licence — it is the claim being checked. And a sample
+   * inside a `>` blockquote is a sample people read, so the prefix comes off
+   * rather than the block being skipped.
+   */
+  for (const [at, block] of [
+    ...text.matchAll(/```jsonc?\n([\s\S]*?)```/g),
+  ].entries()) {
+    const body = block[1].replace(/^> ?/gm, "");
+    if (!body.includes('"services"')) continue;
+    let parsed;
+    try {
+      parsed = JSON.parse(body);
+    } catch (error) {
+      check(
+        `${name}: config sample ${String(at + 1)} is valid JSON`,
+        false,
+        `the daemon runs JSON.parse on this file, so a sample it cannot read is one nobody can paste: ${error.message}`,
+      );
+      continue;
+    }
+    const result = DaemonConfig.safeParse(parsed);
+    check(
+      `${name}: config sample ${String(at + 1)} is one the daemon accepts`,
+      result.success,
+      result.success
+        ? ""
+        : `run it through DaemonConfig rather than reading it: ${result.error.issues
+            .map((issue) => `${issue.path.join(".")}: ${issue.message}`)
+            .join("; ")}`,
+    );
+  }
 }
 
 process.stdout.write(

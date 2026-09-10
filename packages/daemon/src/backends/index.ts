@@ -78,6 +78,7 @@ export { stopReasonOf } from "./types.js";
 export type {
   Backend,
   StopReason,
+  StopReasonMapping,
   BackendErrorCode,
   BackendHealth,
   BackendInit,

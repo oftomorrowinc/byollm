@@ -2690,7 +2690,7 @@ async function commandLog(
       const stopped =
         entry.stop === undefined || backendId === undefined
           ? undefined
-          : stopLine(backendId, entry.stop);
+          : stopLine(backendId, entry.stop, entry.stopKind);
       io.out(
         `${at}  ${entry.outcome.padEnd(8)} ${entry.jobId}` +
           (entry.durationMs === undefined

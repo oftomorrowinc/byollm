@@ -2,7 +2,11 @@ import { createHash } from "node:crypto";
 import { appendFile, mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import type { Audience } from "@byollm/protocol";
-import { StopReasonSchema, type StopReason } from "./backends/types.js";
+import {
+  StopReasonSchema,
+  type StopReason,
+  type StopReasonMapping,
+} from "./backends/types.js";
 import type { MemoryPressure, MemoryReading } from "./memory.js";
 import { z } from "zod";
 
@@ -77,6 +81,19 @@ export const OutcomeEntry = z
      * this field existed is read by a daemon that has it.
      */
     stop: StopReasonSchema.optional(),
+    /**
+     * Whether the adapter could read a stop signal at all — B105.
+     *
+     * `unknown` is two different facts and the resolved value cannot tell
+     * them apart: an adapter that CANNOT report, and one that reported a word
+     * we do not map. Saying "does not report" about the second is false, and
+     * it is the common case — `FINISH_REASONS` maps two values.
+     *
+     * Recorded at write time rather than looked up at read time, for the
+     * reason a log is a log: if an adapter gains a signal in a later release,
+     * entries written before that should still read as they were true.
+     */
+    stopKind: z.enum(["declared", "unavailable", "unverified"]).optional(),
   })
   .strict();
 export type OutcomeEntry = z.infer<typeof OutcomeEntry>;
@@ -191,6 +208,7 @@ export class IngressLog {
     outputChars?: number;
     detail?: string;
     stop?: StopReason;
+    stopKind?: StopReasonMapping["kind"];
   }): Promise<void> {
     await this.#append({
       type: "outcome",
@@ -206,6 +224,7 @@ export class IngressLog {
         : { outputChars: input.outputChars }),
       ...(input.detail === undefined ? {} : { detail: input.detail }),
       ...(input.stop === undefined ? {} : { stop: input.stop }),
+      ...(input.stopKind === undefined ? {} : { stopKind: input.stopKind }),
     });
   }
 

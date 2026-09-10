@@ -552,10 +552,23 @@ describe("a truncated answer reaches the owner's log — B064 step 3", () => {
      * the second run had recorded nothing at all.
      */
     void cut;
-    const stops = done.ingress
-      .filter((entry) => entry.type === "outcome")
-      .map((entry) => entry.stop);
-    expect(stops).toEqual(["length", "end"]);
+    const outcomes = done.ingress.filter((entry) => entry.type === "outcome");
+    expect(outcomes.map((entry) => entry.stop)).toEqual(["length", "end"]);
+
+    /**
+     * And the adapter's declaration travels with it — B105.
+     *
+     * Without this the runner can stop recording `stopKind` and every other
+     * test stays green, because the sentence that needs it is chosen in
+     * `byollm log` rather than here. `unknown` from an adapter that CANNOT
+     * report and `unknown` from one whose answer we did not recognise are
+     * different facts, and this is the only place the distinction is
+     * captured.
+     */
+    expect(
+      outcomes.map((entry) => entry.stopKind),
+      "the mapping kind was not recorded, so the log cannot tell the two unknowns apart",
+    ).toEqual(["unavailable", "unavailable"]);
   });
 
   it("records unknown for an adapter that reports nothing, never end", async () => {

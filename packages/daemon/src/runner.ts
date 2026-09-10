@@ -1868,7 +1868,16 @@ export class Runner {
          * taught to report one must not be mistaken for a model that ran to
          * completion.
          */
-        ...(result.ok ? { stop: stopReasonOf(result) } : {}),
+        ...(result.ok
+          ? {
+              stop: stopReasonOf(result),
+              /* B105: `unknown` from an adapter that cannot read a signal and
+                 `unknown` from one whose answer we did not recognise are
+                 different facts, and only the adapter's declaration tells
+                 them apart. */
+              stopKind: backend.stopReasons.kind,
+            }
+          : {}),
       });
 
       // Community work on a metered backend spends the owner's money, so it

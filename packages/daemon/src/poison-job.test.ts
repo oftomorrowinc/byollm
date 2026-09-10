@@ -148,6 +148,12 @@ async function makeRunner(options: { failIngress?: boolean } = {}) {
   const released: { jobId: string; reason: string }[] = [];
   const refusals: string[] = [];
   let clock = 1_800_000_000_000;
+  /* An object rather than a `let`: the compiler cannot see that the event
+     handler writes it, and narrows a mutated boolean to its initial literal. */
+  const settled: { yet: boolean } = { yet: false };
+  const reset = () => {
+    settled.yet = false;
+  };
   const runner = new Runner({
     client: new ProtocolClient({
       origin: "https://app.test",
@@ -200,14 +206,58 @@ async function makeRunner(options: { failIngress?: boolean } = {}) {
     now: () => clock,
     onEvent: (event) => {
       if (event.type === "refused") refusals.push(event.reason);
+      /* Any way a claimed job can end. `cycle` waits for one of these rather
+         than for a duration — see its note. */
+      if (
+        event.type === "finished" ||
+        event.type === "refused" ||
+        event.type === "error"
+      ) {
+        settled.yet = true;
+      }
     },
     backendFactory: () => new OkBackend(),
   });
 
   /** One claim-and-handle cycle, settled. */
-  const cycle = async () => {
+  /**
+   * One claim-and-handle cycle, waited out by its RESULT rather than by a
+   * clock.
+   *
+   * This slept 30ms and passed everywhere until it did not: `is refused after
+   * three attempts` went red on ubuntu with nothing changed but an unrelated
+   * file. A job is claimed, fetched, opened and recorded before it ends, and
+   * a fixed sleep encodes a guess about how many of those hops fit in the
+   * number — which `failures.test.ts` already wrote down in as many words:
+   * *"Wait for a condition rather than for a duration."*
+   *
+   * The condition is any terminal event. A cycle that produces none times out
+   * loudly instead of quietly asserting against a job still in flight, which
+   * is what made the original failure read as a breaker that had not fired.
+   */
+  const cycle = async (expect: "terminal" | "quiet" = "terminal") => {
+    /* Reset through a helper, so the compiler does not narrow the flag to the
+       literal it was just assigned and then call the wait below dead. */
+    reset();
     await runner.tick();
-    await new Promise((wake) => setTimeout(wake, 30));
+    if (expect === "quiet") {
+      /**
+       * A job inside its backoff is DELIBERATELY silent — not worked, not
+       * released, no event — so there is no positive condition to wait for.
+       *
+       * Waiting a bounded moment is the only way to conclude that nothing
+       * happened, and that is the one case where a duration is the honest
+       * instrument rather than a guess. The assertion it serves is an
+       * absence.
+       */
+      await new Promise((wake) => setTimeout(wake, 50));
+      return;
+    }
+    const deadline = Date.now() + 5_000;
+    while (!settled.yet && Date.now() < deadline) {
+      await new Promise((wake) => setTimeout(wake, 5));
+    }
+    if (!settled.yet) throw new Error("the job never reached an end");
   };
   /** Move past the backoff, the way a lapsed lease does. */
   const advance = (ms: number) => {
@@ -269,7 +319,9 @@ describe("a job this device keeps starting and never finishing", () => {
      * counted, so it does not burn one of its own chances.
      */
     const { cycle, released } = await makeRunner({ failIngress: true });
-    for (let attempt = 0; attempt < 6; attempt += 1) await cycle();
+    /* `quiet`, because a throttled cycle produces no terminal event by
+       design — see `cycle`'s note. */
+    for (let attempt = 0; attempt < 6; attempt += 1) await cycle("quiet");
     expect(
       released.filter((entry) => entry.reason === "refused"),
       "six rapid claims spent the whole allowance",

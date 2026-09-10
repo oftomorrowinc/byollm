@@ -569,6 +569,51 @@ export function describeStoreContract(
       await done();
     });
 
+    it("reports what a sweep removed, not only what it requeued — B096", async () => {
+      /**
+       * The fact the contract never asked about, and the two implementations
+       * were free to differ on exactly it.
+       *
+       * `RelayState.sweep` returns removed jobs on purpose, and says why:
+       * *"a caller that logs 'requeued' and never mentions expiry would
+       * report a shrinking queue with no reason for it."* The Valkey store
+       * that runs in production structurally could not — the Lua `DEL`s the
+       * key, then `sweep()` maps the ids back through `job()` and drops
+       * every `undefined`, so a removed job was built into the list and lost
+       * one line later.
+       *
+       * So the reasoning the memory store wrote down never reached the
+       * deployment: `main.ts` logs `requeued`, and a job the hub gave up on
+       * is not in the number. B042 did not create this — deadline drops were
+       * already invisible the same way — but it added a second class of
+       * silent removal, and it is the class where silence matters most: a
+       * site that never seals is an operator's problem whose only trace is a
+       * queue that quietly shrinks.
+       *
+       * Asserted on the RETURN VALUE, which is the half that was missing.
+       * The case above already proves the job is gone.
+       */
+      const { store, done } = await make();
+      await store.enqueue({
+        id: "expired",
+        siteId: SITE,
+        stub: { ...stub("expired"), deadlineAt: Date.now() - 1_000 },
+      });
+      await store.enqueue({ id: "alive", siteId: SITE, stub: stub("alive") });
+
+      const swept = await store.sweep();
+      expect(
+        swept.map((job) => job.id),
+        "a sweep removed a job and reported nothing about it",
+      ).toContain("expired");
+
+      /* The control, and it is what stops "report everything" passing: a job
+         the sweep did not touch is not in the list. */
+      expect(swept.map((job) => job.id)).not.toContain("alive");
+      expect(await store.job(SITE, "alive")).toBeDefined();
+      await done();
+    });
+
     it("names a cancelled job to the device holding it, and offers it to nobody", async () => {
       // cloud_008 §2.2.
       const { store, done } = await make();

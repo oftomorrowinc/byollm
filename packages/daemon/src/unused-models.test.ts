@@ -119,6 +119,36 @@ describe("models nothing is using", () => {
     expect(entry?.offer).toBe("private");
   });
 
+  it("names the provider the server named — B112", () => {
+    /* The paste and the picker are one function, so this is the same field
+       arriving on the other reader. `openai-http` at a loopback address is
+       the config B098 exists to rescue; `ollama` is the one that can be
+       started on demand. */
+    const parsed = JSON.parse(
+      pasteableService({
+        model: "smollm2:135m",
+        baseUrl: "http://127.0.0.1:11434/v1",
+        type: "ollama",
+      }),
+    ) as Record<string, { type?: string }>;
+    expect(Object.values(parsed)[0]?.type).toBe("ollama");
+  });
+
+  it("carries the identified provider into the whole report", () => {
+    const lines = unusedModelsReport({
+      servers: [
+        {
+          label: "Ollama",
+          baseUrl: "http://127.0.0.1:11434/v1",
+          models: ["qwen3:8b"],
+          backendId: "ollama",
+        },
+      ],
+      configured: [],
+    }).join("\n");
+    expect(lines).toContain('"type": "ollama"');
+  });
+
   it("suggests a service name somebody can type", () => {
     /* The tag is KEPT, hyphenated — settled by Todd on 09-10 when B100a
        needed the name to be unique: dropping it made `smollm2:135m` and

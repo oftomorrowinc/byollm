@@ -1,4 +1,4 @@
-import { resolveCost } from "@byollm/protocol";
+import { resolveCost, type BackendId } from "@byollm/protocol";
 import type { LocalServer } from "./probe-local.js";
 import { serviceBlockFor, serviceNameFor } from "./services-manage.js";
 
@@ -32,6 +32,16 @@ export interface UnusedModels {
   readonly label: string;
   readonly baseUrl: string;
   readonly models: readonly string[];
+  /**
+   * The provider the server named, carried through — B112.
+   *
+   * The rule above still holds and this does not weaken it: the CATALOGUE is
+   * display-only and never reaches a router. Who the server *is* is a
+   * different fact, and it is the one that decides whether the block printed
+   * below can be started on demand. Optional because it is only ever set by
+   * an answer.
+   */
+  readonly backendId?: BackendId;
 }
 
 export function unusedModels(input: {
@@ -62,6 +72,9 @@ export function unusedModels(input: {
     .map((server) => ({
       label: server.label,
       baseUrl: server.baseUrl,
+      ...(server.backendId === undefined
+        ? {}
+        : { backendId: server.backendId }),
       models: server.models.filter(
         (model) => !taken.has(`${normalise(server.baseUrl)} ${model}`),
       ),
@@ -92,6 +105,7 @@ export function unusedModels(input: {
 export function pasteableService(input: {
   readonly model: string;
   readonly baseUrl: string;
+  readonly type?: BackendId | undefined;
 }): string {
   return JSON.stringify(
     { [serviceNameFor(input.model)]: serviceBlockFor(input) },
@@ -152,7 +166,7 @@ export function unusedModelsReport(input: {
        * home, and a surface that classified for itself is the defect B085
        * arrived as.
        */
-      const cost = costOf(server.baseUrl, model);
+      const cost = costOf(server.baseUrl, model, server.backendId);
       lines.push(
         `    ${model}${cost === "free" ? "" : `  (${cost} — runs on your provider's account)`}`,
       );
@@ -170,7 +184,10 @@ export function unusedModelsReport(input: {
   const example =
     spare
       .flatMap((server) => server.models.map((name) => ({ server, name })))
-      .find(({ server, name }) => costOf(server.baseUrl, name) === "free") ??
+      .find(
+        ({ server, name }) =>
+          costOf(server.baseUrl, name, server.backendId) === "free",
+      ) ??
     (spare[0]?.models[0] === undefined
       ? undefined
       : { server: spare[0], name: spare[0].models[0] });
@@ -184,6 +201,7 @@ export function unusedModelsReport(input: {
     ...pasteableService({
       model: example.name,
       baseUrl: example.server.baseUrl,
+      type: example.server.backendId,
     })
       .split("\n")
       .map((line) => `    ${line}`),
@@ -198,10 +216,23 @@ export function unusedModelsReport(input: {
 /**
  * What a model behind this address would cost, asked of the one classifier.
  *
- * `openai-http` because that is what the printed block declares, so the
- * answer describes the service somebody would actually create rather than a
- * hypothetical one.
+ * **The same type the printed block declares**, so the answer describes the
+ * service somebody would actually create rather than a hypothetical one —
+ * which is why this takes the argument rather than hard-coding a transport.
+ * B112 made the block say `ollama` where the server said so, and a classifier
+ * still asked about `openai-http` would have been answering about a different
+ * config from the one on screen.
+ *
+ * It happens not to change any answer today: `classifyCost` reads the
+ * `:cloud` tag before the declared cost, which is B097's fix, so both
+ * spellings agree. **Passing it anyway is the point** — the one-definition
+ * rule was breached last time through exactly this gap, an asker who supplied
+ * two of three arguments.
  */
-function costOf(baseUrl: string, model: string): string {
-  return resolveCost("openai-http", baseUrl, model);
+function costOf(
+  baseUrl: string,
+  model: string,
+  type: BackendId | undefined,
+): string {
+  return resolveCost(type ?? "openai-http", baseUrl, model);
 }

@@ -17,6 +17,7 @@
  * the wizard says so rather than presenting the list as exhaustive: the
  * fallback is the same config file it was always going to be.
  */
+import type { BackendId } from "@byollm/protocol";
 
 /** Ports these servers take by default, with the name a person would know. */
 const WELL_KNOWN: readonly { readonly port: number; readonly label: string }[] =
@@ -34,6 +35,22 @@ export interface LocalServer {
   readonly baseUrl: string;
   /** What it said it can serve. Empty is legal — some servers list nothing. */
   readonly models: readonly string[];
+  /**
+   * Which provider this actually is, when the server said so — B112.
+   *
+   * `label` is a guess from the port and always has been: it is what to print
+   * beside an address, and printing is all it was ever asked to do. **Then it
+   * became the only thing we knew**, so `pasteableService` and the picker
+   * wrote `type: "openai-http"` for a server we had just identified — the one
+   * config shape that cannot be started on demand, which is what B098 then
+   * has to explain and offer to fix.
+   *
+   * `undefined` is not "unknown provider" in the vague sense. It is **we did
+   * not verify one**, and the caller falls back to the generic transport,
+   * which is exactly what it did before. A port map is a guess and a guess
+   * must not decide what a service's type is; only an answer may.
+   */
+  readonly backendId?: BackendId;
 }
 
 /**
@@ -76,12 +93,70 @@ async function probeOne(
     });
     if (!response.ok) return undefined;
     const body: unknown = await response.json();
-    return { label, baseUrl, models: modelsFrom(body) };
+    const identified = await identify(baseUrl, timeoutMs, fetchImpl);
+    return {
+      label: identified?.label ?? label,
+      baseUrl,
+      models: modelsFrom(body),
+      ...(identified === undefined ? {} : { backendId: identified.id }),
+    };
   } catch {
     // Refused, timed out, or answered something that is not JSON. All of them
     // mean the same thing to somebody setting up a laptop: nothing to offer
     // here. The detail belongs in `byollm services`, which is about a service
     // the owner has actually chosen.
+    return undefined;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/**
+ * Who this server actually is, asked rather than inferred — B112.
+ *
+ * **Ollama only, and that is a scope rather than an oversight.** The point of
+ * knowing the provider is that `startCommandFor` can start it, and `ollama` is
+ * the only id that has a start command today. Identifying LM Studio would
+ * produce a more specific `type` and change nothing a person can act on, so
+ * the other five stay port guesses until somebody has the machine to write
+ * their start command on — the way the login commands were done, one at a
+ * time, by running them.
+ *
+ * `/api/version` is Ollama's own API rather than the OpenAI compatibility
+ * layer, so nothing else on a well-known port answers it. Verified by running
+ * it against a live Ollama: `{"version":"0.30.8"}`, 200.
+ *
+ * **Asked at whatever address answered, not at the port we expected.** Ollama
+ * on 8080 would otherwise be labelled "llama.cpp or MLX" by the port map and
+ * typed `ollama` by this — a screen contradicting itself. The answer wins for
+ * both, which is what makes the label verified where it can be.
+ */
+async function identify(
+  baseUrl: string,
+  timeoutMs: number,
+  fetchImpl: typeof fetch,
+): Promise<{ readonly id: BackendId; readonly label: string } | undefined> {
+  const abort = new AbortController();
+  const timer = setTimeout(() => {
+    abort.abort();
+  }, timeoutMs);
+  try {
+    const response = await fetchImpl(new URL("/api/version", baseUrl), {
+      signal: abort.signal,
+    });
+    if (!response.ok) return undefined;
+    const body: unknown = await response.json();
+    if (
+      typeof body !== "object" ||
+      body === null ||
+      typeof (body as { version?: unknown }).version !== "string"
+    ) {
+      return undefined;
+    }
+    return { id: "ollama", label: "Ollama" };
+  } catch {
+    /* Not there, not Ollama, or not JSON. All of them mean the same thing: we
+       did not learn a provider, so nobody may claim one. */
     return undefined;
   } finally {
     clearTimeout(timer);

@@ -14,6 +14,8 @@ import {
   type Probe,
 } from "./services-manage.js";
 import { DaemonConfig, resolveConfig } from "./config.js";
+import { startability } from "./local-server.js";
+import type { BackendId } from "@byollm/protocol";
 
 /**
  * The one screen — B100a, byollm_023 §the flow.
@@ -213,6 +215,66 @@ describe("the name a model gets", () => {
 });
 
 describe("the block the picker writes and the block the note pastes", () => {
+  it("names the provider the server named — B112", async () => {
+    /**
+     * The block used to say `type: "openai-http"` for a server the probe had
+     * just identified, which is the one config shape that **cannot be started
+     * on demand** — so what we handed people was exactly what B098 then has
+     * to explain and offer to fix. One field, thrown away one line from where
+     * it was learned.
+     */
+    expect(
+      serviceBlockFor({
+        model: "qwen3:8b",
+        baseUrl: "http://x/v1",
+        type: "ollama",
+      }).type,
+    ).toBe("ollama");
+
+    const { outcome } = await run(["1", ""], {
+      probe: serving({ ...ollama, models: ["qwen3:8b"], backendId: "ollama" }),
+    });
+    expect(outcome.services["qwen3-8b"]).toMatchObject({ type: "ollama" });
+  });
+
+  it("writes what the picker wrote, and it is startable", async () => {
+    /**
+     * The whole point, asserted where it lands rather than on the field.
+     * `startability` is what B098's surface asks, and it answers
+     * `no-start-command` for `openai-http` at the same address — so this is
+     * the difference the type buys, in the function that consumes it.
+     */
+    const { outcome } = await run(["1", ""], {
+      probe: serving({ ...ollama, models: ["qwen3:8b"], backendId: "ollama" }),
+    });
+    const block = outcome.services["qwen3-8b"] as { type: BackendId };
+    expect(
+      await startability({
+        id: block.type,
+        baseUrl: ollama.baseUrl,
+        onPath: () => Promise.resolve(true),
+      }),
+    ).toEqual({ startable: true });
+    /* The control: the same address under the generic transport is not, which
+       is the config B098 exists to rescue. */
+    expect(
+      await startability({
+        id: "openai-http",
+        baseUrl: ollama.baseUrl,
+        onPath: () => Promise.resolve(true),
+      }),
+    ).toEqual({ startable: false, why: "no-start-command" });
+  });
+
+  it("falls back to the generic transport when nobody identified the server", () => {
+    /* `undefined` is "we did not verify a provider". The service still runs —
+       every HTTP backend speaks the same transport — and what is lost is the
+       start command, honestly rather than by a guess. */
+    expect(serviceBlockFor({ model: "m", baseUrl: "http://x/v1" }).type).toBe(
+      "openai-http",
+    );
+  });
+
   it("is one function, so they cannot drift", () => {
     /* B100b's paste and B100a's write are the same JSON. `unused-models.ts`
        asks this rather than restating the shape — instruction 9, and this

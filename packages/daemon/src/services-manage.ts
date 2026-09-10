@@ -319,20 +319,26 @@ function uniqueName(base: string, taken: Iterable<string>): string {
 export function serviceBlockFor(input: {
   readonly model: string;
   readonly baseUrl: string;
+  /** What the server said it is, when it said — B112. */
+  readonly type?: BackendId | undefined;
 }): NewService {
   return {
     /**
-     * `openai-http`, and B112 is the row that makes it the real provider.
+     * The provider the server named, or the generic transport — B112.
      *
-     * The probe already knows it is talking to Ollama and this throws that
-     * away, so the block names the generic transport for a server we
-     * identified. B097 keeps the cost honest either way — a `:cloud` model at
-     * a loopback address is metered under both spellings — but a
-     * `type: "ollama"` service is the one that can be started on demand, and
-     * this one cannot. **One field, in one place, which is the reason this
-     * function exists.**
+     * This was `"openai-http"` unconditionally while the probe already knew
+     * it was talking to Ollama, so the block we handed people was the one
+     * config shape that **cannot be started on demand** — which B098 then has
+     * to explain and offer to fix. One field, thrown away one line from where
+     * it was learned.
+     *
+     * `openai-http` remains right for a server nobody identified. It is the
+     * transport every HTTP backend speaks, so the service runs either way;
+     * what the specific id buys is `startCommandFor` and a declared cost
+     * class. B097 keeps the cost honest under both spellings — a `:cloud`
+     * model at a loopback address is metered whichever type names it.
      */
-    type: "openai-http",
+    type: input.type ?? "openai-http",
     baseUrl: input.baseUrl,
     model: input.model,
     kinds: [...BOTH_KINDS],
@@ -735,7 +741,11 @@ async function candidates(input: {
   input.io.out("\nLooking for local model servers...\n");
   for (const server of await input.probe()) {
     for (const model of server.models) {
-      const block = serviceBlockFor({ model, baseUrl: server.baseUrl });
+      const block = serviceBlockFor({
+        model,
+        baseUrl: server.baseUrl,
+        type: server.backendId,
+      });
       add({
         name: serviceNameFor(model),
         type: block.type,

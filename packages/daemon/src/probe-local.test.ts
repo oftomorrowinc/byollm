@@ -24,6 +24,111 @@ const only = (port: number, body: unknown): typeof fetch =>
       ? Promise.resolve(ok(body))
       : Promise.reject(new Error("ECONNREFUSED"))) as unknown as typeof fetch;
 
+/**
+ * A server that answers `/v1/models` and, optionally, Ollama's own
+ * `/api/version` — B112.
+ *
+ * Two endpoints because there are two questions: *what can you serve* is the
+ * OpenAI compatibility layer, and *who are you* is the provider's native API.
+ * A stub that answered both from one branch would let a probe reading only one
+ * of them pass.
+ */
+const server = (
+  port: number,
+  models: unknown,
+  version?: string,
+): typeof fetch =>
+  ((url: string | URL) => {
+    const at = String(url);
+    if (!at.includes(`:${String(port)}`))
+      return Promise.reject(new Error("ECONNREFUSED"));
+    if (at.includes("/api/version")) {
+      return version === undefined
+        ? Promise.resolve(new Response("not found", { status: 404 }))
+        : Promise.resolve(ok({ version }));
+    }
+    return Promise.resolve(ok(models));
+  }) as unknown as typeof fetch;
+
+describe("who the server says it is", () => {
+  it("types a server that answers Ollama's own API as ollama", async () => {
+    /* Asked rather than inferred from the port. The type is what decides
+       whether `startCommandFor` can bring this back up, so a port map — which
+       is a guess — must not be what sets it. */
+    const found = await probeLocalServers(
+      50,
+      server(11434, { data: [{ id: "qwen3:8b" }] }, "0.30.8"),
+    );
+    expect(found[0]?.backendId).toBe("ollama");
+  });
+
+  it("leaves the type unset when nothing answered the question", async () => {
+    /**
+     * `undefined` is "we did not verify a provider", not "unknown provider" —
+     * and the caller falls back to `openai-http`, which is exactly what it did
+     * before B112. The port here is Ollama's, so this is also the control that
+     * the port alone is not enough.
+     */
+    const found = await probeLocalServers(
+      50,
+      server(11434, { data: [{ id: "qwen3:8b" }] }),
+    );
+    expect(found[0]?.backendId).toBeUndefined();
+    expect(found[0]?.label).toBe("Ollama");
+  });
+
+  it("refuses a 200 that is not a version", async () => {
+    const lying = ((url: string | URL) => {
+      const at = String(url);
+      if (!at.includes(":11434")) return Promise.reject(new Error("nope"));
+      if (at.includes("/api/version")) return Promise.resolve(ok({ ok: true }));
+      return Promise.resolve(ok({ data: [{ id: "m" }] }));
+    }) as unknown as typeof fetch;
+    expect((await probeLocalServers(50, lying))[0]?.backendId).toBeUndefined();
+  });
+
+  it("refuses a version-shaped body that came with a 404", async () => {
+    /**
+     * The control that isolates the status check, and it is here because the
+     * first version of this suite did not have it: the no-version stub
+     * returned a 404 whose body was the string "not found", so deleting
+     * `response.ok` still produced `undefined` — from `json()` throwing, one
+     * line further down. **A test that passes for a second reason is a test
+     * that stops holding the moment the first reason changes.**
+     *
+     * A proxy or a router in front of a model server can answer 404 with a
+     * JSON body of its own, and a 404 is not an answer to "who are you"
+     * whatever it carries.
+     */
+    const four04 = ((url: string | URL) => {
+      const at = String(url);
+      if (!at.includes(":11434")) return Promise.reject(new Error("nope"));
+      if (at.includes("/api/version")) {
+        return Promise.resolve(
+          new Response(JSON.stringify({ version: "0.30.8" }), {
+            status: 404,
+            headers: { "content-type": "application/json" },
+          }),
+        );
+      }
+      return Promise.resolve(ok({ data: [{ id: "m" }] }));
+    }) as unknown as typeof fetch;
+    expect((await probeLocalServers(50, four04))[0]?.backendId).toBeUndefined();
+  });
+
+  it("lets the answer name the server, not the port it was found on", async () => {
+    /* Ollama on 8080 would otherwise be labelled "llama.cpp or MLX" by the
+       port map and typed `ollama` by the probe — one screen contradicting
+       itself. The answer wins for both. */
+    const found = await probeLocalServers(
+      50,
+      server(8080, { data: [{ id: "m" }] }, "0.30.8"),
+    );
+    expect(found[0]?.label).toBe("Ollama");
+    expect(found[0]?.baseUrl).toBe("http://127.0.0.1:8080/v1");
+  });
+});
+
 describe("probeLocalServers", () => {
   it("reports a server that answered, with the models it named", async () => {
     const found = await probeLocalServers(

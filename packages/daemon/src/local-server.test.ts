@@ -12,6 +12,7 @@ import {
   isStartable,
   isLoopback,
   spawnLocalServer,
+  startability,
   startCommandFor,
 } from "./local-server.js";
 
@@ -514,5 +515,85 @@ describe("starting a local server for real — B092", () => {
       ),
     );
     expect(daemonOptions).toContain("spawnServer:");
+  });
+});
+
+describe("why a service cannot be started — B098", () => {
+  /**
+   * Three facts, one boolean, and the surface asserted whichever it had a
+   * sentence for.
+   *
+   * On Todd's machine that produced a FALSE INSTRUCTION. His services are
+   * `openai-http` at loopback addresses; `startCommandFor` knows a command
+   * for `ollama` only, so they were unstartable — and `byollm status` told
+   * him to **install** Ollama and MLX, both of which were installed and
+   * serving. An afternoon spent on a fix that was never the problem.
+   *
+   * Same shape as B105 one row earlier: one bucket for two facts, and the
+   * bucket names the wrong one.
+   */
+  const present = () => Promise.resolve(true);
+  const absent = () => Promise.resolve(false);
+
+  it("says no command, for a backend this module cannot start", async () => {
+    /* Todd's case exactly: an OpenAI-compatible service at Ollama's own
+       loopback port. The program is there; we simply have no command for
+       that id. */
+    expect(
+      await startability({
+        id: "openai-http",
+        baseUrl: "http://127.0.0.1:11434/v1",
+        onPath: present,
+      }),
+    ).toEqual({ startable: false, why: "no-start-command" });
+  });
+
+  it("says not installed only when the binary is really absent", async () => {
+    /* The one case where "install it" is the right thing to say. */
+    expect(
+      await startability({
+        id: "ollama",
+        baseUrl: "http://127.0.0.1:11434/v1",
+        onPath: absent,
+      }),
+    ).toEqual({ startable: false, why: "not-installed" });
+  });
+
+  it("says not local for a remote address, which no local spawn fixes", async () => {
+    expect(
+      await startability({
+        id: "ollama",
+        baseUrl: "https://ollama.example.com/v1",
+        onPath: present,
+      }),
+    ).toEqual({ startable: false, why: "not-local" });
+  });
+
+  it("still says yes when it can, which is the control", async () => {
+    /* Without this, "always refuse" satisfies every case above. */
+    expect(
+      await startability({
+        id: "ollama",
+        baseUrl: "http://127.0.0.1:11434/v1",
+        onPath: present,
+      }),
+    ).toEqual({ startable: true });
+  });
+
+  it("keeps the boolean answering the same question it always did", async () => {
+    /* `isStartable` decides what the fleet OFFERS, and B098 changed what the
+       surface SAYS. A reason threaded into the advertising decision would be
+       an invitation to branch on it there. */
+    for (const [id, url, onPath, expected] of [
+      ["openai-http", "http://127.0.0.1:11434/v1", present, false],
+      ["ollama", "http://127.0.0.1:11434/v1", absent, false],
+      ["ollama", "https://ollama.example.com/v1", present, false],
+      ["ollama", "http://127.0.0.1:11434/v1", present, true],
+    ] as const) {
+      expect(
+        await isStartable({ id, baseUrl: url, onPath }),
+        `${id} ${url}`,
+      ).toBe(expected);
+    }
   });
 });

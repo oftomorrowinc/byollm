@@ -31,6 +31,9 @@ const Stored = z.record(
         detail: z.string().optional(),
       }),
       z.object({ kind: z.literal("missing") }),
+      /* B098. Stopped and unstartable is not the same as absent, and the
+         file `byollm status` reads has to be able to tell them apart. */
+      z.object({ kind: z.literal("unstartable"), model: z.string() }),
       /**
        * Installed here, not running, and startable — B056.
        *

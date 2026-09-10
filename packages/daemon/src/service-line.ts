@@ -29,6 +29,15 @@ export type ServiceState =
    * `status` calls it "not found on this device" is a machine disagreeing
    * with itself on two screens.
    */
+  /**
+   * Stopped, and nothing here knows how to start it — B098.
+   *
+   * Distinct from `missing`, which means the program is not on this machine.
+   * Conflating them told an owner to install software that was already
+   * installed, which is an afternoon spent on a fix that was never the
+   * problem.
+   */
+  | { readonly kind: "unstartable"; readonly model: string }
   | {
       readonly kind: "stopped";
       readonly model: string;
@@ -146,6 +155,25 @@ export function serviceLine(input: {
         line: `${service} — not found on ${device}: install it, or ${remove}`,
       };
     }
+    case "unstartable":
+      /**
+       * Not running, and this device has no way to start it — B098.
+       *
+       * Split out of `missing`, which said *"not found on this device:
+       * install it"* about software that was installed and running. Todd's
+       * services are `openai-http` at loopback addresses; `startCommandFor`
+       * knows a command for `ollama` only, so they were unstartable and got
+       * told they were absent.
+       *
+       * The sentence ends in what a person can actually do. There is no knob
+       * here and inventing one would be the invented-remedy mistake
+       * byollm_021 names, so it says the true thing: start it yourself.
+       */
+      return {
+        line:
+          `${service} — ${state.model}, not running, and ${device} cannot ` +
+          `start it for you: start it yourself, then it will be offered`,
+      };
     case "blocked": {
       /* No remedy, because there is not one — and saying so is the point.
          Every other sentence here ends in something to run. This one ends in

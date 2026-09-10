@@ -222,3 +222,50 @@ describe("the status note", () => {
     );
   });
 });
+
+describe("a service this device cannot start — B098", () => {
+  /**
+   * The sentence that reached Todd, and it was false.
+   *
+   * His `openai-http` services at loopback addresses are unstartable — this
+   * module knows a start command for `ollama` only — and they were reported
+   * as `missing`, which reads *"not found on this device: install it"*.
+   * Ollama and MLX were installed and serving at the time.
+   */
+  it("does not tell somebody to install software that is already there", () => {
+    const line = serviceLine({
+      service: "qwen",
+      device: "this device",
+      state: { kind: "unstartable", model: "qwen-2.5-14b" },
+    }).line;
+
+    expect(line, "the false instruction is back").not.toContain("install it");
+    expect(line).not.toContain("not found");
+  });
+
+  it("says what is true and what to do about it", () => {
+    const line = serviceLine({
+      service: "qwen",
+      device: "this device",
+      state: { kind: "unstartable", model: "qwen-2.5-14b" },
+    }).line;
+
+    /* The model, so somebody scanning a list knows which service this is. */
+    expect(line).toContain("qwen-2.5-14b");
+    expect(line).toContain("not running");
+    /* And the only true remedy: there is no knob here, and inventing one is
+       the mistake byollm_021 names. */
+    expect(line).toContain("start it yourself");
+  });
+
+  it("still says install it when the program really is absent", () => {
+    /* The control. Splitting the states must not cost the one case where
+       "install it" was the right sentence all along. */
+    const line = serviceLine({
+      service: "ollama-local",
+      device: "this device",
+      state: { kind: "missing" },
+    }).line;
+    expect(line).toContain("install it");
+  });
+});

@@ -159,15 +159,58 @@ export async function ensureLocalServer(
  *   · the binary is actually on PATH            (the half that separates
  *     "installed" from "written in a config file")
  */
+/**
+ * Why a service cannot be started, when it cannot — B098.
+ *
+ * Three different facts, and the boolean collapsed them into one so the
+ * owner surface asserted whichever it had a sentence for. On Todd's machine
+ * that produced a false instruction: his services are `openai-http` at
+ * loopback addresses, this module has no start command for that id, and
+ * `byollm status` told him to **install** Ollama and MLX — both of which are
+ * installed and running.
+ *
+ * Same shape as B105 one row earlier: one bucket for two facts, and the
+ * bucket names the wrong one. Here it costs somebody an afternoon
+ * reinstalling software that was never missing.
+ */
+export type Startability =
+  | { readonly startable: true }
+  /** This module knows no command for that backend — not that it is absent. */
+  | { readonly startable: false; readonly why: "no-start-command" }
+  /** Somebody else's machine. A local spawn cannot fix a remote server. */
+  | { readonly startable: false; readonly why: "not-local" }
+  /** The one case where "install it" is the right thing to say. */
+  | { readonly startable: false; readonly why: "not-installed" };
+
+export async function startability(input: {
+  readonly id: BackendId;
+  readonly baseUrl: string | undefined;
+  readonly onPath?: (binary: string) => Promise<boolean>;
+}): Promise<Startability> {
+  const command = startCommandFor(input.id);
+  if (command === undefined)
+    return { startable: false, why: "no-start-command" };
+  if (input.baseUrl === undefined || !isLoopback(input.baseUrl)) {
+    return { startable: false, why: "not-local" };
+  }
+  return (await (input.onPath ?? binaryOnPath)(command[0]))
+    ? { startable: true }
+    : { startable: false, why: "not-installed" };
+}
+
+/**
+ * Can this be started at all — the answer without the reason.
+ *
+ * Kept because the advertising decision genuinely only needs the boolean, and
+ * threading a reason through it would invite somebody to branch on one there.
+ * B098 changed what the SURFACE says, not what the fleet offers.
+ */
 export async function isStartable(input: {
   readonly id: BackendId;
   readonly baseUrl: string | undefined;
   readonly onPath?: (binary: string) => Promise<boolean>;
 }): Promise<boolean> {
-  const command = startCommandFor(input.id);
-  if (command === undefined) return false;
-  if (input.baseUrl === undefined || !isLoopback(input.baseUrl)) return false;
-  return await (input.onPath ?? binaryOnPath)(command[0]);
+  return (await startability(input)).startable;
 }
 
 /**

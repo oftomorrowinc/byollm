@@ -46,7 +46,9 @@ class StoppedBackend implements Backend {
     kind: "unavailable" as const,
     why: "a test double reads no vendor signal",
   };
-  readonly id = "ollama" as const;
+  /* Mutable, because B098 needs the same double to stand in for a service
+     this module has no start command for. */
+  id: "ollama" | "openai-http" = "ollama";
   readonly class = "http" as const;
   healthy = false;
   health(): Promise<{ healthy: boolean; models: string[] }> {
@@ -75,12 +77,14 @@ afterEach(async () => {
 
 async function detect(options: {
   backend: Backend;
+  service?: Record<string, unknown>;
+  onPath?: (binary: string) => Promise<boolean>;
   spawnServer?: (command: readonly string[]) => void;
 }) {
   const loaded = resolveConfig(
     DaemonConfig.parse({
       services: {
-        local: {
+        local: options.service ?? {
           model: "llama3.2",
           kinds: ["llm.generate"],
           type: "ollama",
@@ -122,7 +126,7 @@ async function detect(options: {
     /* The binary IS installed — that is the whole point. Injected so the
        verdict does not depend on whether this machine happens to have
        ollama, which is how a sibling test passed here and failed on CI. */
-    onPath: () => Promise.resolve(true),
+    onPath: options.onPath ?? (() => Promise.resolve(true)),
     ...(options.spawnServer === undefined
       ? {}
       : { spawnServer: options.spawnServer }),
@@ -230,5 +234,106 @@ describe("advertising a stopped server", () => {
         state: startedState,
       }).line,
     ).toContain("starts when a job needs it");
+  });
+
+  it("tells the owner WHY it cannot start it, not that it is missing — B098", async () => {
+    /**
+     * The join, which is where the bug lived: `startability` and
+     * `serviceLine` were each right and nothing tested the runner mapping one
+     * to the other. Mutations that reported every refusal as `missing`, or
+     * every refusal as `unstartable`, both passed the unit tests for the two
+     * halves.
+     *
+     * Todd's case: `openai-http` at Ollama's own loopback port, down. The
+     * program is installed and this module simply has no start command for
+     * that id — and he was told to install it.
+     */
+    const backend = new StoppedBackend();
+    backend.id = "openai-http";
+    const { states } = await detect({
+      backend,
+      service: {
+        model: "qwen-2.5-14b",
+        kinds: ["llm.generate"],
+        type: "openai-http",
+        baseUrl: "http://127.0.0.1:11434/v1",
+      },
+    });
+    expect(states.get("local")?.state).toMatchObject({ kind: "unstartable" });
+  });
+
+  it("still says missing when the binary really is absent", async () => {
+    /**
+     * The control, and it is the case "install it" was written for. Without
+     * it, reporting everything as `unstartable` passes — which is the same
+     * defect facing the other way, and it would tell somebody with nothing
+     * installed to go and start it.
+     */
+    const backend = new StoppedBackend();
+    const { states } = await detect({
+      backend,
+      onPath: () => Promise.resolve(false),
+    });
+    expect(states.get("local")?.state).toMatchObject({ kind: "missing" });
+  });
+
+  it("offers nothing either way, because B098 changed only the words", async () => {
+    /* The advertising decision is untouched: an unstartable service and a
+       missing one are both unoffered, and a mutation that widened
+       advertising while the sentences improved would be the worse trade. */
+    const unstartable = new StoppedBackend();
+    unstartable.id = "openai-http";
+    expect(
+      (
+        await detect({
+          backend: unstartable,
+          service: {
+            model: "qwen-2.5-14b",
+            kinds: ["llm.generate"],
+            type: "openai-http",
+            baseUrl: "http://127.0.0.1:11434/v1",
+          },
+        })
+      ).capabilities,
+    ).toEqual([]);
+    expect(
+      (
+        await detect({
+          backend: new StoppedBackend(),
+          onPath: () => Promise.resolve(false),
+        })
+      ).capabilities,
+    ).toEqual([]);
+
+    /**
+     * And with the starter WIRED, which is the case the other two cannot
+     * reach.
+     *
+     * B087 ties advertising to `spawnServer` existing, so a mutation that
+     * dropped the startability half — `usable = starts` — is invisible while
+     * no test passes a starter: `starts` is false and the answer is right
+     * for the wrong reason. Here the seam is present and the service is
+     * still unstartable, so only the half B098 touched can refuse it.
+     */
+    const withStarter = new StoppedBackend();
+    withStarter.id = "openai-http";
+    expect(
+      (
+        await detect({
+          backend: withStarter,
+          service: {
+            model: "qwen-2.5-14b",
+            kinds: ["llm.generate"],
+            type: "openai-http",
+            baseUrl: "http://127.0.0.1:11434/v1",
+          },
+          spawnServer: () => {
+            /* Present, never called: a service with no start command has
+               nothing to spawn. */
+          },
+        })
+      ).capabilities,
+      "a service this device cannot start was offered anyway",
+    ).toEqual([]);
   });
 });

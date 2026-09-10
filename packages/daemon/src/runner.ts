@@ -1,4 +1,4 @@
-import { ensureLocalServer, isStartable } from "./local-server.js";
+import { ensureLocalServer, startability } from "./local-server.js";
 import { guardApplies, memoryGate } from "./memory-gate.js";
 import type { MemoryPressure, MemoryReading } from "./memory.js";
 import type { ServiceReport } from "./service-line.js";
@@ -947,7 +947,7 @@ export class Runner {
            * command, is the url on this machine, and is the binary actually
            * on PATH. Any no leaves the behaviour exactly as it was.
            */
-          const startable = await isStartable({
+          const startable = await startability({
             id: route.backendId,
             baseUrl:
               this.#options.loaded.config.services[route.service]?.baseUrl,
@@ -981,11 +981,25 @@ export class Runner {
            * think to look at this line.
            */
           const starts = this.#options.spawnServer !== undefined;
-          usable = startable && starts;
+          usable = startable.startable && starts;
           this.serviceStates.set(route.service, {
-            state: startable
+            /**
+             * Three answers, not two — B098.
+             *
+             * `missing` used to swallow every reason a service could not be
+             * started, so a service this module has no command for was
+             * reported as software the owner had not installed. On Todd's
+             * machine that meant `byollm status` telling him to install
+             * Ollama and MLX while both were installed and serving.
+             *
+             * Only `not-installed` is `missing`. The advertising decision is
+             * unchanged: nothing here is offered either way.
+             */
+            state: startable.startable
               ? { kind: "stopped", model: route.model, starts }
-              : { kind: "missing" },
+              : startable.why === "not-installed"
+                ? { kind: "missing" }
+                : { kind: "unstartable", model: route.model },
             ...remedy,
           });
         } else if (options.canary !== true || backend.canary === undefined) {

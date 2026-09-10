@@ -244,25 +244,43 @@ describe("the memory gate", () => {
     expect(local.admit).not.toBe(remote.admit);
 
     /**
-     * And the narrowness of the fix, stated rather than assumed.
+     * A cloud model behind `type: "ollama"` is skipped — CORRECTED BY B097.
      *
-     * A named provider's declared cost is the registry's word
-     * [COST_NOT_CONFIGURABLE], and it is consulted before the model tag — so
-     * `ollama` serving `glm-5.2:cloud` resolves `free` and IS checked, even
-     * though that job runs on Ollama's cloud and needs no memory here.
+     * This asserted the opposite until 09-09, and it was documenting a bug:
+     * `classifyCost` returned on the declared cost before the `:cloud` check,
+     * so `ollama` serving `glm-5.2:cloud` resolved `free` while the identical
+     * model at the identical address through `openai-http` resolved
+     * `metered`. One service, two spellings, two costs — with money on the
+     * end, because a free service carries no metered budget.
      *
-     * That is the harmless direction: refusing a cloud-proxied job on a
-     * machine with 100 MB free costs its owner a retry, while the reverse
-     * skipped the check on the local server this row exists for.
+     * The gate gets the right answer for free once the cost is right: a job
+     * that runs on Ollama's cloud loads nothing into this machine's memory,
+     * so there is nothing here for the guard to protect. It used to be
+     * checked, which was harmless — a retry — but it was checked for the
+     * wrong reason.
      */
     expect(
       resolveCost("ollama", "http://127.0.0.1:11434/v1", "glm-5.2:cloud"),
-    ).toBe("free");
+    ).toBe("metered");
     expect(
       memoryGate({
         backendId: "ollama",
         baseUrl: "http://127.0.0.1:11434/v1",
         model: "glm-5.2:cloud",
+        memory: reading(0.1),
+        pressure: "normal",
+      }).admit,
+      "a cloud-proxied job was refused for local memory it does not use",
+    ).toBe(true);
+
+    /* The control on the correction, and it is the one that matters: a
+       genuinely local ollama model is still checked. Without it, B097 could
+       have made every ollama route skip the guard. */
+    expect(
+      memoryGate({
+        backendId: "ollama",
+        baseUrl: "http://127.0.0.1:11434/v1",
+        model: "llama3.2",
         memory: reading(0.1),
         pressure: "normal",
       }).admit,

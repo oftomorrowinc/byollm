@@ -472,6 +472,51 @@ export function classifyCost(
   model: string | undefined,
 ): CostReason {
   const declared = BACKENDS[id].cost;
+
+  /**
+   * A `:cloud` tag outranks a DECLARED FREE cost — B097.
+   *
+   * This check sat below the declared-cost return, so it could never run for
+   * the one provider whose transport actually does this. Proven by running
+   * it: `classifyCost("ollama", "http://127.0.0.1:11434/v1",
+   * "glm-5.2:cloud")` returned `free` — *"Ollama (local) runs on this
+   * machine"* — while the same model at the same address through
+   * `openai-http` returned `metered`. **One service, two spellings of the
+   * config, two different costs.**
+   *
+   * The doc comment on this function already stated the rule it was
+   * breaking: *"Ollama proxies hosted models through `127.0.0.1`, so the
+   * endpoint is local and the bill is not."* Written, correct, and
+   * unreachable.
+   *
+   * **It is REMOTE_IS_NEVER_FREE with money on the end.** A free service
+   * carries no metered budget, so a `type: "ollama"` config naming a
+   * `:cloud` model could be offered to team or community and spend the
+   * owner's Ollama cloud credits with nothing counting them —
+   * `byollm status` reporting `$0.00` because it believes there is nothing
+   * to report.
+   *
+   * **Only over `free`, and that is the whole of the narrowing.** A declared
+   * `metered` or `subscription` cost cannot be made safer by this rule, and
+   * overriding a subscription because somebody named a model `x:cloud` would
+   * be the registry losing an argument to a string. Free is the one declared
+   * value that can be wrong in the direction that costs somebody money.
+   *
+   * This is NOT `COST_NOT_CONFIGURABLE` under strain — it is the opposite.
+   * That law stops an owner declaring a paid provider free; here the registry
+   * was doing it for them.
+   */
+  if (declared === "free" && model !== undefined && isCloudTaggedModel(model)) {
+    return {
+      cost: "metered",
+      because:
+        `its model tag ends in \`:cloud\`, so the work runs on your ` +
+        `provider's cloud account rather than on this machine — ` +
+        `${backendName(id)} serves hosted models through the same local ` +
+        `address as local ones`,
+    };
+  }
+
   if (declared !== null) {
     // A named provider's cost is the registry's word and nothing else
     // [COST_NOT_CONFIGURABLE], so here — and only here — the provider's own

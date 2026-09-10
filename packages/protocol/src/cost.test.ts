@@ -367,6 +367,52 @@ describe("cloud-tagged models — byollm_007, 2026-08-24", () => {
    */
   const LOCAL = "http://127.0.0.1:11434/v1";
 
+  it('bills a :cloud model behind `type: "ollama"` too — B097', () => {
+    /**
+     * The case with money on it, and there was no test for it, which is why
+     * a rule with a paragraph of reasoning behind it never fired.
+     *
+     * `classifyCost` returned on the declared cost before reaching the
+     * `:cloud` check, and `ollama` declares `free` — so the SAME model at
+     * the SAME address was `free` through `ollama` and `metered` through
+     * `openai-http`. One service, two spellings of the config, two costs.
+     *
+     * `REMOTE_IS_NEVER_FREE` with a bill attached: a free service carries no
+     * metered budget, so this config could be offered to team or community
+     * and spend the owner's Ollama cloud credits with nothing counting them.
+     */
+    expect(resolveCost("ollama", LOCAL, "glm-5.2:cloud")).toBe("metered");
+
+    /* The two spellings agree now, which is the property that was broken —
+       asserted directly, because each being `metered` alone would pass
+       against a rule that made everything metered. */
+    expect(resolveCost("ollama", LOCAL, "glm-5.2:cloud")).toBe(
+      resolveCost("openai-http", LOCAL, "glm-5.2:cloud"),
+    );
+  });
+
+  it("leaves a genuinely local ollama model free", () => {
+    /* The control, and the direction that would make the product useless:
+       an override that caught every ollama model would meter a laptop
+       serving llama3.2 off its own disk. */
+    expect(resolveCost("ollama", LOCAL, "llama3.2")).toBe("free");
+    expect(resolveCost("ollama", LOCAL, "smollm2:135m")).toBe("free");
+  });
+
+  it("does not let a model name overrule a paid provider's registry cost", () => {
+    /**
+     * The narrowing, and why it is only over `free`. A declared `metered` or
+     * `subscription` cost cannot be made safer by this rule, and demoting a
+     * subscription because somebody named a model `x:cloud` would be the
+     * registry losing an argument to a string — which is
+     * `COST_NOT_CONFIGURABLE` broken from the other side.
+     */
+    expect(resolveCost("claude-cli", undefined, "sonnet:cloud")).toBe(
+      "subscription",
+    );
+    expect(resolveCost("anthropic", undefined, "x:cloud")).toBe("metered");
+  });
+
   it("bills a bare :cloud tag", () => {
     expect(resolveCost("openai-http", LOCAL, "glm-5.2:cloud")).toBe("metered");
   });

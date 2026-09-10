@@ -462,6 +462,62 @@ describe("the memory guard, from a job's point of view", () => {
     expect(ingress.filter((entry) => entry.type === "memory")).toHaveLength(0);
   });
 
+  it("starts Ollama for a `:cloud` model, and never reads memory to do it", async () => {
+    /**
+     * Todd's exercise, 09-10 — B116's sharp case, run rather than reasoned
+     * about.
+     *
+     * An `ollama:cloud` model is served by an Ollama daemon on loopback: the
+     * transport is local, the compute is not. So both halves have to hold at
+     * once and they pull opposite ways at first glance:
+     *
+     * - **It starts.** `type: "ollama"` is startable, and starting a stopped
+     *   Ollama is exactly what `.88` proved works in the field. This is the
+     *   capability B116 protects — an `openai-http` spelling of the same
+     *   service is the one shape that could not be started.
+     * - **The memory gate skips it, and that is correct rather than a hole.**
+     *   Starting Ollama for a hosted model loads nothing locally, so there is
+     *   no gigabyte to guard against. `guardApplies` asks `resolveCost`, and
+     *   B097 reads the `:cloud` tag before the declared cost, so the answer is
+     *   `metered` and the gate stands down.
+     *
+     * Memory is set critically low so a gate that DID apply would refuse —
+     * which makes "it started anyway" a statement about the guard rather than
+     * about a machine that happened to have room.
+     */
+    const backend = new CountingBackend();
+    backend.id = "ollama";
+    backend.answering = false;
+    let reads = 0;
+    const spawned: string[][] = [];
+    const { ingress } = await runOneJob({
+      backend,
+      service: {
+        model: "glm-5.2:cloud",
+        kinds: ["llm.generate"],
+        type: "ollama",
+        baseUrl: "http://127.0.0.1:11434/v1",
+        spend: { acknowledged: true, dailyCapCents: 2500 },
+      },
+      spawnServer: (command) => {
+        spawned.push([...command]);
+        backend.answering = true;
+      },
+      readMemory: () => {
+        reads += 1;
+        return Promise.resolve({ memory: reading(0.1), pressure: "critical" });
+      },
+    });
+    expect(spawned, "a hosted Ollama model did not start its server").toEqual([
+      ["ollama", "serve"],
+    ]);
+    expect(reads, "memory was read for a model that loads nothing here").toBe(
+      0,
+    );
+    expect(backend.calls).toBe(1);
+    expect(ingress.filter((entry) => entry.type === "memory")).toHaveLength(0);
+  }, 40_000);
+
   it("never reads memory for a route that holds no model here", async () => {
     /* A proxy route has nothing for this to protect, and paying a `vm_stat`
        spawn per job to conclude that is waste. Asserted by the reader never

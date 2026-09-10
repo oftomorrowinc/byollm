@@ -6,7 +6,10 @@ import {
   manageServices,
   parseToggle,
   serviceBlockFor,
+  misTypedReport,
+  misTypedServices,
   serviceNameFor,
+  SUBSCRIPTION_CLIS,
   summarise,
   type Detected,
   type Detector,
@@ -15,6 +18,7 @@ import {
 } from "./services-manage.js";
 import { DaemonConfig, resolveConfig } from "./config.js";
 import { startability } from "./local-server.js";
+import { knownModelsFor } from "./known-models.js";
 import type { BackendId } from "@byollm/protocol";
 
 /**
@@ -855,5 +859,356 @@ describe("a CLI that is there but cannot answer", () => {
     });
     expect(io.transcript()).not.toContain("cannot answer yet");
     expect(Object.keys(outcome.services)).toEqual(["claude"]);
+  });
+});
+
+/**
+ * Identity is a machine, an address, and a model — B116.
+ *
+ * Found in Todd's live run. He called it "probably not a bug"; the mechanism
+ * says otherwise, and the mechanism is that `identityOf` keyed on the TYPE
+ * STRING, so the words a config happens to use decided what a service is.
+ */
+describe("the same service, however it is spelled", () => {
+  const ollamaCloud = {
+    label: "Ollama",
+    baseUrl: "http://127.0.0.1:11434/v1",
+    models: ["glm-5.2:cloud"],
+    backendId: "ollama" as const,
+  };
+
+  it("does not offer a configured service again under the probe's word", async () => {
+    /**
+     * Todd's file, exactly. His config says `openai-http` at
+     * `127.0.0.1:11434` for `glm-5.2:cloud`; B112 taught the probe to say
+     * `ollama` for the same address and the same model. **B112 caused this
+     * half** — the probe became honest while the config kept the older word.
+     */
+    const { outcome } = await run([""], {
+      existing: {
+        "glm-5.2": {
+          type: "openai-http",
+          baseUrl: "http://127.0.0.1:11434/v1",
+          model: "glm-5.2:cloud",
+          kinds: [...BOTH_KINDS],
+          offer: "team",
+          spend: { acknowledged: true, dailyCapCents: 2500 },
+        },
+      },
+      probe: serving(ollamaCloud),
+    });
+    expect(Object.keys(outcome.services)).toEqual(["glm-5.2"]);
+  });
+
+  it("upgrades the stored type to the one the server answered with", async () => {
+    /**
+     * The half that is not tidiness. `startCommandFor` switches on `type`, so
+     * `openai-http` is the one shape that cannot be started on demand —
+     * preserving the config's older word would silently un-start a server we
+     * proved we can start, in the field, on `.88`.
+     */
+    const { outcome } = await run([""], {
+      existing: {
+        "glm-5.2": {
+          type: "openai-http",
+          baseUrl: "http://127.0.0.1:11434/v1",
+          model: "glm-5.2:cloud",
+          kinds: [...BOTH_KINDS],
+          offer: "team",
+          spend: { acknowledged: true, dailyCapCents: 2500 },
+        },
+      },
+      probe: serving(ollamaCloud),
+    });
+    expect(outcome.services["glm-5.2"]).toMatchObject({ type: "ollama" });
+    /* And everything the OWNER decided is untouched: their name, their
+       offer, their cap. Only the field the probe knows better changes. */
+    expect(outcome.services["glm-5.2"]).toMatchObject({
+      offer: "team",
+      spend: { acknowledged: true, dailyCapCents: 2500 },
+    });
+  });
+
+  it("keeps a `:cloud` model metered after the type is upgraded", async () => {
+    /* Metered is a COST fact and not a transport fact. B097 reads the tag
+       before the declared cost, so typing an Ollama-served hosted model
+       `ollama` cannot make it look free — which is the objection that would
+       otherwise sink the upgrade. */
+    const { io } = await run([""], { probe: serving(ollamaCloud) });
+    expect(io.transcript()).toContain("billed to your account");
+    expect(io.transcript()).toContain("metered — runs on your provider's");
+  });
+
+  it("does not let a probe that identified nothing overwrite a real type", async () => {
+    /* `undefined` from the probe is "we did not verify a provider". Treating
+       it as `openai-http` would turn silence into a downgrade — the exact
+       direction B116 exists to forbid. */
+    const { outcome } = await run([""], {
+      existing: {
+        mine: {
+          type: "ollama",
+          baseUrl: "http://127.0.0.1:11434/v1",
+          model: "qwen3:8b",
+          kinds: [...BOTH_KINDS],
+          offer: "private",
+        },
+      },
+      probe: serving({ ...ollama, models: ["qwen3:8b"] }),
+    });
+    expect(outcome.services["mine"]).toMatchObject({ type: "ollama" });
+  });
+
+  it("reads two spellings of loopback as one machine", async () => {
+    /* A config using `localhost` beside a probe using `127.0.0.1` is a third
+       way to get a duplicate, and the set of spellings is `isLoopback`'s
+       rather than a list restated here. */
+    const { outcome, io } = await run([""], {
+      existing: {
+        mine: {
+          type: "ollama",
+          baseUrl: "http://localhost:11434/v1",
+          model: "qwen3:8b",
+          kinds: [...BOTH_KINDS],
+          offer: "private",
+        },
+      },
+      probe: serving({ ...ollama, models: ["qwen3:8b"], backendId: "ollama" }),
+    });
+    expect(Object.keys(outcome.services)).toEqual(["mine"]);
+    /**
+     * And the SCREEN is what proves it, not the written config.
+     *
+     * A blank line leaves the probe's row unmarked, so a duplicate would sit
+     * there unselected and never reach `services` — the config assertion
+     * passes either way, which is how a mutation removing this normalisation
+     * survived once. The second row would be named for its model, so its
+     * absence from the transcript is the fact.
+     */
+    expect(io.transcript()).not.toContain("qwen3-8b ");
+  });
+
+  it("keeps two models on one server as two services", async () => {
+    /* Wanted, not tolerated: they cost differently and answer differently,
+       and choosing between them is what a picker is for. */
+    const { outcome } = await run(["a", "", "n", ""], {
+      probe: serving({
+        ...ollama,
+        models: ["qwen3:8b", "smollm2:135m"],
+        backendId: "ollama",
+      }),
+    });
+    expect(Object.keys(outcome.services).sort()).toEqual([
+      "qwen3-8b",
+      "smollm2-135m",
+    ]);
+  });
+});
+
+describe("a CLI whose model we do not know", () => {
+  it("annotates the owner's service instead of offering a second one", async () => {
+    /**
+     * `claude-2` was his `claude` again: `SUBSCRIPTION_CLIS` declared the
+     * model as `"sonnet"` and his config says `claude-opus-5`, so the models
+     * differed and the detected CLI arrived as a new row — **one that would
+     * have written a service pinned to `sonnet` on a machine whose Claude
+     * runs opus-5.** A machine has one `claude`.
+     */
+    const { outcome } = await run([""], {
+      existing: {
+        claude: {
+          type: "claude-cli",
+          model: "claude-opus-5",
+          kinds: [...BOTH_KINDS],
+          offer: "private",
+        },
+      },
+      detector: machineWith(["claude-cli"]),
+    });
+    expect(Object.keys(outcome.services)).toEqual(["claude"]);
+    expect(outcome.services["claude"]).toMatchObject({
+      model: "claude-opus-5",
+    });
+  });
+
+  it("asks the CLI about the model the machine actually runs", async () => {
+    /* The canary used to be spent on our guess, so a machine running opus-5
+       was asked whether `sonnet` answers — a true answer to a question about
+       a different service. */
+    const asked: string[] = [];
+    await run([""], {
+      existing: {
+        claude: {
+          type: "claude-cli",
+          model: "claude-opus-5",
+          kinds: [...BOTH_KINDS],
+          offer: "private",
+        },
+      },
+      detector: machineWith(["claude-cli"]),
+      verifier: (_id, model) => {
+        asked.push(model);
+        return answersFine();
+      },
+    });
+    expect(asked).toEqual(["claude-opus-5"]);
+  });
+
+  it("does not offer a row whose model string we invented", async () => {
+    /**
+     * `codex` declares no model, and absent is the honest value rather than a
+     * placeholder. Checked by running the CLIs: `claude --help` has no models
+     * command, `claude config get model` is not a command and runs as a
+     * PROMPT, and this daemon's argv is frozen at `--output-format text`, so
+     * the response carries no model field. Three ways, no answer.
+     */
+    const { outcome, io } = await run([""], {
+      detector: machineWith(["codex-cli"]),
+    });
+    expect(outcome.services["codex"]).toBeUndefined();
+    /* And said, not skipped in silence: the binary IS on this machine, and a
+       screen that omits it without a word looks broken to whoever installed
+       it. */
+    expect(io.transcript()).toContain("`codex` is installed");
+    expect(io.transcript()).toContain("does not know which model it serves");
+  });
+
+  it("still offers a CLI whose model this build can stand behind", async () => {
+    /* The control, and the reason the case above is not "CLIs stopped
+       working". `sonnet` is in `knownModelsFor("claude-cli")` and documented
+       in `claude --help` as an alias for the latest sonnet — the CLI's word
+       rather than ours. */
+    const { outcome } = await run(["1", ""], {
+      detector: machineWith(["claude-cli"]),
+    });
+    expect(outcome.services["claude"]).toMatchObject({ model: "sonnet" });
+  });
+
+  it("offers only models this build already knows that CLI accepts", () => {
+    /**
+     * The invariant, so the next constant cannot be somebody's machine
+     * frozen for everybody — which is where `gpt-5.6-terra` came from: it is
+     * Todd's configured model, and it appears in no help output and in no
+     * list this build maintains.
+     */
+    for (const cli of SUBSCRIPTION_CLIS) {
+      if (cli.model === undefined) continue;
+      expect(
+        knownModelsFor(cli.id),
+        `${cli.binary} offers ${cli.model}, which this build does not list`,
+      ).toContain(cli.model);
+    }
+  });
+});
+
+describe("a config that says one thing while the server says another", () => {
+  const ollamaAt11434 = {
+    label: "Ollama",
+    baseUrl: "http://127.0.0.1:11434/v1",
+    models: ["glm-5.2:cloud"],
+    backendId: "ollama" as const,
+  };
+  const servers = [ollamaAt11434];
+  const unnamed = {
+    label: "Ollama",
+    baseUrl: "http://127.0.0.1:11434/v1",
+    models: ["glm-5.2:cloud"],
+  };
+
+  it("names the service, and fails on the file Todd has today", () => {
+    const found = misTypedServices({
+      services: {
+        "glm-5.2": {
+          type: "openai-http",
+          baseUrl: "http://127.0.0.1:11434/v1",
+          model: "glm-5.2:cloud",
+          kinds: ["llm.generate"],
+        },
+      },
+      servers,
+    });
+    expect(found).toEqual([
+      {
+        service: "glm-5.2",
+        stored: "openai-http",
+        probed: "ollama",
+        baseUrl: "http://127.0.0.1:11434/v1",
+      },
+    ]);
+    expect(misTypedReport(found).join("\n")).toContain("will not be started");
+  });
+
+  it("says nothing about a service the probe agrees with", () => {
+    expect(
+      misTypedServices({
+        services: {
+          "smollm2-135m": {
+            type: "ollama",
+            baseUrl: "http://127.0.0.1:11434/v1",
+            model: "smollm2:135m",
+            kinds: ["llm.generate"],
+          },
+        },
+        servers,
+      }),
+    ).toEqual([]);
+  });
+
+  it("says nothing about a port no probe visits", () => {
+    /* Todd's MLX on 6999. `openai-http` is right for a server nobody
+       identified, and that is what the generic transport is FOR — not a
+       default to fall back to when the specific id is inconvenient. */
+    expect(
+      misTypedServices({
+        services: {
+          "qwen-2.5-14b": {
+            type: "openai-http",
+            baseUrl: "http://127.0.0.1:6999/v1",
+            model: "mlx-community/Qwen2.5-14B-Instruct-4bit",
+            kinds: ["llm.generate"],
+          },
+        },
+        servers,
+      }),
+    ).toEqual([]);
+  });
+
+  it("says nothing when the probe identified nothing", () => {
+    expect(
+      misTypedServices({
+        services: {
+          mine: {
+            type: "openai-http",
+            baseUrl: "http://127.0.0.1:11434/v1",
+            model: "m",
+            kinds: ["llm.generate"],
+          },
+        },
+        servers: [unnamed],
+      }),
+    ).toEqual([]);
+  });
+
+  it("is what the picker can never write — the assertion over the output", async () => {
+    /**
+     * The writer's own guard, asserted where it lands. Anything the picker
+     * produces for a probed address carries the probed type, so running the
+     * screen over a config that had it wrong ENDS the condition rather than
+     * carrying it forward.
+     */
+    const { outcome } = await run([""], {
+      existing: {
+        "glm-5.2": {
+          type: "openai-http",
+          baseUrl: "http://127.0.0.1:11434/v1",
+          model: "glm-5.2:cloud",
+          kinds: [...BOTH_KINDS],
+          offer: "private",
+        },
+      },
+      probe: serving(ollamaAt11434),
+    });
+    expect(misTypedServices({ services: outcome.services, servers })).toEqual(
+      [],
+    );
   });
 });

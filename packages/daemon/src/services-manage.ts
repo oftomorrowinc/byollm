@@ -5,6 +5,7 @@ import { probeLocalServers, type LocalServer } from "./probe-local.js";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import { DaemonConfig, ServiceConfig } from "./config.js";
+import { isLoopback } from "./local-server.js";
 import { dollars } from "./spend.js";
 import {
   loginCommandFor,
@@ -125,12 +126,54 @@ export interface Detected {
 
 export type Verifier = (id: BackendId, model: string) => Promise<Detected>;
 
-/** Subscription CLIs the screen offers, in the order it offers them. */
-const SUBSCRIPTION_CLIS: readonly {
+/**
+ * Subscription CLIs the screen offers, in the order it offers them — B116.
+ *
+ * ## The model is not ours to declare
+ *
+ * This carried `model: "sonnet"` for claude, and Todd's machine runs
+ * `claude-opus-5`. So the picker offered his configured `claude` **and** a
+ * second row called `claude-2` pinned to a model he never chose — a surface
+ * deciding for itself, which is B085's shape in different clothes.
+ *
+ * **Checked by running the CLIs, because the obvious fix is to ask them and
+ * you cannot.** `claude --help` has no models command; `claude config get
+ * model` is not a command at all and runs as a PROMPT (it answered in prose
+ * and spent a token); and the argv this daemon sends is frozen at
+ * `--output-format text` on purpose, so the response carries no model field.
+ * Three ways, no answer.
+ *
+ * ## So the sources are, in order
+ *
+ * 1. **The owner's configured service for this binary.** A machine has one
+ *    `claude`, so if they have configured it, that is what it serves — and
+ *    the canary then runs against the model the machine actually uses rather
+ *    than against our guess.
+ * 2. **A model in this build's own {@link knownModelsFor} list for that
+ *    backend**, which byollm_017 already maintains as what the CLI is known
+ *    to accept, and which is already announced with the capability. `sonnet`
+ *    is there and is documented in `claude --help` as an alias for the latest
+ *    sonnet — the CLI's word rather than ours.
+ * 3. **Nothing.** Then the row is not offered, because enabling it would
+ *    write a service pinned to a model nobody chose.
+ *
+ * `codex` is at (3) today: `gpt-5.6-terra` appears in no help output and in no
+ * list this build maintains. It is Todd's configured model, which is where it
+ * came from — one machine's setting, frozen into a constant for everybody.
+ * The invariant test below is what stops that happening again.
+ */
+export const SUBSCRIPTION_CLIS: readonly {
   readonly id: BackendId;
   readonly binary: string;
   readonly plan: string;
-  readonly model: string;
+  /**
+   * What to offer on a machine that has not configured this CLI yet.
+   *
+   * **Optional, and absent is the honest value** — not a placeholder waiting
+   * to be filled in. Every value here must appear in `knownModelsFor` for its
+   * backend, which is asserted rather than promised.
+   */
+  readonly model?: string;
   readonly install: string;
 }[] = Object.freeze([
   {
@@ -144,7 +187,6 @@ const SUBSCRIPTION_CLIS: readonly {
     id: "codex-cli",
     binary: "codex",
     plan: "ChatGPT plan",
-    model: "gpt-5.6-terra",
     install: "npm i -g @openai/codex",
   },
 ]);
@@ -202,12 +244,22 @@ export interface NewService {
  */
 interface Candidate {
   name: string;
-  readonly type: BackendId;
+  /**
+   * What the server is, and it can be upgraded — B116.
+   *
+   * Not `readonly`, unlike the address and the model, and the asymmetry is
+   * the point: those two are what this row IS, and this is what we currently
+   * know about it. A probe's answer replaces a config's memory.
+   */
+  type: BackendId;
   readonly baseUrl: string | undefined;
   readonly model: string;
-  readonly cost: BackendCost;
+  /** Recomputed when {@link Candidate.type} is, from the one classifier. */
+  cost: BackendCost;
+  /** True when a server answered, rather than a config remembering. */
+  identified: boolean;
   /** Where it lives, in the words a person would use. */
-  readonly where: string;
+  where: string;
   /** A subscription CLI's binary, when this row is one. */
   readonly binary?: string;
   /**
@@ -554,20 +606,47 @@ async function signIn(input: {
   return proof;
 }
 
-/** A key for "the same service", so a probe and a config entry are one row. */
-function identityOf(
-  type: BackendId,
-  baseUrl: string | undefined,
-  model: string,
-): string {
-  let where = baseUrl ?? "";
+/**
+ * What makes two rows the same service — B116, and it is a machine, an
+ * address, and a model.
+ *
+ * **`type` used to be in this key, and that is the whole bug.** Todd's config
+ * says `openai-http` at `127.0.0.1:11434` for `glm-5.2:cloud`; B112 taught the
+ * probe to say `ollama` for the same address and the same model. Two keys, two
+ * rows, one model — and enabling both writes two services where only one
+ * carries his spend cap. The words a config happens to use are not what a
+ * service IS.
+ *
+ * **Different models stay different services, and that is wanted rather than
+ * tolerated.** `claude-sonnet-5` and `claude-opus-5` cost differently and
+ * answer differently, and choosing between them is what a picker is for.
+ *
+ * **Loopback spellings collapse to one token.** `localhost:11434` and
+ * `127.0.0.1:11434` are one machine and one port, and a config using one
+ * spelling beside a probe using the other is a third way to get a duplicate.
+ * The set of spellings is `isLoopback`'s, asked rather than restated.
+ *
+ * A process-class backend has no address, so its binary is its address: a
+ * machine has one `claude`.
+ */
+function identityOf(input: {
+  readonly type: BackendId;
+  readonly baseUrl: string | undefined;
+  readonly model: string;
+}): string {
+  return `${addressOf(input.type, input.baseUrl)} ${input.model}`;
+}
+
+function addressOf(type: BackendId, baseUrl: string | undefined): string {
+  if (baseUrl === undefined) return `cli:${type}`;
   try {
-    const parsed = new URL(where);
-    where = `${parsed.protocol}//${parsed.host}`;
+    const url = new URL(baseUrl);
+    return isLoopback(baseUrl)
+      ? `local:${url.port}`
+      : `${url.protocol}//${url.host}`;
   } catch {
-    where = where.trim();
+    return baseUrl.trim();
   }
-  return `${type} ${where} ${model}`;
 }
 
 /** The three blocks, in the order they are shown. */
@@ -662,9 +741,44 @@ async function candidates(input: {
   const seen = new Map<string, Candidate>();
   const names = new Set<string>();
 
+  /**
+   * Add a row, or merge it into the one that is already this service — B116.
+   *
+   * **The merged row takes each field from whoever actually knows it.** The
+   * owner's decisions win, always: the name they gave it, the offer, the cap,
+   * the `apiKeyEnv`, anything they typed. **The probe wins `type`**, and only
+   * `type`, because the probe asked the server what it is and the config only
+   * remembers what somebody typed once.
+   *
+   * That direction is not a preference. `startCommandFor` switches on `type`,
+   * so `openai-http` is the one shape that **cannot be started on demand** —
+   * letting a stored guess beat an observation would silently un-start a
+   * server we proved we can start, in the field, on `.88`. So a stored
+   * `openai-http` at an address the probe now names `ollama` is UPGRADED here
+   * and written that way, not preserved.
+   */
   const add = (row: Candidate): void => {
-    const key = identityOf(row.type, row.baseUrl, row.model);
-    if (seen.has(key)) return;
+    const key = identityOf(row);
+    const already = seen.get(key);
+    if (already !== undefined) {
+      if (row.identified && !already.identified) {
+        already.type = row.type;
+        already.identified = true;
+        /* The label too: it came from the same answer, and a row saying
+           "Ollama" beside a type of `openai-http` is the disagreement this
+           row exists to end. */
+        already.where = row.where;
+        /* Cost is re-asked rather than carried, because the type it was
+           computed from just changed. One classifier, asked again — not a
+           second opinion. */
+        already.cost = classifyCost(
+          already.type,
+          already.baseUrl,
+          already.model,
+        ).cost;
+      }
+      return;
+    }
     row.name = uniqueName(row.name, names);
     names.add(row.name);
     seen.set(key, row);
@@ -705,6 +819,7 @@ async function candidates(input: {
           ? backendName(service.type)
           : `${backendName(service.type)} at ${service.baseUrl}`,
       original: block,
+      identified: false,
       signedOut: false,
       selected: true,
       shared: service.offer === "team",
@@ -714,22 +829,49 @@ async function candidates(input: {
 
   for (const cli of SUBSCRIPTION_CLIS) {
     if (!(await input.detector(cli.id))) continue;
-    const key = identityOf(cli.id, undefined, cli.model);
-    const proof = await input.verifier(cli.id, cli.model);
-    const already = seen.get(key);
-    if (already !== undefined) {
-      already.signedOut = proof.answers === false;
-      already.detail = proof.detail;
+
+    /**
+     * A machine has one `claude` — B116.
+     *
+     * If the owner already configured a service for this binary, that row IS
+     * this CLI and the detection annotates it rather than adding a second.
+     * Keying on the model would not do it: their `claude-opus-5` and our
+     * `sonnet` are genuinely different models, and the fix is to stop having
+     * an opinion about which one their machine runs.
+     */
+    const configured = rows.find((row) => row.type === cli.id);
+    const model = configured?.model ?? cli.model;
+    if (model === undefined) {
+      /* Detected, and not offered: we have no model we can stand behind, and
+         a row enabled here would write one nobody chose. Said rather than
+         skipped in silence — the binary IS on this machine, and a screen that
+         omits it without a word looks broken to whoever installed it. */
+      input.io.out(
+        `\n  \`${cli.binary}\` is installed, and byollm does not know which ` +
+          `model it serves.\n  Add it by hand and it will appear here next ` +
+          `time: https://docs.byollm.cloud/guides/models\n`,
+      );
+      continue;
+    }
+
+    const proof = await input.verifier(cli.id, model);
+    if (configured !== undefined) {
+      configured.signedOut = proof.answers === false;
+      configured.detail = proof.detail;
       continue;
     }
     add({
       name: uniqueName(cli.binary, names),
       type: cli.id,
       baseUrl: undefined,
-      model: cli.model,
+      model,
       cost: "subscription",
       where: `your ${cli.plan}`,
       binary: cli.binary,
+      /* A process backend was detected by RUNNING it, so its id is an
+         observation rather than a stored word — and nothing else can name a
+         binary, so there is no probe to disagree with. */
+      identified: true,
       signedOut: proof.answers === false,
       ...(proof.detail === undefined ? {} : { detail: proof.detail }),
       selected: false,
@@ -756,6 +898,10 @@ async function candidates(input: {
         // for itself is the defect B085 arrived as.
         cost: classifyCost(block.type, block.baseUrl, model).cost,
         where: `${server.label} at ${server.baseUrl}`,
+        /* Only when a server actually named itself. `undefined` from the
+           probe is "we did not verify a provider" — it must not beat a
+           config's `ollama` with a generic `openai-http`. */
+        identified: server.backendId !== undefined,
         signedOut: false,
         selected: false,
         shared: false,
@@ -1061,6 +1207,22 @@ function draftOf(row: Candidate): ServiceBlock {
 
   return {
     ...base,
+    /**
+     * The type this row actually is, over whatever the file remembered —
+     * B116, and it is the one owner-typed field this screen overwrites.
+     *
+     * Instruction 10 makes this a migration rather than a compatibility
+     * problem: nothing is backwards compatible until we are live, and the
+     * consumers of this file are four machines we can name. A stored
+     * `openai-http` at an address the probe calls `ollama` is a service that
+     * cannot be started on demand, and the whole point of B116 is that we
+     * know better at the moment we write.
+     *
+     * It is not a licence to rewrite anything else. `identified` is false for
+     * every row that only a config knows about, so a hand-written service at
+     * a port nobody probes keeps its type untouched.
+     */
+    type: row.type,
     offer: shared ? "team" : "private",
     ...(spend === undefined ? {} : { spend }),
   };
@@ -1308,4 +1470,80 @@ export function summarise(outcome: ManageResult): string[] {
       (cap === undefined ? "" : `, up to ${dollars(cap)} a day`)
     );
   });
+}
+
+/**
+ * A configured service whose type contradicts what the server says it is —
+ * B116, and it is the check that keeps this closed.
+ *
+ * **The rule: nothing a probe identified may carry a different type.** Todd's
+ * file today has `glm-5.2` as `openai-http` at `127.0.0.1:11434`, and that
+ * address answers Ollama's own API. `openai-http` is the one shape
+ * `startCommandFor` has no command for, so that service is the one thing on
+ * his machine that cannot be started on demand — which is exactly the
+ * capability we proved works in the field an hour ago.
+ *
+ * **`:cloud` is the sharp case and it lands the same way.** An `ollama:cloud`
+ * model is served by an Ollama daemon on loopback: it is `type: "ollama"` and
+ * it is startable. Metered is a COST fact, not a transport fact — B097 reads
+ * the tag before the declared cost, so typing it `ollama` cannot make it look
+ * free. **Nothing Ollama serves may be typed `openai-http`.**
+ *
+ * `openai-http` stays right for a server nobody identified, and that is all it
+ * is for: the generic transport, not somewhere to fall back to when the
+ * specific id is inconvenient to carry. A service at a port no probe visits —
+ * Todd's MLX on 6999 — is untouched by this, which is the control.
+ */
+export interface MisTyped {
+  readonly service: string;
+  readonly stored: BackendId;
+  readonly probed: BackendId;
+  readonly baseUrl: string;
+}
+
+export function misTypedServices(input: {
+  readonly services: Record<string, ServiceBlock>;
+  readonly servers: readonly LocalServer[];
+}): MisTyped[] {
+  /* Only servers that NAMED themselves. A probe that identified nothing has
+     no opinion to enforce, and treating its silence as `openai-http` would
+     turn "we did not ask" into a finding. */
+  const identified = new Map<string, BackendId>();
+  for (const server of input.servers) {
+    if (server.backendId === undefined) continue;
+    identified.set(
+      addressOf(server.backendId, server.baseUrl),
+      server.backendId,
+    );
+  }
+
+  const found: MisTyped[] = [];
+  for (const [name, block] of Object.entries(input.services)) {
+    const parsed = ServiceConfig.safeParse(block);
+    if (!parsed.success) continue;
+    const service = parsed.data;
+    if (service.baseUrl === undefined) continue;
+    const probed = identified.get(addressOf(service.type, service.baseUrl));
+    if (probed === undefined || probed === service.type) continue;
+    found.push({
+      service: name,
+      stored: service.type,
+      probed,
+      baseUrl: service.baseUrl,
+    });
+  }
+  return found;
+}
+
+/** The lines `byollm services` prints about them, or nothing. */
+export function misTypedReport(found: readonly MisTyped[]): string[] {
+  if (found.length === 0) return [];
+  return found.flatMap((row) => [
+    `  ! ${row.service}: your config says "${row.stored}", and ${row.baseUrl} ` +
+      `answers as ${backendName(row.probed)}.`,
+    `      byollm only starts a server whose service names it, so this one ` +
+      `will not be started`,
+    `      when a job needs it. \`byollm services manage\` fixes it, or set ` +
+      `"type": "${row.probed}".`,
+  ]);
 }

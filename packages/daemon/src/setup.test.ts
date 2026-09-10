@@ -231,15 +231,24 @@ describe("what it writes, when something is installed", () => {
   });
 
   it("resolves the ambiguity byollm_016 would otherwise withhold", async () => {
-    // Two subscription CLIs answer the same kinds. Left alone that is the
-    // withheld state — nothing advertised, and a person with no idea why. The
-    // wizard settles it out loud, so somebody who used it never meets it.
+    // Two services answer the same kinds. Left alone that is the withheld
+    // state — nothing advertised, and a person with no idea why. The wizard
+    // settles it out loud, so somebody who used it never meets it.
+    //
+    // A CLI and a local model rather than two CLIs, because B116 stopped
+    // `codex` being offered on a machine that has not configured it: this
+    // build knows no model it can stand behind for that binary, and a row
+    // whose model string we invented must not be offered.
     const p = await paths();
     await runSetup(
       p,
-      scripted(["mac", "a", "", "2", "n"]),
-      machineWith(["claude-cli", "codex-cli"]),
-      noServers,
+      scripted(["mac", "a", "", "n", "2", "n"]),
+      machineWith(["claude-cli"]),
+      serving({
+        label: "Ollama",
+        baseUrl: "http://127.0.0.1:11434/v1",
+        models: ["qwen3:8b"],
+      }),
       answersFine,
     );
     const parsed = DaemonConfig.safeParse(
@@ -251,7 +260,7 @@ describe("what it writes, when something is installed", () => {
     const loaded = resolveConfig(parsed.data);
     expect(loaded.withheld).toEqual([]);
     expect(loaded.problems).toEqual([]);
-    expect(parsed.data.defaults["llm.generate"]).toBe("codex");
+    expect(parsed.data.defaults["llm.generate"]).toBe("qwen3-8b");
   });
 
   it("never writes a config it would refuse itself", async () => {

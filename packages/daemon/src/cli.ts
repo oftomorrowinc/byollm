@@ -16,6 +16,8 @@ import { FAILURES_BEFORE_ALARM, readHealth } from "./health.js";
 import { InputEnded, runSetup, terminalIo, type TerminalIo } from "./setup.js";
 import {
   manageServices,
+  misTypedReport,
+  misTypedServices,
   readExistingConfig,
   summarise,
   writeManaged,
@@ -3634,8 +3636,24 @@ async function commandServices(
    * value and never from a server's list, which `backends.ts` states in as
    * many words, so nothing here reaches the router.
    */
+  const servers = await probeLocalServers();
+  /**
+   * A service whose type contradicts the server behind it — B116.
+   *
+   * Printed here rather than only guarded in the writer, because the configs
+   * that have this are the ones written before the probe could tell: it is on
+   * Todd's own machine right now, and nothing on any screen said so. Above
+   * the spare-models block, because it is about a service that exists rather
+   * than one that could.
+   */
+  for (const line of misTypedReport(
+    misTypedServices({ services: loaded.config.services, servers }),
+  )) {
+    io.out(`${line}\n`);
+  }
+
   for (const line of unusedModelsReport({
-    servers: await probeLocalServers(),
+    servers,
     configured: Object.values(loaded.config.services).map((entry) => ({
       baseUrl: entry.baseUrl,
       model: entry.model,

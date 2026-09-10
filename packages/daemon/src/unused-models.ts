@@ -1,3 +1,4 @@
+import { resolveCost } from "@byollm/protocol";
 import type { LocalServer } from "./probe-local.js";
 
 /**
@@ -128,4 +129,100 @@ function normalise(url: string): string {
   } catch {
     return url.trim();
   }
+}
+
+/**
+ * The whole section `byollm services` prints, or nothing at all — B100b.
+ *
+ * Lines rather than writes, the same shape `service-line.ts` uses: the
+ * decisions here are which models to name, how to mark the ones that are not
+ * local compute, and which one to hold up as the example — and every one of
+ * those is worth a test. Presentation built inside a command is presentation
+ * nothing can reach, which the coverage gate said out loud when this lived in
+ * `cli.ts`.
+ *
+ * Empty when there is nothing to say. A machine whose every model is already
+ * configured gets no paragraph, because a section that is always there is
+ * furniture — the same reason the memory guard says nothing above the floor.
+ */
+export function unusedModelsReport(input: {
+  readonly servers: readonly LocalServer[];
+  readonly configured: readonly {
+    baseUrl?: string | undefined;
+    model?: string | undefined;
+  }[];
+}): string[] {
+  const spare = unusedModels(input);
+  if (spare.length === 0) return [];
+
+  const lines = ["", "also on this machine, not used by any service"];
+  for (const server of spare) {
+    lines.push(`  ${server.label} (${server.baseUrl})`);
+    for (const model of server.models) {
+      /**
+       * A `:cloud` tag is marked, because this list looks like local compute
+       * and one of these is not.
+       *
+       * Found by running it: Todd's Ollama serves `kimi-k3:cloud` beside
+       * three genuinely local models. Ollama proxies hosted models through
+       * the same loopback port, so the address says local and the bill does
+       * not — B097's whole subject, arriving on a new surface three rows
+       * later. Printing it unmarked under "on this machine" would be the
+       * page saying the friendlier half.
+       *
+       * Asked of {@link resolveCost} rather than decided here: cost has one
+       * home, and a surface that classified for itself is the defect B085
+       * arrived as.
+       */
+      const cost = costOf(server.baseUrl, model);
+      lines.push(
+        `    ${model}${cost === "free" ? "" : `  (${cost} — runs on your provider's account)`}`,
+      );
+    }
+  }
+
+  /**
+   * One example, and a FREE one where there is one.
+   *
+   * The block is the same shape every time, so printing six would bury the
+   * sentence explaining it — but taking the first model blindly would offer
+   * somebody a paste that quietly creates a metered service. Local first, and
+   * the mark above still tells the truth when every model here is hosted.
+   */
+  const example =
+    spare
+      .flatMap((server) => server.models.map((name) => ({ server, name })))
+      .find(({ server, name }) => costOf(server.baseUrl, name) === "free") ??
+    (spare[0]?.models[0] === undefined
+      ? undefined
+      : { server: spare[0], name: spare[0].models[0] });
+  if (example === undefined) return lines;
+
+  lines.push(
+    "",
+    "To use one, add it to the `services` block of ~/.byollm/config.json:",
+    "",
+    ...pasteableService({
+      model: example.name,
+      baseUrl: example.server.baseUrl,
+    })
+      .split("\n")
+      .map((line) => `    ${line}`),
+    "",
+    "  `offer` is written out on purpose — a service created without a",
+    "  visible scope is a decision made for you. `private` means only your",
+    "  own work runs on it.",
+  );
+  return lines;
+}
+
+/**
+ * What a model behind this address would cost, asked of the one classifier.
+ *
+ * `openai-http` because that is what the printed block declares, so the
+ * answer describes the service somebody would actually create rather than a
+ * hypothetical one.
+ */
+function costOf(baseUrl: string, model: string): string {
+  return resolveCost("openai-http", baseUrl, model);
 }

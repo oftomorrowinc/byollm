@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { pasteableService, unusedModels } from "./unused-models.js";
+import {
+  pasteableService,
+  unusedModels,
+  unusedModelsReport,
+} from "./unused-models.js";
 
 /**
  * The models on this machine that nothing points at — B100b.
@@ -139,5 +143,74 @@ describe("models nothing is using", () => {
         ) as object,
       ),
     ).toEqual(["Qwen2.5-14B-Instruct-4bit"]);
+  });
+});
+
+describe("what `byollm services` prints about them", () => {
+  const report = (
+    servers: { label: string; baseUrl: string; models: string[] }[],
+    configured: { baseUrl?: string; model?: string }[] = [],
+  ) => unusedModelsReport({ servers, configured }).join("\n");
+
+  it("says nothing when every model is already configured", () => {
+    /* A section that is always there is furniture — the same reason the
+       memory guard stays quiet above the floor. */
+    expect(
+      unusedModelsReport({
+        servers: [{ ...OLLAMA, models: ["llama3.2"] }],
+        configured: [
+          { baseUrl: "http://127.0.0.1:11434/v1", model: "llama3.2" },
+        ],
+      }),
+    ).toEqual([]);
+  });
+
+  it("marks a model that is not local compute, and leaves local ones plain", () => {
+    /**
+     * Found by running it on Todd's machine: Ollama serves `kimi-k3:cloud`
+     * beside three genuinely local models, and a list headed "on this
+     * machine" would have said the friendlier half. Ollama proxies hosted
+     * models through the same loopback port — B097's subject, on a new
+     * surface three rows later.
+     */
+    const text = report([
+      { ...OLLAMA, models: ["smollm2:135m", "kimi-k3:cloud"] },
+    ]);
+    expect(text).toContain("kimi-k3:cloud  (metered");
+    /* The control: a local model carries no mark, or the mark means nothing. */
+    expect(text).toMatch(/ {4}smollm2:135m\n/);
+  });
+
+  it("holds up a FREE model as the example, not merely the first", () => {
+    /* Taking the first blindly would offer a paste that quietly creates a
+       metered service. */
+    const text = report([
+      { ...OLLAMA, models: ["kimi-k3:cloud", "smollm2:135m"] },
+    ]);
+    expect(text).toContain('"model": "smollm2:135m"');
+    expect(text).not.toContain('"model": "kimi-k3:cloud"');
+  });
+
+  it("still shows an example when every model here is hosted", () => {
+    /**
+     * The control on the line above, and the honest half: with nothing local
+     * to suggest, staying silent would leave somebody with a list and no way
+     * to use any of it. The mark on the entry above still tells the truth.
+     */
+    const text = report([{ ...OLLAMA, models: ["kimi-k3:cloud"] }]);
+    expect(text).toContain('"model": "kimi-k3:cloud"');
+    expect(text).toContain("(metered");
+  });
+
+  it("names every unused model, not only the one it demonstrates", () => {
+    const text = report([
+      { ...OLLAMA, models: ["smollm2:135m", "gemma4:26b"] },
+      MLX,
+    ]);
+    for (const model of ["smollm2:135m", "gemma4:26b", "qwen-2.5-14b"]) {
+      expect(text, model).toContain(model);
+    }
+    expect(text).toContain("Ollama (http://127.0.0.1:11434/v1)");
+    expect(text).toContain("MLX (http://127.0.0.1:6999/v1)");
   });
 });

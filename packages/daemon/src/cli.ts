@@ -32,6 +32,7 @@ import { DaemonConfig, loadConfig } from "./config.js";
 import { connect } from "./connect.js";
 import { IngressLog, stripControlChars } from "./ingress.js";
 import { readHostMemory } from "./memory.js";
+import { modelLoadQuestion } from "./model-memory.js";
 import { stopLine } from "./stop-remedy.js";
 import type { MemoryPressure, MemoryReading } from "./memory.js";
 import { DeviceIdentity } from "./identity.js";
@@ -908,6 +909,30 @@ async function commandModel(
     { configPath: paths.config, service, model },
     io,
     backendVerifier((id) => createBackend(id, {})),
+    /**
+     * The memory guard on the owner's own command — B106.
+     *
+     * Wired here for the same reason `readMemory` and `spawnServer` are wired
+     * on the Runner and nowhere else: this is the process that is about to
+     * load a model, and a seam nobody passes is a guard that does not exist.
+     *
+     * The configured floor comes from the same config the gate reads for a
+     * job — `minAvailableMemoryBytes`, one value, one meaning, whoever asked.
+     */
+    async (backendId) => {
+      const loaded = await loadConfig(paths.config).catch(() => undefined);
+      if (loaded === undefined) return { ask: false };
+      const { memory, pressure } = await readHostMemory();
+      return modelLoadQuestion({
+        backendId,
+        baseUrl: loaded.config.services[service]?.baseUrl,
+        model,
+        memory,
+        pressure,
+        floorBytes: loaded.config.minAvailableMemoryBytes,
+      });
+    },
+    io.confirm,
   );
   return set.code;
 }

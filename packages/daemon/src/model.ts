@@ -161,6 +161,36 @@ export async function setModel(
     id: BackendId,
     model: string,
   ) => Promise<{ answers: boolean | undefined; detail?: string | undefined }>,
+  /**
+   * The memory guard, as a PROMPT rather than a refusal — B106.
+   *
+   * `guardApplies` and `memoryGate` lived in `runner.ts` and nowhere else, so
+   * the whole of B080/B090 protected the job path only — and this command is
+   * a documented, guard-free model load. `verify` calls the backend's canary,
+   * which is *"the cheapest true call the backend has"*, and for a local
+   * server a true call loads the model. That is H2, the shape that wedged
+   * Todd's machine on 09-08, reachable from a line in the help text.
+   *
+   * **A prompt, because an owner typing this IS consent** — which a remote
+   * job is not, and refusing here would be second-guessing somebody about
+   * their own machine. But the failure mode does not care who asked, so
+   * below the floor they are told what is about to be loaded and what is
+   * left, and asked.
+   *
+   * **Above the floor it says nothing.** A guard that narrates on the happy
+   * path teaches people to skip reading it, and then it is furniture on the
+   * day it matters.
+   *
+   * Absent means no check — the same shape as `spawnServer` and
+   * `readMemory` on the Runner. `byollm status` is where an owner learns the
+   * guard is not active on this machine.
+   */
+  memoryCheck?: (
+    backendId: BackendId,
+  ) => Promise<
+    { readonly ask: false } | { readonly ask: true; readonly question: string }
+  >,
+  confirm?: (question: string) => Promise<boolean>,
 ): Promise<ModelResult> {
   const raw = await readFile(input.configPath, "utf8").catch(() => undefined);
   if (raw === undefined) {
@@ -184,8 +214,31 @@ export async function setModel(
     return { changed: false, code: 0 };
   }
 
+  /**
+   * Asked BEFORE the canary, which is the whole point — B106.
+   *
+   * The canary is the thing that loads the model. A check after it would
+   * describe a machine that had already been wedged, which is the ordering
+   * mistake the job path was careful about and this path never had.
+   */
+  const backendId = (entry.type ?? "") as BackendId;
+  if (memoryCheck !== undefined) {
+    const verdict = await memoryCheck(backendId);
+    if (verdict.ask) {
+      const goAhead =
+        confirm === undefined ? false : await confirm(verdict.question);
+      if (!goAhead) {
+        io.err(
+          `\n  Nothing was changed — ${input.service} is still on ` +
+            `${entry.model ?? "its previous model"}.\n`,
+        );
+        return { changed: false, code: 1 };
+      }
+    }
+  }
+
   io.out(`  Checking ${input.model} answers on ${input.service}…\n`);
-  const proof = await verify((entry.type ?? "") as BackendId, input.model);
+  const proof = await verify(backendId, input.model);
   if (proof.answers === false) {
     io.err(
       `\n  ${input.service} refused ${input.model}:\n` +

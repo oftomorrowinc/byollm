@@ -287,3 +287,79 @@ describe("the probe behind the verb", () => {
     });
   });
 });
+
+describe("the memory guard on the owner's own command — B106", () => {
+  /**
+   * The ordering is the whole property.
+   *
+   * `verify` runs the backend's canary, which is "the cheapest true call the
+   * backend has" — and for a local server a true call LOADS THE MODEL. A
+   * check after it would describe a machine that had already been wedged,
+   * which is the mistake the job path was careful about and this path never
+   * had at all.
+   */
+  /* The file's own `config`, `io`, `out` and `err` — set up in the outer
+     `beforeEach`, so this block adds no second harness to keep in step. The
+     shared config already has an `ollama` service on `llama3.2`. */
+
+  it("asks before the canary runs, not after", async () => {
+    let canaryRan = false;
+    const result = await setModel(
+      { configPath: config, service: "ollama", model: "gemma4:26b" },
+      io,
+      () => {
+        canaryRan = true;
+        return Promise.resolve({ answers: true as const });
+      },
+      () =>
+        Promise.resolve({ ask: true as const, question: "Load it anyway?" }),
+      () => Promise.resolve(false),
+    );
+
+    expect(
+      canaryRan,
+      "the model was loaded before anybody was asked about it",
+    ).toBe(false);
+    expect(result.changed).toBe(false);
+    expect(err).toContain("still on llama3.2");
+  });
+
+  it("loads it when they say yes, because this is a prompt and not a wall", async () => {
+    /* An owner typing the command is consent, which a remote job is not.
+       Refusing would be second-guessing somebody about their own machine —
+       the ruling B080 already took. */
+    let canaryRan = false;
+    const result = await setModel(
+      { configPath: config, service: "ollama", model: "gemma4:26b" },
+      io,
+      () => {
+        canaryRan = true;
+        return Promise.resolve({ answers: true as const });
+      },
+      () =>
+        Promise.resolve({ ask: true as const, question: "Load it anyway?" }),
+      () => Promise.resolve(true),
+    );
+
+    expect(canaryRan).toBe(true);
+    expect(result.changed).toBe(true);
+  });
+
+  it("asks nothing when there is room", async () => {
+    /* The control on both cases above: with no question, no confirmation is
+       sought and the command behaves exactly as it did. */
+    let asked = 0;
+    const result = await setModel(
+      { configPath: config, service: "ollama", model: "gemma4:26b" },
+      io,
+      () => Promise.resolve({ answers: true as const }),
+      () => Promise.resolve({ ask: false as const }),
+      () => {
+        asked += 1;
+        return Promise.resolve(true);
+      },
+    );
+    expect(asked, "a confirmation was sought with room to spare").toBe(0);
+    expect(result.changed).toBe(true);
+  });
+});

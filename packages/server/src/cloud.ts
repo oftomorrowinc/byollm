@@ -1,6 +1,8 @@
+import { openSealedOutcome } from "./sealed-outcome.js";
 import {
   PROTOCOL_VERSION,
-  SealedOutcome,
+  type SealedOutcome,
+  type ResultDisposition,
   type SealedEnvelope,
   keyId,
   open,
@@ -370,11 +372,17 @@ export class CloudLane {
       sealed.push(claim.jobId);
     }
 
+    /* `ResultDisposition`, not `string` — B064 step 4's extraction surfaced
+       this. A hand-written cast of a wire response retypes the shape at the
+       consumer, and this field lost its union on the way: the relay declares
+       `"ok" | "error" | "canceled"` and this said `string`, so nothing here
+       could tell a disposition from any other text. Instruction 9, in the
+       small. */
     const finished = (await this.#get("results")) as {
       jobs: {
         jobId: string;
         envelope: SealedEnvelope;
-        disposition: string;
+        disposition: ResultDisposition;
         runnerId: string;
         leaseId: string;
         device: PublicIdentity;
@@ -441,7 +449,7 @@ export class CloudLane {
   async #openResult(done: {
     jobId: string;
     envelope: SealedEnvelope;
-    disposition: string;
+    disposition: ResultDisposition;
     device: PublicIdentity;
   }): Promise<SealedOutcome | null> {
     const opened = await open({
@@ -457,19 +465,15 @@ export class CloudLane {
     });
     if (!opened.ok) return null;
 
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(opened.plaintext);
-    } catch {
-      return null;
-    }
-    const sealed = SealedOutcome.safeParse(parsed);
-    if (!sealed.success) return null;
-    // The clear-text disposition is a routing hint the relay acted on. This
-    // is the only place it can be checked, because this is the only party
-    // that can open the envelope (byollm_009 §6.1).
-    if (sealed.data.outcome.outcome !== done.disposition) return null;
-    return sealed.data;
+    // One function, both lanes — see `sealed-outcome.ts`. The disposition
+    // check lives inside it, because this is the only party that can open the
+    // envelope (byollm_009 §6.1) and therefore the only place the relay's
+    // clear-text routing hint can be checked against the truth.
+    const outcome = openSealedOutcome({
+      plaintext: opened.plaintext,
+      disposition: done.disposition,
+    });
+    return outcome.ok ? outcome.value : null;
   }
 
   /**

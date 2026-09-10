@@ -1,6 +1,7 @@
+import { openSealedOutcome } from "./sealed-outcome.js";
 import {
   FetchRequest,
-  SealedOutcome,
+  type SealedOutcome,
   keyId,
   open,
   publicIdentityOf,
@@ -608,19 +609,14 @@ export class ByollmHandlers {
       return refuse("the result did not verify as coming from this device");
     }
 
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(opened.plaintext);
-    } catch {
-      return refuse("the sealed result was not valid JSON");
-    }
-    const sealed = SealedOutcome.safeParse(parsed);
-    if (!sealed.success) return refuse("the sealed result was not an outcome");
-
-    if (sealed.data.outcome.outcome !== request.disposition) {
-      return refuse("the declared disposition is not the one that was sealed");
-    }
-    return { ok: true, value: sealed.data };
+    /* One function, both lanes — see `sealed-outcome.ts`. The refusal
+       messages are the ones this lane already returned, now stated once. */
+    const outcome = openSealedOutcome({
+      plaintext: opened.plaintext,
+      disposition: request.disposition,
+    });
+    if (!outcome.ok) return refuse(outcome.why);
+    return { ok: true, value: outcome.value };
   }
 
   // -- 5. release -----------------------------------------------------------

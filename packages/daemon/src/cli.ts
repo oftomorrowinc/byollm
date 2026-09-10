@@ -3497,7 +3497,27 @@ async function commandServices(
     // "0 of 2 routes are healthy" is a true sentence that leaves the reader
     // exactly as stuck as before it was printed.
     if (!ok) {
-      const hint = await diagnoseRoute({ baseUrl: route.baseUrl });
+      /**
+       * Everything the probe learned, handed to the thing that explains it —
+       * B098.
+       *
+       * The declared type because the finding is that it and the address can
+       * disagree, and a diagnosis given only one of them cannot see it. The
+       * `detail` because the probe that just ran is the only thing holding
+       * the backend's own sentence, and this parameter had **no caller
+       * passing it at all** — which is how "Nothing is listening" came to be
+       * printed about servers that were answering.
+       */
+      const probed = runner.serviceStates.get(route.service)?.state;
+      const detail =
+        probed?.kind === "signed-out" || probed?.kind === "blocked"
+          ? probed.detail
+          : undefined;
+      const hint = await diagnoseRoute({
+        baseUrl: route.baseUrl,
+        backendId: route.backendId,
+        ...(detail === undefined ? {} : { detail }),
+      });
       if (hint !== undefined) io.out(`      ${hint}\n`);
     }
   }

@@ -1212,3 +1212,135 @@ describe("a config that says one thing while the server says another", () => {
     );
   });
 });
+
+/**
+ * One binary, several configured models — B117, a regression B116 created.
+ *
+ * "A machine has one `claude`" is true of the BINARY. **Answerability is per
+ * (binary, model)**, which is why `verifier` takes both — and B116 made
+ * one-binary-many-models reachable while leaving the annotation loop assuming
+ * one row per binary. Our own ruling landing in half the code.
+ */
+describe("a CLI serving more than one configured model", () => {
+  const twoClaudes = {
+    "claude-opus": {
+      type: "claude-cli",
+      model: "claude-opus-5",
+      kinds: [...BOTH_KINDS],
+      offer: "private",
+    },
+    "claude-sonnet": {
+      type: "claude-cli",
+      model: "claude-sonnet-5",
+      kinds: [...BOTH_KINDS],
+      offer: "private",
+    },
+  };
+
+  /** Signed in for the first model, signed out for the second. */
+  const onlyOpusAnswers = (_id: unknown, model: string): Promise<Detected> =>
+    model === "claude-opus-5"
+      ? Promise.resolve({ installed: true, answers: true })
+      : Promise.resolve({
+          installed: true,
+          answers: false,
+          detail: "run `claude auth login`",
+        });
+
+  it("asks about every model, not just the first", async () => {
+    /* The canary ran ONCE, for `rows.find(...)`, so the second row was
+       reported on the strength of an answer about a different model. */
+    const asked: string[] = [];
+    await run([""], {
+      existing: twoClaudes,
+      detector: machineWith(["claude-cli"]),
+      verifier: (id, model) => {
+        asked.push(model);
+        return onlyOpusAnswers(id, model);
+      },
+    });
+    /* The SET, not the sequence: the sign-in loop re-probes the row that
+       could not answer, so the failing model is asked again — which is the
+       loop working, and not what this case is about. */
+    expect([...new Set(asked)].sort()).toEqual([
+      "claude-opus-5",
+      "claude-sonnet-5",
+    ]);
+  });
+
+  it("marks the row that cannot answer, and only that one", async () => {
+    const { io } = await run([""], {
+      existing: twoClaudes,
+      detector: machineWith(["claude-cli"]),
+      verifier: onlyOpusAnswers,
+    });
+    const screen = io.transcript();
+    const sonnet = screen.indexOf("claude-sonnet");
+    const opus = screen.indexOf("claude-opus");
+    /* Each row's note is on its own line, so "signed out" must fall after the
+       name it belongs to and before the next row's. */
+    expect(screen.slice(sonnet)).toContain("signed out");
+    expect(screen.slice(opus, sonnet)).not.toContain("signed out");
+  });
+
+  it("refuses to write the one that cannot answer, and keeps the one that can", async () => {
+    /**
+     * CW's reproduction: both rows pre-selected, pressing Enter wrote a
+     * service that cannot answer with no warning shown. The second row also
+     * escaped the "Leaving `claude` out" path entirely.
+     */
+    const { outcome, io } = await run(["", "n", "n"], {
+      existing: twoClaudes,
+      detector: machineWith(["claude-cli"]),
+      verifier: onlyOpusAnswers,
+      login: () => Promise.resolve(false),
+    });
+    expect(io.transcript()).toContain("Leaving `claude` out");
+    expect(Object.keys(outcome.services)).toEqual(["claude-opus"]);
+  });
+
+  it("offers the sign-in for a configured CLI, which it stopped doing at all", async () => {
+    /**
+     * **The half that bit the ONE-service case too, and nobody had noticed.**
+     * `binary` was set only on rows the detection branch ADDS, and the
+     * sign-in path skips a row without one — so a single configured `claude`
+     * that could not answer was marked `signed out` on screen, never offered
+     * the sign-in, never deselected, and written anyway. That is precisely
+     * the "a note in a wizard that finished by saying it was done" failure the
+     * path exists to prevent, reintroduced by the row that stopped
+     * duplicating it.
+     */
+    const { outcome, io } = await run(["", "n", "n"], {
+      existing: {
+        claude: {
+          type: "claude-cli",
+          model: "claude-opus-5",
+          kinds: [...BOTH_KINDS],
+          offer: "private",
+        },
+      },
+      detector: machineWith(["claude-cli"]),
+      verifier: signedOut,
+      login: () => Promise.resolve(false),
+    });
+    expect(io.transcript()).toContain("cannot answer yet");
+    expect(io.transcript()).toContain("run `claude auth login`");
+    expect(outcome.services["claude"]).toBeUndefined();
+  });
+
+  it("says nothing and writes both when both answer", async () => {
+    /* The control: two models on one binary is a normal config, not a
+       problem, and a screen that warned about it would be noise. */
+    const { outcome, io } = await run([""], {
+      existing: twoClaudes,
+      detector: machineWith(["claude-cli"]),
+      verifier: answersFine,
+    });
+    expect(io.transcript()).not.toContain("signed out");
+    expect(io.transcript()).not.toContain("Leaving");
+    expect(Object.keys(outcome.services).sort()).toEqual([
+      "claude-opus",
+      "claude-sonnet",
+    ]);
+  });
+});

@@ -260,8 +260,14 @@ interface Candidate {
   identified: boolean;
   /** Where it lives, in the words a person would use. */
   where: string;
-  /** A subscription CLI's binary, when this row is one. */
-  readonly binary?: string;
+  /**
+   * A subscription CLI's binary, when this row is one.
+   *
+   * Mutable, and B117 is why: a row read from the config does not know it is
+   * a CLI until detection says so, and it is the field the sign-in path keys
+   * on. Set only where a binary was actually found on this machine.
+   */
+  binary?: string;
   /**
    * The block this row was read from, when it came from the config.
    *
@@ -831,16 +837,51 @@ async function candidates(input: {
     if (!(await input.detector(cli.id))) continue;
 
     /**
-     * A machine has one `claude` — B116.
+     * A machine has one `claude` — B116 — and it can serve several models.
      *
-     * If the owner already configured a service for this binary, that row IS
-     * this CLI and the detection annotates it rather than adding a second.
+     * If the owner already configured services for this binary, those rows
+     * ARE this CLI and detection annotates them rather than adding another.
      * Keying on the model would not do it: their `claude-opus-5` and our
      * `sonnet` are genuinely different models, and the fix is to stop having
      * an opinion about which one their machine runs.
+     *
+     * **`filter`, not `find` — B117, a regression B116 created.** "A machine
+     * has one `claude`" is true of the BINARY; answerability is per (binary,
+     * model), which is why `verifier` takes both. B116 made
+     * one-binary-many-models reachable and left this loop assuming one row
+     * per binary, so with `claude-opus-5` and `claude-sonnet-5` both
+     * configured the canary ran once, for the first, and the second row was
+     * pre-selected showing nothing wrong. Our own ruling landing in half the
+     * code.
+     *
+     * One real call per configured model is the honest cost of that: the
+     * question "can this machine answer" has a different answer for each of
+     * them, and a machine cannot be asked once about two.
      */
-    const configured = rows.find((row) => row.type === cli.id);
-    const model = configured?.model ?? cli.model;
+    const configured = rows.filter((row) => row.type === cli.id);
+    if (configured.length > 0) {
+      for (const row of configured) {
+        const proof = await input.verifier(cli.id, row.model);
+        row.signedOut = proof.answers === false;
+        row.detail = proof.detail;
+        /**
+         * The binary, carried onto the row it belongs to — B117's second half,
+         * and it bit the ONE-service case too.
+         *
+         * `binary` was set only on rows this branch ADDS, and the sign-in
+         * path skips a row without one. So a configured CLI that could not
+         * answer was marked `signed out` on screen, never offered the sign-in,
+         * never deselected, and written into the config anyway — the exact
+         * "a note in a wizard that finished by saying it was done" failure
+         * that path exists to prevent, reintroduced by the row that stopped
+         * duplicating it.
+         */
+        row.binary = cli.binary;
+      }
+      continue;
+    }
+
+    const model = cli.model;
     if (model === undefined) {
       /* Detected, and not offered: we have no model we can stand behind, and
          a row enabled here would write one nobody chose. Said rather than
@@ -855,11 +896,6 @@ async function candidates(input: {
     }
 
     const proof = await input.verifier(cli.id, model);
-    if (configured !== undefined) {
-      configured.signedOut = proof.answers === false;
-      configured.detail = proof.detail;
-      continue;
-    }
     add({
       name: uniqueName(cli.binary, names),
       type: cli.id,

@@ -3,7 +3,6 @@ import { PassThrough } from "node:stream";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { TEST_YOUR_DEVICE } from "./test-your-device.js";
 import {
   detectInstalled,
   runSetup,
@@ -16,13 +15,21 @@ import { DaemonConfig, resolveConfig } from "./config.js";
 import type { DaemonPaths } from "./paths.js";
 
 /**
- * The wizard, byollm_015 Phase 1.
+ * The wizard, byollm_015 Phase 1 — and what is left of it after B100a.
  *
  * Its whole contract is that it writes the same `~/.byollm/config.json` a hand
- * would — so every assertion here ends at that file, parsed by the schema the
+ * would, so every assertion here ends at that file, parsed by the schema the
  * daemon actually loads. A wizard that emitted a config the daemon refuses
  * would have invented a second format, which is the failure this project has
  * paid for in other shapes and does not need in a new one.
+ *
+ * **The conversation about services is no longer here.** Todd, 09-10: *"We
+ * should remove the old setup and replace with this one. I shouldn't have even
+ * suggested having two."* The picker is `services-manage.ts` and has its own
+ * suite; what remains in this file is setup's own: the guards on somebody
+ * else's file, the device name, and the two verbs that finish the job. The
+ * cases that moved are the ones whose subject moved — a test for a picker
+ * driven through the wizard tests the wizard's argument passing.
  */
 
 async function paths(): Promise<DaemonPaths> {
@@ -94,12 +101,23 @@ function scripted(answers: readonly string[]): SetupIo & {
   };
 }
 
+/**
+ * The shortest true run: name it, take the one thing on offer, stop before
+ * pairing.
+ *
+ * Written once because eleven cases below want it and the script is now a
+ * sequence rather than three yes/nos — a copy of it in each case is eleven
+ * places to edit when a question moves, which is the thing this row spent its
+ * afternoon removing from the source.
+ */
+const ONE_CLI = ["mac", "1", "", "n"] as const;
+
 describe("the wizard writes a config the daemon accepts", () => {
-  it("writes nothing when no CLI is installed, and says what to install", async () => {
+  it("writes nothing when there is nothing on the machine", async () => {
     // The honest empty case. A wizard that wrote an empty `services` map
     // would produce a daemon that advertises nothing and cannot say why.
     const p = await paths();
-    const io = scripted(["my laptop", "n"]);
+    const io = scripted(["my laptop"]);
     const result = await runSetup(
       p,
       io,
@@ -110,7 +128,7 @@ describe("the wizard writes a config the daemon accepts", () => {
 
     expect(result.wrote).toBe(false);
     await expect(readFile(p.config, "utf8")).rejects.toThrow();
-    expect(io.transcript()).toContain("no supported CLI found");
+    expect(io.transcript()).toContain("Nothing to configure yet");
   });
 
   it("refuses to touch a config that already exists", async () => {
@@ -141,16 +159,41 @@ describe("the wizard writes a config the daemon accepts", () => {
     expect(await readFile(p.config, "utf8")).toBe(mine);
   });
 
-  it("will not ask questions of something that is not a terminal", async () => {
-    // A wizard reading from a pipe answers its own questions with whatever is
-    // there, which is how an unattended install ends up configured by
-    // accident.
+  it("names the screen that CAN change an existing config", async () => {
+    /**
+     * The refusal above used to end at *"or edit that file"*, which was the
+     * only true sentence available until B100a. There is a command now, and a
+     * refusal that does not name the way forward teaches people to go and
+     * hand-edit JSON — which is the complaint B100 opened with.
+     */
     const p = await paths();
-    const io = { ...scripted([]), interactive: false };
+    await mkdir(p.root, { recursive: true });
+    await writeFile(
+      p.config,
+      JSON.stringify({
+        services: {
+          studio: {
+            type: "openai-http",
+            baseUrl: "http://127.0.0.1:8080/v1",
+            model: "qwen",
+            kinds: ["llm.generate"],
+          },
+        },
+      }),
+      "utf8",
+    );
+    const io = scripted([]);
+    await runSetup(p, io, machineWith([]), noServers, answersFine);
+    expect(io.transcript()).toContain("byollm services manage");
+  });
+
+  it("will not ask questions of something that is not a terminal", async () => {
+    const p = await paths();
+    const io = scripted([]);
     const result = await runSetup(
       p,
-      io,
-      machineWith([]),
+      { ...io, interactive: false },
+      machineWith(["claude-cli"]),
       noServers,
       answersFine,
     );
@@ -164,7 +207,7 @@ describe("what it writes, when something is installed", () => {
     const p = await paths();
     const result = await runSetup(
       p,
-      scripted(["studio-mac", "y", "n"]),
+      scripted([...ONE_CLI]),
       machineWith(["claude-cli"]),
       noServers,
       answersFine,
@@ -186,30 +229,6 @@ describe("what it writes, when something is installed", () => {
     ]);
   });
 
-  it("says the self-lock in its own words before asking", async () => {
-    // Consent wording is product law: the moment of enablement is the moment
-    // of disclosure. Asserted on the transcript, because that is what a person
-    // reads — a comment in the source is not a disclosure.
-    const io = scripted(["mac", "y", "n"]);
-    await runSetup(
-      await paths(),
-      io,
-      machineWith(["claude-cli"]),
-      noServers,
-      answersFine,
-    );
-
-    const text = io.transcript();
-    const disclosure = text.indexOf("YOUR OWN jobs");
-    const question = text.indexOf("Use it for your own jobs?");
-    expect(disclosure).toBeGreaterThan(-1);
-    expect(question).toBeGreaterThan(-1);
-    expect(
-      disclosure,
-      "the lock must be stated before the question",
-    ).toBeLessThan(question);
-  });
-
   it("resolves the ambiguity byollm_016 would otherwise withhold", async () => {
     // Two subscription CLIs answer the same kinds. Left alone that is the
     // withheld state — nothing advertised, and a person with no idea why. The
@@ -217,7 +236,7 @@ describe("what it writes, when something is installed", () => {
     const p = await paths();
     await runSetup(
       p,
-      scripted(["mac", "y", "y", "2"]),
+      scripted(["mac", "a", "", "2", "n"]),
       machineWith(["claude-cli", "codex-cli"]),
       noServers,
       answersFine,
@@ -235,15 +254,18 @@ describe("what it writes, when something is installed", () => {
   });
 
   it("never writes a config it would refuse itself", async () => {
-    // The control on the whole file: every path above ends in
-    // `DaemonConfig.safeParse` inside the wizard, so a shape it cannot build
-    // is a shape it does not write. Asserted by driving every branch and
-    // reading back what landed.
+    // The control on the whole file: every path ends in
+    // `DaemonConfig.safeParse` inside `writeManaged`, so a shape it cannot
+    // build is a shape it does not write. Asserted by driving several branches
+    // and reading back what landed.
     for (const [answers, machine] of [
-      [["a", "y", "n"], ["claude-cli"]],
-      [["a", "n", "n"], ["claude-cli"]],
+      [[...ONE_CLI], ["claude-cli"]],
       [
-        ["a", "y", "y", "y", "1"],
+        ["mac", "a", "", "1", "n"],
+        ["claude-cli", "codex-cli"],
+      ],
+      [
+        ["mac", "a", "", "banana", "n"],
         ["claude-cli", "codex-cli"],
       ],
     ] as const) {
@@ -271,7 +293,7 @@ describe("the smaller decisions", () => {
     // would name the device "" and nobody would notice until it appeared on
     // somebody's devices page.
     const p = await paths();
-    const io = scripted(["", "y", "n"]);
+    const io = scripted(["", "1", "", "n"]);
     await runSetup(p, io, machineWith(["claude-cli"]), noServers, answersFine);
     expect(io.transcript()).toContain("byollm connect --name");
     expect(io.transcript()).not.toContain('--name ""');
@@ -281,7 +303,7 @@ describe("the smaller decisions", () => {
     const previous = process.env["BYOLLM_LABEL"];
     process.env["BYOLLM_LABEL"] = "studio-rig";
     try {
-      const io = scripted(["", "y", "n"]);
+      const io = scripted(["", "1", "", "n"]);
       await runSetup(
         await paths(),
         io,
@@ -296,28 +318,13 @@ describe("the smaller decisions", () => {
     }
   });
 
-  it("says so plainly when nothing is listening", async () => {
-    // The honest empty case. Somebody with no local server should be told
-    // where to add one, not shown an empty numbered list.
-    const io = scripted(["mac", "y", ""]);
-    await runSetup(
-      await paths(),
-      io,
-      machineWith(["claude-cli"]),
-      noServers,
-      answersFine,
-    );
-    expect(io.transcript()).toContain("none answering on the usual ports");
-    expect(io.transcript()).toContain("guides/models");
-  });
-
-  it("declining every CLI writes nothing", async () => {
-    // Detected is not enabled. Somebody who says no to both should end with
+  it("selecting nothing writes nothing", async () => {
+    // Offered is not enabled. Somebody who turns nothing on should end with
     // no config rather than an empty one that advertises nothing.
     const p = await paths();
     const result = await runSetup(
       p,
-      scripted(["mac", "n", "n"]),
+      scripted(["mac", ""]),
       machineWith(["claude-cli", "codex-cli"]),
       noServers,
       answersFine,
@@ -335,30 +342,12 @@ describe("the smaller decisions", () => {
     await writeFile(p.config, "{ this is not json", "utf8");
     const result = await runSetup(
       p,
-      scripted(["mac", "y", "n"]),
+      scripted([...ONE_CLI]),
       machineWith(["claude-cli"]),
       noServers,
       answersFine,
     );
     expect(result.wrote).toBe(true);
-  });
-
-  it("defaults to the first service when the pick is nonsense", async () => {
-    const p = await paths();
-    await runSetup(
-      p,
-      scripted(["mac", "y", "y", "banana"]),
-      machineWith(["claude-cli", "codex-cli"]),
-      noServers,
-      answersFine,
-    );
-    const parsed = DaemonConfig.safeParse(
-      JSON.parse(await readFile(p.config, "utf8")),
-    );
-    expect(parsed.success).toBe(true);
-    if (!parsed.success) return;
-    expect(parsed.data.defaults["llm.generate"]).toBe("claude");
-    expect(resolveConfig(parsed.data).withheld).toEqual([]);
   });
 });
 
@@ -436,14 +425,14 @@ describe("the default detector", () => {
 describe("a config file that is JSON but not a config", () => {
   it("is left alone, because it is still the owner's file", async () => {
     // `{}` parses, has no services, and is somebody's work in progress. The
-    // wizard reports what it found rather than overwriting it — the same rule
-    // as a full config, since "looks empty to me" is not a licence to write.
+    // wizard offers rather than overwrites — the same rule as a full config,
+    // since "looks empty to me" is not a licence to write.
     const p = await paths();
     await mkdir(p.root, { recursive: true });
     await writeFile(p.config, "{}", "utf8");
     const result = await runSetup(
       p,
-      scripted(["mac", "y", "n"]),
+      scripted(["n"]),
       machineWith(["claude-cli"]),
       noServers,
       answersFine,
@@ -454,19 +443,26 @@ describe("a config file that is JSON but not a config", () => {
 });
 
 describe("what the wizard is allowed to write", () => {
-  it("writes answers only, never a schema default", async () => {
+  it("writes answers only, never a schema default — with one exception", async () => {
     // A default belongs in one place. `DaemonConfig.parse()` returns the
-    // answers *plus* concurrency, the community and ingress blocks and a
-    // per-service offer — today's values for settings nobody was asked about,
-    // frozen into a file that outlives them. Tune a budget next year and every
-    // wizard-written config sits on the old number, chosen by no one.
+    // answers *plus* concurrency, the community and ingress blocks — today's
+    // values for settings nobody was asked about, frozen into a file that
+    // outlives them. Tune a budget next year and every wizard-written config
+    // sits on the old number, chosen by no one.
+    //
+    // **`offer` is the exception, and it is deliberate.** B100's second
+    // constraint: a service created without a visible scope is a consent
+    // decision made by a tool. It is also the one field where "the default
+    // moves later" would be a widening rather than a tuning — a config that
+    // relied on the default would then share what nobody agreed to share. So
+    // the rule holds for settings and does not hold for consent.
     //
     // Asserted on the raw JSON rather than the parsed shape, because parsing
     // is exactly what would hide it.
     const p = await paths();
     await runSetup(
       p,
-      scripted(["mac", "y", ""]),
+      scripted([...ONE_CLI]),
       machineWith(["claude-cli"]),
       noServers,
       answersFine,
@@ -477,11 +473,10 @@ describe("what the wizard is allowed to write", () => {
     const service = (raw as { services: Record<string, object> }).services[
       "claude"
     ];
-    // The service carries what was asked and decided, and nothing else —
-    // notably not `offer`, which the schema would have filled with "private".
     expect(Object.keys(service ?? {}).sort()).toEqual([
       "kinds",
       "model",
+      "offer",
       "type",
     ]);
   });
@@ -493,7 +488,7 @@ describe("what the wizard is allowed to write", () => {
     const p = await paths();
     await runSetup(
       p,
-      scripted(["mac", "y", ""]),
+      scripted([...ONE_CLI]),
       machineWith(["claude-cli"]),
       noServers,
       answersFine,
@@ -509,433 +504,129 @@ describe("what the wizard is allowed to write", () => {
   });
 });
 
-describe("finding local servers by asking them", () => {
-  const ollama = {
-    label: "Ollama",
-    baseUrl: "http://127.0.0.1:11434/v1",
-    models: ["llama3.2", "qwen2.5"],
-  };
-  const lmstudio = {
-    label: "LM Studio",
-    baseUrl: "http://127.0.0.1:1234/v1",
-    models: ["mistral"],
-  };
-
-  it("offers what answered, with the models it named", async () => {
-    const io = scripted(["mac", "1"]);
-    await runSetup(await paths(), io, machineWith([]), serving(ollama));
-    const text = io.transcript();
-    expect(text).toContain("Ollama at http://127.0.0.1:11434/v1");
-    // The models come from the server's own answer, so a person recognises
-    // the thing they installed rather than a guess.
-    expect(text).toContain("llama3.2");
-  });
-
-  it("writes the server's own address and first model", async () => {
-    // Never a guessed model name: a guess writes a route that is unhealthy on
-    // first use, which is worse than writing nothing.
+describe("what setup hands to the screen", () => {
+  it("passes the machine it was given, not the one it is running on", async () => {
+    /**
+     * The wiring assertion, and it is the reason four injectables travel
+     * through `runSetup` untouched. Ollama here, `claude` there: if setup
+     * dropped either argument the picker would fall back to its own defaults
+     * and probe this laptop, which is precisely the failure the injection
+     * exists for.
+     */
     const p = await paths();
+    const io = scripted(["mac", "a", "", "n", "", "n"]);
     await runSetup(
-      await paths.call(null),
-      scripted([]),
-      machineWith([]),
-      noServers,
+      p,
+      io,
+      machineWith(["claude-cli"]),
+      serving({
+        label: "Ollama",
+        baseUrl: "http://127.0.0.1:11434/v1",
+        models: ["qwen3:8b"],
+      }),
       answersFine,
     );
-    const p2 = await paths();
-    await runSetup(
-      p2,
-      scripted(["mac", "1"]),
-      machineWith([]),
-      serving(ollama),
-    );
-    const raw = JSON.parse(await readFile(p2.config, "utf8")) as {
-      services: Record<string, { baseUrl: string; model: string }>;
-    };
-    expect(raw.services["ollama"]?.baseUrl).toBe("http://127.0.0.1:11434/v1");
-    expect(raw.services["ollama"]?.model).toBe("llama3.2");
-    void p;
-  });
-
-  it("takes several at once", async () => {
-    const p = await paths();
-    await runSetup(
-      p,
-      scripted(["mac", "1,2", "1"]),
-      machineWith([]),
-      serving(ollama, lmstudio),
-    );
-    const raw = JSON.parse(await readFile(p.config, "utf8")) as {
+    const written = JSON.parse(await readFile(p.config, "utf8")) as {
       services: Record<string, unknown>;
-      defaults?: Record<string, string>;
     };
-    expect(Object.keys(raw.services).sort()).toEqual(["lm", "ollama"]);
-    // Two services answering the same kinds is the withheld state, so the
-    // wizard asks here too rather than leaving it for somebody to discover.
-    expect(raw.defaults?.["llm.generate"]).toBe("ollama");
+    expect(Object.keys(written.services).sort()).toEqual([
+      "claude",
+      "qwen3-8b",
+    ]);
   });
 
-  it("skips a server that lists no models rather than guessing one", async () => {
-    const io = scripted(["mac", "1"]);
-    const p = await paths();
+  it("says who each service was written for, not one sentence for all of them", async () => {
+    /**
+     * The summary said *"claude, qwen — your own jobs only"* for every config
+     * the wizard could write, which was true right up until the screen could
+     * share one. A summary that cannot be wrong about what it summarises is a
+     * summary nobody has to check.
+     */
+    const io = scripted(["mac", "1", "", "y", "1", "", "n"]);
     await runSetup(
-      p,
+      await paths(),
       io,
       machineWith([]),
       serving({
         label: "Ollama",
         baseUrl: "http://127.0.0.1:11434/v1",
-        models: [],
+        models: ["qwen3:8b"],
       }),
+      answersFine,
     );
-    expect(io.transcript()).toContain("lists no models");
-    await expect(readFile(p.config, "utf8")).rejects.toThrow();
-  });
-
-  it("ignores a choice nobody offered", async () => {
-    // A stray number should not cost the conversation.
-    const p = await paths();
-    await runSetup(p, scripted(["mac", "9"]), machineWith([]), serving(ollama));
-    await expect(readFile(p.config, "utf8")).rejects.toThrow();
+    expect(io.transcript()).toContain("qwen3-8b — your team may use it");
   });
 });
 
-/**
- * "Found" is not "works" — a8137b5.
- *
- * `health()` runs `--version`, which needs no credentials. So a machine whose
- * subscription token expired last week finished this wizard being told
- * everything was fine, advertised a service it could not provide, and the
- * first person to find out was whoever was waiting on a job.
- *
- * A job is not where somebody discovers their token lapsed. Setup is sitting
- * in front of a terminal with the fix one command away, so it asks.
- */
-describe("a CLI that is there but cannot answer", () => {
-  const cannotAnswer = () =>
-    Promise.resolve({
-      installed: true,
-      answers: false,
-      detail: "the claude CLI is not signed in",
-    } as const);
-
-  /**
-   * Never reached, and that is the point of injecting it.
-   *
-   * The default `login` spawns the vendor CLI's real sign-in with the TTY
-   * inherited. A test that fell through to it would open a browser on
-   * somebody's machine and wait — which is exactly what these two tests did
-   * for five seconds each before this was added, and why the suite stopped
-   * exiting.
-   */
-  const neverSignsIn = () => Promise.resolve(false);
-
-  it("says so, in the CLI's own words", async () => {
-    const io = scripted(["a", "n", "n", "n", "n"]);
-    await runSetup(
-      await paths(),
-      io,
-      machineWith(["claude-cli"]),
-      noServers,
-      cannotAnswer,
-      neverSignsIn,
-    );
-    const said = io.transcript();
-    expect(said).toContain("cannot answer yet");
-    expect(
-      said,
-      "the backend's own sentence is the one that names the fix",
-    ).toContain("not signed in");
-  });
-
-  /**
-   * **Reversed on 2026-09-02, and the old expectation is worth keeping in
-   * writing.**
-   *
-   * This asserted `result.services` contained "claude" — "still written. A
-   * token that expires is a five-second fix, and a wizard that refused to
-   * record the service would make somebody redo the whole thing." The
-   * reasoning was sound and the ruling underneath is unchanged: the config is
-   * still correct, and nothing routes to a backend that cannot answer.
-   *
-   * What it got wrong is who the sentence was for. Two machines sat in "we
-   * thought it wasn't working" for days, because a logged-out CLI reached the
-   * person as a *note* inside a wizard that kept going and finished by saying
-   * it was done. The five-second fix is only five seconds if somebody knows
-   * to make it.
-   *
-   * So setup stops and offers to run the sign-in itself. Declining ends the
-   * wizard with the remedy as the last line, and writes nothing — which is
-   * safe because setup is idempotent and says so.
-   */
-  it("stops, rather than recording a service nothing can route to", async () => {
-    const io = scripted(["a", "n", "n", "n", "n"]);
-    const result = await runSetup(
-      await paths(),
-      io,
-      machineWith(["claude-cli"]),
-      noServers,
-      cannotAnswer,
-      neverSignsIn,
-    );
-    expect(result.wrote).toBe(false);
-    expect(result.services).toEqual([]);
-    expect(io.transcript()).toMatch(/is installed and not signed in/);
-  });
-
-  /**
-   * Windows, where the offer could never be kept — B049 item 1.
-   *
-   * Kevin's transcript, three times: "Sign in to claude now? [Y/n] y" ->
-   * "Opening Claude's sign-in now" -> "Still cannot answer". Nothing opened.
-   * An npm-installed `claude` on Windows is `claude.cmd`, which Node will not
-   * spawn without a shell, and runLogin is built to swallow that — so the
-   * wizard promised to open something, failed silently, and asked again.
-   *
-   * Todd ruled: on Windows, print the command instead. The assertion that
-   * matters is the negative one — the promise is not made — because making it
-   * and failing is the whole defect.
-   */
-  it("on Windows hands over the command instead of promising to open it", async () => {
-    const io = scripted(["a", "n", "n", "n", "n"]);
-    let spawned = 0;
-    await runSetup(
-      await paths(),
-      io,
-      machineWith(["claude-cli"]),
-      noServers,
-      cannotAnswer,
-      () => {
-        spawned += 1;
-        return Promise.resolve(false);
-      },
-      () => Promise.resolve(0),
-      "win32",
-    );
-    const said = io.transcript();
-    expect(spawned, "nothing may be spawned on Windows").toBe(0);
-    expect(said).not.toContain("Opening Claude's sign-in now");
-    expect(said).toContain("claude auth login");
-    expect(said).toContain("Windows cannot open it for you");
-  });
-
-  /* The control, and the reason the test above is not vacuous: everywhere
-     else the offer still stands and is still taken. */
-  it("still offers to open it everywhere else", async () => {
-    const io = scripted(["a", "y", "n", "n", "n", "n"]);
-    let spawned = 0;
-    await runSetup(
-      await paths(),
-      io,
-      machineWith(["claude-cli"]),
-      noServers,
-      cannotAnswer,
-      () => {
-        spawned += 1;
-        return Promise.resolve(false);
-      },
-      () => Promise.resolve(0),
-      "darwin",
-    );
-    expect(spawned).toBeGreaterThan(0);
-    expect(io.transcript()).toContain("Opening Claude's sign-in now");
-  });
-
-  /* And a backend with no canary is not reported as broken. `undefined` is
-     "not asked", which is a third thing, and rendering it as `false` would
-     tell everybody with a local model server that it cannot answer. */
-  it("says nothing when there was no way to ask", async () => {
-    const io = scripted(["a", "y", "n"]);
-    await runSetup(
-      await paths(),
-      io,
-      machineWith(["claude-cli"]),
-      noServers,
-      () => Promise.resolve({ installed: true, answers: undefined } as const),
-    );
-    expect(io.transcript()).not.toContain("cannot answer yet");
-  });
-});
-
-/**
- * A config with nothing in it is a dead end, not work to protect.
- *
- * "An existing config is the owner's and is never edited from under them" is
- * the right rule and it kept its teeth. But a file with zero services was
- * written by a version that wrote one before it knew how to find anything,
- * and it made this command unusable: "It has 0 service(s). Setup will not
- * change it", and then nothing, on a machine where setup was the thing needed.
- * Kevin's Windows box, and everybody who installed before alpha.44.
- */
 describe("an existing config with no services", () => {
-  const emptyConfig = async (p: DaemonPaths) => {
-    await writeFile(
-      p.config,
-      JSON.stringify({ device: "old-laptop", services: {} }),
-      "utf8",
-    );
+  const emptyConfig = async (): Promise<DaemonPaths> => {
+    const p = await paths();
+    await mkdir(p.root, { recursive: true });
+    await writeFile(p.config, JSON.stringify({ services: {} }), "utf8");
     return p;
   };
 
   it("offers to set it up rather than stopping", async () => {
-    const p = await emptyConfig(await paths());
-    const io = scripted(["y", "a", "y", "n"]);
+    // A file with zero services was written by a version that wrote one
+    // before it knew how to find anything. Refusing it left Kevin's Windows
+    // box with "It has 0 service(s). Setup will not change it" and nothing
+    // else, on the machine where setup was exactly what was needed.
+    const p = await emptyConfig();
     const result = await runSetup(
       p,
-      io,
+      scripted(["y", ...ONE_CLI]),
       machineWith(["claude-cli"]),
       noServers,
       answersFine,
     );
-    expect(io.transcript()).toContain("no services in it");
-    expect(result.wrote, "the door exists but did not open").toBe(true);
+    expect(result.wrote).toBe(true);
   });
 
-  /* Still nothing without a yes. The rule is unchanged; what changed is that
-     saying no is now a choice somebody makes rather than the only outcome. */
   it("changes nothing when the answer is no", async () => {
-    const p = await emptyConfig(await paths());
-    const io = scripted(["n"]);
+    const p = await emptyConfig();
+    const before = await readFile(p.config, "utf8");
     const result = await runSetup(
       p,
-      io,
+      scripted(["n"]),
       machineWith(["claude-cli"]),
       noServers,
       answersFine,
     );
     expect(result.wrote).toBe(false);
-    expect(await readFile(p.config, "utf8")).toContain("old-laptop");
+    expect(await readFile(p.config, "utf8")).toBe(before);
   });
 
-  /* And a config with real services is still untouchable, unasked. */
-  it("does not offer when there is something to protect", async () => {
-    const p = await paths();
-    await writeFile(
-      p.config,
-      JSON.stringify({ services: { claude: { type: "claude-cli" } } }),
-      "utf8",
-    );
-    const io = scripted([]);
-    const result = await runSetup(
-      p,
-      io,
-      machineWith([]),
-      noServers,
-      answersFine,
-    );
-    expect(result.wrote).toBe(false);
-    expect(io.transcript()).toContain("Setup will not change it");
-  });
-});
-
-/**
- * A config with no services still holds the owner's settings — Batch D,
- * pulled forward 2026-09-02.
- *
- * The wizard read the existing file for its `services` count and then wrote
- * `{ services, defaults }` over the top, so every other key the owner had —
- * `concurrency`, the community and ingress blocks — was silently deleted by a
- * command that never said it would touch them.
- *
- * It only bites on a config with **zero** services, because a config with any
- * is refused outright, which is exactly why it survived this long: the path
- * that loses somebody's work is the one taken by people whose config an older
- * version already left empty.
- */
-describe("setting up over a config that has no services", () => {
   it("keeps the settings it did not ask about", async () => {
+    /**
+     * The path that loses work is the path taken by people whose config a
+     * previous version left empty — i.e. the people already having a bad time.
+     * `concurrency` and the ingress block are settings somebody chose
+     * deliberately, and a command that never said it would touch them must
+     * not.
+     */
     const p = await paths();
     await mkdir(p.root, { recursive: true });
     await writeFile(
       p.config,
       JSON.stringify({
         services: {},
-        // Chosen deliberately by somebody, and not a question this wizard
-        // asks. That is the whole category at risk.
-        concurrency: 3,
+        concurrency: 7,
+        ingress: { keepSelfPrompts: false },
       }),
       "utf8",
     );
-
-    const result = await runSetup(
+    await runSetup(
       p,
-      scripted(["y", "my laptop", "y", "n"]),
+      scripted(["y", ...ONE_CLI]),
       machineWith(["claude-cli"]),
       noServers,
       answersFine,
     );
-
-    expect(result.wrote).toBe(true);
     const written = JSON.parse(await readFile(p.config, "utf8")) as {
       concurrency?: number;
-      services: Record<string, unknown>;
+      ingress?: { keepSelfPrompts?: boolean };
     };
-    expect(written.concurrency).toBe(3);
-    // The control: the wizard's own key is still written, so this is not
-    // passing because nothing happened at all.
-    expect(Object.keys(written.services).length).toBeGreaterThan(0);
-  });
-});
-
-/**
- * Exactly one printer for the test pointer — ruled 2026-09-03.
- *
- * `TEST YOUR DEVICE` appeared twice in one setup: `install` printed it on
- * success, and setup's completion line printed it again. Two tellings of one
- * fact, three lines apart.
- *
- * `install` keeps it, and not arbitrarily: since the same ruling install waits
- * for the daemon to actually be running before it claims anything, so it is
- * the only step that knows the sentence is true. Setup knows only that install
- * returned zero — the weaker fact that caused the original bug, where the
- * pointer printed for a service sitting at last-exit-2.
- *
- * So what is asserted here is silence, and the matching noise is asserted in
- * `service.test.ts`, where `install` is the thing under test.
- */
-describe("telling somebody to go and test it", () => {
-  it("does not say it itself, even when everything worked", async () => {
-    const p = await paths();
-    const io = scripted(["my laptop", "y", "y", "y"]);
-    const ran: string[][] = [];
-    const result = await runSetup(
-      p,
-      io,
-      machineWith(["claude-cli"]),
-      noServers,
-      answersFine,
-      () => Promise.resolve(true),
-      (argv) => {
-        ran.push([...argv]);
-        return Promise.resolve(0);
-      },
-    );
-
-    expect(result.running).toBe(true);
-    // It ran install — so the sentence does get printed, by the step that
-    // earned the right to print it.
-    expect(ran.map((argv) => argv[0])).toContain("start");
-    expect(io.transcript()).not.toContain(TEST_YOUR_DEVICE);
-  });
-
-  it("stays quiet when the service did not start", async () => {
-    /* The control that keeps the assertion above honest. If setup printed the
-       pointer on *every* path, the check above would still pass on a build
-       where the sentence had simply been deleted — this one fails there too,
-       for the opposite reason, only if the pointer ever reappears here. */
-    const p = await paths();
-    const io = scripted(["my laptop", "y", "y", "y"]);
-    const result = await runSetup(
-      p,
-      io,
-      machineWith(["claude-cli"]),
-      noServers,
-      answersFine,
-      () => Promise.resolve(true),
-      (argv: readonly string[]) => Promise.resolve(argv[0] === "start" ? 1 : 0),
-    );
-
-    expect(result.running).toBe(false);
-    expect(io.transcript()).not.toContain(TEST_YOUR_DEVICE);
+    expect(written.concurrency).toBe(7);
+    expect(written.ingress?.keepSelfPrompts).toBe(false);
   });
 });

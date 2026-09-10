@@ -80,7 +80,17 @@ afterEach(async () => {
 });
 
 /** A terminal that answers yes to everything and keeps the transcript. */
+/**
+ * Somebody who takes every offer, including the one that is not a yes.
+ *
+ * The picker reads a LINE rather than a yes/no, and `y` is not a line it
+ * understands — deliberately, so a stray answer to a question the screen did
+ * not ask cannot end it. So this answers the toggle prompt with a number the
+ * first time and a blank the second, which is what "take what is offered"
+ * means on that screen.
+ */
 function saysYes(name: string): SetupIo {
+  let picks = 0;
   return {
     interactive: true,
     out: (text) => {
@@ -89,8 +99,14 @@ function saysYes(name: string): SetupIo {
     err: (text) => {
       out += text;
     },
-    ask: (question) =>
-      Promise.resolve(question.includes("called") ? name : "y"),
+    ask: (question) => {
+      if (question.includes("called")) return Promise.resolve(name);
+      if (question.trim() === ">") {
+        picks += 1;
+        return Promise.resolve(picks === 1 ? "1" : "");
+      }
+      return Promise.resolve("y");
+    },
   };
 }
 

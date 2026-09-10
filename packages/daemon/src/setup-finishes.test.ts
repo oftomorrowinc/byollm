@@ -24,7 +24,6 @@ import { removeTemp } from "./test-support.js";
 let home: string;
 let paths: DaemonPaths;
 let out: string;
-let err: string;
 let asked: string[];
 
 const answering = (answers: readonly string[]): SetupIo => {
@@ -35,7 +34,10 @@ const answering = (answers: readonly string[]): SetupIo => {
       out += text;
     },
     err: (text) => {
-      err += text;
+      /* Both streams into one transcript: the screen says a refusal on
+         stdout and the wizard's own stops on stderr, and a reader sitting in
+         a terminal sees one conversation. */
+      out += text;
     },
     ask: (question) => {
       asked.push(question);
@@ -54,7 +56,6 @@ beforeEach(async () => {
   home = await mkdtemp(join(tmpdir(), "byollm-finishes-"));
   paths = daemonPaths(home);
   out = "";
-  err = "";
   asked = [];
 });
 
@@ -70,18 +71,22 @@ describe("the sign-in gate", () => {
   };
   const signedIn: Detected = { installed: true, answers: true };
 
-  it("stops rather than writing a config nothing can route to", async () => {
+  it("does not write a service nothing can route to", async () => {
     /**
      * The behaviour this replaces printed four lines and carried on, and the
      * config it wrote was *correct* — nothing routes until the backend
      * answers. What was wrong is that the person met it as a note inside a
      * wizard that then said it was done.
      *
-     * Refusing both offers has to end the wizard, not annotate it.
+     * **B100a moved where the loudness lives, not whether there is any.** The
+     * old gate stopped the whole wizard; in a screen that is also the re-run
+     * path that would throw away every other choice somebody just made over
+     * one expired token. So the refusal is on the row: the service is left
+     * out, and said, and the file never claims it works.
      */
     const result = await runSetup(
       paths,
-      answering(["studio", "n", "n", "n", "n"]),
+      answering(["studio", "1", "", "n", "n"]),
       onlyClaude,
       noServers,
       () => Promise.resolve(signedOut),
@@ -89,23 +94,24 @@ describe("the sign-in gate", () => {
     );
 
     expect(result.wrote).toBe(false);
-    expect(err).toContain("is installed and not signed in");
+    expect(result.services).toEqual([]);
+    expect(out).toContain("Leaving `claude` out");
     // The remedy is the verified command, not a guess at one.
-    expect(err).toContain("claude auth login");
+    expect(out).toContain("claude auth login");
     // And nothing was left behind to confuse the re-run it invites.
     await expect(readFile(paths.config, "utf8")).rejects.toThrow();
     /**
      * The assertion that actually holds the gate.
      *
-     * `wrote: false` is true for a second reason — nothing was enabled — so a
-     * test asserting only that passes with the gate removed, which this one
-     * did until a mutation said so. What the *stop* produces, and the
-     * fall-through does not, is that the wizard never gets to the question
-     * after it.
+     * `wrote: false` is true for a second reason — nothing else was enabled —
+     * so a test asserting only that passes with the gate removed, which this
+     * one did until a mutation said so. What the refusal produces, and the
+     * fall-through does not, is that the wizard never asks the question after
+     * it.
      */
     expect(
-      asked.some((question) => question.includes("your own jobs")),
-      "the wizard carried on past the gate and offered to enable it anyway",
+      asked.some((question) => question.includes("Connect to byollm.cloud")),
+      "the wizard carried on past the gate and offered to pair anyway",
     ).toBe(false);
   });
 
@@ -117,7 +123,7 @@ describe("the sign-in gate", () => {
     let probes = 0;
     const result = await runSetup(
       paths,
-      answering(["studio", "y", "y", "n", "n"]),
+      answering(["studio", "1", "", "y", "n"]),
       onlyClaude,
       noServers,
       () => {
@@ -137,7 +143,7 @@ describe("the sign-in gate", () => {
     // browser tab, or picked the wrong account. Three rounds, then it stops.
     const result = await runSetup(
       paths,
-      answering(["studio", "y", "y", "y", "n"]),
+      answering(["studio", "1", "", "y", "y", "y"]),
       onlyClaude,
       noServers,
       () => Promise.resolve(signedOut),
@@ -145,17 +151,17 @@ describe("the sign-in gate", () => {
     );
 
     expect(result.wrote).toBe(false);
-    expect(err).toContain("not signed in");
+    expect(out).toContain("Leaving `claude` out");
     expect(
-      asked.some((question) => question.includes("your own jobs")),
-      "three failed rounds and the wizard still offered to enable it",
+      asked.some((question) => question.includes("Connect to byollm.cloud")),
+      "three failed rounds and the wizard still offered to pair",
     ).toBe(false);
   });
 
   it("says the CLI's own words, which are the ones that name the fix", async () => {
     await runSetup(
       paths,
-      answering(["studio", "n", "n", "n", "n"]),
+      answering(["studio", "1", "", "n", "n"]),
       onlyClaude,
       noServers,
       () => Promise.resolve(signedOut),
@@ -173,7 +179,7 @@ describe("the two questions at the end", () => {
     const ran: string[][] = [];
     const result = await runSetup(
       paths,
-      answering(["studio", "y", "y", "y"]),
+      answering(["studio", "1", "", "y", "y"]),
       onlyClaude,
       noServers,
       working,
@@ -204,7 +210,7 @@ describe("the two questions at the end", () => {
     const ran: string[][] = [];
     const result = await runSetup(
       paths,
-      answering(["studio", "y", "n"]),
+      answering(["studio", "1", "", "n"]),
       onlyClaude,
       noServers,
       working,
@@ -228,7 +234,7 @@ describe("the two questions at the end", () => {
     const ran: string[][] = [];
     const result = await runSetup(
       paths,
-      answering(["studio", "y", "y", "n"]),
+      answering(["studio", "1", "", "y", "n"]),
       onlyClaude,
       noServers,
       working,
@@ -258,7 +264,7 @@ describe("the two questions at the end", () => {
      */
     const result = await runSetup(
       paths,
-      answering(["studio", "y", "y", "y"]),
+      answering(["studio", "1", "", "y", "y"]),
       onlyClaude,
       noServers,
       working,
@@ -281,7 +287,7 @@ describe("the two questions at the end", () => {
     const ran: string[][] = [];
     const result = await runSetup(
       paths,
-      answering(["studio", "y", "y", "y"]),
+      answering(["studio", "1", "", "y", "y"]),
       onlyClaude,
       noServers,
       working,
@@ -298,32 +304,43 @@ describe("the two questions at the end", () => {
   });
 });
 
-describe("two servers of the same kind", () => {
+describe("two servers serving the same model", () => {
   it("gives the second its own key rather than replacing the first", async () => {
     /**
-     * A plain assignment would have written both under `ollama`, and the
+     * A plain assignment would have written both under one name, and the
      * second would have silently replaced the first — one server in the
      * config, one of them unreachable, and nothing on screen saying which.
      *
-     * `defaults` and `byollm offer` refer to services by these keys, so they
-     * also have to be typeable: "Ollama" becomes `ollama`, and the collision
-     * gets a suffix rather than a hash.
+     * **The collision moved with the naming rule.** Names came from the
+     * server's label (`ollama`, `ollama-2`) and now come from the model, so
+     * two Ollamas serving different models no longer collide at all — and two
+     * servers serving the SAME model do. That is the class no naming rule can
+     * remove, which is why the suffix survives Todd's *"collisions gone
+     * without a counter"*: that ruling was about model tags.
      */
     const result = await runSetup(
       paths,
-      answering(["studio", "1,2", "n"]),
+      answering(["studio", "a", "", "", "", "n"]),
       () => Promise.resolve(false),
       () =>
         Promise.resolve([
-          { label: "Ollama", baseUrl: "http://127.0.0.1:11434", models: ["a"] },
-          { label: "Ollama", baseUrl: "http://127.0.0.1:11435", models: ["b"] },
+          {
+            label: "Ollama",
+            baseUrl: "http://127.0.0.1:11434",
+            models: ["qwen3:8b"],
+          },
+          {
+            label: "Ollama",
+            baseUrl: "http://127.0.0.1:11435",
+            models: ["qwen3:8b"],
+          },
         ]),
       () => Promise.resolve<Detected>({ installed: true, answers: true }),
       () => Promise.resolve(true),
       () => Promise.resolve(0),
     );
 
-    expect(result.services).toEqual(["ollama", "ollama-2"]);
+    expect(result.services).toEqual(["qwen3-8b", "qwen3-8b-2"]);
   });
 });
 

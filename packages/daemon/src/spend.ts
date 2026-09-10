@@ -155,3 +155,21 @@ export function estimateCents(
   const tokens = (promptChars + outputChars) / 4;
   return (tokens / 1_000_000) * centsPerMillionTokens;
 }
+
+/**
+ * Cents, as money — one place, because four surfaces print this number.
+ *
+ * The consent ceremony said "$25.00 a day" and the `services` row said
+ * "2500c/day" for the same ceiling, which made a person check whether they
+ * were looking at the same figure. Surfaces sharing a value share its unit,
+ * and the unit is the one the money is in.
+ *
+ * **Moved here from `cli.ts` when B100a made a fourth caller.** It lived
+ * beside the command that printed it and its own comment said "one place";
+ * the picker asks its cap question in dollars, so keeping it there would have
+ * meant a copy inside the week that named the rule. It belongs with the
+ * ledger that counts the cents.
+ */
+export function dollars(cents: number): string {
+  return `$${(cents / 100).toFixed(2)}`;
+}

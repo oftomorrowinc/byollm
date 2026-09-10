@@ -14,6 +14,12 @@ import { dirname } from "node:path";
 import { createInterface } from "node:readline/promises";
 import { FAILURES_BEFORE_ALARM, readHealth } from "./health.js";
 import { runSetup, terminalIo } from "./setup.js";
+import {
+  manageServices,
+  readExistingConfig,
+  summarise,
+  writeManaged,
+} from "./services-manage.js";
 import type { BackendId } from "@byollm/protocol";
 import { backendDescriptor, backendName, classifyCost } from "@byollm/protocol";
 import { fingerprint } from "@byollm/protocol";
@@ -39,7 +45,7 @@ import { stopLine } from "./stop-remedy.js";
 import type { MemoryPressure, MemoryReading } from "./memory.js";
 import { DeviceIdentity } from "./identity.js";
 import { Pairings, recordSites } from "./pairings.js";
-import { SpendLedger } from "./spend.js";
+import { dollars, SpendLedger } from "./spend.js";
 import { SpentGrants } from "./spent-grants.js";
 import { daemonPaths, type DaemonPaths } from "./paths.js";
 import { Runner, type RunnerEvent } from "./runner.js";
@@ -75,6 +81,7 @@ const USAGE = `byollm — run an app's LLM jobs on your own models.
   byollm status               what is connected, what is running, what it cost
   byollm log [--full] [-n N]  every prompt that has run on this device
   byollm services             each service: health, who it is offered to, model
+  byollm services manage      turn services on and off, and share them
   byollm model <svc> <name>   check a model answers, then use it
   byollm offer <service> <scope>  who a service is offered to (private|team)
   byollm sites                which sites this device serves
@@ -419,6 +426,28 @@ export async function runCli(
     case "forget":
       return commandForget(paths, rest, io);
     case "services":
+      /**
+       * One sub-verb, and everything else is refused rather than ignored.
+       *
+       * `byollm models claude fake` once listed every service and exited zero,
+       * because the arguments were dropped on the floor — a command asked to
+       * SET something answered by LISTING, and reported success for work it
+       * never did. The same trap is one typo away here (`byollm services
+       * mange`), and the same rule closes it: a verb handed arguments it has
+       * no use for says so and names the one it has.
+       */
+      if (rest[0] === "manage") {
+        return commandServicesManage(paths, io, rest.slice(1), signal);
+      }
+      if (rest.length > 0) {
+        io.err(
+          `byollm services takes no arguments, and got ` +
+            `${rest.map((arg) => JSON.stringify(arg)).join(" ")}.\n\n` +
+            `  byollm services            every service, and the model it runs\n` +
+            `  byollm services manage     turn services on and off\n`,
+        );
+        return 2;
+      }
       return commandServices(paths, io, service);
     case "models":
       /**
@@ -2839,18 +2868,6 @@ function commandRetiredAdmission(name: "allow" | "disallow", io: CliIo): 2 {
 // -- offer -------------------------------------------------------------------
 
 /**
- * Cents, as money — one place, because three surfaces print this number.
- *
- * The consent ceremony said "$25.00 a day" and the `services` row said
- * "2500c/day" for the same ceiling, which made a person check whether they
- * were looking at the same figure. Surfaces sharing a value share its unit,
- * and the unit is the one the money is in.
- */
-function dollars(cents: number): string {
-  return `$${(cents / 100).toFixed(2)}`;
-}
-
-/**
  * What a service's offer scope actually amounts to on this machine.
  *
  * **A request is not a state** (ruled 2026-08-26). Three things can narrow an
@@ -3268,6 +3285,76 @@ function commandRetiredApprove(io: CliIo): 2 {
 }
 
 // -- backends ------------------------------------------------------------------
+
+/**
+ * `byollm services manage` — the one screen, B100a.
+ *
+ * A thin caller on purpose. The conversation belongs to `services-manage.ts`
+ * because `setup` runs the same one, and the two of them differ in exactly
+ * two things: setup asks a device name first and finishes by pairing, and
+ * this one starts from the config that is already there.
+ *
+ * **The starting state is the whole difference, and it is what makes this one
+ * screen rather than two.** Todd: re-running *"shows what is already there"* —
+ * current services pre-marked, with their shares and their caps — so somebody
+ * who ran setup a month ago changes one row instead of rebuilding the list.
+ */
+async function commandServicesManage(
+  paths: DaemonPaths,
+  io: CliIo,
+  rest: readonly string[],
+  signal?: AbortSignal,
+): Promise<ExitCode> {
+  if (rest.length > 0) {
+    io.err(
+      `byollm services manage takes no arguments, and got ` +
+        `${rest.map((arg) => JSON.stringify(arg)).join(" ")}.\n`,
+    );
+    return 2;
+  }
+  const terminal = terminalIo(
+    (text) => {
+      io.out(text);
+    },
+    (text) => {
+      io.err(text);
+    },
+  );
+  const existing = await readExistingConfig(paths.config);
+  const outcome = await manageServices({
+    io: terminal,
+    existing: existing?.services ?? {},
+  });
+  if (!outcome.decided) return 1;
+  if (
+    !(await writeManaged(paths.config, terminal, existing?.rest ?? {}, outcome))
+  )
+    return 1;
+
+  io.out(`\nWrote ${paths.config}\n${summarise(outcome).join("\n")}\n`);
+  /**
+   * The daemon is told, or the screen is a screen about a file.
+   *
+   * A running daemon read its config at start. Somebody who just turned a
+   * service on and watched the file be written has every reason to think the
+   * device now offers it, and until a restart it does not — which is the
+   * "wizard that stops one step from done reads as done" defect, one command
+   * along.
+   *
+   * Said rather than done: restarting a daemon mid-job is not this command's
+   * to decide, and `stop && start` is the pair that already exists.
+   */
+  const installed = await serviceIsInstalled(
+    serviceTarget(paths, defaultServiceIo()),
+  );
+  if (installed) {
+    io.out(
+      "\nThe background service is running with the config it started on.\n" +
+        "  byollm stop && byollm start    pick this up\n",
+    );
+  }
+  return signal?.aborted === true ? 1 : 0;
+}
 
 async function commandServices(
   paths: DaemonPaths,

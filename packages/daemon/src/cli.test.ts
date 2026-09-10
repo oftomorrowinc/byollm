@@ -1380,6 +1380,35 @@ describe("offering a cloud-tagged service to a team", () => {
  * `undefined` is not `false`, an unreadable answer is not a negative one, and
  * a request nobody understood is not a request nobody made.
  */
+describe("byollm services, handed arguments", () => {
+  it("routes `manage` to the screen rather than the list", async () => {
+    /**
+     * The wiring, and it is checked through the refusal rather than by
+     * driving the screen: `manage` builds its own terminal io from the real
+     * stdin, which under vitest is not a TTY — so the screen declines to ask,
+     * which is itself the ruled behaviour and the proof this argument reached
+     * it. A `manage` that fell through to the list would have exited 0 with a
+     * services table.
+     */
+    expect(await run("services", "manage")).toBe(1);
+    expect(err).toContain("needs a terminal");
+    expect(out).not.toContain("healthy from this shell");
+  });
+
+  it("refuses a word it does not know rather than listing anyway", async () => {
+    /* `byollm models claude fake` once listed every service and exited zero,
+       because the arguments were dropped on the floor. One typo away here. */
+    expect(await run("services", "mange")).toBe(2);
+    expect(err).toContain("mange");
+    expect(err).toContain("byollm services manage");
+  });
+
+  it("refuses arguments to `manage` too, rather than ignoring them", async () => {
+    expect(await run("services", "manage", "claude")).toBe(2);
+    expect(err).toContain("claude");
+  });
+});
+
 describe("byollm models, handed arguments", () => {
   it("refuses rather than behaving like a different command", async () => {
     expect(await run("models", "claude", "fake")).toBe(2);

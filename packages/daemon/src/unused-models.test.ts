@@ -120,8 +120,10 @@ describe("models nothing is using", () => {
   });
 
   it("suggests a service name somebody can type", () => {
-    /* The tag is dropped because `smollm2:135m` is a name you would have to
-       quote, and the part before the colon is the part people say. */
+    /* The tag is KEPT, hyphenated — settled by Todd on 09-10 when B100a
+       needed the name to be unique: dropping it made `smollm2:135m` and
+       `smollm2:360m` one service. The rule lives in `services-manage.ts` and
+       this block asks it rather than spelling it again. */
     expect(
       Object.keys(
         JSON.parse(
@@ -131,7 +133,7 @@ describe("models nothing is using", () => {
           }),
         ) as object,
       ),
-    ).toEqual(["smollm2"]);
+    ).toEqual(["smollm2-135m"]);
     /* And a path-shaped id keeps only its last segment. */
     expect(
       Object.keys(

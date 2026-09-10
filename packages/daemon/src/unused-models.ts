@@ -1,5 +1,6 @@
 import { resolveCost } from "@byollm/protocol";
 import type { LocalServer } from "./probe-local.js";
+import { serviceBlockFor, serviceNameFor } from "./services-manage.js";
 
 /**
  * Models a server is offering that nothing on this device points at — B100b.
@@ -69,18 +70,19 @@ export function unusedModels(input: {
 }
 
 /**
- * The config block that would use one — the sanctioned fallback.
+ * The config block that would use one — one definition, two readers.
  *
  * byollm_023 split B100 and then ruled the split away: one interactive screen
- * rather than three verbs. That screen is not built, and this row is not
- * allowed to wait on it, because the spec named the fallback in advance —
- * *"if B100a slips, the note prints the exact config block to paste. Worse
- * product, true sentence, and it beats silence."*
+ * rather than three verbs. That screen exists now — `byollm services manage`,
+ * B100a — and this stays, because the screen needs a terminal and this
+ * command does not. A machine reached over a pipe, a CI log, somebody who
+ * would rather edit the file: all of them get the exact JSON with their model
+ * and their address already in it.
  *
- * So this prints what somebody would otherwise have to work out: the exact
- * JSON, with their model and their address in it. It is worse than a picker
- * and it is honest about being a paste, which is the trade the spec already
- * accepted.
+ * **It is the same block the picker writes**, because it asks the picker's
+ * own {@link serviceBlockFor} rather than restating the shape. Two spellings
+ * of "what a service for this model looks like" is exactly the divergence
+ * instruction 9 exists for, and this file carried one of them until B100a.
  *
  * `offer` is written out rather than left to a default, because a service
  * created without a visible scope is a consent decision made by a tool —
@@ -92,34 +94,10 @@ export function pasteableService(input: {
   readonly baseUrl: string;
 }): string {
   return JSON.stringify(
-    {
-      [serviceNameFor(input.model)]: {
-        type: "openai-http",
-        baseUrl: input.baseUrl,
-        model: input.model,
-        kinds: ["llm.generate", "llm.chat"],
-        offer: "private",
-      },
-    },
+    { [serviceNameFor(input.model)]: serviceBlockFor(input) },
     null,
     2,
   );
-}
-
-/**
- * A service name from a model id, and it is a suggestion rather than a rule.
- *
- * The owner's word for a service is theirs — `byollm services` prints it as
- * the identifier a site passes to `enqueue({ service })` — so this only has
- * to produce something legal and recognisable in a block they are about to
- * edit anyway. The tag is dropped because `smollm2:135m` is a name somebody
- * would have to quote, and the part before the colon is the part they say out
- * loud.
- */
-function serviceNameFor(model: string): string {
-  const base = (model.split(":")[0] ?? model).split("/").pop() ?? model;
-  const cleaned = base.replace(/[^A-Za-z0-9._-]/g, "-");
-  return cleaned.length > 0 ? cleaned : "my-model";
 }
 
 function normalise(url: string): string {
@@ -200,7 +178,8 @@ export function unusedModelsReport(input: {
 
   lines.push(
     "",
-    "To use one, add it to the `services` block of ~/.byollm/config.json:",
+    "  `byollm services manage` turns one on, and asks nothing you have to",
+    "  look up. Or add it to the `services` block of ~/.byollm/config.json:",
     "",
     ...pasteableService({
       model: example.name,

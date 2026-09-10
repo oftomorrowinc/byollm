@@ -337,7 +337,20 @@ describe("what the user is told about their money", () => {
     });
 
     await run("status");
-    expect(out).toContain("metered services — your money");
+    /**
+     * Whose spending, not just whose money — B113.
+     *
+     * The heading said *"metered services — your money"* over a ceiling that
+     * bounds OTHER PEOPLE'S work, and Todd read it as a personal budget. His
+     * own jobs neither count toward it nor stop at it: `runner.ts` records a
+     * charge only for `community` work, and `spend.ts` says the owner's own
+     * jobs never reach the ceiling at all.
+     */
+    expect(out).toContain("metered services — your account, spent by other");
+    expect(out).toContain("spent today by people you shared it with");
+    expect(out).toContain(
+      "your own jobs on these are not counted here and have no cap",
+    );
     // Money, in the unit the money is in. The consent ceremony that authorises
     // this ceiling says "$2.50 a day"; a surface reporting the same number as
     // "250c" makes a reader check whether it is the same figure.
@@ -356,11 +369,58 @@ describe("what the user is told about their money", () => {
     await config({ type: "openai", baseUrl: "http://127.0.0.1:1/v1" });
 
     await run("status");
-    expect(out).toContain("not shared — your work only");
+    expect(out).toContain("not shared, so nobody else can spend on it");
 
     out = "";
     await run("services");
     expect(out).toContain("metered — your money, not shared");
+  });
+
+  it("names a service once, however many kinds it answers", async () => {
+    /**
+     * Found by running `byollm status` against a config `services manage` had
+     * just written: `kimi-k3-cloud` twice, identically, because
+     * `loaded.routes` is one row per (service, kind) and this block's numbers
+     * are per service. The same money, counted again on screen.
+     *
+     * Latent while people hand-wrote configs and normal from today, since the
+     * picker writes both kinds on every service it creates.
+     */
+    await config({
+      type: "openai",
+      baseUrl: "http://127.0.0.1:1/v1",
+      kinds: ["llm.generate", "llm.chat"],
+      offer: "team",
+      spend: { acknowledged: true, dailyCapCents: 250 },
+    });
+
+    await run("status");
+    const block = out.slice(out.indexOf("metered services"));
+    expect(block.split("$2.50").length - 1, block).toBe(1);
+  });
+
+  it("does not report a ceiling on a service nobody else can reach", async () => {
+    /**
+     * `spendAcknowledged` was standing in for "shared", and the two come
+     * apart in exactly one place: a metered service that acknowledged and
+     * stayed **private**. `resolveConfig` refuses the widened version of that
+     * mismatch, which is why nobody met it — and this one printed
+     * *"$0.00 spent today of $0.00"*, a zero ceiling on a service no other
+     * person can reach. Two false claims in one line.
+     *
+     * The ceiling is consulted for community work on a widened service and
+     * nothing else, so that is what the line may report.
+     */
+    await config({
+      type: "openai",
+      baseUrl: "http://127.0.0.1:1/v1",
+      offer: "private",
+      spend: { acknowledged: true },
+    });
+
+    await run("status");
+    expect(out).toContain("not shared, so nobody else can spend on it");
+    expect(out).not.toContain("of $0.00");
   });
 
   it("names free and subscription backends for what they are", async () => {

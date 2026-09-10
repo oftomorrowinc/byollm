@@ -2662,18 +2662,79 @@ async function commandStatus(
   }
 
   const spentToday = spend.summary(now);
-  const metered = loaded.routes.filter((r) => r.cost === "metered");
+  /**
+   * One row per SERVICE, and it used to be one per route — B113, found by
+   * running it.
+   *
+   * `loaded.routes` carries a row for every (service, kind) pair, so a
+   * service answering both `llm.generate` and `llm.chat` printed its ceiling
+   * twice, identically, in a block whose subject is services and whose
+   * numbers are per service. `spend.summary` is keyed by service too, so the
+   * second line was the same money counted again on screen.
+   *
+   * **It was latent until this hour.** Two kinds on one service was rare
+   * enough to miss while people hand-wrote configs; `byollm services manage`
+   * writes both kinds on every service it creates, which makes the doubling
+   * the normal case from today. The queued row and the live text it
+   * falsifies, meeting — instruction 7's converse, arriving from the other
+   * direction.
+   */
+  const metered = [
+    ...new Map(
+      loaded.routes
+        .filter((r) => r.cost === "metered")
+        .map((route) => [route.service, route]),
+    ).values(),
+  ];
   if (metered.length > 0) {
-    io.out("\nmetered services — your money\n");
+    /**
+     * Whose spending this bounds, said in the heading — B113.
+     *
+     * It read *"metered services — your money"* over
+     * *"glm-5.2: $0.00 spent today of $25.00"*, **and Todd read that as a
+     * personal budget.** That is the evidence: it is a ceiling on OTHER
+     * PEOPLE'S work, and his own jobs neither count toward it nor stop at it.
+     *
+     * The code is explicit in both directions and this line contradicted
+     * both. `runner.ts` records a charge only when the job is `community` —
+     * *"Own work is not counted: their machine, their key, their call"* — and
+     * `spend.ts` says of the ceiling *"Only community metered work consults
+     * this — the owner's own jobs never reach it, so a bookkeeping failure
+     * cannot brake the machine's own work."*
+     *
+     * "Your money" was not wrong about who pays. It was wrong about who
+     * spends, on a screen whose whole job is to say what this machine is
+     * doing for other people.
+     */
+    io.out("\nmetered services — your account, spent by other people\n");
     for (const route of metered) {
       const spent = spentToday[route.service] ?? 0;
+      /**
+       * Bounded is `offerScope`, not `spendAcknowledged` — found writing the
+       * line above.
+       *
+       * The two travel together for a widened service, which is why this
+       * survived: `resolveConfig` refuses a shared metered service that has
+       * an acknowledgement without a ceiling. They come apart for a service
+       * that acknowledged and stayed **private** — which printed
+       * *"$0.00 spent today of $0.00"*, a zero cap on a service nobody else
+       * can reach, i.e. two false claims in one line.
+       *
+       * The ceiling is consulted for community work on a widened service and
+       * nothing else, so that is the condition this reports.
+       */
+      const bounded =
+        route.offerScope !== "private" &&
+        route.spendDailyCapCents !== undefined;
       io.out(
-        route.spendAcknowledged
-          ? `  ${route.service}: ${dollars(spent)} spent today of ` +
-              `${dollars(route.spendDailyCapCents ?? 0)}\n`
-          : `  ${route.service}: not shared — your work only\n`,
+        bounded
+          ? `  ${route.service}: ${dollars(spent)} of ` +
+              `${dollars(route.spendDailyCapCents)} spent today by ` +
+              `people you shared it with\n`
+          : `  ${route.service}: not shared, so nobody else can spend on it\n`,
       );
     }
+    io.out("  your own jobs on these are not counted here and have no cap.\n");
   }
 
   const usage = budgets.usage(now);

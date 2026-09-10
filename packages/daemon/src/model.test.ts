@@ -345,6 +345,59 @@ describe("the memory guard on the owner's own command — B106", () => {
     expect(result.changed).toBe(true);
   });
 
+  it("does not load it when there is nobody to ask — B110", async () => {
+    /**
+     * The fail-safe, and CW's mutation walked straight through its absence:
+     * flipping `false` to `true` here left all 29 tests green.
+     *
+     * `confirm` is absent for a caller with nobody in front of it — a script,
+     * CI, a box's first boot. Those are exactly the machines where a wedge
+     * has no one watching, and where "assume yes" reinstates the guard-free
+     * load B106 exists to close.
+     *
+     * Refusing is not second-guessing an owner here, because there is no
+     * owner in the room: the question was asked and nothing answered it. An
+     * unanswered question is not a yes — the same rule as an unreadable poll
+     * not being a no.
+     */
+    let canaryRan = false;
+    const result = await setModel(
+      { configPath: config, service: "ollama", model: "gemma4:26b" },
+      io,
+      () => {
+        canaryRan = true;
+        return Promise.resolve({ answers: true as const });
+      },
+      () =>
+        Promise.resolve({ ask: true as const, question: "Load it anyway?" }),
+      /* No `confirm` at all — the non-interactive caller. */
+      undefined,
+    );
+
+    expect(
+      canaryRan,
+      "a model was loaded on a machine with nobody to ask",
+    ).toBe(false);
+    expect(result.changed).toBe(false);
+
+    /* The control, in the same test: the identical call WITH somebody to ask
+       who says yes does load it. Without this, "never load" would pass. */
+    let secondRan = false;
+    const allowed = await setModel(
+      { configPath: config, service: "ollama", model: "gemma4:26b" },
+      io,
+      () => {
+        secondRan = true;
+        return Promise.resolve({ answers: true as const });
+      },
+      () =>
+        Promise.resolve({ ask: true as const, question: "Load it anyway?" }),
+      () => Promise.resolve(true),
+    );
+    expect(secondRan).toBe(true);
+    expect(allowed.changed).toBe(true);
+  });
+
   it("asks nothing when there is room", async () => {
     /* The control on both cases above: with no question, no confirmation is
        sought and the command behaves exactly as it did. */

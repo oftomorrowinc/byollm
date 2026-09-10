@@ -14,7 +14,7 @@ import { dirname } from "node:path";
 import { createInterface } from "node:readline/promises";
 import { FAILURES_BEFORE_ALARM, readHealth } from "./health.js";
 import { runSetup, terminalIo } from "./setup.js";
-import type { BackendId } from "@byollm/protocol";
+import { resolveCost, type BackendId } from "@byollm/protocol";
 import { backendDescriptor, backendName, classifyCost } from "@byollm/protocol";
 import { fingerprint } from "@byollm/protocol";
 import { normalizeOrigin, UnusableOrigin } from "./origins.js";
@@ -28,11 +28,13 @@ import {
 } from "./revoked.js";
 import { TEST_YOUR_DEVICE } from "./test-your-device.js";
 import { diagnoseRoute } from "./diagnose.js";
-import { DaemonConfig, loadConfig } from "./config.js";
+import { DaemonConfig, loadConfig, type LoadedConfig } from "./config.js";
 import { connect } from "./connect.js";
 import { IngressLog, stripControlChars } from "./ingress.js";
 import { readHostMemory } from "./memory.js";
 import { modelLoadQuestion } from "./model-memory.js";
+import { probeLocalServers } from "./probe-local.js";
+import { pasteableService, unusedModels } from "./unused-models.js";
 import { stopLine } from "./stop-remedy.js";
 import type { MemoryPressure, MemoryReading } from "./memory.js";
 import { DeviceIdentity } from "./identity.js";
@@ -3267,6 +3269,86 @@ function commandRetiredApprove(io: CliIo): 2 {
 
 // -- backends ------------------------------------------------------------------
 
+/**
+ * Name the models nobody is using, and say exactly how to use one.
+ *
+ * The paste is the fallback byollm_023 named in advance, for the case that
+ * arrived: *"if B100a slips, the note prints the exact config block to paste.
+ * Worse product, true sentence, and it beats silence."* `byollm services
+ * manage` is the ruled design and is not built, and this row was not allowed
+ * to wait on it.
+ *
+ * Silent when there is nothing to say. A machine whose every model is already
+ * configured gets no paragraph, because a section that is always there is
+ * furniture — the same reason the memory guard says nothing above the floor.
+ */
+async function printUnusedModels(
+  loaded: LoadedConfig,
+  io: CliIo,
+): Promise<void> {
+  const spare = unusedModels({
+    servers: await probeLocalServers(),
+    configured: Object.values(loaded.config.services).map((entry) => ({
+      baseUrl: entry.baseUrl,
+      model: entry.model,
+    })),
+  });
+  if (spare.length === 0) return;
+
+  io.out("\nalso on this machine, not used by any service\n");
+  for (const server of spare) {
+    io.out(`  ${server.label} (${server.baseUrl})\n`);
+    for (const model of server.models) {
+      /**
+       * A `:cloud` tag is marked, because this list looks like local compute
+       * and one of these is not.
+       *
+       * Found by running it: Todd's Ollama serves `kimi-k3:cloud` beside
+       * three genuinely local models. Ollama proxies hosted models through
+       * the same loopback port, so the address says local and the bill does
+       * not — B097's whole subject. Printing it unmarked in a list headed
+       * "on this machine" would be the page saying the friendlier half.
+       *
+       * Asked of {@link resolveCost} rather than decided here: cost has one
+       * home, and a surface that classified for itself is the defect B085
+       * arrived as.
+       */
+      const cost = resolveCost("openai-http", server.baseUrl, model);
+      io.out(
+        `    ${model}${cost === "free" ? "" : `  (${cost} — runs on your provider's account)`}\n`,
+      );
+    }
+  }
+
+  /**
+   * One example, and a FREE one where there is one.
+   *
+   * The block is the same shape every time, so printing six would bury the
+   * sentence explaining it — but picking the first model blindly would offer
+   * somebody a paste that quietly creates a metered service. Local first,
+   * and the mark above still tells the truth if every model here is hosted.
+   */
+  const [first] = spare;
+  const model =
+    spare
+      .flatMap((server) => server.models.map((name) => ({ server, name })))
+      .find(
+        ({ server, name }) =>
+          resolveCost("openai-http", server.baseUrl, name) === "free",
+      )?.name ?? first?.models[0];
+  if (first === undefined || model === undefined) return;
+  io.out(
+    `\nTo use one, add it to the \`services\` block of ~/.byollm/config.json:\n\n` +
+      `${pasteableService({ model, baseUrl: first.baseUrl })
+        .split("\n")
+        .map((line) => `    ${line}`)
+        .join("\n")}\n\n` +
+      `  \`offer\` is written out on purpose — a service created without a\n` +
+      `  visible scope is a decision made for you. \`private\` means only your\n` +
+      `  own work runs on it.\n`,
+  );
+}
+
 async function commandServices(
   paths: DaemonPaths,
   io: CliIo,
@@ -3397,6 +3479,23 @@ async function commandServices(
   // describing, and would have done so anywhere `BYOLLM_HOME` differs. Caught
   // by the control asserting the warning is *absent* when nothing is
   // installed, which is the half of that pair that is easy not to write.
+  /**
+   * Models this machine is serving that nothing points at — B100b.
+   *
+   * Todd pulled `smollm2:135m`, `ollama list` showed five models, and this
+   * command showed the two his config names. Nothing on any byollm surface
+   * said the other three existed or how to reach one.
+   *
+   * The reader has existed the whole time: `probeLocalServers` pulls model
+   * ids from an OpenAI-shaped `/v1/models`, and `setup` calls it once. After
+   * onboarding nothing did — another instrument with no reader.
+   *
+   * **Read for DISPLAY only.** Cost is classified from the owner's configured
+   * value and never from a server's list, which `backends.ts` states in as
+   * many words, so nothing here reaches the router.
+   */
+  await printUnusedModels(loaded, io);
+
   const installed = await serviceIsInstalled(serviceTarget(paths, service));
   io.out(
     `\n${String(advertised.length)} of ${String(loaded.routes.length)} services are ` +

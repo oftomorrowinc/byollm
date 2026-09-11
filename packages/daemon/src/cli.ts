@@ -64,6 +64,7 @@ import {
 import {
   serviceIsInstalled,
   servicePlan,
+  servicePlatform,
   type ServicePlan,
   type ServicePlatform,
   type ServiceTarget,
@@ -573,12 +574,13 @@ export interface ServiceIo {
  */
 export function defaultServiceIo(): ServiceIo {
   return {
-    platform:
-      process.platform === "win32"
-        ? "win32"
-        : process.platform === "darwin"
-          ? "darwin"
-          : "linux",
+    /* `servicePlatform`, not a ternary — B103. The same three-way
+       classification was written out here while the function holding its
+       reasoning had no callers at all: *"everything that is not macOS or
+       Windows is treated as systemd… guessing wrong loudly beats refusing to
+       run on a platform somebody actually has."* That paragraph is the
+       decision, and a copy of the branches carries none of it. */
+    platform: servicePlatform(process.platform),
     execPath: process.execPath,
     scriptPath: process.argv[1] ?? "",
     run: spawnCommand,

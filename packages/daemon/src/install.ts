@@ -334,6 +334,48 @@ export async function installService(
           };
         }
       }
+      /**
+       * "I asked and was told no" and "there was nobody to ask" — B184, and
+       * it is B173's collapse in the other repository.
+       *
+       * Todd met this on the first real box: *"systemd (user) refused the
+       * task"*, from a container with no `systemctl` at all. **127 is not a
+       * refusal.** `spawnCommand`'s own docstring names these as the two
+       * failure modes that matter and `service.test.ts` asserts 127 for the
+       * container case — so the code has always distinguished them and only
+       * the sentence collapsed them.
+       *
+       * The cost is not pedantry. "Refused" sends somebody looking for a
+       * permission they do not have and a systemd that is not there.
+       */
+      const absent = result.code === 127;
+      if (absent) {
+        /* The unit is removed rather than left behind. We wrote it before
+           asking, and on a machine with no service manager it is a file that
+           will sit on the disk for the life of the box meaning nothing —
+           Todd found exactly that at
+           `~/.config/systemd/user/cloud.byollm.daemon.service`. A leftover
+           that describes a service nobody can start is a thing the next
+           reader has to disprove. */
+        await rm(plan.unitPath, { force: true });
+        return {
+          ok: false,
+          plan,
+          lines: [
+            `There is no service manager on this machine, so nothing can`,
+            `start byollm at login.`,
+            "",
+            ...refusalOf(command, result).map((line) => `  ${line}`),
+            "",
+            `\`byollm run\` serves for as long as it is running, which is not`,
+            `the same as a device that stays online — so this machine needs`,
+            `something else to keep it up.`,
+            "",
+            `  removed ${plan.unitPath}`,
+          ],
+        };
+      }
+
       return {
         ok: false,
         plan,
@@ -352,9 +394,19 @@ export async function installService(
           `${plan.supervisor} refused the task, and the fallback could not be`,
           `written either. Nothing is starting byollm at login.`,
           "",
-          `  To get past this, run \`byollm start\` once from a terminal opened`,
-          `  with "Run as administrator".`,
-          "",
+          /* Windows only — B184. This is Kevin's line, and it was printed
+             unconditionally, so a Linux box was told to open a terminal "as
+             administrator": no other terminal, no administrator, and no
+             elevation on a console that runs four commands. A remedy that
+             does not exist on the machine is worse than none, because it
+             ends the search. */
+          ...(plan.platform === "win32"
+            ? [
+                `  To get past this, run \`byollm start\` once from a terminal`,
+                `  opened with "Run as administrator".`,
+                "",
+              ]
+            : []),
           ...refusalOf(command, result).map((line) => `  ${line}`),
           "",
           `\`byollm run\` still works in a terminal, and is the way to keep`,

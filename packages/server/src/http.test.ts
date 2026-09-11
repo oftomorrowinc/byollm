@@ -191,7 +191,7 @@ describe("fetch handler", () => {
    * The two lanes agree about what is too big — B016.
    *
    * This limit was a hardcoded 8 MiB beside a comment about a 4 MB payload
-   * cap. The protocol's envelope cap has since moved to 10 MiB and the hub
+   * cap. The protocol's envelope cap has since moved (10 MiB, then 6) and the hub
    * derives its limit from it; the SDK did not, so a site self-hosting the
    * direct lane refused envelopes the hosted lane accepted. One rule, two
    * implementations, one of them left behind.
@@ -199,14 +199,29 @@ describe("fetch handler", () => {
    * The interesting case is the gap those two numbers made — bigger than the
    * old constant, smaller than the protocol's — because that is the band
    * where the lanes disagreed, and a test at 64 MiB never visits it.
+   *
+   * ## The fixture died on 09-10 and said so itself — B147
+   *
+   * It declared 9 MiB, with a guard reading *"if the envelope cap moves below
+   * this the case stops being a gap and this test stops meaning anything."*
+   * **The cap moved to 6 MiB and that guard is what failed**, which is the
+   * best outcome available: a test that predicted its own obsolescence and
+   * then announced it, rather than quietly asserting a band that no longer
+   * exists.
+   *
+   * The band is empty now — the derived limit (6 MiB + headroom) sits *below*
+   * the old hardcoded 8 MiB, so the divergence it was built for has reversed
+   * sign. What has not changed is the property: **neither lane holds the
+   * number.** So the fixture is derived from the cap instead of picked
+   * against a constant that is no longer anybody's, and it keeps visiting the
+   * one band that matters — just under the limit, and just over it.
    */
-  it("accepts a body over the old 8 MiB constant, under the envelope cap", async () => {
-    const declared = 9 * 1024 * 1024;
-    expect(
-      declared,
-      "the gap this guards closed — if the envelope cap moves below this " +
-        "the case stops being a gap and this test stops meaning anything",
-    ).toBeLessThan(MAX_ENVELOPE_BYTES);
+  it("accepts a body just under the derived limit", async () => {
+    const declared = MAX_ENVELOPE_BYTES;
+    /* Under the limit BECAUSE of the headroom, which is the derivation under
+       test: an envelope exactly at the cap plus its JSON overhead is the
+       largest legitimate request, and a lane that forgot the headroom would
+       refuse it. */
 
     const response = await handler()(
       new Request(url("pair"), {

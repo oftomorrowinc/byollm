@@ -510,7 +510,23 @@ export const SIZE_CLASSES = Object.freeze(SizeClass.options);
 export type SizeClass = z.infer<typeof SizeClass>;
 
 /**
- * The most one envelope may be, in bytes — ratified 2026-08-28.
+ * The most one envelope may be, in bytes — **6 MiB, ruled 2026-09-10.**
+ *
+ * ## Why six, which is two sentences and neither is about capacity
+ *
+ * Todd, 09-10: *"6 MB solves for just text and people don't try to push
+ * images. We will add R2 for multimodal later."* **The cap is a SHAPE
+ * decision** — it makes the envelope the wrong tool for a photo, which is the
+ * point, because the right tool for a photo is object storage and a reference
+ * to it rather than a bigger pipe.
+ *
+ * And the half that makes it aligned rather than merely chosen: **6 MiB sits
+ * under a hosted box's memory and bandwidth limits.** A box is 320 MiB of RAM;
+ * a 10 MiB envelope buffered is a real fraction of it. **Six is the number at
+ * which the smallest thing we sell can hold the largest thing we accept.**
+ *
+ * Both sentences are here because a number without them is a number the next
+ * person rounds up. It was 10 MiB from 2026-08-28 until this ruling.
  *
  * A **relay-memory safety rail**, not a plan feature: every tier has the same
  * ceiling, and differentiating tiers on it would be selling a safety limit as
@@ -534,7 +550,7 @@ export type SizeClass = z.infer<typeof SizeClass>;
  * limit and the bill disagreed about what a byte is, and a job could be small
  * enough to accept and larger than it was charged as.
  */
-export const MAX_ENVELOPE_BYTES = 10 * 1024 * 1024;
+export const MAX_ENVELOPE_BYTES = 6 * 1024 * 1024;
 
 /**
  * How big an envelope is, by the one measure that counts it.

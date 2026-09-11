@@ -2,6 +2,7 @@ import {
   MAX_ENVELOPE_BYTES,
   PROTOCOL_VERSION,
   cryptoReady,
+  describeBytes,
   envelopeBytes,
   generateKeys,
   publicIdentityOf,
@@ -35,11 +36,15 @@ describe("the per-message ceiling", () => {
     await cryptoReady();
   });
 
-  it("is ten megabytes, on every plan", () => {
+  it("is six mebibytes, on every plan", () => {
     // Written out rather than compared to itself. The number is a ruling, and
     // a check that derived it from the constant would pass whatever the
     // constant became.
-    expect(MAX_ENVELOPE_BYTES).toBe(10 * 1024 * 1024);
+    //
+    // **Ruled 6 MiB on 2026-09-10**, down from 10: the cap is a shape decision
+    // — it makes the envelope the wrong tool for a photo — and 6 is the number
+    // at which a 320 MiB box can hold the largest thing we accept.
+    expect(MAX_ENVELOPE_BYTES).toBe(6 * 1024 * 1024);
   });
 
   it("measures what the store stores, so the cap and the bill agree", () => {
@@ -63,7 +68,11 @@ describe("the per-message ceiling", () => {
       message: string;
     };
     expect(body.error).toBe("bad-request");
-    expect(body.message).toContain("10.0 MB");
+    /* Derived, unlike the ruling above — B147. The subject here is that the
+       SENTENCE names the limit, not what the limit is, and typing the number
+       again would mean a cap change reddens three tests that are not about
+       it. One place pins the ruling; everything else asks that place. */
+    expect(body.message).toContain(describeBytes(MAX_ENVELOPE_BYTES));
     expect(body.message).toMatch(/every plan has the same ceiling/i);
     expect(body.message).toMatch(/smaller jobs/i);
   });
@@ -71,8 +80,8 @@ describe("the per-message ceiling", () => {
   it("never says a message is exactly the size of the limit it exceeded", () => {
     /**
      * Found by rendering the sentence rather than asserting on it. `toFixed`
-     * rounds to nearest, so one byte over printed "this message is 10.0 MB
-     * and the limit is 10.0 MB" — a refusal that reads as a contradiction,
+     * rounds to nearest, so one byte over printed "this message is 6.0 MB
+     * and the limit is 6.0 MB" — a refusal that reads as a contradiction,
      * handed to somebody who now has no idea what to change.
      *
      * The size rounds up and only up, which is also the honest direction:
@@ -86,7 +95,9 @@ describe("the per-message ceiling", () => {
       const [reported, limit] = [...body.message.matchAll(/([\d.]+) MB/g)].map(
         (m) => Number(m[1]),
       );
-      expect(limit, "the limit stopped being stated").toBe(10);
+      expect(limit, "the limit stopped being stated").toBe(
+        Number(describeBytes(MAX_ENVELOPE_BYTES).replace(" MB", "")),
+      );
       expect(
         reported,
         `a message ${String(over)} bytes over the line was reported as no ` +
@@ -133,7 +144,8 @@ describe("the per-message ceiling", () => {
 
     expect(response.status).toBe(400);
     const answer = (await response.json()) as { message?: string };
-    expect(answer.message).toContain("10.0 MB");
+    // Derived, for the reason given at the first of these.
+    expect(answer.message).toContain(describeBytes(MAX_ENVELOPE_BYTES));
   });
 
   it("lets an ordinary payload through, which is the control", async () => {

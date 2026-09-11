@@ -14,7 +14,7 @@ import { ByollmHandlers, type HandlerConfig } from "./handlers.js";
  *
  * Derived, not chosen. This was `8 * 1024 * 1024` beside a comment saying the
  * protocol caps a payload at 4 MB — true when it was written, and the cap has
- * since moved to {@link MAX_ENVELOPE_BYTES}, which is 10 MiB. So the direct
+ * since moved to {@link MAX_ENVELOPE_BYTES}, which is 6 MiB. So the direct
  * lane refused envelopes the protocol permits, and the hub — which derives
  * its own limit the same way this now does — accepted them.
  *

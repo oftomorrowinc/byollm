@@ -57,6 +57,23 @@ const PACKAGES = fileURLToPath(new URL("../../", import.meta.url));
 /** This package, for the two cases that name a specific file on purpose. */
 const HERE = fileURLToPath(new URL("./", import.meta.url));
 
+/**
+ * The repository, because source is not where most of the teaching happens —
+ * B070's second half.
+ *
+ * `byollm_023` asks for *"every place the vocabulary is published — byollm's
+ * READMEs, docs/, site/, examples/, the server and relay refusal strings"*.
+ * Widening to `packages/*` covered the refusal strings and left the documents,
+ * which is backwards from where a reader meets a command: **nobody learns a
+ * verb from a string literal.**
+ *
+ * The web repo's prose is the one part that stays out, and it is B039's class
+ * rather than an omission — a check cannot read another repository, and
+ * `byollm_023` names the two shapes that would work (a copy over there, or a
+ * rule shipped from a package both import) and the cost of each.
+ */
+const REPO = fileURLToPath(new URL("../../../", import.meta.url));
+
 /** Retired verbs, and what to say instead. `npm install` is not one of these. */
 const RETIRED: Readonly<Record<string, string>> = {
   "byollm install": "byollm start",
@@ -81,6 +98,51 @@ function sources(): { name: string; text: string }[] {
     .map((name) => ({
       name,
       text: readFileSync(`${PACKAGES}${name}`, "utf8"),
+    }))
+    .concat(published());
+}
+
+/**
+ * The documents, where a person actually learns a command.
+ *
+ * Read whole rather than through {@link printed}: markdown has no string
+ * literals, and every word in it is published. The window rule below is what
+ * keeps history writable here — a release note explaining the rename names both
+ * verbs, so it passes for the same reason `byollm models takes no arguments …
+ * use byollm services` does.
+ */
+function published(): { name: string; text: string }[] {
+  return readdirSync(REPO, { recursive: true, encoding: "utf8" })
+    .filter(
+      (name) =>
+        (name.endsWith(".md") || name.endsWith(".html")) &&
+        !name.includes("node_modules") &&
+        !name.includes("/dist/") &&
+        !name.startsWith("dist/") &&
+        !name.includes("/.tsbuild/") &&
+        /**
+         * **`specs/` is not a surface, and neither is `coverage/`.**
+         *
+         * The spec asks for *"READMEs, docs/, site/, examples/"* and stops
+         * there, which is right: `specs/` is our working record and it has to
+         * be able to say the old word — a design note reading *"B040 renamed
+         * `byollm install`"* is history, and a rule that forbade it would make
+         * the reason unwriteable. **Exactly why comments are stripped out of
+         * the source half**, one directory up.
+         *
+         * `coverage/` is generated HTML containing a copy of every source
+         * file, so it would report each finding twice and name a path nobody
+         * can edit.
+         *
+         * Run without these two, this found 22 occurrences and every one was
+         * in them.
+         */
+        !name.startsWith("specs/") &&
+        !name.startsWith("coverage/"),
+    )
+    .map((name) => ({
+      name,
+      text: readFileSync(`${REPO}${name}`, "utf8"),
     }));
 }
 
@@ -152,7 +214,9 @@ describe("what the daemon prints", () => {
     const WITHIN = 300;
     const offences: string[] = [];
     for (const { name, text } of sources()) {
-      const surface = printed(text);
+      /* A document has no string literals and no comments — every word in it
+         is published, so it is read whole. Stripping would delete the text. */
+      const surface = /\.(md|html)$/.test(name) ? text : printed(text);
       for (const [retired, instead] of Object.entries(RETIRED)) {
         let at = surface.indexOf(retired);
         while (at !== -1) {

@@ -27,12 +27,23 @@ import type { BackendId } from "@byollm/protocol";
  * the fallback in every way — it exits by itself when the login finishes,
  * rather than depending on somebody typing the right thing to come back:
  *
- *     claude   claude auth login     (also: claude auth status, JSON)
- *     codex    codex login           (also: codex login status)
+ *     claude   claude auth login                (also: claude auth status)
+ *     codex    codex login --device-auth        (also: codex login status)
  *
  * Checked by running them, per the FIXED_ARGV precedent. `claude login` is not
  * a command; `claude auth login` is. Guessing the first would have produced a
  * gate that always failed, on the path a new person meets first.
+ *
+ * **`--device-auth` since B148, and the table said `codex login` for one
+ * commit after the code stopped.** That flow opens a localhost OAuth callback,
+ * so on any machine without a browser and a loopback listener it does not fail
+ * — it **hangs**. A summary whose authority is *"we ran these"*, listing a
+ * command removed **because it hangs**, is worse than an unverified one; and
+ * it is the first thing a reader of this file meets.
+ *
+ * The rule it breaks is instruction 20's corollary one scope down: a ruling is
+ * not landed until the code matches it, and a file's own header is code's
+ * nearest neighbour.
  *
  * ## Except on Windows, where the spawn cannot work — ruled 2026-09-04
  *

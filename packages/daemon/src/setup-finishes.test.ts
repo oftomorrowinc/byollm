@@ -5,6 +5,8 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { runSetup, type Detected, type SetupIo } from "./setup.js";
 import { loginCommandFor } from "./login.js";
 import { createBackend } from "./backends/index.js";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { daemonPaths, type DaemonPaths } from "./paths.js";
 import { removeTemp } from "./test-support.js";
 
@@ -404,6 +406,51 @@ describe("the login invocations, which were verified rather than assumed", () =>
     /* And it names the flag, or the derivation is right about a wrong
        command. */
     expect(createBackend("codex-cli", {}).signIn).toContain("--device-auth");
+  });
+
+  it("has a header table that agrees with the file under it — B152", () => {
+    /**
+     * `login.ts` opens with a table of the sign-in commands, under the words
+     * *"Checked by running them, per the FIXED_ARGV precedent."* **For one
+     * commit after B148 it listed `codex login`** — the flow that was removed
+     * BECAUSE it hangs on any machine without a loopback listener.
+     *
+     * A summary carrying that authority, naming a command that hangs, is worse
+     * than an unverified one — and it is the first thing a reader of the file
+     * meets. Instruction 20's corollary one scope down: a ruling is not landed
+     * until the code matches it, and a file's own header is code's nearest
+     * neighbour.
+     *
+     * Asserted rather than fixed once, because this is the third stale-claim
+     * row in a day (B141's five, §Console transport's missing marker, this).
+     * The table is parsed and each row compared to the argv that ships — so a
+     * command changing without its summary is a red test rather than a
+     * reader's problem.
+     */
+    const source = readFileSync(
+      fileURLToPath(new URL("./login.ts", import.meta.url)),
+      "utf8",
+    );
+    /* The table rows only: two spaces or more separate the id, the command and
+       the parenthetical, which is what makes this a table rather than prose
+       that happens to name a command. */
+    const rows = [
+      ...source.matchAll(/^\s*\*\s{5}(\S+)\s{2,}([^(]+?)\s{2,}\(also:/gm),
+    ].map((found) => ({
+      binary: found[1] as string,
+      command: (found[2] as string).trim(),
+    }));
+
+    expect(rows.length, "the table moved or its shape changed").toBe(2);
+
+    for (const { binary, command } of rows) {
+      const id = binary === "claude" ? "claude-cli" : "codex-cli";
+      expect(
+        command,
+        `login.ts's header says \`${command}\` for ${binary}, and the file ` +
+          "spawns something else",
+      ).toBe(loginCommandFor(id)?.argv.join(" "));
+    }
   });
 
   it("has nothing to spawn for a backend with no login of its own", () => {

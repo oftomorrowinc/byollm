@@ -1738,27 +1738,46 @@ export class Runner {
       site: job.site,
     });
 
-    const prompt = composePrompt(job);
-    const community = job.owner !== this.#options.owner;
-    const limits = this.#options.loaded.config;
-
-    await this.#options.ingress.recordPrompt({
-      at: this.#now(),
-      origin: this.#options.client.origin,
-      jobId: job.id,
-      ...(job.site === undefined ? {} : { site: job.site }),
-      kind: job.kind,
-      audience: job.audience,
-      owner: job.owner,
-      backendId: route.backendId,
-      backendClass: route.backendClass,
-      model: route.model,
-      prompt,
-    });
-
-    if (community) await this.#options.budgets.record(this.#now());
-
+    /**
+     * The `try` starts HERE, not after the ingress write — B021.
+     *
+     * Its only job is the `finally` that releases the slot, and it used to
+     * begin **after** `recordPrompt` and `budgets.record`. Both are awaited
+     * writes and both can throw — a full disk, a permission change, a corrupt
+     * ledger — and a throw between the `set` above and the old `try` left the
+     * entry in `#active` **for ever**.
+     *
+     * That is not a leaked object, it is a leaked concurrency slot:
+     * `free = concurrency - #active.size`, so at the default of 2 two such
+     * failures make the daemon claim nothing again, permanently, while
+     * `activeJobs: 2` and the status screen both report work in progress.
+     * **The device goes quiet and every surface says it is busy.**
+     *
+     * There is no `catch`, so moving the boundary changes no error handling
+     * at all — the throw still propagates. It only guarantees the slot is
+     * given back on the way out.
+     */
     try {
+      const prompt = composePrompt(job);
+      const community = job.owner !== this.#options.owner;
+      const limits = this.#options.loaded.config;
+
+      await this.#options.ingress.recordPrompt({
+        at: this.#now(),
+        origin: this.#options.client.origin,
+        jobId: job.id,
+        ...(job.site === undefined ? {} : { site: job.site }),
+        kind: job.kind,
+        audience: job.audience,
+        owner: job.owner,
+        backendId: route.backendId,
+        backendClass: route.backendClass,
+        model: route.model,
+        prompt,
+      });
+
+      if (community) await this.#options.budgets.record(this.#now());
+
       const backend = this.#backendFor(route);
       /**
        * Start the local server if this job needs one — B050.

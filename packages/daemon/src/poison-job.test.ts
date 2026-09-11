@@ -1,4 +1,6 @@
 import { mkdtemp } from "node:fs/promises";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -292,6 +294,80 @@ describe("a job this device keeps starting and never finishing", () => {
       1,
     );
     expect(refusals[0]).toContain("without finishing");
+  });
+
+  it("gives the concurrency slot back when the ingress write throws", async () => {
+    /**
+     * B021 — and it is a leaked SLOT, not a leaked object.
+     *
+     * `#active.set` ran before the `try` whose `finally` releases it, with two
+     * awaited writes in between: `recordPrompt` and `budgets.record`. A throw
+     * there — a full disk, a permission change, a corrupt ledger — left the
+     * entry in `#active` permanently.
+     *
+     * `free = concurrency - #active.size`, so at the default of 2 **two such
+     * failures make the daemon claim nothing again, for ever** — while
+     * `activeJobs: 2` and the status screen both report work in progress.
+     * The device goes quiet and every surface says it is busy, which is the
+     * worst pairing available: silent to the network, healthy on the console.
+     *
+     * The harness's own note calls this "the disk-is-full shape", so the
+     * failure was already modelled here; what nothing looked at was the
+     * bookkeeping it left behind.
+     */
+    const { runner, cycle, advance } = await makeRunner({ failIngress: true });
+
+    /* Same rhythm as the case above: a cycle, then the lease lapses so the
+       hub offers the job again. Without the advance the second claim has
+       nothing to hand back and the cycle waits for a terminal event that is
+       not coming. */
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      await cycle();
+      advance(60_000);
+    }
+
+    /* Read off the same surface an operator would: `status` is what somebody
+       runs when a device has gone quiet, and it is the number that would have
+       lied. */
+    expect(
+      runner.status().activeJobs,
+      "the runner still believes it is working on jobs whose ingress write " +
+        "threw — those slots never come back",
+    ).toBe(0);
+  });
+
+  it("takes the slot and enters the try with nothing awaited between", () => {
+    /**
+     * The same property as the case above, stated where it lives — because
+     * the behavioural one cannot say WHY it passes.
+     *
+     * What releases the slot is a `finally`, and what decides whether it runs
+     * is the position of one `try`. A future edit that adds a second awaited
+     * write above it — another ledger, a metric, an audit line — reintroduces
+     * the leak exactly, and the case above would go on passing as long as the
+     * write it happens to model stays inside.
+     *
+     * So this reads the source: between taking the slot and entering the try
+     * there must be **no `await` at all.** Same precedent as B159's ordering
+     * assertion and `spawnServer`'s guard — where the property is the ORDER of
+     * two statements, reading them is the check.
+     */
+    const runner = readFileSync(
+      fileURLToPath(new URL("./runner.ts", import.meta.url)),
+      "utf8",
+    );
+    const took = runner.indexOf("this.#active.set(job.lease.id");
+    expect(took, "the slot is no longer taken here").toBeGreaterThan(-1);
+
+    const entered = runner.indexOf("try {", took);
+    expect(entered, "no try follows the slot being taken").toBeGreaterThan(-1);
+
+    const between = runner.slice(took, entered);
+    expect(
+      between.includes("await "),
+      "an awaited call sits between taking the concurrency slot and the try " +
+        "whose finally gives it back — if it throws, that slot never returns",
+    ).toBe(false);
   });
 
   it("does not refuse a job that finishes, however often it comes back", async () => {

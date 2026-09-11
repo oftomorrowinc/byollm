@@ -278,6 +278,22 @@ interface Candidate {
   /** Set when the row is a CLI that is installed and cannot answer. */
   signedOut: boolean;
   /**
+   * Set when the config names a CLI whose binary is NOT on this machine —
+   * B119.
+   *
+   * A different state from {@link Candidate.signedOut}, and the difference is
+   * the whole row: *signed out* means the command is here and has no
+   * credentials, which an owner fixes by signing in. **This means the command
+   * is not here at all**, which signing in cannot fix and which the sign-in
+   * path must not offer.
+   *
+   * It does not deselect. Unselected rows are not written, so removing the
+   * mark would DELETE a service the owner configured — on the one machine
+   * where they are most likely to be about to reinstall the CLI. The row
+   * stays; the claim over it changes.
+   */
+  missing: boolean;
+  /**
    * Why, in the backend's own words.
    *
    * *"Invalid API key · Please run /login"* is the sentence that names the
@@ -705,13 +721,28 @@ function renderChoices(rows: readonly Candidate[]): string[] {
       lines.push(`  ${heading ?? "other"}`);
     }
     const mark = row.selected ? "x" : " ";
-    const note = row.signedOut
-      ? "signed out"
-      : row.cost === "subscription"
-        ? "your subscription — your own jobs only"
-        : row.cost === "metered"
-          ? "metered — runs on your provider's account"
-          : "free — your electricity";
+    /**
+     * The note carries the exception, and `missing` comes first — B119.
+     *
+     * Before `signedOut`, because a machine without the command is not signed
+     * out of it; and before the cost line, because *"your subscription — your
+     * own jobs only"* under a heading reading "subscriptions this machine is
+     * signed in to" is two claims about a binary that is not here.
+     *
+     * The row keeps its mark. Unselected rows are not written, so clearing it
+     * would delete a service the owner configured — on the machine where they
+     * are most likely about to reinstall the CLI.
+     */
+    const note = row.missing
+      ? `\`${row.type.replace(/-cli$/, "")}\` is not on this machine — the ` +
+        "service is kept, and unused until it is"
+      : row.signedOut
+        ? "signed out"
+        : row.cost === "subscription"
+          ? "your subscription — your own jobs only"
+          : row.cost === "metered"
+            ? "metered — runs on your provider's account"
+            : "free — your electricity";
     lines.push(
       `   ${String(at + 1).padStart(2)}. [${mark}] ${row.name.padEnd(24)} ${row.where}`,
     );
@@ -827,6 +858,7 @@ async function candidates(input: {
       original: block,
       identified: false,
       signedOut: false,
+      missing: false,
       selected: true,
       shared: service.offer === "team",
       capCents: service.spend?.dailyCapCents,
@@ -834,7 +866,26 @@ async function candidates(input: {
   }
 
   for (const cli of SUBSCRIPTION_CLIS) {
-    if (!(await input.detector(cli.id))) continue;
+    if (!(await input.detector(cli.id))) {
+      /**
+       * The binary is absent, and the config may still name it — B119.
+       *
+       * This was a bare `continue`, so a configured `claude-cli` service on a
+       * machine without `claude` kept the defaults the config loop gave it:
+       * **not signed out, pre-selected, and printed under "subscriptions this
+       * machine is signed in to"** — a heading asserting the one thing that
+       * is not true of it.
+       *
+       * Bounded, which is why it is a marking rather than a removal:
+       * `detectCapabilities` drops the service at runtime, so nothing is
+       * falsely ADVERTISED. What was wrong is three surfaces disagreeing, and
+       * the picker was the one saying the flattering thing.
+       */
+      for (const row of rows.filter((row) => row.type === cli.id)) {
+        row.missing = true;
+      }
+      continue;
+    }
 
     /**
      * A machine has one `claude` — B116 — and it can serve several models.
@@ -902,6 +953,8 @@ async function candidates(input: {
       baseUrl: undefined,
       model,
       cost: "subscription",
+      /* Detection reached here, so the binary is on this machine — B119. */
+      missing: false,
       where: `your ${cli.plan}`,
       binary: cli.binary,
       /* A process backend was detected by RUNNING it, so its id is an
@@ -929,6 +982,8 @@ async function candidates(input: {
         type: block.type,
         baseUrl: block.baseUrl,
         model,
+        /* A server answered at this address; nothing here is a missing CLI. */
+        missing: false,
         // Asked of the one classifier rather than decided here. A `:cloud`
         // model on a loopback port is metered, and a surface that classified
         // for itself is the defect B085 arrived as.

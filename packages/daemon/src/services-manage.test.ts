@@ -1344,3 +1344,86 @@ describe("a CLI serving more than one configured model", () => {
     ]);
   });
 });
+
+/**
+ * A configured CLI on a machine that does not have it — B119.
+ *
+ * The config loop marks every row it reads `signedOut: false` and
+ * pre-selected, and the detection loop below `continue`d straight past a CLI
+ * whose binary is absent. So a `claude-cli` service on a machine without
+ * `claude` kept those defaults and printed under **"subscriptions this machine
+ * is signed in to"** — a heading asserting the one thing that is not true of
+ * it.
+ *
+ * **Bounded, which is why the fix marks rather than removes:**
+ * `detectCapabilities` drops the service at runtime, so nothing is falsely
+ * advertised to a site. What was wrong is three surfaces disagreeing, and the
+ * picker was the one saying the flattering thing.
+ */
+describe("a subscription CLI the config names and the machine does not have", () => {
+  const existing = {
+    "claude-opus-5": {
+      type: "claude-cli",
+      model: "claude-opus-5",
+      kinds: ["llm.generate"],
+    },
+  };
+
+  it("does not call it signed in", async () => {
+    const { io } = await run([""], { existing, detector: noCli });
+    const screen = io.transcript();
+    expect(screen).toContain("`claude` is not on this machine");
+    expect(screen).not.toContain("signed out");
+  });
+
+  it("keeps it in the config, because deselecting is deleting", async () => {
+    /**
+     * The half that makes this a marking and not a removal.
+     *
+     * Unselected rows are never written, so clearing the mark would delete a
+     * service the owner configured — on the machine where they are most
+     * likely about to reinstall the CLI. A picker that tidies away your
+     * configuration because a binary is missing today is worse than one that
+     * overstates what is signed in.
+     */
+    const { outcome } = await run([""], { existing, detector: noCli });
+    /* `toMatchObject`, because the picker normalises what it writes — this
+       block gains an explicit `offer: "private"` on the way through, which is
+       the sharing default being made visible rather than anything to do with
+       a missing binary. What must survive is the service. */
+    expect(outcome.services["claude-opus-5"]).toMatchObject({
+      type: "claude-cli",
+      model: "claude-opus-5",
+    });
+  });
+
+  it("says the same thing about codex, from the same table", async () => {
+    /* Not claude-specific: the note is derived from the row's backend id, so
+       a second CLI cannot be forgotten when one is added. */
+    const { io } = await run([""], {
+      existing: {
+        gpt: { type: "codex-cli", model: "gpt-5", kinds: ["llm.generate"] },
+      },
+      detector: noCli,
+    });
+    expect(io.transcript()).toContain("`codex` is not on this machine");
+  });
+
+  it("still says SIGNED OUT when the binary IS there", async () => {
+    /**
+     * The control, and the distinction the row is about: *signed out* means
+     * the command is here and has no credentials, which an owner fixes by
+     * signing in. *Not on this machine* is a different sentence and signing
+     * in cannot fix it — which is why the sign-in path keys on the binary
+     * being found.
+     */
+    const { io } = await run(["n", "n", "n", "n", ""], {
+      existing,
+      detector: machineWith(["claude-cli"]),
+      verifier: signedOut,
+    });
+    const screen = io.transcript();
+    expect(screen).toContain("signed out");
+    expect(screen).not.toContain("is not on this machine");
+  });
+});

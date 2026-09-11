@@ -137,7 +137,7 @@ describe("the config examples in our own documentation", () => {
       taught.map(
         (example) =>
           `${example.file}:${String(example.line)} teaches "${example.type}" ` +
-          `at ${example.baseUrl}, which is ${example.owner}`,
+          `at ${example.baseUrl}, which is ${String(example.owner)}`,
       ),
       "an example naming the generic type at a provider's own port teaches a " +
         "config byollm cannot start on demand — B116, B118",

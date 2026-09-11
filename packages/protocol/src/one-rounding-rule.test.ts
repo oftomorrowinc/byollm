@@ -104,7 +104,7 @@ describe("where a size may be formatted", () => {
      * round down, and *"how much is free"* must never round up. Folding them
      * together here would assert one rule over two decisions.
      */
-    const stripped = (text) =>
+    const stripped = (text: string): string =>
       text.replace(/\/\*[\s\S]*?\*\//g, " ").replace(/\/\/[^\n]*/g, " ");
     const offenders = [...sources("relay"), ...sources("server")]
       .filter(({ text }) => /toFixed\s*\(/.test(stripped(text)))

@@ -38,6 +38,23 @@ import { describe, expect, it } from "vitest";
  * reason: page-granular would let a bare instruction sit under a paragraph
  * that happened to mention the new word.
  */
+/**
+ * Every package's source, not this one's — B070.
+ *
+ * The docstring above states the law — *"a check reads every place its words
+ * come from"* — and then this read `packages/daemon/src` and nothing else. **A
+ * check scoped to one folder while claiming a law about every folder is the
+ * unguarded state that produced B055**, which is the same shape one level up:
+ * B040 verified the rename where it was easiest to look.
+ *
+ * Every surface is clean today, so this is not a live bug. It is the guard
+ * that was missing when it was not — and the daemon is not the only thing that
+ * prints: the SDK refuses jobs in sentences, the relay names commands in its
+ * errors, and the conformance kit tells somebody what to run next.
+ */
+const PACKAGES = fileURLToPath(new URL("../../", import.meta.url));
+
+/** This package, for the two cases that name a specific file on purpose. */
 const HERE = fileURLToPath(new URL("./", import.meta.url));
 
 /** Retired verbs, and what to say instead. `npm install` is not one of these. */
@@ -50,9 +67,21 @@ const RETIRED: Readonly<Record<string, string>> = {
 };
 
 function sources(): { name: string; text: string }[] {
-  return readdirSync(HERE, { recursive: true, encoding: "utf8" })
-    .filter((name) => name.endsWith(".ts") && !name.includes(".test."))
-    .map((name) => ({ name, text: readFileSync(`${HERE}${name}`, "utf8") }));
+  return readdirSync(PACKAGES, { recursive: true, encoding: "utf8" })
+    .filter(
+      (name) =>
+        name.endsWith(".ts") &&
+        !name.includes(".test.") &&
+        /* Emitted copies of the same source, twice over. They would double
+           every finding and name a path nobody can edit. */
+        !name.includes("/dist/") &&
+        !name.includes("/.tsbuild/") &&
+        !name.includes("node_modules"),
+    )
+    .map((name) => ({
+      name,
+      text: readFileSync(`${PACKAGES}${name}`, "utf8"),
+    }));
 }
 
 /**

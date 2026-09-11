@@ -432,6 +432,17 @@ export type JobRefused = z.infer<typeof JobRefused>;
  * comes back. Hence a table rather than prose at the throw site: three
  * refusals written in three places drift into three slightly different
  * sentences, and "slightly different" is all an oracle needs.
+ *
+ * ## Published, because the drift it prevents happens outside this repo — B103
+ *
+ * `JobRefused` and `RefusalReason` were exported and **this was not**, so we
+ * shipped the vocabulary and withheld the sentences. Nothing here constructs a
+ * refusal; the producers are sites and the hub, and every one of them would
+ * have written its own message for a reason code we defined.
+ *
+ * **That is the drift this table argues against, made inevitable by the export
+ * list** — and `message` is a required field on the envelope, so each of them
+ * had to write something.
  */
 export const REFUSAL_TEXT: Readonly<Record<RefusalReason, string>> =
   Object.freeze({

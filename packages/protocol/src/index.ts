@@ -90,6 +90,7 @@ export {
   // byollm_016 Phase B. Public because a site handles these: a refusal is a
   // terminal answer an app must render, not an internal routing detail.
   JobRefused,
+  REFUSAL_TEXT,
   RefusalReason,
   JobState,
   ClaimedStub,

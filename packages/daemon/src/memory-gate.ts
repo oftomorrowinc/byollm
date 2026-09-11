@@ -196,6 +196,32 @@ export function memoryGate(input: GateInput): GateDecision {
   };
 }
 
+/**
+ * Memory, in GB, rounded DOWN — B167, and the direction is the whole point.
+ *
+ * Four copies of this lived in the daemon and `cli.ts` held the same three
+ * lines twice, in two functions. That is B072's shape on a different quantity,
+ * and it is a different quantity in the way that matters: **the rounding goes
+ * the other way.**
+ *
+ * `describeBytes` in the protocol rounds UP, because it answers *"how much do
+ * I have to lose"* and an answer smaller than the truth sends somebody to trim
+ * a hundred bytes off something that needs to lose a megabyte.
+ *
+ * Everything here answers *"how much do I have"*, and **an answer larger than
+ * the truth is the dangerous one**: 2147483647 bytes available against a 2 GB
+ * floor is a refusal, and `toFixed` prints it as `2.0 GB` — a screen saying a
+ * device has exactly the memory it was just refused for. Floor, not nearest,
+ * so the number shown is never more than the number measured.
+ *
+ * All four call sites render available or total memory, which is why one
+ * helper is right here and would not have been if one of them rendered a
+ * requirement.
+ */
+export function gigabytes(n: number): string {
+  return `${(Math.floor((n / 1024 ** 3) * 10) / 10).toFixed(1)} GB`;
+}
+
 function bytes(n: number): string {
-  return `${(n / (1024 * 1024 * 1024)).toFixed(1)} GB`;
+  return gigabytes(n);
 }

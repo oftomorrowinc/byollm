@@ -1,4 +1,5 @@
 import { spawnLocalServer } from "./local-server.js";
+import { gigabytes } from "./memory-gate.js";
 import { access } from "node:fs/promises";
 import { emphasise, terminalContext } from "./emphasis.js";
 import { backendVerifier, listModels, setModel, showModel } from "./model.js";
@@ -2309,7 +2310,7 @@ export function memoryGuardLines(input: {
    */
   floorBytes: number;
 }): string {
-  const gb = (n: number) => `${(n / 1024 ** 3).toFixed(1)} GB`;
+  const gb = gigabytes;
   if (input.memory.kind !== "read") {
     return (
       `memory guard: NOT ACTIVE\n` +
@@ -2871,7 +2872,7 @@ async function commandLog(
      * and a log of refusals alone cannot answer it.
      */
     if (entry.type === "memory") {
-      const gb = (n: number) => `${(n / 1024 ** 3).toFixed(1)} GB`;
+      const gb = gigabytes;
       io.out(
         `${at}  ${(entry.admit ? "admit" : "REFUSE").padEnd(8)} ` +
           entry.backendId +

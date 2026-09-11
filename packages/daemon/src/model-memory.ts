@@ -1,5 +1,5 @@
 import type { BackendId } from "@byollm/protocol";
-import { memoryGate } from "./memory-gate.js";
+import { memoryGate, gigabytes } from "./memory-gate.js";
 import type { MemoryPressure, MemoryReading } from "./memory.js";
 
 /**
@@ -62,7 +62,7 @@ export function modelLoadQuestion(input: {
    */
   if (decision.admit) return { ask: false };
 
-  const gb = (n: number) => `${(n / 1024 ** 3).toFixed(1)} GB`;
+  const gb = gigabytes;
   const room =
     input.memory.kind === "read"
       ? `${gb(input.memory.availableBytes)} available of ${gb(input.memory.totalBytes)}`

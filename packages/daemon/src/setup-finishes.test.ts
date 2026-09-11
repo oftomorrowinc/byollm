@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { runSetup, type Detected, type SetupIo } from "./setup.js";
 import { loginCommandFor } from "./login.js";
+import { createBackend } from "./backends/index.js";
 import { daemonPaths, type DaemonPaths } from "./paths.js";
 import { removeTemp } from "./test-support.js";
 
@@ -358,7 +359,51 @@ describe("the login invocations, which were verified rather than assumed", () =>
       "auth",
       "login",
     ]);
-    expect(loginCommandFor("codex-cli")?.argv).toEqual(["codex", "login"]);
+    /**
+     * `--device-auth` — B148, and it is the flow everywhere rather than only
+     * on a machine we guess is headless.
+     *
+     * Plain `codex login` opens a localhost OAuth callback, so anything
+     * without a browser and a loopback listener — a hosted box, a server, a
+     * container, an SSH session — does not fail on it, it HANGS waiting for a
+     * callback nobody can make. Codex says so itself: *"On a remote or
+     * headless machine? Use `codex login --device-auth` instead."*
+     */
+    expect(loginCommandFor("codex-cli")?.argv).toEqual([
+      "codex",
+      "login",
+      "--device-auth",
+    ]);
+    /* And claude needs no equivalent, checked by running it headless rather
+       than assumed: its login prints a `platform.claude.com` redirect and
+       takes a pasted code, with no inbound listener. */
+    expect(loginCommandFor("claude-cli")?.argv).toEqual([
+      "claude",
+      "auth",
+      "login",
+    ]);
+  });
+
+  it("shows a remedy that is the command we would actually run — B148", () => {
+    /**
+     * Two places described one sign-in: the argv the wizard spawns, and the
+     * `signIn` string an owner is shown when a service needs signing in. Only
+     * the first was corrected when the flow changed, so the second went on
+     * saying `run \`codex login\`` — **the flow that hangs on any machine
+     * without a browser and a loopback listener.**
+     *
+     * Derived now rather than restated, and asserted so it cannot drift back:
+     * a mutation hard-coding the old string passed every other test in this
+     * repository.
+     */
+    const command = loginCommandFor("codex-cli");
+    expect(command).toBeDefined();
+    expect(createBackend("codex-cli", {}).signIn).toBe(
+      `run \`${command?.argv.join(" ") ?? ""}\``,
+    );
+    /* And it names the flag, or the derivation is right about a wrong
+       command. */
+    expect(createBackend("codex-cli", {}).signIn).toContain("--device-auth");
   });
 
   it("has nothing to spawn for a backend with no login of its own", () => {

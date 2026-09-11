@@ -3,6 +3,7 @@ import type { BackendClass, BackendId } from "@byollm/protocol";
 import { childEnv, resolveCliLaunch } from "./claude-cli.js";
 import { isAuthFailure, runProcessJob } from "./process-backend.js";
 import { quotaBlock, type Observation } from "./quota.js";
+import { loginCommandFor } from "../login.js";
 import type {
   StopReasonMapping,
   Backend,
@@ -266,6 +267,23 @@ export function parseCodexOutput(
  * prompts. It does not bound the sites the owner has consented to, which is why
  * the disables are verified rather than trusted.
  */
+/**
+ * The remedy, from the one place that decides what we would run.
+ *
+ * A function rather than an inline expression so the `undefined` case is
+ * handled once and loudly: `loginCommandFor` returns `undefined` for a backend
+ * with nothing to spawn, and codex is not one — a silent `??` fallback here
+ * would be a second hard-coded copy of the argv, which is the thing being
+ * removed.
+ */
+function signInRemedy(): string {
+  const command = loginCommandFor("codex-cli");
+  if (command === undefined) {
+    throw new Error("codex-cli has no login command, which cannot happen");
+  }
+  return `run \`${command.argv.join(" ")}\``;
+}
+
 export class CodexCliBackend implements Backend {
   /**
    * Nothing to read — checked by running it (byollm_021).
@@ -283,7 +301,21 @@ export class CodexCliBackend implements Backend {
 
   readonly id: BackendId = "codex-cli";
   readonly class: BackendClass = "process";
-  readonly signIn = "run `codex login`";
+  /**
+   * The remedy an owner is shown, derived from the command we would run —
+   * B148.
+   *
+   * This said `run \`codex login\``, which is the flow that **hangs** on any
+   * machine without a browser and a loopback listener: a hosted box, a
+   * server, a container, an SSH session. Two places describing one sign-in,
+   * and only one of them was corrected when the flow changed — so this asks
+   * the one that decides rather than restating it.
+   *
+   * `claude-cli`'s remedy is deliberately NOT derived the same way: it says
+   * *"run `claude` in a terminal"* under B047's print-not-spawn ruling, which
+   * is a different instruction for a different reason, and it is not broken.
+   */
+  readonly signIn = signInRemedy();
   readonly #binary: string;
 
   /**

@@ -74,10 +74,41 @@ export function loginCommandFor(id: BackendId): LoginCommand | undefined {
       };
     case "codex-cli":
       return {
-        argv: ["codex", "login"],
+        /**
+         * `--device-auth`, EVERYWHERE, not only on a machine we think is
+         * headless — B148, and the choice is the interesting part.
+         *
+         * Plain `codex login` opens a **localhost OAuth callback**. Codex says
+         * so itself: *"On a remote or headless machine? Use `codex login
+         * --device-auth` instead."* Anything without a browser and a loopback
+         * listener — a hosted box, a server, a container, an SSH session —
+         * does not fail on that flow, it **hangs** waiting for a callback
+         * nobody can make.
+         *
+         * **The alternative was to detect headless and branch**, and that is a
+         * guess about somebody's machine: no `DISPLAY`, `SSH_CONNECTION` set,
+         * no browser on PATH. Every one of those is right about most machines
+         * and wrong about some, and the failure when it is wrong is a hang
+         * rather than a message. One flow that works on every machine beats
+         * two flows and a heuristic deciding between them.
+         *
+         * **The cost, stated:** on a laptop this prints a URL and a code
+         * instead of opening a browser. Todd, 09-10: *"we will need to
+         * integrate that for codex in setup, at least for hosted, probably
+         * everywhere."* This is the everywhere reading.
+         *
+         * Per instruction 11, what would change it: evidence that the extra
+         * paste costs laptop users more than the hang costs headless ones —
+         * which is a complaint we would hear, rather than something to predict.
+         *
+         * `claude` needs no equivalent, checked the same way rather than
+         * assumed: run headless, `claude auth login` prints a URL whose
+         * `redirect_uri` is `platform.claude.com` and takes a pasted code.
+         */
+        argv: ["codex", "login", "--device-auth"],
         says:
-          "Opening Codex's sign-in now. Finish it there and this picks\n" +
-          "  straight back up.",
+          "Codex will print a URL and a code. Open the URL anywhere — your\n" +
+          "  phone is fine — enter the code, and this picks straight back up.",
       };
     default:
       return undefined;

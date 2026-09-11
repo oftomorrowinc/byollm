@@ -18,7 +18,7 @@
     "adversarial": "vitest run --project adversarial",
     "knip": "knip",
     "dupes": "jscpd packages --config .jscpd.json",
-    "verify": "bash scripts/verify.sh",
+    "verify": "bash scripts/verify.sh && node scripts/generate-family.mjs --check",
     "smoke": "pnpm --filter byollm run smoke",
     "check:site": "node scripts/check-site.mjs",
     "check:releasing": "node scripts/check-releasing.mjs",
@@ -26,7 +26,8 @@
     "freeze-gate": "vitest run --project relay",
     "release:check": "node scripts/release-check.mjs",
     "hooks:install": "node scripts/install-hooks.mjs",
-    "about": "node scripts/generate-about.mjs"
+    "about": "node scripts/generate-about.mjs",
+    "family": "node scripts/generate-family.mjs"
   },
   "devDependencies": {
     "@changesets/cli": "^2.31.1",

@@ -343,3 +343,17 @@ Full threat model, including what the OS stops us dropping:
 [`docs/security.md`](../../docs/security.md).
 
 MIT
+
+<!-- family:start -->
+
+## The rest of byollm
+
+Six packages, and they are only interesting together:
+
+- [`@byollm/protocol`](https://www.npmjs.com/package/@byollm/protocol) — the wire: envelopes, signatures and the closed vocabularies both ends validate against
+- [`@byollm/server`](https://www.npmjs.com/package/@byollm/server) — the SDK a site uses to ask a device for work
+- [`@byollm/relay`](https://www.npmjs.com/package/@byollm/relay) — the broker that holds jobs between a site and a device, and can read neither
+- [`@byollm/control-plane`](https://www.npmjs.com/package/@byollm/control-plane) — who may ask whom, and the policy store behind it
+- [`@byollm/conformance`](https://www.npmjs.com/package/@byollm/conformance) — the kit that proves an implementation is one — including a posture audit that holds nothing but a URL
+
+<!-- family:end -->

@@ -173,7 +173,7 @@ password and never accepts a pasted secret.
     },
     "claude": {
       "type": "claude-cli",
-      "model": "sonnet",
+      "model": "claude-opus-5",
       "kinds": ["llm.generate", "llm.chat"],
       "offer": "private"
     }

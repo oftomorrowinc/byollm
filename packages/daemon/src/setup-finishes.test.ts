@@ -437,8 +437,8 @@ describe("the login invocations, which were verified rather than assumed", () =>
     const rows = [
       ...source.matchAll(/^\s*\*\s{5}(\S+)\s{2,}([^(]+?)\s{2,}\(also:/gm),
     ].map((found) => ({
-      binary: found[1] as string,
-      command: (found[2] as string).trim(),
+      binary: found[1]!,
+      command: found[2]!.trim(),
     }));
 
     expect(rows.length, "the table moved or its shape changed").toBe(2);

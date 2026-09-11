@@ -82,15 +82,32 @@ describe("where a size may be formatted", () => {
   });
 
   it("is only in the protocol — nobody else does the arithmetic", () => {
-    /* `1024 * 1024` next to a `toFixed` is somebody rendering a size. The
-       pattern is deliberately narrow: plenty of files compute byte limits,
-       and what must not be duplicated is the RENDERING, which is where the
-       rounding decision lives. */
+    /**
+     * Bare `toFixed`, not `toFixed` beside `1024 * 1024` — B074.
+     *
+     * The conjunction caught **one spelling of six**. `bytes / 1048576`,
+     * `bytes / 1024 ** 2`, `bytes / MiB`, a division by a named constant, a
+     * value already in megabytes — every one of them renders a size and none
+     * of them matches. The pattern was narrowed to avoid false positives, and
+     * **the false positives do not exist**: measured, `relay` and `server`
+     * contain no `toFixed` outside comments at all, so the narrowing bought
+     * nothing and cost five spellings.
+     *
+     * Comments are stripped first, because `http.ts` explains the rounding bug
+     * in prose and naming `toFixed` is how it explains it. **Forbidding the
+     * word in a comment would make the reason unwriteable** — the same rule
+     * the vocabulary check follows, for the same reason.
+     *
+     * Still scoped to the two lanes that render a MESSAGE size. The daemon
+     * formats memory in GB in several places and that is a different quantity
+     * with a different rounding argument: *"how much must I lose"* must never
+     * round down, and *"how much is free"* must never round up. Folding them
+     * together here would assert one rule over two decisions.
+     */
+    const stripped = (text) =>
+      text.replace(/\/\*[\s\S]*?\*\//g, " ").replace(/\/\/[^\n]*/g, " ");
     const offenders = [...sources("relay"), ...sources("server")]
-      .filter(
-        ({ text }) =>
-          /toFixed\s*\(/.test(text) && /1024\s*\*\s*1024/.test(text),
-      )
+      .filter(({ text }) => /toFixed\s*\(/.test(stripped(text)))
       .map(({ name }) => name);
     expect(
       offenders,

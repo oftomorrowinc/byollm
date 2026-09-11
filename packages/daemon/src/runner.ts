@@ -1967,6 +1967,27 @@ export class Runner {
           ...(result.ok
             ? {
                 stop: stopReasonOf(result),
+                /**
+                 * Three kinds narrowed to one boolean — B107, and the reason
+                 * belongs here because this is where the narrowing happens.
+                 *
+                 * `stopReasons.kind` is `declared`, `unavailable` or
+                 * `unverified`, and the wire carries a boolean. That is not a
+                 * loss, because **the two falsy kinds are the same fact to a
+                 * SITE**: either way no stop signal is coming, and there is
+                 * nothing a requester could do differently for one over the
+                 * other.
+                 *
+                 * The distinction they hold — *"we looked and there is
+                 * nothing"* versus *"nobody looked"* — is an OWNER's fact. It
+                 * decides what `byollm status` tells somebody to go and check
+                 * on their own machine, and telling a site to go and check an
+                 * adapter it does not run would be advice about somebody
+                 * else's inventory.
+                 *
+                 * **Same project, opposite requirements** — the rule
+                 * `REFUSAL_TEXT` is written under, one field over.
+                 */
                 stopReported: backend.stopReasons.kind === "declared",
               }
             : {}),

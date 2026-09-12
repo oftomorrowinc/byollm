@@ -13,6 +13,7 @@ import {
   open,
   publicIdentityOf,
   seal,
+  payloadTextLength,
   sizeClassCeiling,
   fingerprint,
   verifyPublicIdentity,
@@ -1493,10 +1494,27 @@ export class Runner {
     }
 
     if (job.owner !== this.#options.owner) {
-      // From the stub's bucket, because admission happens before the payload
-      // is fetched. The ceiling is charged rather than a midpoint: refusing
-      // slightly too eagerly is the safe direction for someone else's work on
-      // the owner's machine.
+      /**
+       * A CHEAP EARLY REFUSAL ON A NUMBER THE SENDER CHOSE — B188.
+       *
+       * From the stub's bucket, because admission happens before the payload
+       * is fetched. The ceiling is charged rather than a midpoint: refusing
+       * slightly too eagerly is the safe direction for someone else's work on
+       * the owner's machine.
+       *
+       * **That argument is about ROUNDING and says nothing about a LIE, and
+       * this used to be the only payload check there was.** `sizeClass` is
+       * declared by whoever enqueued the job; an untrusted end user declares
+       * `small` and sends whatever they like. The 08-27 review measured the
+       * overrun at ~40x the owner's configured community limit, on their
+       * metered backend, and `budgets.check`'s own parameter is documented as
+       * *"total payload text length"* while being handed a bucket.
+       *
+       * It stays, because refusing a job that cannot fit before fetching it
+       * is worth doing. **It is no longer load-bearing**: the payload is
+       * measured against the same limit after it is opened, in
+       * {@link ByollmRunner.#withinCommunityBudget}.
+       */
       const decision = this.#options.budgets.check(
         this.#now(),
         sizeClassCeiling(job.sizeClass),
@@ -2468,27 +2486,7 @@ export class Runner {
       /* Refused on this device's own rules, permanently — so the attempt
          history is spent bookkeeping about a job that will not come back
          (B041). */
-      this.#jobSettled(job);
-      this.#refused += 1;
-      await this.#options.ingress.recordOutcome({
-        at: this.#now(),
-        jobId: job.id,
-        site: job.site,
-        outcome: "refused",
-        detail: admission.reason,
-      });
-      this.#options.onEvent?.({
-        type: "refused",
-        jobId: job.id,
-        reason: admission.reason,
-      });
-      await this.#safely(() =>
-        this.#options.client.release({
-          runnerId: this.#options.runnerId,
-          leases: [{ jobId: job.id, leaseId: job.lease.id }],
-          reason: "refused",
-        }),
-      );
+      await this.#refuseOnOurOwnRules(job, admission.reason);
       return;
     }
 
@@ -2590,6 +2588,30 @@ export class Runner {
     // It arrived. Whatever this job did before, it is not a poison job.
     this.#gaveUpFetching.delete(jobKey(job));
     const payload = await this.#openPayload(job, fetched.envelope);
+
+    /**
+     * The payload measured, now that there is one to measure — B188.
+     *
+     * Declared a BLOCKER on 2026-08-27 and then on no board for fifteen days.
+     * `open-door-readiness.md` gates it: *"must be fixed before any site opens
+     * to untrusted end users."*
+     *
+     * Measured with `payloadTextLength`, which is the SAME function the site
+     * used to derive `sizeClass` in the first place — so the declaration and
+     * the audit cannot disagree about what "length" means. Its own docstring
+     * already claimed it was *"used by the daemon's community budget check"*,
+     * and until now that was a sentence about a call that did not exist.
+     *
+     * Only for other people's work. The owner's own jobs never reach the
+     * community budget, here or at admission.
+     */
+    if (job.owner !== this.#options.owner) {
+      const refusal = this.#withinCommunityBudget(job, payload);
+      if (refusal !== undefined) {
+        await this.#refuseOnOurOwnRules(job, refusal);
+        return;
+      }
+    }
 
     // The grant's resolution, carried into the opened job. A relayed job runs
     // on the service the person mapped; a direct one on the owner's default.
@@ -2831,6 +2853,69 @@ export class Runner {
    * would be running whatever an intermediary supplied, on the owner's
    * hardware and their subscription.
    */
+  /**
+   * Refused on this device's own rules, permanently — extracted for B188.
+   *
+   * Five steps that have to happen together, and the reason to name them is
+   * that there are now two callers: admission, and the payload measurement
+   * after the fetch. A second hand-written copy is how two refusals come to
+   * differ in which of the five they do — and the one most easily dropped is
+   * `release`, whose absence leaves the hub re-offering the job to a device
+   * that has already decided against it.
+   *
+   * `refused` rather than a lapse, because a lapse means "ask me later" and
+   * this device's answer will not change.
+   */
+  async #refuseOnOurOwnRules(job: ClaimedStub, reason: string): Promise<void> {
+    this.#jobSettled(job);
+    this.#refused += 1;
+    await this.#options.ingress.recordOutcome({
+      at: this.#now(),
+      jobId: job.id,
+      site: job.site,
+      outcome: "refused",
+      detail: reason,
+    });
+    this.#options.onEvent?.({ type: "refused", jobId: job.id, reason });
+    await this.#safely(() =>
+      this.#options.client.release({
+        runnerId: this.#options.runnerId,
+        leases: [{ jobId: job.id, leaseId: job.lease.id }],
+        reason: "refused",
+      }),
+    );
+  }
+
+  /**
+   * The community budget, asked about the payload that actually arrived — B188.
+   *
+   * Returns the refusal to give, or `undefined` to proceed.
+   *
+   * The admission-time call passes `sizeClassCeiling(job.sizeClass)`, a number
+   * the sender chose. This passes `payloadTextLength` of the opened payload,
+   * which is the same function the site used to derive that class — so a job
+   * whose declaration was honest is measured to the same place it declared,
+   * and one that lied is caught here.
+   *
+   * The whole `check` is re-run rather than the payload arm alone, because the
+   * limits it enforces are one decision: a device that has since hit its
+   * hourly cap has the same answer for this job, and splitting the predicate
+   * would be a second copy of the rule for the sake of a narrower question.
+   */
+  #withinCommunityBudget(
+    job: ClaimedStub,
+    payload: JobPayload,
+  ): string | undefined {
+    const decision = this.#options.budgets.check(
+      this.#now(),
+      payloadTextLength({
+        kind: job.kind,
+        payload,
+      } as Parameters<typeof payloadTextLength>[0]),
+    );
+    return decision.ok ? undefined : decision.detail;
+  }
+
   async #openPayload(
     job: ClaimedStub,
     envelope: SealedEnvelope,

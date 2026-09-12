@@ -237,7 +237,20 @@ approves **inside the app's own authenticated session** — the server learns
 which user is pairing from that session, never from the daemon.
 
 **poll** → `{ "status": "pending" | "denied" | "expired" | "approved", … }`.
-On `approved` the response carries `runnerToken`, `runnerId` and `owner`.
+On `approved` the response carries `runnerId`, `owner`, an optional
+`ownerLabel`, and **`sites`** — the site identities this pairing covers, keyed
+by key id, which is what the daemon pins.
+
+> **It does not carry a `runnerToken`, and this page said it did** until
+> 2026-09-12 (v1-review-2026-08-21, V1-14). The field was removed in
+> cloud_008 §2.4: it was minted at pairing, hashed into the server's record,
+> written to the daemon's disk — and **never sent, never looked up and never
+> compared**. A credential with no purpose is a liability rather than clutter,
+> because the only thing it can ever do is leak. Authentication is by request
+> signature over the device's pinned identity key `[REQUESTS_SIGNED_NOT_BEARER]`.
+>
+> A public protocol page naming a credential the protocol does not issue is the
+> one drift that costs an implementer twice: once building it, once storing it.
 
 The `verificationUrl` MUST be on the server's own origin. An unapproved device
 code MUST expire and MUST NOT be redeemable afterwards `[PAIR_CODE_EXPIRES]`.

@@ -371,6 +371,29 @@ export type RunnerEvent =
       readonly outcome: string;
       readonly durationMs: number;
     }
+  /**
+   * Every slot is held, so nothing new can be claimed — B196.
+   *
+   * Edge-triggered, like `serving-nothing` above: a poll runs every few
+   * seconds and a device that is legitimately busy would otherwise print a
+   * line each time.
+   *
+   * **The silence was the defect.** `#poll` returned here without a claim
+   * call, a log line, an event or an error, so a device that had stopped
+   * taking work looked identical to one with nothing to do — paired,
+   * heartbeating, online on Your Devices. Todd watched `byollm status` hold at
+   * ten prompts while two more jobs sat queued, and nothing anywhere said why.
+   *
+   * It carries both numbers because "2 of 2" and "2 of 8" are different
+   * situations, and the second is not one a default install can reach.
+   */
+  | {
+      readonly type: "no-free-slot";
+      readonly active: number;
+      readonly concurrency: number;
+    }
+  /** A slot came back, so claiming resumes — the other edge of the above. */
+  | { readonly type: "free-slot-again"; readonly free: number }
   | { readonly type: "revoked" }
   /**
    * Nothing is consented for this machine right now — V1-2. Not revocation:
@@ -553,6 +576,8 @@ export class Runner {
   #revoked = false;
   #awaitingConsent = "";
   #servingNothing = false;
+  /** Whether the last poll found every slot held — B196, edge-triggered. */
+  #noFreeSlot = false;
   #stopped = false;
   #consecutiveFailures = 0;
   /**
@@ -2369,8 +2394,38 @@ export class Runner {
     /* Draining: the running job finishes and nothing new is taken. */
     if (this.#draining || capabilities.length === 0) return;
 
-    const free = this.#options.loaded.config.concurrency - this.#active.size;
-    if (free <= 0) return;
+    const { concurrency } = this.#options.loaded.config;
+    const free = concurrency - this.#active.size;
+    if (free <= 0) {
+      /**
+       * Said once, on the way in — B196.
+       *
+       * This was a bare `return`. **A device with no free slot claims nothing
+       * for as long as the condition lasts, and said nothing at all**, so it
+       * was indistinguishable from a device with no work: still paired, still
+       * heartbeating, still `online`.
+       *
+       * It matters more than an idle log line because the slot leak B021 fixed
+       * ships in `.89` and boxes install `latest`, which is `.88`. At the
+       * default `concurrency: 2`, two failed ingress writes silence a device
+       * permanently — and this is the only line that would say so.
+       */
+      if (!this.#noFreeSlot) {
+        this.#noFreeSlot = true;
+        this.#options.onEvent?.({
+          type: "no-free-slot",
+          active: this.#active.size,
+          concurrency,
+        });
+      }
+      return;
+    }
+    if (this.#noFreeSlot) {
+      /* The other edge. Without it somebody reads "taking no work" and never
+         learns it cleared, which is the same silence pointed the other way. */
+      this.#noFreeSlot = false;
+      this.#options.onEvent?.({ type: "free-slot-again", free });
+    }
 
     const { jobs } = await this.#options.client.claim({
       runnerId: this.#options.runnerId,

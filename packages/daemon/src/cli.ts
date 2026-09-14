@@ -2153,6 +2153,30 @@ function report(origin: string, event: RunnerEvent, io: CliIo): void {
           `(${String(event.durationMs)}ms)\n`,
       );
       break;
+    case "no-free-slot":
+      /**
+       * The line Todd needed and did not get — B196.
+       *
+       * Named as "taking no new work" rather than "busy", because busy is what
+       * an owner assumes anyway and the point of the line is that the
+       * assumption may be wrong: the same state is reached by two jobs running
+       * and by two slots lost to the leak `.88` still carries.
+       *
+       * The remedy is not offered, deliberately. On `.88` it is a restart; on
+       * `.89` a leaked slot cannot happen; and telling somebody to restart a
+       * device that is legitimately serving two long jobs would be the worse
+       * error. What the line owes them is the fact and the numbers.
+       */
+      io.out(
+        `${at} ${host} taking no new work — ${String(event.active)} of ` +
+          `${String(event.concurrency)} slots held\n`,
+      );
+      break;
+    case "free-slot-again":
+      io.out(
+        `${at} ${host} taking work again — ${String(event.free)} slot(s) free\n`,
+      );
+      break;
     case "refused":
       io.out(
         `${at} ${host} refused ${event.jobId}: ` +

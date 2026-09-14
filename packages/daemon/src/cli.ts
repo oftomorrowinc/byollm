@@ -2806,6 +2806,38 @@ async function commandStatus(
 
 // -- log ---------------------------------------------------------------------
 
+/**
+ * Where a job's time went, when the device recorded it — B195.
+ *
+ * Todd asked how much of a slow job is *"waiting on claude and gpt vs resource
+ * utilization"*. `durationMs` alone cannot answer that: the clock starts on the
+ * first line of the backend's `execute()`, so spawn, the vendor wait and
+ * reading the answer are one number.
+ *
+ * Printed as an aside on the same line rather than as its own block, because it
+ * is a refinement of the duration standing next to it and not a separate fact.
+ *
+ * **`waiting` is a BOUND, not an attribution**, and the word is chosen for
+ * that: it is the child's own startup plus its first vendor response, and those
+ * are not separable from outside the child. A CLI that prints a banner before
+ * it calls anybody would show a small number for a reason that has nothing to
+ * do with a vendor.
+ *
+ * Nothing is printed for an entry that carries neither — every line written
+ * before this landed, and every call that died before it spawned.
+ */
+function split(entry: {
+  spawnMs?: number | undefined;
+  firstOutputMs?: number | undefined;
+}): string {
+  const parts: string[] = [];
+  if (entry.spawnMs !== undefined) parts.push(`spawn ${String(entry.spawnMs)}`);
+  if (entry.firstOutputMs !== undefined) {
+    parts.push(`waiting ${String(entry.firstOutputMs)}`);
+  }
+  return parts.length === 0 ? "" : ` (${parts.join(", ")})`;
+}
+
 async function commandLog(
   paths: DaemonPaths,
   args: readonly string[],
@@ -2854,7 +2886,7 @@ async function commandLog(
         `${at}  ${entry.outcome.padEnd(8)} ${entry.jobId}` +
           (entry.durationMs === undefined
             ? ""
-            : ` ${String(entry.durationMs)}ms`) +
+            : ` ${String(entry.durationMs)}ms${split(entry)}`) +
           `${entry.detail === undefined ? "" : `  ${stripControlChars(entry.detail)}`}\n` +
           /* Its own line, indented under the outcome: this is the sentence
              the owner is meant to act on, and appending it to a line that

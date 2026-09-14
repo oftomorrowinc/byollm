@@ -66,6 +66,20 @@ export const OutcomeEntry = z
     outcome: z.enum(["ok", "error", "canceled", "refused"]),
     /** Present for a job that ran; absent for one refused before execution. */
     durationMs: z.number().int().nonnegative().optional(),
+    /**
+     * Where that duration went, as far as it can be seen — B195.
+     *
+     * `durationMs` is spawn + vendor + read in one number, because the clock
+     * starts on the first line of the backend's `execute()`. These two are the
+     * boundaries a parent process can observe, and `BackendTiming` records
+     * what the gap between them is and is not.
+     *
+     * Optional, and old entries have neither: this log outlives the version
+     * that wrote it, and a reader that required them would refuse every line
+     * written before today.
+     */
+    spawnMs: z.number().int().nonnegative().optional(),
+    firstOutputMs: z.number().int().nonnegative().optional(),
     outputChars: z.number().int().nonnegative().optional(),
     /** Why, for `error` and `refused`. */
     detail: z.string().optional(),
@@ -205,6 +219,8 @@ export class IngressLog {
     site?: string;
     outcome: OutcomeEntry["outcome"];
     durationMs?: number;
+    spawnMs?: number;
+    firstOutputMs?: number;
     outputChars?: number;
     detail?: string;
     stop?: StopReason;
@@ -219,6 +235,10 @@ export class IngressLog {
       ...(input.durationMs === undefined
         ? {}
         : { durationMs: input.durationMs }),
+      ...(input.spawnMs === undefined ? {} : { spawnMs: input.spawnMs }),
+      ...(input.firstOutputMs === undefined
+        ? {}
+        : { firstOutputMs: input.firstOutputMs }),
       ...(input.outputChars === undefined
         ? {}
         : { outputChars: input.outputChars }),

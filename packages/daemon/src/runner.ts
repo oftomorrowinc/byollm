@@ -1938,6 +1938,9 @@ export class Runner {
         ...(job.site === undefined ? {} : { site: job.site }),
         outcome: outcome.outcome,
         durationMs: result.durationMs,
+        /* The split, carried with the total — B195. Spread so a result with
+           neither writes neither, rather than two zeroes nobody measured. */
+        ...(result.timing ?? {}),
         outputChars: result.ok ? result.text.length : 0,
         ...(result.ok ? {} : { detail: result.message }),
         /**
@@ -1987,6 +1990,9 @@ export class Runner {
         jobId: job.id,
         outcome: outcome.outcome,
         durationMs: result.durationMs,
+        /* The split, carried with the total — B195. Spread so a result with
+           neither writes neither, rather than two zeroes nobody measured. */
+        ...(result.timing ?? {}),
       });
       return {
         outcome,
@@ -1996,6 +2002,9 @@ export class Runner {
           /* The measured one. This was the literal `0` at the seal — see
              `runJob`'s note. */
           durationMs: result.durationMs,
+          /* The split, carried with the total — B195. Spread so a result with
+           neither writes neither, rather than two zeroes nobody measured. */
+          ...(result.timing ?? {}),
           /**
            * Only on `ok`, because a failed call has no generation to have
            * ended, and both facts because `unknown` is two of them — an

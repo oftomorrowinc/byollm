@@ -116,6 +116,33 @@ function spawnIn(job: ProcessJob, scratch: string): Promise<BackendResult> {
     let stdout = "";
     let stderr = "";
     let outputBytes = 0;
+    /**
+     * The two boundaries a parent can see — B195.
+     *
+     * `spawn` fires when the process exists; the first chunk on either stream
+     * is the first sign it has anything to say. Everything between them is the
+     * child's own startup plus its first vendor response, and those are not
+     * separable from out here — see `BackendTiming`, which says so rather than
+     * letting the number imply otherwise.
+     *
+     * `undefined` rather than 0 until each happens, because a call that died
+     * before spawning has no spawn time and a zero would be a measurement
+     * nobody made.
+     */
+    let spawnedAt: number | undefined;
+    let firstOutputAt: number | undefined;
+    const timing = (): { spawnMs?: number; firstOutputMs?: number } => ({
+      ...(spawnedAt === undefined ? {} : { spawnMs: spawnedAt - started }),
+      ...(firstOutputAt === undefined
+        ? {}
+        : { firstOutputMs: firstOutputAt - started }),
+    });
+    const sawOutput = (): void => {
+      firstOutputAt ??= Date.now();
+    };
+    child.on("spawn", () => {
+      spawnedAt = Date.now();
+    });
     let settled = false;
     let exited = false;
     let reason: "timeout" | "canceled" | "output-too-large" | null = null;
@@ -125,7 +152,12 @@ function spawnIn(job: ProcessJob, scratch: string): Promise<BackendResult> {
       settled = true;
       clearTimeout(timer);
       request.signal.removeEventListener("abort", onAbort);
-      resolve(result);
+      /* Attached here rather than at each `finish(...)` call — B195. There are
+         six of them across timeout, cancel, output-ceiling, spawn error and
+         two close paths, and a timing added to five of six is a gap nobody
+         would see: the missing one is whichever failure somebody is trying to
+         explain. */
+      resolve({ ...result, timing: timing() });
     };
 
     const kill = (why: typeof reason): void => {
@@ -153,6 +185,7 @@ function spawnIn(job: ProcessJob, scratch: string): Promise<BackendResult> {
     request.signal.addEventListener("abort", onAbort, { once: true });
 
     child.stdout.on("data", (chunk: Buffer) => {
+      sawOutput();
       outputBytes += chunk.byteLength;
       if (outputBytes > request.maxOutputBytes) {
         kill("output-too-large");
@@ -162,6 +195,7 @@ function spawnIn(job: ProcessJob, scratch: string): Promise<BackendResult> {
     });
 
     child.stderr.on("data", (chunk: Buffer) => {
+      sawOutput();
       // Bounded independently: a chatty stderr must not exhaust memory
       // either, and it is only ever used for a diagnostic message.
       if (stderr.length < 8_192) stderr += chunk.toString("utf8");

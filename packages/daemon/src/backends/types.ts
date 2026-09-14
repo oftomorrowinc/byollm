@@ -91,11 +91,46 @@ export function stopReasonOf(result: BackendResult): StopReason {
   return result.ok ? (result.stop ?? "unknown") : "unknown";
 }
 
+/**
+ * Where a call's time went, as far as it can be seen from outside — B195.
+ *
+ * Todd, 09-14: *"I want to know how much of that is waiting on claude and gpt
+ * vs resource utilization."* `durationMs` is one number covering spawn, the
+ * vendor wait and reading the answer, because `started` is taken on the first
+ * line of `execute()` and everything happens inside `runProcessJob`.
+ *
+ * These are the two boundaries a parent process can actually observe:
+ *
+ * - **`spawnMs`** — `started` to the child's `spawn` event. **This is the
+ *   segment a starved box shows up in**: 50m of CPU and 269 MiB of 320 used
+ *   (B122) is where a fork gets slow, and nothing about it is the vendor's.
+ * - **`firstOutputMs`** — `started` to the first byte on stdout or stderr.
+ *
+ * **What the middle segment is NOT, said plainly:** `firstOutputMs - spawnMs`
+ * is *the child's own startup plus its first vendor response*, and those two
+ * are not separable from out here — a CLI that prints a banner before it calls
+ * anybody makes the number small for a reason that has nothing to do with
+ * latency. **It is a bound, not an attribution**, and it must be read as one.
+ * Separating them further needs the CLI to say so, which is a vendor's choice
+ * rather than ours.
+ *
+ * Optional on both variants because a call that never spawned has neither, and
+ * reporting a zero there would be a measurement nobody made.
+ */
+/* Not exported: nothing outside this file names the type, and knip is right
+   that an export nobody imports is a wider surface than the code needs. The
+   shape travels on `BackendResult`, which is exported. */
+interface BackendTiming {
+  readonly spawnMs?: number;
+  readonly firstOutputMs?: number;
+}
+
 export type BackendResult =
   | {
       readonly ok: true;
       readonly text: string;
       readonly durationMs: number;
+      readonly timing?: BackendTiming;
       /**
        * Why generation ended — byollm_021.
        *
@@ -112,6 +147,7 @@ export type BackendResult =
       readonly code: BackendErrorCode;
       readonly message: string;
       readonly durationMs: number;
+      readonly timing?: BackendTiming;
       /**
        * When the backend expects to be usable again — byollm_019 §3.2.
        *

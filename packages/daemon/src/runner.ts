@@ -498,6 +498,22 @@ const DRAIN_POLL_MS = 250;
 const pause = (ms: number): Promise<void> =>
   new Promise((wake) => setTimeout(wake, ms));
 
+/**
+ * How long a capability probe is reused on the polling path — B198.
+ *
+ * **Todd's number, not one I picked.** *"Shouldn't we do that poll every 15
+ * minutes or something and use the stored value?"* CW noted even five minutes
+ * would cut the cost thirtyfold; fifteen is what was asked for, and the
+ * difference between them is not worth spending somebody's design decision on.
+ *
+ * Deliberately NOT related to {@link DEFAULT_HEARTBEAT_MS}. They answer
+ * different questions: the heartbeat is how often this device asks for work,
+ * and that IS job latency, so it stays in seconds. This is how stale an
+ * advertisement may be, and it is bounded by invalidation rather than by the
+ * clock — see {@link Runner.#forgetProbe}.
+ */
+const DETECT_INTERVAL_MS = 15 * 60_000;
+
 const DEFAULT_HEARTBEAT_MS = 10_000;
 
 /**
@@ -573,6 +589,13 @@ export class Runner {
   readonly #abandoned = new Set<string>();
   readonly #now: () => number;
   #capabilities: Capability[] = [];
+  /**
+   * The last probe, reused by the polling loop — B198.
+   *
+   * `undefined` means "ask again", which is both the initial state and what
+   * invalidation produces.
+   */
+  #probed: { at: number; capabilities: Capability[] } | undefined;
   #revoked = false;
   #awaitingConsent = "";
   #servingNothing = false;
@@ -773,6 +796,62 @@ export class Runner {
    * own output — one answer, three renderings, through `serviceLine`.
    */
   serviceStates = new Map<string, ServiceReport>();
+
+  /**
+   * Capabilities for a claim, from the cache when it is fresh — B198.
+   *
+   * Todd: *"Shouldn't we do that poll every 15 minutes or something and use
+   * the stored value? If the device service times out we recover or send to a
+   * different box while recovering."*
+   *
+   * **Two cadences that were one.** `health()` spawns `<cli> --version` per
+   * configured CLI, and `#tick()` ran it before every claim — about 17,000
+   * spawns a day. Measured in the box image at three CPU shares:
+   *
+   * | CPU | one tick's probes |
+   * | --- | --- |
+   * | unthrottled | ~20–29 ms |
+   * | 500m, the box's limit | ~21–74 ms |
+   * | **50m, the box's request** | **~1.9–2.2 s** |
+   *
+   * The box requests 50m and limits 500m, **so this is invisible on a quiet
+   * node and eighty times worse on a contended one** — and because the probe
+   * runs before the claim on the same tick, under contention it stretches the
+   * claim cadence, which is queue latency.
+   *
+   * **Only the polling path caches.** `detectCapabilities` is untouched and
+   * every human-facing caller still probes: `byollm start`'s canary, and the
+   * `advertised` read a person triggers by asking. Somebody who asks is asking
+   * *now*.
+   *
+   * **What keeps it honest is invalidation, not the interval.** A stale
+   * advertisement discovers itself at job time — the job fails, the release
+   * requeues it, another device claims — and {@link Runner.#forgetProbe} makes
+   * that failure force a fresh probe. The failure is a better probe than the
+   * probe.
+   */
+  async #capabilitiesForTick(): Promise<Capability[]> {
+    const probed = this.#probed;
+    if (probed !== undefined && this.#now() - probed.at < DETECT_INTERVAL_MS) {
+      return probed.capabilities;
+    }
+    const capabilities = await this.detectCapabilities();
+    this.#probed = { at: this.#now(), capabilities };
+    return capabilities;
+  }
+
+  /**
+   * Forget the probe, so the next tick asks again — B198's invalidation.
+   *
+   * The whole set rather than one service's entry. Per-service would be
+   * tighter and the tightness buys nothing: a failure is rare, a re-probe is
+   * one tick's worth of work, and **a cache that under-invalidates advertises
+   * something that is not real** — which is the property this whole mechanism
+   * is spending.
+   */
+  #forgetProbe(): void {
+    this.#probed = undefined;
+  }
 
   async detectCapabilities(
     options: {
@@ -1957,6 +2036,24 @@ export class Runner {
               ...outcomeForSite(result.code),
             };
 
+      if (!result.ok) {
+        /**
+         * A job-time failure is a better probe than the probe — B198.
+         *
+         * The polling loop reuses a capability set for
+         * {@link DETECT_INTERVAL_MS}, and this is what bounds how wrong that
+         * set may be. A service that just failed a real call has answered the
+         * question `--version` was being asked 17,000 times a day to guess at,
+         * and answered it with the only evidence that counts.
+         *
+         * Unconditional on the failure KIND, deliberately. Classifying which
+         * codes mean "this service is unusable" is a judgement that would be
+         * wrong about the next code somebody adds, and the cost of being wrong
+         * in this direction is one extra probe.
+         */
+        this.#forgetProbe();
+      }
+
       await this.#options.ingress.recordOutcome({
         at: this.#now(),
         jobId: job.id,
@@ -2270,7 +2367,7 @@ export class Runner {
   }
 
   async #tick(): Promise<void> {
-    const capabilities = await this.detectCapabilities();
+    const capabilities = await this.#capabilitiesForTick();
 
     const heartbeat = await this.#options.client.heartbeat({
       runnerId: this.#options.runnerId,

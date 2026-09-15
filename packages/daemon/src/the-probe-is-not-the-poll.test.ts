@@ -15,6 +15,7 @@ import type {
   BackendResult,
 } from "./backends/index.js";
 import { Budgets } from "./budgets.js";
+import { readHeartbeat } from "./heartbeat.js";
 import { ProtocolClient } from "./client.js";
 import { DaemonConfig, resolveConfig } from "./config.js";
 import { IngressLog } from "./ingress.js";
@@ -219,6 +220,7 @@ async function makeRunner() {
     spend,
     ingress,
     now: () => clock,
+    heartbeatPath: join(dir, "heartbeat.json"),
     onEvent: (event) => {
       if (
         event.type === "finished" ||
@@ -233,6 +235,30 @@ async function makeRunner() {
 
   return {
     runner,
+    /**
+     * Read the beat, once it has landed.
+     *
+     * `#recordBeat` is deliberately fire-and-forget — liveness must not be
+     * able to stall the work it describes — so a read immediately after
+     * `tick()` can arrive before the write. Production never notices; a test
+     * that asserts on the instant does, and waiting on the FILE rather than on
+     * a duration is the difference between a slow test and a flaky one.
+     */
+    beat: async (expected?: number) => {
+      const path = join(dir, "heartbeat.json");
+      const deadline = Date.now() + 2_000;
+      for (;;) {
+        const read = await readHeartbeat(path);
+        if (
+          read !== undefined &&
+          (expected === undefined || read.at === expected)
+        ) {
+          return read;
+        }
+        if (Date.now() > deadline) return read;
+        await new Promise((wake) => setTimeout(wake, 5));
+      }
+    },
     offer: (yes: boolean) => {
       offerJob = yes;
     },
@@ -342,5 +368,40 @@ describe("what a claim costs when nothing has changed", () => {
     expect(probes, "the failure forced a fresh probe").toBeGreaterThan(
       afterFirst,
     );
+  });
+
+  it("writes a heartbeat every tick, which is what liveness reads", async () => {
+    /**
+     * B202. `status` calls a daemon dead when this file goes stale, so the
+     * daemon has to actually write it — and **nothing checked that until this
+     * case**: the status tests write the file themselves, so deleting the
+     * daemon's write passed all of them.
+     *
+     * Found by mutation, not by reading. The fix and its reader can both be
+     * right while nothing connects them.
+     */
+    const { tick, beat } = await makeRunner();
+
+    await tick();
+    const first = await beat(1_800_000_000_000);
+
+    expect(first?.at, "stamped with the daemon's clock").toBe(
+      1_800_000_000_000,
+    );
+    expect(first?.pid, "and its pid, so a reader can check it").toBe(
+      process.pid,
+    );
+  });
+
+  it("keeps beating on later ticks, not just the first", async () => {
+    /* A beat written once at start would satisfy the case above and would go
+       stale under a daemon that is running perfectly — which is the false
+       positive this whole row exists to have avoided. */
+    const { tick, beat, advance } = await makeRunner();
+    await tick();
+    advance(30_000);
+    await tick();
+
+    expect((await beat(1_800_000_030_000))?.at).toBe(1_800_000_030_000);
   });
 });

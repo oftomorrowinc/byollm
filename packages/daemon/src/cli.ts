@@ -14,6 +14,7 @@ import { hostname, userInfo } from "node:os";
 import { dirname } from "node:path";
 import { createInterface } from "node:readline/promises";
 import { FAILURES_BEFORE_ALARM, readHealth } from "./health.js";
+import { readHeartbeat } from "./heartbeat.js";
 import { InputEnded, runSetup, terminalIo, type TerminalIo } from "./setup.js";
 import {
   manageServices,
@@ -1802,6 +1803,7 @@ async function runLoop(
       // write a count from one attempt, which says nothing about how the
       // daemon that actually runs is getting on.
       healthPath: paths.health,
+      heartbeatPath: paths.heartbeat,
       // Written whenever it changes, not only at start — S2. `byollm status`
       // is a different process and this file is the whole of what reaches it.
       onServiceStates: (states) =>
@@ -2356,8 +2358,8 @@ export function memoryGuardLines(input: {
 }
 
 /**
- * How stale the health file may be before `status` calls the daemon dead —
- * B201.
+ * How stale the beat may be before `status` calls the daemon dead — B201,
+ * reworked under B202.
  *
  * A live daemon rewrites it every heartbeat, and `DEFAULT_HEARTBEAT_MS` is ten
  * seconds. **Six missed writes**, which is past any single slow tick — a box
@@ -2368,7 +2370,7 @@ export function memoryGuardLines(input: {
  * Erring long on purpose: a false NOT RUNNING sends somebody to restart a
  * working device, and this headline is exactly the one that has to be believed.
  */
-const HEALTH_STALE_AFTER_MS = 60_000;
+const HEARTBEAT_STALE_AFTER_MS = 60_000;
 
 /** An age in the plainest words — the shape `describeDrift` uses for a skew. */
 function describeAge(ms: number): string {
@@ -2419,7 +2421,21 @@ async function commandStatus(
     health !== undefined && health.consecutiveFailures >= FAILURES_BEFORE_ALARM;
 
   /**
-   * A daemon that has stopped writing has stopped running — B201.
+   * A daemon that has stopped beating has stopped running — B201, reworked
+   * under B202.
+   *
+   * **The first version of this read `health.json`'s `at` as a per-beat stamp.
+   * It is not**, and the line three above its call site says so: health is
+   * *"written on the transition rather than every beat, so a healthy daemon is
+   * not rewriting a file every ten seconds to say nothing changed."*
+   *
+   * That was wrong in both directions at once — an absent file left a dead
+   * daemon reading `running`, and a daemon that failed once and recovered
+   * froze `at` at the recovery and read `NOT RUNNING` a minute later while
+   * serving perfectly. I read `#recordHealth`'s body and never its callers.
+   *
+   * `heartbeat.json` is written every beat and overwritten in place, so its
+   * age means exactly what this arm needs it to mean.
    *
    * `#recordHealth` stamps `at` on **every heartbeat**, so a live daemon
    * refreshes this file every ten seconds. A dead one freezes `at` — and
@@ -2435,7 +2451,19 @@ async function commandStatus(
    * **The honest signal was already on disk and this surface never asked** —
    * the same shape as the provenance model B197 found, two rows apart.
    */
-  const stale = health !== undefined && now - health.at > HEALTH_STALE_AFTER_MS;
+  const beat = await readHeartbeat(paths.heartbeat);
+  /**
+   * Absent counts, and only for a device that is meant to be serving.
+   *
+   * box-1's shape: the container restarted, the PVC carried `~/.byollm`
+   * across, and the daemon was gone — so its beat file is there and stale. A
+   * daemon that has never run since this version wrote none at all, and for a
+   * PAIRED device that is still "not running"; for a machine nobody has set
+   * up it is just that, which the screen says better further down.
+   */
+  const serving = pairings.list().length > 0;
+  const stale =
+    beat === undefined ? serving : now - beat.at > HEARTBEAT_STALE_AFTER_MS;
 
   /**
    * The supervisor's answer, asked once and used twice — ruled 2026-09-03.
@@ -2487,11 +2515,11 @@ async function commandStatus(
        wrong about this an hour ago has to show its working. The age is the
        whole argument: a live daemon rewrites this file every heartbeat. */
     io.out(
-      `  nothing has written this device's health file for ` +
+      `  nothing has written this device's heartbeat for ` +
         /* `stale` is only true when `health` is defined, so no optional
            chain: the compiler knows, and a `?.` here would be a claim that
            this branch can be reached without one. */
-        `${describeAge(now - health.at)} — a running daemon ` +
+        `${describeAge(now - (beat?.at ?? now))} — a running daemon ` +
         `rewrites it every heartbeat, so it is not running.\n` +
         `  anything below is the last thing it believed, not what is true ` +
         `now.\n`,

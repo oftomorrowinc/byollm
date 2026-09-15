@@ -49,6 +49,7 @@ import { ClientError, type ProtocolClient } from "./client.js";
 import { composePrompt } from "./compose.js";
 import type { LoadedConfig, ResolvedRoute } from "./config.js";
 import { writeHealth } from "./health.js";
+import { writeHeartbeat } from "./heartbeat.js";
 import type { IngressLog } from "./ingress.js";
 import { estimateCents, type SpendLedger } from "./spend.js";
 
@@ -161,6 +162,15 @@ export interface RunnerOptions {
    * the daemon harder to run than it needs to be.
    */
   readonly healthPath?: string;
+  /**
+   * Where to write the per-beat liveness record — B202.
+   *
+   * Separate from {@link RunnerOptions.healthPath} because the two have
+   * different cadences and different jobs: health persists on CHANGE and must
+   * survive for an owner to read hours later; this is rewritten every beat and
+   * means only "a daemon was alive at this instant".
+   */
+  readonly heartbeatPath?: string;
   readonly now?: () => number;
   /** Notified on every state change, so the CLI can render progress. */
   readonly onEvent?: (event: RunnerEvent) => void;
@@ -2358,6 +2368,23 @@ export class Runner {
 
   /** One heartbeat-and-claim cycle. Exposed so tests can step deterministically. */
   async tick(): Promise<void> {
+    /**
+     * The beat, written first and unconditionally — B202.
+     *
+     * Before `#tick()` rather than after, so a daemon wedged inside a tick
+     * still shows the beat it started: the question this file answers is *"is
+     * a daemon alive"*, and one that is stuck partway through a cycle is.
+     * A record written only on success would go stale for a daemon that is
+     * running and struggling, which is `NOT REPORTING`'s job and not this
+     * one's.
+     *
+     * Unawaited and swallowed: liveness must not be able to fail the work it
+     * describes.
+     */
+    void this.#recordBeat().catch(() => {
+      /* Already swallowed inside; this satisfies the no-floating-promises rule
+         without pretending there is a failure path to handle. */
+    });
     try {
       await this.#tick();
       // A cycle that completed is the only thing that clears the count. It is
@@ -2383,6 +2410,32 @@ export class Runner {
       await this.#recordHealth();
       throw error;
     }
+  }
+
+  /**
+   * Beats are written in order, one at a time — B202.
+   *
+   * Fire-and-forget keeps liveness off the critical path, and two writes in
+   * flight at once can land in either order: the older `rename` completing
+   * last leaves the file saying a daemon beat LONGER ago than it did, which is
+   * the one direction that matters — a stale-looking beat is what `status`
+   * calls death.
+   *
+   * Found by a test that failed one run in three. **Flakiness is evidence**:
+   * beats are ten seconds apart in production, so this would have taken a slow
+   * disk and a long time to appear, and then appeared as a device reported
+   * dead while serving.
+   */
+  #beats: Promise<void> = Promise.resolve();
+
+  #recordBeat(): Promise<void> {
+    const path = this.#options.heartbeatPath;
+    if (path === undefined) return Promise.resolve();
+    const at = this.#now();
+    this.#beats = this.#beats.then(() =>
+      writeHeartbeat(path, { at, pid: process.pid }),
+    );
+    return this.#beats;
   }
 
   async #recordHealth(): Promise<void> {

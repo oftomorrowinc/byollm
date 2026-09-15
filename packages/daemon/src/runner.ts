@@ -509,18 +509,24 @@ const pause = (ms: number): Promise<void> =>
   new Promise((wake) => setTimeout(wake, ms));
 
 /**
- * How long a capability probe is reused on the polling path — B198.
+ * How long to wait before looking again for a service that ISN'T there — B198.
  *
- * **Todd's number, not one I picked.** *"Shouldn't we do that poll every 15
- * minutes or something and use the stored value?"* CW noted even five minutes
- * would cut the cost thirtyfold; fifteen is what was asked for, and the
- * difference between them is not worth spending somebody's design decision on.
+ * **Not a cadence.** Todd amended this row away from the every-15-minutes
+ * shape he first proposed: *"do we even need that if we just try the jobs and
+ * assume they are online until we hit an error and know they are not?"* So on
+ * a machine where every configured service is advertised, the probe runs at
+ * start and then never again on a clock — the steady state costs nothing,
+ * which is where the ~17,000 spawns a day were.
+ *
+ * This interval governs the one case that assumption cannot cover. A service
+ * that is NOT advertised is sent no jobs, so no job of its can fail, so the
+ * failure-invalidation this row leans on can never fire for it: the owner
+ * installs the missing CLI and, with no clock at all, nothing ever looks
+ * again. A degraded machine pays a slow clock; a healthy one pays nothing.
  *
  * Deliberately NOT related to {@link DEFAULT_HEARTBEAT_MS}. They answer
  * different questions: the heartbeat is how often this device asks for work,
- * and that IS job latency, so it stays in seconds. This is how stale an
- * advertisement may be, and it is bounded by invalidation rather than by the
- * clock — see {@link Runner.#forgetProbe}.
+ * and that IS job latency, so it stays in seconds.
  */
 const DETECT_INTERVAL_MS = 15 * 60_000;
 
@@ -842,12 +848,73 @@ export class Runner {
    */
   async #capabilitiesForTick(): Promise<Capability[]> {
     const probed = this.#probed;
-    if (probed !== undefined && this.#now() - probed.at < DETECT_INTERVAL_MS) {
+    if (probed !== undefined && !this.#recheckIsDue(probed)) {
       return probed.capabilities;
     }
     const capabilities = await this.detectCapabilities();
     this.#probed = { at: this.#now(), capabilities };
     return capabilities;
+  }
+
+  /**
+   * Whether some service is waiting to be let back IN — B198's rider.
+   *
+   * `#forgetProbe()` has one caller: a failed job. That makes the cache safe
+   * in exactly one direction.
+   *
+   * - **true -> false**, a service that was advertised and has stopped
+   *   working: a job goes to it, the job fails, the probe is forgotten. Self
+   *   correcting, and the row is right that the failure is the better probe.
+   * - **false -> true**, a service that was NOT advertised and has started
+   *   working: **nothing can trigger a re-probe, because an unadvertised
+   *   service is sent no jobs, so no job of its can fail.**
+   *
+   * Two recoveries live inside {@link Runner.detectCapabilities} and so happen
+   * only as often as the tick calls it: the signed-out recheck
+   * ({@link AUTH_RECHECK_MS} — T2-S1's *"a remedy that cannot be completed is
+   * worse than no remedy"*) and the quota-block release (019 §3.2,
+   * *"advertised again with nobody lifting a finger"*). Caching the withdrawn
+   * answer for fifteen minutes silently made both of those fifteen minutes
+   * late; dropping the clock entirely, as B198's amendment proposes, makes
+   * them never — the owner signs in and the daemon never looks again.
+   *
+   * So the cache covers the healthy path only, and a pending recovery keeps
+   * its own clock. That is not a second cadence bolted on: it is the same rule
+   * as the failure path, which is that the cache is reused only while nothing
+   * is owed an answer. Cost is one probe per {@link AUTH_RECHECK_MS} rather
+   * than per tick — still six times cheaper than before this row, and the
+   * saving this row was for is untouched on a machine where nothing is
+   * withdrawn, which is the machine it was measured on.
+   */
+  #recheckIsDue(probed: { at: number; capabilities: Capability[] }): boolean {
+    if (this.#recoveryIsDue()) return true;
+
+    /* Everything configured is advertised: assume it stays up, and let a real
+       job's failure be what says otherwise. No clock at all — the amendment. */
+    const advertised = new Set(probed.capabilities.map((c) => c.service));
+    const missing = this.#options.loaded.routes.some(
+      (route) => !advertised.has(route.service),
+    );
+    if (!missing) return false;
+
+    /* Something configured is not being advertised, and no job can ever fail
+       on a service nobody is sent to. This is the arm that lets an installed
+       CLI be noticed without a restart. */
+    return this.#now() - probed.at >= DETECT_INTERVAL_MS;
+  }
+
+  #recoveryIsDue(): boolean {
+    const now = this.#now();
+    for (const service of this.#unauthenticated) {
+      if (now >= (this.#authRecheckAt.get(service) ?? 0)) return true;
+    }
+    for (const [service, until] of this.#blocked) {
+      /* An open-ended block is released on the next detection pass by design
+         (019 §3.2), so it is owed one now. */
+      void service;
+      if (until === undefined || now >= until) return true;
+    }
+    return false;
   }
 
   /**

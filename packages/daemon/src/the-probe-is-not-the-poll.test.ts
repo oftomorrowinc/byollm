@@ -61,6 +61,14 @@ const SIGNER = {
 let probes = 0;
 /** Whether the backend fails the job — the invalidation case. */
 let failJobs = false;
+/** Whether the CLI is signed out: refuses jobs, and its canary says no. */
+let signedOut = false;
+/** Every canary attempt — the spawn the recheck interval is spacing out. */
+let canaries = 0;
+/** When a quota block lifts, or undefined for a backend with no quota fault. */
+let quotaUntil: number | undefined;
+/** Whether the CLI is absent — `--version` finds nothing to run. */
+let missing = false;
 
 class CountingBackend implements Backend {
   readonly stopReasons = {
@@ -71,9 +79,34 @@ class CountingBackend implements Backend {
   readonly class = "http" as const;
   health(): Promise<{ healthy: boolean; models: string[] }> {
     probes += 1;
-    return Promise.resolve({ healthy: true, models: ["m"] });
+    return Promise.resolve(
+      missing
+        ? { healthy: false, models: [] }
+        : { healthy: true, models: ["m"] },
+    );
+  }
+  canary(): Promise<{ healthy: boolean; models: string[] }> {
+    canaries += 1;
+    return Promise.resolve({ healthy: !signedOut, models: ["m"] });
   }
   execute(_request: BackendRequest): Promise<BackendResult> {
+    if (quotaUntil !== undefined) {
+      return Promise.resolve({
+        ok: false,
+        code: "quota-exhausted" as const,
+        message: "the claude CLI failed: You've hit your usage limit",
+        durationMs: 1,
+        until: quotaUntil,
+      });
+    }
+    if (signedOut) {
+      return Promise.resolve({
+        ok: false,
+        code: "unauthorized" as const,
+        message: "the claude CLI is not signed in",
+        durationMs: 1,
+      });
+    }
     return Promise.resolve(
       failJobs
         ? {
@@ -92,6 +125,10 @@ beforeEach(async () => {
   dir = await mkdtemp(join(tmpdir(), "byollm-b198-"));
   probes = 0;
   failJobs = false;
+  signedOut = false;
+  canaries = 0;
+  quotaUntil = undefined;
+  missing = false;
 });
 afterEach(async () => {
   await removeTemp(dir);
@@ -122,6 +159,7 @@ async function makeRunner() {
     keepSelfPrompts: true,
   });
 
+  const events: string[] = [];
   let clock = 1_800_000_000_000;
   /** One job, once — enough to fail and invalidate. */
   let offerJob = false;
@@ -222,6 +260,7 @@ async function makeRunner() {
     now: () => clock,
     heartbeatPath: join(dir, "heartbeat.json"),
     onEvent: (event) => {
+      events.push(event.type);
       if (
         event.type === "finished" ||
         event.type === "refused" ||
@@ -235,6 +274,7 @@ async function makeRunner() {
 
   return {
     runner,
+    events,
     /**
      * Read the beat, once it has landed.
      *
@@ -300,22 +340,62 @@ describe("what a claim costs when nothing has changed", () => {
     expect(probes, "and the next nine do not").toBe(afterFirst);
   });
 
-  it("probes again once the value is old enough to doubt", async () => {
+  it("never probes again while everything it offers is working", async () => {
     /**
-     * The control on the case above. A cache that never expired would pass it
-     * and would advertise a CLI somebody uninstalled until the daemon
-     * restarted — "never advertise what isn't real" with no bound at all.
+     * Todd's amendment, and the whole saving: *"do we even need that if we
+     * just try the jobs and assume they are online until we hit an error and
+     * know they are not?"*
+     *
+     * This replaces a control that asserted the opposite — that the cache
+     * expires on a clock so an uninstalled CLI stops being advertised. That
+     * case is true->false, which a real job's failure already invalidates, and
+     * the row accepts the cost by name: the job fails, the release requeues
+     * it, another device claims. Paying 17,000 spawns a day to shorten that
+     * window is the trade the amendment declines.
      */
     const { tick, advance } = await makeRunner();
     await tick();
     const afterFirst = probes;
+
+    for (let hour = 0; hour < 24; hour += 1) {
+      advance(60 * 60_000);
+      await tick();
+    }
+    expect(probes, "a healthy machine probes once, at start").toBe(afterFirst);
+  });
+
+  it("looks again for a service it is NOT advertising", async () => {
+    /**
+     * The half the assumption cannot cover, and the reason the clock is kept
+     * for exactly this case.
+     *
+     * A service that is not advertised is sent no jobs, so no job of its can
+     * fail, so failure-invalidation can never fire for it. With no clock at
+     * all the owner installs the missing CLI and nothing ever looks again —
+     * "assume it is up" turns into "assume it is down, for ever", which is the
+     * same silent-and-permanent shape in the other direction.
+     */
+    missing = true;
+    const { tick, advance } = await makeRunner();
+    await tick();
+    const afterFirst = probes;
+
+    advance(60_000);
+    await tick();
+    expect(probes, "not on every tick — that was the cost").toBe(afterFirst);
+
     advance(FIFTEEN_MINUTES + 1);
     await tick();
-
-    expect(probes).toBeGreaterThan(afterFirst);
+    expect(
+      probes,
+      "but it does look again, so an install is noticed without a restart",
+    ).toBeGreaterThan(afterFirst);
   });
 
   it("does not expire early, or the interval means nothing", async () => {
+    /* Scoped to the not-advertised arm, which is the only one with an
+       interval left to expire. */
+    missing = true;
     const { tick, advance } = await makeRunner();
     await tick();
     const afterFirst = probes;
@@ -403,5 +483,141 @@ describe("what a claim costs when nothing has changed", () => {
     await tick();
 
     expect((await beat(1_800_000_030_000))?.at).toBe(1_800_000_030_000);
+  });
+});
+
+/**
+ * The half of the cache that nothing can invalidate — B198's rider, found
+ * reading the row's amendment rather than the code.
+ *
+ * `#forgetProbe()` has exactly one caller: a failed job. That makes the cache
+ * safe in one direction only.
+ *
+ * - **true -> false** (a service was advertised and has stopped working): a job
+ *   is routed to it, the job fails, the probe is forgotten. Self-correcting,
+ *   and the row is right that the failure is a better probe than the probe.
+ * - **false -> true** (a service was NOT advertised and has started working):
+ *   **nothing can trigger a re-probe, because an unadvertised service is sent
+ *   no jobs, so no job can fail.** The only thing that ever asked again was the
+ *   clock the amendment proposes to drop.
+ *
+ * Two recoveries live inside `detectCapabilities` and are therefore gated by
+ * however often the tick calls it: the signed-out recheck (`AUTH_RECHECK_MS`,
+ * 60s — T2-S1's "the remedy has to work") and the quota-block release (019
+ * §3.2, *"advertised again with nobody lifting a finger"*).
+ */
+describe("a service that starts working again", () => {
+  /**
+   * Withdraw the service, then let the cache REPOPULATE while it is still
+   * signed out.
+   *
+   * The first version of these two cases ticked once after the withdrawal and
+   * passed against a 24-hour cache — because the refused job calls
+   * `#forgetProbe()`, so that single tick found an empty cache and probed
+   * regardless. It asserted nothing about the cache at all. The gap only opens
+   * on the SECOND tick onward, when the withdrawn state has been cached and
+   * the person signs in during the interval.
+   */
+  const withdrawAndSettle = async (
+    harness: Awaited<ReturnType<typeof makeRunner>>,
+  ): Promise<void> => {
+    const { tick, offer, settle, advance } = harness;
+    await tick();
+    offer(true);
+    await tick();
+    await settle();
+    offer(false);
+    /* Two more ticks, still signed out: the first refills the cache with the
+       withdrawn answer, the second proves it is being reused. */
+    advance(61_000);
+    await tick();
+    advance(1_000);
+    await tick();
+  };
+
+  it("is noticed about a minute after the owner signs in, not fifteen", async () => {
+    const harness = await makeRunner();
+    signedOut = true;
+    await withdrawAndSettle(harness);
+    expect(harness.events, "the sign-out is noticed").toContain(
+      "service-not-signed-in",
+    );
+
+    /* The owner follows the remedy. Nothing else changes: no job is offered,
+       because a withdrawn service is advertised to nobody and so can never be
+       sent the job whose failure is the cache's only invalidation. */
+    signedOut = false;
+    const before = canaries;
+
+    /* One AUTH_RECHECK_MS, plus a tick to notice. That interval is the
+       daemon's own promise about how long this takes. */
+    harness.advance(60_000 + 1);
+    await harness.tick();
+
+    expect(
+      canaries,
+      "the recheck still runs while the capability set is cached",
+    ).toBeGreaterThan(before);
+    expect(
+      harness.events,
+      "signing in is noticed within the recheck interval, not the cache interval",
+    ).toContain("service-signed-in");
+  });
+
+  it("does not have to wait out the whole cache interval", async () => {
+    /* The bound, stated as time rather than as an event: if recovery needs the
+       15-minute cache to lapse, the daemon's 60-second promise is decoration.
+       Five two-minute steps stay well inside the cache interval. */
+    const harness = await makeRunner();
+    signedOut = true;
+    await withdrawAndSettle(harness);
+    signedOut = false;
+
+    for (let i = 0; i < 5; i += 1) {
+      harness.advance(120_000);
+      await harness.tick();
+    }
+    expect(
+      harness.events.filter((e) => e === "service-signed-in"),
+    ).toHaveLength(1);
+  });
+
+  it("is advertised again when its quota block lapses", async () => {
+    /**
+     * The other recovery inside the same function, and the reason the fix is
+     * not spelled `#unauthenticated.size > 0`.
+     *
+     * 019 §3.2 promises a blocked service comes back *"with nobody lifting a
+     * finger"*. A blocked service skips its probe, so `probes` staying flat is
+     * the block still in force, and `probes` moving is the release — the same
+     * observable the daemon itself uses, rather than an event, because the
+     * release path deliberately emits none.
+     */
+    const { tick, offer, settle, advance } = await makeRunner();
+    const start = 1_800_000_000_000;
+    quotaUntil = start + 5 * 60_000;
+
+    await tick();
+    offer(true);
+    await tick();
+    await settle();
+    offer(false);
+    quotaUntil = undefined;
+
+    /* Let the blocked answer be cached, well inside the 15-minute interval. */
+    advance(60_000);
+    await tick();
+    const whileBlocked = probes;
+    advance(60_000);
+    await tick();
+    expect(probes, "a blocked service is not probed").toBe(whileBlocked);
+
+    /* Past the block, still far short of the cache interval. */
+    advance(4 * 60_000);
+    await tick();
+    expect(
+      probes,
+      "the block lapses and the service is looked at again",
+    ).toBeGreaterThan(whileBlocked);
   });
 });

@@ -1773,20 +1773,57 @@ export class Runner {
       community: boolean;
       limits: LoadedConfig["config"];
       signal: AbortSignal;
+      /**
+       * When the job stops being worth doing — the stub's own TTL.
+       *
+       * `Infinity` when a caller assembled a job without one, which yields the
+       * unclamped ceiling: the behaviour that existed before B199, rather than
+       * a zero that would refuse every job.
+       */
+      deadlineAt: number;
     },
   ): Promise<BackendResult> {
     await this.#ensureLocalServer(route, backend);
     const { community, limits } = context;
+    const ceiling = community
+      ? Math.min(limits.community.maxWallClockMs, limits.limits.maxWallClockMs)
+      : limits.limits.maxWallClockMs;
+    /**
+     * Never grind past the moment the answer stopped being wanted — B199.
+     *
+     * Todd's four-tab test: the box claimed two chat jobs and produced no
+     * outcome for ten minutes. They were not hung — they were grinding toward
+     * `maxWallClockMs`, **600,000 ms by default, while the job's own TTL was
+     * 120,000** and the page had stopped watching at 45,000.
+     *
+     * **The loss is not the wasted work, it is the slot.** A held slot is a
+     * device that claims nothing (B196), so at the default concurrency two
+     * dead jobs silence a box for ten minutes. `.89` fixes the LEAK; a slot
+     * held by a live child grinding past its job's death is a different loss
+     * and nothing addressed it.
+     *
+     * The stub carries the deadline and the daemon knows the time, so the
+     * ceiling is simply the smaller of the two. An owner who sets a long wall
+     * clock still gets it — for jobs whose sites are still waiting.
+     */
+    const remaining = context.deadlineAt - this.#now();
+    if (remaining <= 0) {
+      /* Already past its TTL when we reached it. Spawning here would burn a
+         slot on an answer nobody can still receive, and `process-backend`'s
+         own guard would report it as "no time limit was set", which names the
+         wrong problem. */
+      return {
+        ok: false,
+        code: "backend-error",
+        message:
+          "this job's deadline passed before it could start, so it was not run",
+        durationMs: 0,
+      };
+    }
     return backend.execute({
       prompt,
       model: route.model,
-      // Community jobs run under the owner's tighter ceiling.
-      timeoutMs: community
-        ? Math.min(
-            limits.community.maxWallClockMs,
-            limits.limits.maxWallClockMs,
-          )
-        : limits.limits.maxWallClockMs,
+      timeoutMs: Math.min(ceiling, remaining),
       maxOutputBytes: community
         ? Math.min(
             limits.community.maxOutputBytes,
@@ -1930,6 +1967,9 @@ export class Runner {
               community,
               limits,
               signal: controller.signal,
+              /* Absent means unclamped, which is what happened before B199.
+                 The stub always carries it, so on the real path it is set. */
+              deadlineAt: job.deadlineAt ?? Number.POSITIVE_INFINITY,
             });
 
       /**

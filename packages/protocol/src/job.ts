@@ -144,6 +144,21 @@ export const ClaimedJob = z
      * and the owner's own defaults answer under the ambiguity law.
      */
     service: z.string().min(1).optional(),
+    /**
+     * When the work stops being worth doing — the stub's own TTL, carried on
+     * so the daemon can stop at it (B199).
+     *
+     * **A third clock, and not the lease.** The lease bounds how long this
+     * device holds the claim; this bounds how long the answer is wanted. A box
+     * ground two chat jobs toward `maxWallClockMs` — ten minutes — while their
+     * TTL was two, holding both slots and claiming nothing the whole time.
+     *
+     * Optional because the field is carried rather than required: a caller
+     * assembling a `ClaimedJob` without it gets the unclamped ceiling, which is
+     * the behaviour that existed before. The stub always has it, and the
+     * runner's own call site already spread it — this makes the type say so.
+     */
+    deadlineAt: z.number().int().positive().optional(),
     lease: Lease,
   })
   .strict();

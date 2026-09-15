@@ -64,6 +64,71 @@ import {
  * it, and the device advertises nothing.
  */
 
+/**
+ * Ask the owner what a detected CLI serves — B211.
+ *
+ * `undefined` means "not offered", and every path to it says why first — an
+ * owner who skips, and one whose three tries never answer, both land exactly
+ * where everybody landed before.
+ *
+ * **No `interactive` guard here, deliberately.** Both screens that reach this
+ * refuse a non-terminal at their own front door (`manageServices` and
+ * `runSetup` both say "needs a terminal it can ask questions in"), so a guard
+ * would be a branch nothing can enter — and this codebase treats a guard
+ * nobody can reach as dead code wearing an API. The first version had one,
+ * and its test proved only that the OUTER refusal fires.
+ *
+ * **Verified before it is accepted**, because a typed model is the one place
+ * a typo can enter a config that validates any non-empty string — and the
+ * failure would surface on somebody else's job. The backend's own words come
+ * back in `detail`, so a misspelled model is reported as what the CLI said
+ * rather than as "signed out": one sentence for two states is the defect this
+ * file's own `Detected` type was split to prevent.
+ *
+ * Bounded at three rounds, for the reason `signIn` gives one screen up: an
+ * unbounded prompt in a wizard is a wizard somebody Ctrl-Cs.
+ */
+async function modelByHand(input: {
+  cli: { readonly id: BackendId; readonly binary: string };
+  io: ManageIo;
+  verifier: Verifier;
+}): Promise<string | undefined> {
+  const { cli, io, verifier } = input;
+  const byHand =
+    `\n  \`${cli.binary}\` is installed, and byollm does not know which ` +
+    `model it serves.\n  Add it by hand and it will appear here next ` +
+    `time: https://docs.byollm.cloud/guides/models\n`;
+
+  for (let round = 0; round < 3; round += 1) {
+    const answer = (
+      await io.ask(
+        `\n  \`${cli.binary}\` is installed. Which model does it serve?` +
+          `\n  (press enter to skip — it will not be offered) `,
+      )
+    ).trim();
+
+    /* Skipping is a choice, not a failure, and it lands where it always did. */
+    if (answer === "") {
+      io.out(byHand);
+      return undefined;
+    }
+
+    const proof = await verifier(cli.id, answer);
+    /* `undefined` is "this backend has no canary" and is NOT a refusal — the
+       `Detected` docstring is explicit that rendering it as one is wrong. */
+    if (proof.answers !== false) return answer;
+
+    io.out(
+      `\n  \`${cli.binary}\` did not answer for \`${answer}\`` +
+        `${proof.detail === undefined ? "" : `: ${proof.detail}`}\n`,
+    );
+  }
+
+  /* Three rounds and no working model. Said, then left alone. */
+  io.out(byHand);
+  return undefined;
+}
+
 /** How this screen talks. Injected so tests are not a TTY. */
 export interface ManageIo {
   out(text: string): void;
@@ -947,18 +1012,34 @@ async function candidates(input: {
       continue;
     }
 
-    const model = cli.model;
+    let model = cli.model;
     if (model === undefined) {
-      /* Detected, and not offered: we have no model we can stand behind, and
-         a row enabled here would write one nobody chose. Said rather than
-         skipped in silence — the binary IS on this machine, and a screen that
-         omits it without a word looks broken to whoever installed it. */
-      input.io.out(
-        `\n  \`${cli.binary}\` is installed, and byollm does not know which ` +
-          `model it serves.\n  Add it by hand and it will appear here next ` +
-          `time: https://docs.byollm.cloud/guides/models\n`,
-      );
-      continue;
+      /**
+       * Detected, and its model is not one this build can confirm — so ASK.
+       * B211, ruled 09-15.
+       *
+       * This used to say *"byollm does not know which model it serves — add
+       * it by hand"* and skip the row, which is where the bug lived. **A
+       * hosted box cannot add anything by hand** (fixed command console, no
+       * editor, and `byollm services` has one sub-verb), so `codex` could not
+       * be turned on there **at all** — not "irreversibly toggled off", never
+       * on. Todd's box had it only from an earlier configuration; deleting
+       * that record dropped it into the state every new customer starts in.
+       *
+       * Asking removes the class rather than the instance. Adding
+       * `gpt-5.6-terra` to `knownModelsFor` would be one machine's setting
+       * frozen into a constant for everybody — what the invariant test in
+       * this file exists to prevent — and the next model any vendor ships
+       * lands here again. **The owner is the only source**: the doc above
+       * records three ways of asking the CLI, all of which fail.
+       */
+      const named = await modelByHand({
+        cli,
+        io: input.io,
+        verifier: input.verifier,
+      });
+      if (named === undefined) continue;
+      model = named;
     }
 
     /*

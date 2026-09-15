@@ -1072,6 +1072,145 @@ describe("a CLI whose model we do not know", () => {
     expect(io.transcript()).toContain("does not know which model it serves");
   });
 
+  it("asks what a detected CLI serves, and offers it once it answers", async () => {
+    /**
+     * B211, ruled 09-15 — and the bug was bigger than the row it came from.
+     *
+     * `codex` serves `gpt-5.6-terra`, which is in no help output and in no
+     * list this build maintains, so it was never offered on a machine that
+     * did not already have it in config. Todd's box had it from an earlier
+     * configuration; toggling it off deleted the only record and dropped the
+     * box into the state **every new customer starts in** — with no way back,
+     * because a hosted console cannot add anything by hand.
+     */
+    const asked: string[] = [];
+    const { outcome } = await run(["gpt-5.6-terra", "1", ""], {
+      detector: machineWith(["codex-cli"]),
+      verifier: (_id, model) => {
+        asked.push(model);
+        return Promise.resolve({ installed: true, answers: true });
+      },
+    });
+
+    expect(asked, "the typed model is verified, not taken on trust").toContain(
+      "gpt-5.6-terra",
+    );
+    expect(outcome.services["codex"]).toMatchObject({
+      model: "gpt-5.6-terra",
+    });
+  });
+
+  it("says what the CLI said when the named model does not answer", async () => {
+    /**
+     * A typed model is the one place a typo reaches a config that accepts any
+     * non-empty string, and the failure would otherwise surface on somebody
+     * else's job.
+     *
+     * Reported in the backend's own words rather than as "signed out" —
+     * `Detected` splits `installed` from `answers` and carries `detail`
+     * precisely so two states do not share one sentence.
+     */
+    const { outcome, io } = await run(["gpt-5.6-terrra", "", ""], {
+      detector: machineWith(["codex-cli"]),
+      verifier: () =>
+        Promise.resolve({
+          installed: true,
+          answers: false,
+          detail: "unknown model: gpt-5.6-terrra",
+        }),
+    });
+
+    expect(io.transcript()).toContain("unknown model: gpt-5.6-terrra");
+    expect(
+      outcome.services["codex"],
+      "and a model that cannot answer is not written",
+    ).toBeUndefined();
+  });
+
+  it("can be turned back on after being turned off", async () => {
+    /**
+     * B211's round trip, which Todd asked to stand on top of the larger fix.
+     *
+     * The repro on box-1: `codex` was turned off in `services manage`, and on
+     * re-entry it was no longer a toggle — the model lived only in the config
+     * that had just been deleted, and a hosted console cannot add one by
+     * hand. **On a box that is permanent loss of a paid service.**
+     *
+     * Driven as the round trip rather than as "the screen renders": what
+     * matters is that the service comes BACK, so this asserts the config on
+     * the far side. The ruling named that explicitly — it must not be a check
+     * that passes because a screen drew something.
+     */
+    const asOff = await run(["", ""], {
+      detector: machineWith(["codex-cli"]),
+      existing: { codex: { type: "codex-cli", model: "gpt-5.6-terra" } },
+      verifier: () => Promise.resolve({ installed: true, answers: true }),
+    });
+    expect(
+      asOff.outcome.services["codex"],
+      "off, which is the state the repro starts from",
+    ).toBeUndefined();
+
+    /* Re-entry with nothing in config — exactly what box-1 had, and what a
+       new customer has always had. */
+    const asOn = await run(["gpt-5.6-terra", "1", ""], {
+      detector: machineWith(["codex-cli"]),
+      existing: {},
+      verifier: () => Promise.resolve({ installed: true, answers: true }),
+    });
+    expect(
+      asOn.outcome.services["codex"],
+      "and back on, which it could not be before",
+    ).toMatchObject({ model: "gpt-5.6-terra" });
+  });
+
+  it("accepts a named model from a backend that has no canary", async () => {
+    /**
+     * `answers: undefined` is "this backend offers no canary" and the
+     * `Detected` docstring is explicit that it **is not** `false` and must not
+     * be rendered as one. Refusing it would make a CLI we cannot canary
+     * impossible to enable by hand — the same dead end B211 is closing, one
+     * type-value over.
+     *
+     * Found by mutation: narrowing the accept to `answers === true` left every
+     * case green, because nothing here described a backend without a canary.
+     */
+    const { outcome } = await run(["some-model", "1", ""], {
+      detector: machineWith(["codex-cli"]),
+      verifier: () => Promise.resolve({ installed: true, answers: undefined }),
+    });
+
+    expect(outcome.services["codex"]).toMatchObject({ model: "some-model" });
+  });
+
+  it("never reaches the question on a machine that cannot be asked", async () => {
+    /**
+     * The control on the whole change, and it is about WHERE the refusal
+     * lives. `modelByHand` has no `interactive` guard: this screen refuses a
+     * non-terminal at its own front door, so a guard inside would be a branch
+     * nothing can enter. The first version of this fix had one — and this
+     * case, written to prove it worked, proved only that the outer refusal
+     * fires. It now asserts that on purpose.
+     */
+    const io = scripted([]);
+    const outcome = await manageServices({
+      io: { ...io, interactive: false },
+      existing: {},
+      detector: machineWith(["codex-cli"]),
+      verifier: answersFine,
+      probe: noServers,
+      login: () => Promise.resolve(true),
+      platform: "darwin",
+    });
+
+    expect(outcome.services["codex"]).toBeUndefined();
+    expect(io.transcript()).toContain("needs a terminal");
+    expect(
+      io.transcript(),
+      "and it never got as far as asking about a model",
+    ).not.toContain("Which model does it serve");
+  });
+
   it("still offers a CLI whose model this build can stand behind", async () => {
     /**
      * The control, and the reason the case above is not "CLIs stopped

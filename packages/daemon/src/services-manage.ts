@@ -4,6 +4,7 @@ import { createBackend } from "./backends/index.js";
 import { probeLocalServers, type LocalServer } from "./probe-local.js";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
+import { tellSupervisor } from "./supervised.js";
 import { DaemonConfig, ServiceConfig } from "./config.js";
 import { isLoopback } from "./local-server.js";
 import { dollars } from "./spend.js";
@@ -1570,6 +1571,32 @@ export async function writeManaged(
 
   await mkdir(dirname(path), { recursive: true });
   await writeFile(path, `${JSON.stringify(config, null, 2)}\n`);
+
+  /**
+   * And whoever supervises this daemon is told — B207, duty three.
+   *
+   * **Here rather than at the call sites**, because this is the one function
+   * that writes the config: `setup` and `services manage` both land on it, and
+   * a third writer added later inherits the behaviour instead of forgetting
+   * it. Putting the signal beside each caller is how one rule becomes two
+   * implementations that drift — the defect class this board records most.
+   *
+   * A running daemon reads config once at start, so before this a box picked
+   * up a change only when the supervisor next respawned a dead daemon, up to a
+   * minute later, and a supervisor that was NOT respawning (because the daemon
+   * was up and serving) never picked it up at all.
+   */
+  const told = tellSupervisor();
+  if (told === "told") {
+    io.out(
+      "\nTold the supervisor — this device is picking the change up now.\n",
+    );
+  } else if (told === "gone") {
+    io.out(
+      "\nThis device's supervisor is not answering, so nothing is serving the\n" +
+        "new configuration yet. Restarting the device picks it up.\n",
+    );
+  }
   return true;
 }
 

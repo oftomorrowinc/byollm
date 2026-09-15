@@ -56,6 +56,7 @@ import {
   overriddenRootNotice,
   type DaemonPaths,
 } from "./paths.js";
+import { supervisorPid, tellSupervisor } from "./supervised.js";
 import { Runner, type RunnerEvent } from "./runner.js";
 import {
   installedProgram,
@@ -1315,6 +1316,16 @@ async function commandConnect(
   await pairings.load();
   reportSkipped(pairings, io);
   await pairings.put(result.pairing);
+
+  /**
+   * And the supervisor hears about it too — B207.
+   *
+   * Pairing is the fact the box supervisor now keys its retry on: an unpaired
+   * daemon is left idle rather than respawned every minute. So `connect` has
+   * to speak as loudly as `setup` does, or a device paired this way would sit
+   * idle until something else happened to signal.
+   */
+  tellSupervisor();
 
   /**
    * The mark is cleared by the thing that fixes it.
@@ -3613,9 +3624,15 @@ async function manageWith(
    * Said rather than done: restarting a daemon mid-job is not this command's
    * to decide, and `stop && start` is the pair that already exists.
    */
-  const installed = await serviceIsInstalled(
-    serviceTarget(paths, defaultServiceIo()),
-  );
+  /* Under a supervisor, TELL it rather than printing a pair of commands a box
+     does not have — B207, duty three. `serviceIsInstalled` is false on a box,
+     so before this the screen said nothing at all and the box picked the
+     config up only on the supervisor's next retry, up to a minute later. */
+  /* `writeManaged` has already told a supervisor, if there is one — B207. This
+     is the other world: a systemd/launchd service, which nothing signals. */
+  const installed =
+    supervisorPid() === undefined &&
+    (await serviceIsInstalled(serviceTarget(paths, defaultServiceIo())));
   if (installed) {
     io.out(
       "\nThe background service is running with the config it started on.\n" +

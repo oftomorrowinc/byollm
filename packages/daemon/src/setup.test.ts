@@ -756,3 +756,65 @@ describe("an existing config with no services", () => {
     expect(written.ingress?.keepSelfPrompts).toBe(false);
   });
 });
+
+describe("what setup tells a supervisor — B207", () => {
+  /**
+   * Duty three had a listener and no speaker.
+   *
+   * The box supervisor has handled `SIGHUP` since B185; `grep SIGHUP` across
+   * both repos found the handler and **no caller anywhere**. The box still
+   * worked, which is why it survived a week: the supervisor respawned a dead
+   * daemon every sixty seconds and the next respawn happened to read the
+   * config `setup` had just written. A crutch doing a signal's job — and one
+   * that could not work at all for a daemon that was up and serving, because
+   * nothing was respawning it.
+   *
+   * Driven through `runSetup`, which is the real path a person takes.
+   */
+  const saved = process.env["BYOLLM_SUPERVISOR_PID"];
+  const restore = (): void => {
+    if (saved === undefined) delete process.env["BYOLLM_SUPERVISOR_PID"];
+    else process.env["BYOLLM_SUPERVISOR_PID"] = saved;
+  };
+
+  it("signals the supervisor once the config is written", async () => {
+    /* This process stands in for PID 1: a real SIGHUP, delivered for real, to
+       a handler installed here. A fake `kill` would assert that this test can
+       build an object. */
+    let hups = 0;
+    const onHup = (): void => {
+      hups += 1;
+    };
+    process.on("SIGHUP", onHup);
+    process.env["BYOLLM_SUPERVISOR_PID"] = String(process.pid);
+
+    try {
+      const p = await paths();
+      const io = scripted([...ONE_CLI]);
+      await runSetup(p, io, machineWith(["claude-cli"]));
+
+      /* Signal delivery is not synchronous with `process.kill`. */
+      await new Promise((wake) => setTimeout(wake, 50));
+      expect(hups, "the supervisor was told").toBeGreaterThan(0);
+      expect(io.transcript()).toContain("Told the supervisor");
+    } finally {
+      process.off("SIGHUP", onHup);
+      restore();
+    }
+  });
+
+  it("says nothing about a supervisor when there is none", async () => {
+    /* The control, and the ordinary laptop case: no variable, no signal, and
+       no sentence about a thing the person does not have. */
+    delete process.env["BYOLLM_SUPERVISOR_PID"];
+    try {
+      const p = await paths();
+      const io = scripted([...ONE_CLI]);
+      await runSetup(p, io, machineWith(["claude-cli"]));
+      expect(io.transcript()).not.toContain("Told the supervisor");
+      expect(io.transcript()).not.toContain("supervisor is not answering");
+    } finally {
+      restore();
+    }
+  });
+});

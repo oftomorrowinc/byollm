@@ -466,7 +466,10 @@ Point it at your models:
 ```
 
 That lives in `~/.byollm/config.json`, and `byollm services manage` writes it
-for you if you would rather not. `type` is the provider: name it and byollm can
+for you if you would rather not. **To change which model a service uses, edit
+its `model` and restart the daemon** — a running daemon reads this file once at
+start, so an edit alone changes nothing. (On a hosted box you cannot do either:
+the console runs a fixed list of commands. Hosted boxes run Opus.) `type` is the provider: name it and byollm can
 start that server when a job needs it. `openai-http` is the generic transport
 for a server byollm does not know by name — it works, and nothing can be
 started for it. `offer` is `private` for your own work or `team` to share;

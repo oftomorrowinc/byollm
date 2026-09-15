@@ -1,5 +1,3 @@
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import {
   BOTH_KINDS,
@@ -1094,23 +1092,40 @@ describe("a CLI whose model we do not know", () => {
     expect(offered, "Todd ruled Opus the default on 09-14").toBe("opus");
   });
 
-  it("says what Opus costs, at the moment it is chosen", () => {
+  it("sets Opus up without lecturing about what it costs", async () => {
     /**
-     * The counterweight Todd saw when he ruled it: Opus draws a Pro/Max
-     * subscription down several times faster than Sonnet.
+     * B206, ruled 09-15 — the inverse of the case that used to stand here.
      *
-     * A default that quietly spends somebody's subscription faster is a
-     * surprise the customer cannot see — legitimate to choose, not legitimate
-     * to leave unsaid. Asserted on the source because this loop's output is
-     * assembled across an interactive run; the sentence existing at all is
-     * what the ruling asked for.
+     * Both halves of the old sentence were wrong on their own terms. *"The
+     * strongest model your plan covers"* is unknowable from here and Fable
+     * makes it false; and *"change `model` in ~/.byollm/config.json"* is a
+     * remedy a hosted box cannot carry out — a fixed-command console with no
+     * editor, and no reload of a running daemon even if there were one. The
+     * ruling's own reason is broader: a relative-tier cost note is arbitrary,
+     * because *"Opus spends faster than Sonnet"* is the same kind of claim as
+     * *"Sonnet spends faster than Haiku"*, which nobody would print.
+     *
+     * **Driven through the real run, not grepped off the source.** Its
+     * predecessor asserted on the file text, and the first version of this
+     * replacement failed against its own explanatory comment — a source grep
+     * cannot tell code from the paragraph describing it. That is B203 exactly,
+     * and the harness that makes the honest version possible was already here.
      */
-    const source = readFileSync(
-      fileURLToPath(new URL("./services-manage.ts", import.meta.url)),
-      "utf8",
+    const { outcome, io } = await run(["1", ""], {
+      detector: machineWith(["claude-cli"]),
+    });
+
+    /* The default is kept — the ruling removed the message, not the choice. */
+    expect(outcome.services["claude"]?.["model"]).toBe("opus");
+
+    const said = io.transcript();
+    expect(said).not.toContain("Pro/Max");
+    expect(said, "no claim about the plan's strongest model").not.toContain(
+      "strongest model",
     );
-    expect(source).toContain("draws a Pro/Max subscription down several times");
-    expect(source, "and names the way out").toContain("~/.byollm/config.json");
+    expect(said, "and no remedy a hosted box cannot carry out").not.toContain(
+      "config.json",
+    );
   });
 
   it("offers only models this build already knows that CLI accepts", () => {

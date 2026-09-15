@@ -960,26 +960,23 @@ async function candidates(input: {
       continue;
     }
 
-    if (cli.id === "claude-cli" && model === "opus") {
-      /**
-       * The counterweight, said where the choice is made — B197's rider.
-       *
-       * Todd ruled Opus the default and saw the cost. A default that quietly
-       * spends somebody's subscription several times faster is the shape this
-       * project calls a surprise the customer cannot see: legitimate to
-       * choose, not legitimate to leave unsaid.
-       *
-       * Printed rather than buried in docs because this is the one moment the
-       * person is deciding, and it names the way out in the same breath.
-       */
-      input.io.out(
-        `\n  \`claude\` is set up on Opus, the strongest model your plan\n` +
-          `  covers. Opus draws a Pro/Max subscription down several times\n` +
-          `  faster than Sonnet — change \`model\` in ~/.byollm/config.json if\n` +
-          `  you would rather it lasted longer.\n`,
-      );
-    }
-
+    /*
+     * No cost note here — B206, ruled 09-15, and the sentence that used to sit
+     * here had two defects of its own.
+     *
+     * It said Opus was "the strongest model your plan covers", which we cannot
+     * know and which Fable already makes false; and its only way out was to
+     * edit `~/.byollm/config.json`, which a hosted box CANNOT do — the console
+     * runs a fixed command list with no editor, and the edit would not reload
+     * a running daemon anyway. A remedy that cannot be completed is worse than
+     * no remedy; this file's own `#unauthenticated` neighbour (T2-S1) is where
+     * that lesson was written down.
+     *
+     * The ruling's reason is separate and broader: "Opus spends faster than
+     * Sonnet" is the same kind of statement as "Sonnet spends faster than
+     * Haiku", which nobody would print, so a relative-tier cost note is
+     * arbitrary. Opus is the default and it is chosen silently.
+     */
     const proof = await input.verifier(cli.id, model);
     add({
       name: uniqueName(cli.binary, names),

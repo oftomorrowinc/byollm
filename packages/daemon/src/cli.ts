@@ -51,7 +51,11 @@ import { DeviceIdentity } from "./identity.js";
 import { Pairings, recordSites } from "./pairings.js";
 import { dollars, SpendLedger } from "./spend.js";
 import { SpentGrants } from "./spent-grants.js";
-import { daemonPaths, type DaemonPaths } from "./paths.js";
+import {
+  daemonPaths,
+  overriddenRootNotice,
+  type DaemonPaths,
+} from "./paths.js";
 import { Runner, type RunnerEvent } from "./runner.js";
 import {
   installedProgram,
@@ -1746,6 +1750,12 @@ async function runLoop(
   supervised = !process.stdout.isTTY,
   pollMs = PARK_POLL_MS,
 ): Promise<ServeOutcome> {
+  /* One line, only when the state directory has actually moved — B205 item 2.
+     Silent on a box (the supervisor states BYOLLM_HOME to this same default)
+     and on any normal machine, so it speaks only in the case that is a bug. */
+  const moved = overriddenRootNotice(paths.root);
+  if (moved !== undefined) io.out(`${moved}\n`);
+
   const { loaded, ingress, budgets, spend, spentGrants } = await context(paths);
   const identity = new DeviceIdentity(paths.keys);
   const pairings = new Pairings(paths.pairings);

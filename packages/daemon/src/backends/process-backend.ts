@@ -6,6 +6,32 @@ import { join } from "node:path";
 import type { BackendRequest, BackendResult } from "./types.js";
 
 /**
+ * How long a dead child's pipes get to close before we settle anyway — B200.
+ *
+ * `exit` says the process is gone; `close` says nothing still holds its
+ * streams. Normally they are microseconds apart and `close` wins, delivering
+ * every byte. This timer only ever runs out when a helper the CLI spawned
+ * inherited stdout and outlived it — and then waiting longer changes nothing
+ * except how long the slot stays held.
+ *
+ * Two seconds: long enough that no ordinary flush loses a byte, short enough
+ * that a job whose answer is already complete is not sitting on a device.
+ *
+ * **The value is not demonstrably necessary and is kept anyway — measured.**
+ * Setting it to zero passes every case in
+ * `a-helper-cannot-hold-a-job-open.test.ts`, because on this machine `close`
+ * always wins the race and `finish` is idempotent. What the margin buys is the
+ * case that race can lose: a large answer still draining when the process
+ * exits. **That failure would be silent truncation** — a shorter answer, no
+ * error, nothing to notice — and a margin against a silent failure is worth
+ * two seconds on a path that only runs when a job has already ended.
+ *
+ * Said out loud rather than implied, because a constant whose test cannot fail
+ * is exactly the kind that gets tuned to zero by somebody reading the green.
+ */
+const PIPE_GRACE_MS = 2_000;
+
+/**
  * The spawn every process-class backend runs — byollm_004 §2, in one place.
  *
  * This was `ClaudeCliBackend.#spawn`, and it was the only one there could be
@@ -109,7 +135,21 @@ function spawnIn(job: ProcessJob, scratch: string): Promise<BackendResult> {
         // No shell, ever. With `shell: false` the argv array is passed to
         // execvp verbatim and metacharacters in it are just bytes.
         shell: false,
-        detached: false,
+        /**
+         * Its own process group, so helpers die with it — B200.
+         *
+         * `child.kill()` signals the DIRECT child only. An agentic CLI that
+         * spawns a helper left that helper running after SIGTERM, and the
+         * helper inherited stdout — so `close` never fired, the promise never
+         * settled, and the job held its slot for ever. Todd watched two sit at
+         * 20+ minutes under a 600s ceiling.
+         *
+         * POSIX only. On Windows `detached` means a new console rather than a
+         * process group, and negative pids are not a thing — that platform
+         * keeps exactly the behaviour it had, which is the honest position
+         * until somebody can test a fix there.
+         */
+        detached: process.platform !== "win32",
       },
     );
 
@@ -160,6 +200,28 @@ function spawnIn(job: ProcessJob, scratch: string): Promise<BackendResult> {
       resolve({ ...result, timing: timing() });
     };
 
+    /**
+     * Signal the whole group where that is possible — B200.
+     *
+     * `process.kill(-pid)` addresses the group the `detached` spawn created,
+     * which is the only way a helper the CLI started ever hears anything.
+     * Falls back to the direct child on Windows, on a child with no pid, and
+     * on ESRCH — a group that is already gone is not an error worth throwing
+     * out of a kill path whose entire job is to stop waiting.
+     */
+    const signal = (sig: NodeJS.Signals): void => {
+      const pid = child.pid;
+      if (pid === undefined || process.platform === "win32") {
+        child.kill(sig);
+        return;
+      }
+      try {
+        process.kill(-pid, sig);
+      } catch {
+        child.kill(sig);
+      }
+    };
+
     const kill = (why: typeof reason): void => {
       reason = why;
       // SIGTERM first, SIGKILL shortly after: a wedged child must not be able
@@ -169,9 +231,9 @@ function spawnIn(job: ProcessJob, scratch: string): Promise<BackendResult> {
       // event, and NOT on `child.killed` — that flag means "a signal was
       // sent", not "the process died", so gating on it would mean the SIGKILL
       // never fires against exactly the child that ignores SIGTERM.
-      child.kill("SIGTERM");
+      signal("SIGTERM");
       setTimeout(() => {
-        if (!exited) child.kill("SIGKILL");
+        if (!exited) signal("SIGKILL");
       }, 2_000).unref();
     };
 
@@ -210,8 +272,16 @@ function spawnIn(job: ProcessJob, scratch: string): Promise<BackendResult> {
       });
     });
 
-    child.on("close", (code) => {
-      exited = true;
+    /**
+     * Settle from a finished child — B200.
+     *
+     * Extracted because it now has two callers. It ran only from `close`, and
+     * **Node fires `close` when the process has exited AND every stdio stream
+     * has closed** — a pipe a grandchild inherited keeps it from ever firing.
+     * The promise then pends for ever: no outcome, no release, and a slot held
+     * by a job that is already dead.
+     */
+    const settleFrom = (code: number | null): void => {
       const durationMs = Date.now() - started;
 
       if (reason === "canceled") {
@@ -300,6 +370,35 @@ function spawnIn(job: ProcessJob, scratch: string): Promise<BackendResult> {
         return;
       }
       finish({ ok: true, text: stdout, durationMs });
+    };
+
+    /**
+     * `exit` fires when the process is gone, whatever still holds its pipes.
+     *
+     * The grace is what keeps a normal job's output intact: for a child that
+     * simply ended, `close` arrives within microseconds of `exit` and settles
+     * with everything it said. The timer only ever runs out when something is
+     * still holding a stream open — the case this row is about — and then a
+     * dead child's answer is whatever it managed to say.
+     *
+     * `exited` moves here too. The SIGKILL escalation gates on it, and gating
+     * on `close` meant the escalation was deciding from a signal that the very
+     * failure it exists for prevents.
+     */
+    child.on("exit", (code) => {
+      exited = true;
+      setTimeout(() => {
+        settleFrom(code);
+      }, PIPE_GRACE_MS).unref();
+    });
+
+    /* The happy path, unchanged: for a child that simply ended, `close`
+       arrives with everything it said and settles before the grace above
+       expires. `finish` is idempotent, so whichever wins is the only one that
+       counts. */
+    child.on("close", (code) => {
+      exited = true;
+      settleFrom(code);
     });
 
     // The prompt goes here and nowhere else: on stdin, as bytes, after the

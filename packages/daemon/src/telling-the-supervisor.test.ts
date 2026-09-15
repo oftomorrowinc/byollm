@@ -39,6 +39,7 @@ describe("telling a supervisor that the configuration changed", () => {
         throw Object.assign(new Error("ESRCH"), { code: "ESRCH" });
       },
       { BYOLLM_SUPERVISOR_PID: "4242" },
+      "linux",
     );
     expect(told).toBe("gone");
   });
@@ -58,9 +59,9 @@ describe("telling a supervisor that the configuration changed", () => {
         supervisorPid({ BYOLLM_SUPERVISOR_PID: bad }),
         bad,
       ).toBeUndefined();
-      expect(tellSupervisor(neverCalled, { BYOLLM_SUPERVISOR_PID: bad })).toBe(
-        "absent",
-      );
+      expect(
+        tellSupervisor(neverCalled, { BYOLLM_SUPERVISOR_PID: bad }, "linux"),
+      ).toBe("absent");
     }
   });
 

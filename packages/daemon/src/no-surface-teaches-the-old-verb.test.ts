@@ -97,8 +97,26 @@ const RETIRED: Readonly<Record<string, string>> = {
  */
 const slashed = (name: string): string => name.split("\\").join("/");
 
-function sources(): { name: string; text: string }[] {
-  return readdirSync(PACKAGES, { recursive: true, encoding: "utf8" })
+/**
+ * Read once, not once per case — and the reason is a Windows CI timeout.
+ *
+ * Both collectors walk a whole tree and read every file they keep. Six cases
+ * call them, so the repository was being scanned six times; on
+ * `windows-latest` that ran past vitest's 5s default and the file failed on
+ * timeouts rather than on anything it asserts. Locally it is fast enough that
+ * nothing showed.
+ *
+ * Memoised rather than given a longer timeout: the work was redundant, and a
+ * raised timeout would have kept paying for it and hidden the next regression
+ * in the same place.
+ */
+function once<T>(make: () => T): () => T {
+  let held: T | undefined;
+  return () => (held ??= make());
+}
+
+const sources = once((): { name: string; text: string }[] =>
+  readdirSync(PACKAGES, { recursive: true, encoding: "utf8" })
     .map(slashed)
     .filter(
       (name) =>
@@ -114,8 +132,8 @@ function sources(): { name: string; text: string }[] {
       name,
       text: readFileSync(`${PACKAGES}${name}`, "utf8"),
     }))
-    .concat(published());
-}
+    .concat(published()),
+);
 
 /**
  * The documents, where a person actually learns a command.
@@ -126,8 +144,8 @@ function sources(): { name: string; text: string }[] {
  * verbs, so it passes for the same reason `byollm models takes no arguments …
  * use byollm services` does.
  */
-function published(): { name: string; text: string }[] {
-  return readdirSync(REPO, { recursive: true, encoding: "utf8" })
+const published = once((): { name: string; text: string }[] =>
+  readdirSync(REPO, { recursive: true, encoding: "utf8" })
     .map(slashed)
     .filter(
       (name) =>
@@ -159,8 +177,8 @@ function published(): { name: string; text: string }[] {
     .map((name) => ({
       name,
       text: readFileSync(`${REPO}${name}`, "utf8"),
-    }));
-}
+    })),
+);
 
 /**
  * Everything inside quotes, with comments removed first.

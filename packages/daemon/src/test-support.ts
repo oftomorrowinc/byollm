@@ -1,3 +1,5 @@
+import { readdirSync } from "node:fs";
+import { sep } from "node:path";
 import {
   RESERVED_PURPOSE,
   generateKeys,
@@ -96,4 +98,34 @@ export function testControlPlane(now = 1_800_000_000_000): {
       });
     },
   };
+}
+
+/**
+ * Every file under a directory, with names a check can match on — B209.
+ *
+ * `readdirSync(dir, { recursive: true })` yields the platform's own separator,
+ * so on Windows a name reads `backends\index.ts`. Three call sites across two
+ * files then tested those names against literals written with `/` —
+ * `!name.startsWith("specs/")`, `name.endsWith("/index.ts")` — and every one
+ * of them silently matched nothing there. **Our own `specs/` was read as a
+ * published surface and reported 17 retired verbs that are deliberately
+ * history; every export read as an orphan because the entry-point list came
+ * back empty.** Green on macOS and Linux the whole time, red on
+ * `windows-latest` for four days.
+ *
+ * Fixing each call site would leave three copies of one rule and the next
+ * walk would be written the way the first three were. **The separator is not
+ * the bug — assuming one is** — so the walk itself lives here and hands back
+ * names that are already `/`.
+ *
+ * `relative` is what a check matches on; `path` is what opens the file, and it
+ * keeps the platform's own form because that is the one the filesystem wants.
+ */
+export function treeOf(dir: string): { relative: string; path: string }[] {
+  return readdirSync(dir, { recursive: true, encoding: "utf8" }).map(
+    (name) => ({
+      relative: name.split(sep).join("/"),
+      path: `${dir}${name}`,
+    }),
+  );
 }

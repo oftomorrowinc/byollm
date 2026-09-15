@@ -1,4 +1,5 @@
-import { readFileSync, readdirSync } from "node:fs";
+import { readFileSync } from "node:fs";
+import { treeOf } from "./test-support.js";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { gigabytes } from "./memory-gate.js";
@@ -57,11 +58,17 @@ describe("where memory may be rendered", () => {
 
   /** Daemon source, comments stripped — prose must stay able to explain this. */
   function sources(): { name: string; text: string }[] {
-    return readdirSync(SRC, { recursive: true, encoding: "utf8" })
-      .filter((name) => name.endsWith(".ts") && !name.includes(".test."))
-      .map((name) => ({
-        name,
-        text: readFileSync(`${SRC}${name}`, "utf8")
+    /* Through `treeOf` — B209. Not because this filter was wrong (`.ts` and
+       `.test.` carry no separator) but because the next one written here would
+       be, and three files made that mistake at once. */
+    return treeOf(SRC)
+      .filter(
+        (file) =>
+          file.relative.endsWith(".ts") && !file.relative.includes(".test."),
+      )
+      .map((file) => ({
+        name: file.relative,
+        text: readFileSync(file.path, "utf8")
           .replace(/\/\*[\s\S]*?\*\//g, " ")
           .replace(/\/\/[^\n]*/g, " "),
       }));

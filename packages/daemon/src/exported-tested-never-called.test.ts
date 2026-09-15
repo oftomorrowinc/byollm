@@ -1,4 +1,5 @@
 import { readFileSync, readdirSync } from "node:fs";
+import { treeOf } from "./test-support.js";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
@@ -61,6 +62,10 @@ const ALLOWED: Readonly<Record<string, string>> = {
     "the file is named for what it is; its callers are tests by design",
   "daemon/src/test-support.ts: noSupervisor": "same file, same reason",
   "daemon/src/test-support.ts: testControlPlane": "same file, same reason",
+  "daemon/src/test-support.ts: treeOf":
+    "same file, same reason — and this check is one of its callers: B209 " +
+    "moved the recursive walk here so the separator assumption lives in one " +
+    "place instead of three",
   "daemon/src/backends/claude-cli.ts: resetClaudeLaunchCache":
     "a reset hook for a module-level cache — only a test needs to un-warm it, " +
     "and the alternative is exporting the cache itself",
@@ -80,27 +85,21 @@ function files(): { name: string; path: string; text: string }[] {
   const found: { name: string; path: string; text: string }[] = [];
   for (const pkg of readdirSync(ROOT)) {
     const dir = `${ROOT}${pkg}/src/`;
-    let names: string[];
+    let walked: { relative: string; path: string }[];
     try {
-      names = readdirSync(dir, { recursive: true, encoding: "utf8" });
+      walked = treeOf(dir);
     } catch {
       continue;
     }
-    for (const raw of names) {
-      /**
-       * Windows yields `backends\\index.ts`, and every path test in this file
-       * is written with `/` — `name.endsWith("/index.ts")` was false there, so
-       * the entry points came back EMPTY, nothing counted as published, and
-       * every export read as an orphan. Three false findings plus two "spent
-       * excuses", on windows-latest only, which is why a green local run never
-       * showed it.
-       */
-      const name = raw.split("\\").join("/");
-      if (!name.endsWith(".ts")) continue;
+    for (const file of walked) {
+      /* Names arrive `/`-separated from `treeOf` — B209. They did not, once,
+         and `name.endsWith("/index.ts")` was false on Windows, so the entry
+         points came back EMPTY and every export read as an orphan. */
+      if (!file.relative.endsWith(".ts")) continue;
       found.push({
-        name: `${pkg}/src/${name}`,
-        path: `${dir}${name}`,
-        text: readFileSync(`${dir}${raw}`, "utf8"),
+        name: `${pkg}/src/${file.relative}`,
+        path: file.path,
+        text: readFileSync(file.path, "utf8"),
       });
     }
   }

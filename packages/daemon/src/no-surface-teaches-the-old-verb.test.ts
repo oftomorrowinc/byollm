@@ -1,4 +1,5 @@
-import { readFileSync, readdirSync } from "node:fs";
+import { readFileSync } from "node:fs";
+import { treeOf } from "./test-support.js";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
@@ -95,8 +96,6 @@ const RETIRED: Readonly<Record<string, string>> = {
  * Normalised once, where the names are produced, rather than at each of the
  * nine places that test them.
  */
-const slashed = (name: string): string => name.split("\\").join("/");
-
 /**
  * Read once, not once per case — and the reason is a Windows CI timeout.
  *
@@ -116,8 +115,8 @@ function once<T>(make: () => T): () => T {
 }
 
 const sources = once((): { name: string; text: string }[] =>
-  readdirSync(PACKAGES, { recursive: true, encoding: "utf8" })
-    .map(slashed)
+  treeOf(PACKAGES)
+    .map((file) => file.relative)
     .filter(
       (name) =>
         name.endsWith(".ts") &&
@@ -145,8 +144,8 @@ const sources = once((): { name: string; text: string }[] =>
  * use byollm services` does.
  */
 const published = once((): { name: string; text: string }[] =>
-  readdirSync(REPO, { recursive: true, encoding: "utf8" })
-    .map(slashed)
+  treeOf(REPO)
+    .map((file) => file.relative)
     .filter(
       (name) =>
         (name.endsWith(".md") || name.endsWith(".html")) &&

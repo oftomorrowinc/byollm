@@ -2355,6 +2355,29 @@ export function memoryGuardLines(input: {
   );
 }
 
+/**
+ * How stale the health file may be before `status` calls the daemon dead —
+ * B201.
+ *
+ * A live daemon rewrites it every heartbeat, and `DEFAULT_HEARTBEAT_MS` is ten
+ * seconds. **Six missed writes**, which is past any single slow tick — a box
+ * throttled to its 50m request spends ~2 s on probes alone (B198) — and still
+ * inside the dashboard's own 90 s "online" window, so the machine's own
+ * `status` is not the last surface to notice its daemon is gone.
+ *
+ * Erring long on purpose: a false NOT RUNNING sends somebody to restart a
+ * working device, and this headline is exactly the one that has to be believed.
+ */
+const HEALTH_STALE_AFTER_MS = 60_000;
+
+/** An age in the plainest words — the shape `describeDrift` uses for a skew. */
+function describeAge(ms: number): string {
+  const seconds = Math.round(Math.abs(ms) / 1000);
+  return seconds < 120
+    ? `${String(seconds)} seconds`
+    : `${String(Math.round(seconds / 60))} minutes`;
+}
+
 async function commandStatus(
   paths: DaemonPaths,
   io: CliIo,
@@ -2396,6 +2419,25 @@ async function commandStatus(
     health !== undefined && health.consecutiveFailures >= FAILURES_BEFORE_ALARM;
 
   /**
+   * A daemon that has stopped writing has stopped running — B201.
+   *
+   * `#recordHealth` stamps `at` on **every heartbeat**, so a live daemon
+   * refreshes this file every ten seconds. A dead one freezes `at` — and
+   * leaves `consecutiveFailures` at whatever it was, which after a healthy run
+   * is **zero**. So `failing` never trips, `supervision.state` on a box is
+   * `absent` because there is no systemd to ask, and the headline fell all the
+   * way through to **`running`** for a process that did not exist.
+   *
+   * That happened. On 09-15 box-1's daemon was gone — a `/proc` walk found
+   * only the console — while `status` reported a working device, and the only
+   * truthful instrument anybody had was typing the walk by hand.
+   *
+   * **The honest signal was already on disk and this surface never asked** —
+   * the same shape as the provenance model B197 found, two rows apart.
+   */
+  const stale = health !== undefined && now - health.at > HEALTH_STALE_AFTER_MS;
+
+  /**
    * The supervisor's answer, asked once and used twice — ruled 2026-09-03.
    *
    * `state:` printed `running` two lines above `service: installed but NOT
@@ -2423,7 +2465,7 @@ async function commandStatus(
     `state: ${
       revoked !== undefined
         ? "REVOKED"
-        : supervision.state === "installed"
+        : supervision.state === "installed" || stale
           ? "NOT RUNNING"
           : failing
             ? "NOT REPORTING"
@@ -2438,6 +2480,21 @@ async function commandStatus(
       `  ${REVOKED_SENTENCE}.\n` +
         `  ${revoked.origin} no longer accepts this device's credential.\n` +
         revokedRemedy(revoked.origin, supervision.state !== "absent"),
+    );
+  }
+  if (stale) {
+    /* Said with the evidence, because "NOT RUNNING" from a surface that was
+       wrong about this an hour ago has to show its working. The age is the
+       whole argument: a live daemon rewrites this file every heartbeat. */
+    io.out(
+      `  nothing has written this device's health file for ` +
+        /* `stale` is only true when `health` is defined, so no optional
+           chain: the compiler knows, and a `?.` here would be a claim that
+           this branch can be reached without one. */
+        `${describeAge(now - health.at)} — a running daemon ` +
+        `rewrites it every heartbeat, so it is not running.\n` +
+        `  anything below is the last thing it believed, not what is true ` +
+        `now.\n`,
     );
   }
   if (failing) {

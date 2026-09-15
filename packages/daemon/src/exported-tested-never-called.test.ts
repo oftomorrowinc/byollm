@@ -86,12 +86,21 @@ function files(): { name: string; path: string; text: string }[] {
     } catch {
       continue;
     }
-    for (const name of names) {
+    for (const raw of names) {
+      /**
+       * Windows yields `backends\\index.ts`, and every path test in this file
+       * is written with `/` — `name.endsWith("/index.ts")` was false there, so
+       * the entry points came back EMPTY, nothing counted as published, and
+       * every export read as an orphan. Three false findings plus two "spent
+       * excuses", on windows-latest only, which is why a green local run never
+       * showed it.
+       */
+      const name = raw.split("\\").join("/");
       if (!name.endsWith(".ts")) continue;
       found.push({
         name: `${pkg}/src/${name}`,
         path: `${dir}${name}`,
-        text: readFileSync(`${dir}${name}`, "utf8"),
+        text: readFileSync(`${dir}${raw}`, "utf8"),
       });
     }
   }

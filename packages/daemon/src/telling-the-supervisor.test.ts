@@ -18,9 +18,14 @@ describe("telling a supervisor that the configuration changed", () => {
 
   it("signals the pid the supervisor named, and only that one", () => {
     const sent: [number, string][] = [];
-    const told = tellSupervisor((pid, signal) => sent.push([pid, signal]), {
-      BYOLLM_SUPERVISOR_PID: "1",
-    });
+    const told = tellSupervisor(
+      (pid, signal) => sent.push([pid, signal]),
+      { BYOLLM_SUPERVISOR_PID: "1" },
+      /* Stated, not inherited: on Windows this correctly refuses, and a case
+         about what a signal does must not quietly become a case about the
+         runner's platform. */
+      "linux",
+    );
     expect(told).toBe("told");
     expect(sent).toEqual([[1, "SIGHUP"]]);
   });

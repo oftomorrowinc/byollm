@@ -196,78 +196,100 @@ function printed(text: string): string {
     .join("\n");
 }
 
-describe("what the daemon prints", () => {
-  it("has strings to read, and they mention the new verbs", () => {
-    /* The control. A stripper that returned nothing would satisfy every
+/**
+ * A longer timeout than the 5s default, and it is not hiding slow work.
+ *
+ * The collectors above are memoised now, so the repository is read ONCE per
+ * run rather than once per case — the redundancy is gone. What is left is a
+ * genuinely large single read (every `.ts`, `.md` and `.html` in the tree),
+ * and on `windows-latest` that one read still runs past five seconds.
+ *
+ * Raised only after the redundancy was removed. A timeout raised first would
+ * have made the symptom go away while the six-fold scan stayed, and the next
+ * regression here would have been invisible for the same reason this one was.
+ */
+const SLOW_ENOUGH_FOR_A_COLD_WINDOWS_RUNNER = 60_000;
+
+describe(
+  "what the daemon prints",
+  { timeout: SLOW_ENOUGH_FOR_A_COLD_WINDOWS_RUNNER },
+  () => {
+    it("has strings to read, and they mention the new verbs", () => {
+      /* The control. A stripper that returned nothing would satisfy every
        assertion below — which is the failure mode of exactly this kind of
        check, and the reason this one is here. */
-    const all = sources()
-      .map(({ text }) => printed(text))
-      .join("\n");
-    expect(all.length).toBeGreaterThan(5_000);
-    expect(all).toContain("byollm start");
-  });
+      const all = sources()
+        .map(({ text }) => printed(text))
+        .join("\n");
+      expect(all.length).toBeGreaterThan(5_000);
+      expect(all).toContain("byollm start");
+    });
 
-  it("keeps the old words out of the comments' way", () => {
-    /* The other half of the control: the stripper must actually strip, or
+    it("keeps the old words out of the comments' way", () => {
+      /* The other half of the control: the stripper must actually strip, or
        this file would fail on its own history-explaining comments and
        somebody would weaken the rule to make it pass. */
-    const surface = printed(readFileSync(`${HERE}revoked.ts`, "utf8"));
-    const whole = readFileSync(`${HERE}revoked.ts`, "utf8");
-    expect(whole, "revoked.ts explains the old verb in prose").toContain(
-      "byollm install",
-    );
-    expect(surface, "and that prose is not something it prints").not.toContain(
-      "byollm install",
-    );
-  });
+      const surface = printed(readFileSync(`${HERE}revoked.ts`, "utf8"));
+      const whole = readFileSync(`${HERE}revoked.ts`, "utf8");
+      expect(whole, "revoked.ts explains the old verb in prose").toContain(
+        "byollm install",
+      );
+      expect(
+        surface,
+        "and that prose is not something it prints",
+      ).not.toContain("byollm install");
+    });
 
-  it("reports what `start` did in the word `start` uses", () => {
-    /**
-     * CW's rider on this sweep, and it is the subtler half: `byollm start`
-     * printed "Installed." — a word that is no longer any command's name.
-     *
-     * Not an instruction, so the rule below does not see it, and no test
-     * asserted the line at all, which is how it survived three passes. It
-     * leaves the reader holding the old vocabulary at the one moment they
-     * are being taught the new one.
-     */
-    const install = readFileSync(`${HERE}install.ts`, "utf8");
-    const surface = printed(install);
-    expect(surface).toContain("Started.");
-    expect(
-      surface,
-      "`start` must not report its success as an install",
-    ).not.toContain("Installed.");
-  });
+    it("reports what `start` did in the word `start` uses", () => {
+      /**
+       * CW's rider on this sweep, and it is the subtler half: `byollm start`
+       * printed "Installed." — a word that is no longer any command's name.
+       *
+       * Not an instruction, so the rule below does not see it, and no test
+       * asserted the line at all, which is how it survived three passes. It
+       * leaves the reader holding the old vocabulary at the one moment they
+       * are being taught the new one.
+       */
+      const install = readFileSync(`${HERE}install.ts`, "utf8");
+      const surface = printed(install);
+      expect(surface).toContain("Started.");
+      expect(
+        surface,
+        "`start` must not report its success as an install",
+      ).not.toContain("Installed.");
+    });
 
-  it("never tells anybody to type one without naming the new one", () => {
-    /* Roughly a screen either side, so a refusal that echoes what somebody
+    it("never tells anybody to type one without naming the new one", () => {
+      /* Roughly a screen either side, so a refusal that echoes what somebody
        typed and then points at the replacement is fine, and a bare
        instruction is not. */
-    const WITHIN = 300;
-    const offences: string[] = [];
-    for (const { name, text } of sources()) {
-      /* A document has no string literals and no comments — every word in it
+      const WITHIN = 300;
+      const offences: string[] = [];
+      for (const { name, text } of sources()) {
+        /* A document has no string literals and no comments — every word in it
          is published, so it is read whole. Stripping would delete the text. */
-      const surface = /\.(md|html)$/.test(name) ? text : printed(text);
-      for (const [retired, instead] of Object.entries(RETIRED)) {
-        let at = surface.indexOf(retired);
-        while (at !== -1) {
-          const passage = surface.slice(Math.max(0, at - WITHIN), at + WITHIN);
-          if (!passage.includes(instead)) {
-            offences.push(
-              `${name}: "${retired}" at ${String(at)} — say "${instead}"`,
+        const surface = /\.(md|html)$/.test(name) ? text : printed(text);
+        for (const [retired, instead] of Object.entries(RETIRED)) {
+          let at = surface.indexOf(retired);
+          while (at !== -1) {
+            const passage = surface.slice(
+              Math.max(0, at - WITHIN),
+              at + WITHIN,
             );
+            if (!passage.includes(instead)) {
+              offences.push(
+                `${name}: "${retired}" at ${String(at)} — say "${instead}"`,
+              );
+            }
+            at = surface.indexOf(retired, at + retired.length);
           }
-          at = surface.indexOf(retired, at + retired.length);
         }
       }
-    }
-    expect(
-      offences,
-      "a screen that instructs a retired verb is the rename undone on " +
-        "every surface except the one that was checked",
-    ).toEqual([]);
-  });
-});
+      expect(
+        offences,
+        "a screen that instructs a retired verb is the rename undone on " +
+          "every surface except the one that was checked",
+      ).toEqual([]);
+    });
+  },
+);

@@ -777,31 +777,38 @@ describe("what setup tells a supervisor — B207", () => {
     else process.env["BYOLLM_SUPERVISOR_PID"] = saved;
   };
 
-  it("signals the supervisor once the config is written", async () => {
-    /* This process stands in for PID 1: a real SIGHUP, delivered for real, to
+  /* Windows has no SIGHUP — `tellSupervisor` refuses there by design, which
+     `telling-the-supervisor.test.ts` proves with an injected platform. This
+     case needs a real signal delivered to a real handler, so it runs where
+     signals exist. */
+  it.skipIf(process.platform === "win32")(
+    "signals the supervisor once the config is written",
+    async () => {
+      /* This process stands in for PID 1: a real SIGHUP, delivered for real, to
        a handler installed here. A fake `kill` would assert that this test can
        build an object. */
-    let hups = 0;
-    const onHup = (): void => {
-      hups += 1;
-    };
-    process.on("SIGHUP", onHup);
-    process.env["BYOLLM_SUPERVISOR_PID"] = String(process.pid);
+      let hups = 0;
+      const onHup = (): void => {
+        hups += 1;
+      };
+      process.on("SIGHUP", onHup);
+      process.env["BYOLLM_SUPERVISOR_PID"] = String(process.pid);
 
-    try {
-      const p = await paths();
-      const io = scripted([...ONE_CLI]);
-      await runSetup(p, io, machineWith(["claude-cli"]));
+      try {
+        const p = await paths();
+        const io = scripted([...ONE_CLI]);
+        await runSetup(p, io, machineWith(["claude-cli"]));
 
-      /* Signal delivery is not synchronous with `process.kill`. */
-      await new Promise((wake) => setTimeout(wake, 50));
-      expect(hups, "the supervisor was told").toBeGreaterThan(0);
-      expect(io.transcript()).toContain("Told the supervisor");
-    } finally {
-      process.off("SIGHUP", onHup);
-      restore();
-    }
-  });
+        /* Signal delivery is not synchronous with `process.kill`. */
+        await new Promise((wake) => setTimeout(wake, 50));
+        expect(hups, "the supervisor was told").toBeGreaterThan(0);
+        expect(io.transcript()).toContain("Told the supervisor");
+      } finally {
+        process.off("SIGHUP", onHup);
+        restore();
+      }
+    },
+  );
 
   it("says nothing about a supervisor when there is none", async () => {
     /* The control, and the ordinary laptop case: no variable, no signal, and

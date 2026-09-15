@@ -63,9 +63,46 @@ describe("telling a supervisor that the configuration changed", () => {
       );
     }
   });
+
+  it("refuses on Windows, where a signal is a kill", () => {
+    /**
+     * `process.kill(pid, "SIGHUP")` on win32 does not deliver a signal — it
+     * **terminates the target process**. A supervised box is Linux, so this
+     * cannot arise from our own code; it would take the variable being set by
+     * hand, and the cost of being wrong is killing whatever process that
+     * number names.
+     *
+     * The platform that cannot be told is treated as one with nobody to tell,
+     * which is what it is. Driven with an injected platform rather than left
+     * to whichever machine runs the suite — a branch only its own platform can
+     * exercise is a branch nobody checks.
+     */
+    expect(
+      tellSupervisor(neverCalled, { BYOLLM_SUPERVISOR_PID: "1" }, "win32"),
+    ).toBe("absent");
+  });
+
+  it("still signals on the platforms that have signals", () => {
+    /* The control: the guard above must not be a guard against everything. */
+    const sent: [number, string][] = [];
+    for (const platform of ["linux", "darwin"]) {
+      expect(
+        tellSupervisor(
+          (pid, signal) => sent.push([pid, signal]),
+          { BYOLLM_SUPERVISOR_PID: "7" },
+          platform,
+        ),
+        platform,
+      ).toBe("told");
+    }
+    expect(sent).toEqual([
+      [7, "SIGHUP"],
+      [7, "SIGHUP"],
+    ]);
+  });
 });
 
 /** A `kill` that fails the test if anything reaches it. */
-const neverCalled = (): never => {
+function neverCalled(): never {
   throw new Error("signalled when there was no supervisor to signal");
-};
+}

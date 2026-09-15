@@ -83,8 +83,23 @@ const RETIRED: Readonly<Record<string, string>> = {
   "byollm models": "byollm services",
 };
 
+/**
+ * A path this file can match on, whatever platform produced it.
+ *
+ * `readdirSync` yields `specs\\byollm_016-services.md` on Windows, and every
+ * exclusion below is written with `/`. So `!name.startsWith("specs/")` was
+ * false there, the working record was scanned as though it were a published
+ * surface, and CI reported **17 retired verbs in our own design notes** — on
+ * Windows only, which is why a green local run never showed it.
+ *
+ * Normalised once, where the names are produced, rather than at each of the
+ * nine places that test them.
+ */
+const slashed = (name: string): string => name.split("\\").join("/");
+
 function sources(): { name: string; text: string }[] {
   return readdirSync(PACKAGES, { recursive: true, encoding: "utf8" })
+    .map(slashed)
     .filter(
       (name) =>
         name.endsWith(".ts") &&
@@ -113,6 +128,7 @@ function sources(): { name: string; text: string }[] {
  */
 function published(): { name: string; text: string }[] {
   return readdirSync(REPO, { recursive: true, encoding: "utf8" })
+    .map(slashed)
     .filter(
       (name) =>
         (name.endsWith(".md") || name.endsWith(".html")) &&

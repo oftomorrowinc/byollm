@@ -61,9 +61,27 @@ export function tellSupervisor(
     process.kill(pid, signal);
   },
   env: NodeJS.ProcessEnv = process.env,
+  /* Injected so the win32 branch is provable on the machines this is actually
+     developed on. A branch that can only be exercised by the platform it
+     guards against is a branch nobody checks. */
+  platform: string = process.platform,
 ): ToldSupervisor {
   const pid = supervisorPid(env);
   if (pid === undefined) return "absent";
+
+  /**
+   * Windows has no `SIGHUP`, and asking for one there is not a no-op.
+   *
+   * `process.kill(pid, "SIGHUP")` on win32 does not deliver a signal — it
+   * **terminates the target process**. A supervised box is Linux, so this
+   * cannot arise from our own code; it would take somebody setting the
+   * variable by hand on a Windows machine, and the cost of being wrong is
+   * killing whatever process that number happens to name.
+   *
+   * So the platform that cannot be told is treated as one with nobody to
+   * tell, which is exactly what it is.
+   */
+  if (platform === "win32") return "absent";
   try {
     kill(pid, "SIGHUP");
     return "told";

@@ -180,7 +180,21 @@ export const SUBSCRIPTION_CLIS: readonly {
     id: "claude-cli",
     binary: "claude",
     plan: "Claude subscription",
-    model: "sonnet",
+    /**
+     * Opus — RULED by Todd, 09-14: *"Let's update to opus for #3."*
+     *
+     * This was `sonnet`, chosen under the reasoning above: the alias the CLI's
+     * own help documents, so it was the CLI's word rather than ours. That
+     * reasoning still holds for `opus`, which is in `knownModelsFor` beside it
+     * and is an alias of the same kind — the invariant test below is what
+     * checks that rather than this comment.
+     *
+     * **What changed is not the sourcing rule, it is the default.** A person
+     * setting up for the first time gets the best model their subscription
+     * covers, and the counterweight — that it spends quota faster — is said on
+     * the screen rather than discovered in a quota block a week later.
+     */
+    model: "opus",
     install: "https://claude.com/claude-code",
   },
   {
@@ -944,6 +958,26 @@ async function candidates(input: {
           `time: https://docs.byollm.cloud/guides/models\n`,
       );
       continue;
+    }
+
+    if (cli.id === "claude-cli" && model === "opus") {
+      /**
+       * The counterweight, said where the choice is made — B197's rider.
+       *
+       * Todd ruled Opus the default and saw the cost. A default that quietly
+       * spends somebody's subscription several times faster is the shape this
+       * project calls a surprise the customer cannot see: legitimate to
+       * choose, not legitimate to leave unsaid.
+       *
+       * Printed rather than buried in docs because this is the one moment the
+       * person is deciding, and it names the way out in the same breath.
+       */
+      input.io.out(
+        `\n  \`claude\` is set up on Opus, the strongest model your plan\n` +
+          `  covers. Opus draws a Pro/Max subscription down several times\n` +
+          `  faster than Sonnet — change \`model\` in ~/.byollm/config.json if\n` +
+          `  you would rather it lasted longer.\n`,
+      );
     }
 
     const proof = await input.verifier(cli.id, model);

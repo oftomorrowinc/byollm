@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import {
   BOTH_KINDS,
@@ -1073,14 +1075,42 @@ describe("a CLI whose model we do not know", () => {
   });
 
   it("still offers a CLI whose model this build can stand behind", async () => {
-    /* The control, and the reason the case above is not "CLIs stopped
-       working". `sonnet` is in `knownModelsFor("claude-cli")` and documented
-       in `claude --help` as an alias for the latest sonnet — the CLI's word
-       rather than ours. */
+    /**
+     * The control, and the reason the case above is not "CLIs stopped
+     * working".
+     *
+     * **Asserted against `knownModelsFor` rather than against a literal.** It
+     * pinned `"sonnet"`, so Todd's Opus ruling reddened it — correctly, but
+     * for the weaker reason: what this case is named for is that the offered
+     * model is one this build stands behind, not which one it happens to be.
+     * The literal is kept beside it so a change of default is still a
+     * deliberate edit, not a silent drift.
+     */
     const { outcome } = await run(["1", ""], {
       detector: machineWith(["claude-cli"]),
     });
-    expect(outcome.services["claude"]).toMatchObject({ model: "sonnet" });
+    const offered = outcome.services["claude"]?.["model"];
+    expect(knownModelsFor("claude-cli")).toContain(offered);
+    expect(offered, "Todd ruled Opus the default on 09-14").toBe("opus");
+  });
+
+  it("says what Opus costs, at the moment it is chosen", () => {
+    /**
+     * The counterweight Todd saw when he ruled it: Opus draws a Pro/Max
+     * subscription down several times faster than Sonnet.
+     *
+     * A default that quietly spends somebody's subscription faster is a
+     * surprise the customer cannot see — legitimate to choose, not legitimate
+     * to leave unsaid. Asserted on the source because this loop's output is
+     * assembled across an interactive run; the sentence existing at all is
+     * what the ruling asked for.
+     */
+    const source = readFileSync(
+      fileURLToPath(new URL("./services-manage.ts", import.meta.url)),
+      "utf8",
+    );
+    expect(source).toContain("draws a Pro/Max subscription down several times");
+    expect(source, "and names the way out").toContain("~/.byollm/config.json");
   });
 
   it("offers only models this build already knows that CLI accepts", () => {

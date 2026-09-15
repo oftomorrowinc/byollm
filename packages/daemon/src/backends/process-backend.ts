@@ -101,8 +101,35 @@ export async function runProcessJob(job: ProcessJob): Promise<BackendResult> {
   try {
     return await spawnIn(job, scratch);
   } finally {
-    await rm(scratch, { recursive: true, force: true });
+    await removeScratch(scratch);
   }
+}
+
+/**
+ * Remove the job's scratch directory, and never let that fail the job.
+ *
+ * This was `await rm(...)` in the `finally` above, which has two edges. A
+ * throw in a `finally` **replaces the value being returned** — so a job that
+ * ran perfectly would come back as an unrelated filesystem error. And the
+ * throw is not hypothetical on Windows: this backend's whole subject is a
+ * helper the CLI spawned that outlives it (B200), and a live process holding
+ * a directory makes `rmdir` fail with `EBUSY` there. Measured on
+ * `windows-latest`: `EBUSY: resource busy or locked, rmdir
+ * 'C:\Users\RUNNER~1\AppData\Local\Temp\byollm-job-...'`, failing three
+ * cases in the suite written for exactly that scenario.
+ *
+ * `maxRetries` is Node's own answer to this — it exists because Windows
+ * releases handles asynchronously — and the `catch` is what makes the promise
+ * above. **A leaked temp directory is the smaller harm than a lost answer**
+ * somebody is waiting on, and the OS clears `tmpdir()` regardless.
+ */
+export async function removeScratch(scratch: string): Promise<void> {
+  await rm(scratch, {
+    recursive: true,
+    force: true,
+    maxRetries: 5,
+    retryDelay: 50,
+  }).catch(() => undefined);
 }
 
 function spawnIn(job: ProcessJob, scratch: string): Promise<BackendResult> {

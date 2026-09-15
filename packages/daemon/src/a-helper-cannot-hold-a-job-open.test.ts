@@ -1,7 +1,8 @@
-import { mkdtemp, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { removeScratch } from "./backends/process-backend.js";
 import { runProcessJob } from "./backends/process-backend.js";
 
 /**
@@ -139,6 +140,43 @@ describe("a child with no helper at all", () => {
     if (result.ok) {
       expect(result.text).toContain("END");
       expect(result.text.length).toBeGreaterThan(5000);
+    }
+  });
+});
+
+describe("clearing up after a job", () => {
+  it("cannot turn a finished job into a filesystem error", async () => {
+    /**
+     * The scratch directory was removed by `await rm(...)` inside the
+     * `finally` of the job. **A throw in a `finally` replaces the value being
+     * returned**, so a job that ran perfectly would come back as an unrelated
+     * filesystem error.
+     *
+     * Not hypothetical, and this file's own subject is why: a helper the CLI
+     * spawned outlives it, and a live process holding a directory makes
+     * `rmdir` fail with `EBUSY` on Windows. Measured on `windows-latest` —
+     * three cases here failed on `EBUSY: resource busy or locked, rmdir
+     * 'C:\Users\RUNNER~1\AppData\Local\Temp\byollm-job-...'` — which is the
+     * scenario this suite exists for, failing in its clean-up rather than in
+     * its subject.
+     *
+     * Driven with a directory that genuinely cannot be removed: a read-only
+     * parent, so `rm` fails with `EACCES` on the platforms this runs on.
+     * Windows has no equivalent chmod, and it is the platform where the real
+     * `EBUSY` lives, so it is skipped rather than faked.
+     */
+    const parent = await mkdtemp(join(tmpdir(), "byollm-locked-"));
+    const scratch = join(parent, "scratch");
+    await mkdir(scratch);
+    await writeFile(join(scratch, "held"), "x", "utf8");
+    await chmod(parent, 0o500);
+
+    try {
+      /* The assertion IS that this resolves. A rejection here is the bug. */
+      await expect(removeScratch(scratch)).resolves.toBeUndefined();
+    } finally {
+      await chmod(parent, 0o700);
+      await rm(parent, { recursive: true, force: true });
     }
   });
 });

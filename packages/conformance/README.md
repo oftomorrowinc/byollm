@@ -1,5 +1,5 @@
 > [!WARNING]
-> **Alpha (`0.1.0-alpha.94`) — under active development. Don't use this yet.**
+> **Alpha (`0.1.0-alpha.95`) — under active development. Don't use this yet.**
 >
 > Install it deliberately: `npm install @byollm/conformance@alpha`.
 >

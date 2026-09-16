@@ -248,3 +248,13 @@ export {
   type ConsoleOrderFault,
   type ConsoleOrderResult,
 } from "./console.js";
+export {
+  ENVELOPE_BODY_VERSION,
+  decodeEnvelopeInner,
+  encodeEnvelopeInner,
+  envelopeSignedBody,
+  fromBase64Url,
+  toBase64Url,
+  type EnvelopeBodyContext,
+  type EnvelopeInner,
+} from "./envelope-format.js";

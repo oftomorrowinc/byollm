@@ -1,6 +1,11 @@
 import { createPrivateKey, createPublicKey, type KeyObject } from "node:crypto";
 import sodium from "libsodium-wrappers";
 import { z } from "zod";
+import {
+  decodeEnvelopeInner,
+  encodeEnvelopeInner,
+  envelopeSignedBody,
+} from "./envelope-format.js";
 import { signWith, verifyWith, type StoredKeys } from "./keys.js";
 
 /**
@@ -102,21 +107,21 @@ export interface EnvelopeContext {
   readonly direction: EnvelopeDirection;
 }
 
-/** The bytes signed inside the envelope. */
-function signedBody(context: EnvelopeContext, plaintext: string): Buffer {
-  return Buffer.from(
-    JSON.stringify({
-      v: "byollm/v1/envelope",
-      jobId: context.jobId,
-      senderKeyId: context.senderKeyId,
-      recipientKeyId: context.recipientKeyId,
-      deadlineAt: context.deadlineAt,
-      direction: context.direction,
-      plaintext,
-    }),
-    "utf8",
-  );
-}
+/**
+ * The bytes signed inside the envelope.
+ *
+ * Delegated to `envelope-format.ts`, which is portable — B018c. The browser
+ * end of a console stream cannot run this file (the signature below is
+ * `node:crypto`), but it MUST agree with it about which bytes get signed, and
+ * two copies of that would diverge silently: a mismatched signature is
+ * indistinguishable from an attack, so the first symptom is a console that
+ * will not open.
+ *
+ * Kept as a one-line wrapper rather than inlined at the call sites, so the
+ * name this file has always used still means the same thing.
+ */
+const signedBody = (context: EnvelopeContext, plaintext: string): Uint8Array =>
+  envelopeSignedBody(context, plaintext);
 
 const rawX25519 = (key: KeyObject, part: "x" | "d"): Uint8Array => {
   const jwk = key.export({ format: "jwk" });
@@ -136,7 +141,7 @@ export async function seal(input: {
 
   const body = signedBody(input.context, input.plaintext);
   const signature = signWith(input.senderKeys, body);
-  const inner = JSON.stringify({ body: body.toString("base64url"), signature });
+  const inner = encodeEnvelopeInner(body, signature);
 
   const recipient = new Uint8Array(
     Buffer.from(input.recipientEncryptionPublic, "base64url"),
@@ -217,17 +222,10 @@ export async function open(input: {
     return { ok: false, reason: "unopenable" };
   }
 
-  let parsed: { body?: unknown; signature?: unknown };
-  try {
-    parsed = JSON.parse(inner) as { body?: unknown; signature?: unknown };
-  } catch {
-    return { ok: false, reason: "malformed" };
-  }
-  if (typeof parsed.body !== "string" || typeof parsed.signature !== "string") {
-    return { ok: false, reason: "malformed" };
-  }
+  const parsed = decodeEnvelopeInner(inner);
+  if (parsed === undefined) return { ok: false, reason: "malformed" };
 
-  const body = Buffer.from(parsed.body, "base64url");
+  const body = parsed.body;
   if (!verifyWith(input.senderIdentityPublic, body, parsed.signature)) {
     // Opened, but not from the key we pinned. This is the injection case: a
     // relay can produce a well-formed sealed box for any public key it holds.
@@ -236,7 +234,15 @@ export async function open(input: {
 
   let claims: Record<string, unknown>;
   try {
-    claims = JSON.parse(body.toString("utf8")) as Record<string, unknown>;
+    /* `TextDecoder`, not `body.toString("utf8")` — the shared format returns a
+       plain Uint8Array, whose `toString` is Object's and would produce
+       "123,34,118..." rather than the JSON. Caught by the compiler and by
+       this file's own round-trip test, which is the pair of checks that make
+       swapping a Buffer for a Uint8Array safe to do at all. */
+    claims = JSON.parse(new TextDecoder().decode(body)) as Record<
+      string,
+      unknown
+    >;
   } catch {
     return { ok: false, reason: "malformed" };
   }

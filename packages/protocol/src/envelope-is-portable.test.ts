@@ -147,12 +147,42 @@ describe("and the whole REACHABLE GRAPH is portable, not just this file", () => 
       ).toBe(true);
       return;
     }
-    const js = readFileSync(emitted, "utf8");
-    for (const forbidden of ["node:", 'require("net")', "createHash"]) {
-      expect(
-        js,
-        `the emitted portable entry reaches for ${forbidden}`,
-      ).not.toContain(forbidden);
+    /**
+     * The entry AND the chunks it imports — found by simulating a publish.
+     *
+     * `tsup` code-splits: `portable.js` is a few re-exports plus a
+     * `./chunk-XXXX.js` import carrying the actual code. Reading only the
+     * entry would have passed while every line that matters sat in a file
+     * this never opened. **The reachable-graph lesson again, one level lower:
+     * first the source graph, now the emitted one.**
+     *
+     * Copying only `portable.js` into an installed package is also exactly
+     * what broke the simulation, with `Can't resolve './chunk-W7Q7DKQ6.js'`.
+     * A bundler needs them together, so they are one artifact and are checked
+     * as one.
+     */
+    const seen = new Set<string>();
+    const walkEmitted = (file: string): string[] => {
+      if (seen.has(file)) return [];
+      seen.add(file);
+      const path = fileURLToPath(new URL(`../dist/${file}`, import.meta.url));
+      if (!existsSync(path)) return [];
+      const body = readFileSync(path, "utf8");
+      const more = [...body.matchAll(/from\s*"\.\/([^"]+\.js)"/g)].flatMap(
+        (m) => walkEmitted(m[1] ?? ""),
+      );
+      return [body, ...more];
+    };
+
+    const bodies = walkEmitted("portable.js");
+    expect(bodies.length, "the emitted entry was read").toBeGreaterThan(0);
+    for (const js of bodies) {
+      for (const forbidden of ["node:", 'require("net")', "createHash"]) {
+        expect(
+          js,
+          `the emitted portable artifact reaches for ${forbidden}`,
+        ).not.toContain(forbidden);
+      }
     }
   });
 

@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { PublicIdentity } from "./keys.js";
+import { PublicIdentity } from "./public-identity.js";
 import type { EnvelopeContext } from "./envelope.js";
 
 /**

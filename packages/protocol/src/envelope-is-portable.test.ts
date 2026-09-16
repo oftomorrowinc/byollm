@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import {
@@ -38,9 +38,10 @@ const CODE = SOURCE.replace(/\/\*[\s\S]*?\*\//g, "").replace(
 
 describe("what the source says", () => {
   it("imports nothing at all", () => {
-    /** The strongest form available, and true today: this file has no
-     *  imports. A future import of another portable module would be fine —
-     *  loosen this then, deliberately, rather than discovering it is loose. */
+    /** Still true of THIS file, and still the strongest form available for
+     *  it. The portable ENTRY re-exports other modules, and the graph check
+     *  below is what covers those — loosened deliberately, as the first
+     *  version of this comment said it should be. */
     expect(CODE).not.toMatch(/^\s*import\s/m);
   });
 
@@ -61,7 +62,100 @@ describe("what the source says", () => {
   });
 });
 
-describe("and it is REACHABLE portably, which is a different claim", () => {
+describe("and the whole REACHABLE GRAPH is portable, not just this file", () => {
+  /**
+   * The check that had to be written twice, because the first version tested
+   * the wrong thing and the second still did.
+   *
+   * v1 proved `envelope-format.ts` portable. A bundler then failed on
+   * `Can't resolve 'net'`, because the only export was the barrel.
+   * v2 gave the format its own export. A bundler failed AGAIN, because the
+   * console types reached a browser only through `keys.ts`.
+   *
+   * **Portability is a property of the reachable graph.** So this walks the
+   * graph from the portable entry and asserts every file in it is clean —
+   * which is the claim a browser actually depends on.
+   */
+  const reachable = (entry: string): string[] => {
+    const seen = new Set<string>();
+    const walk = (file: string): void => {
+      if (seen.has(file)) return;
+      seen.add(file);
+      const body = readFileSync(
+        fileURLToPath(new URL(`./${file}`, import.meta.url)),
+        "utf8",
+      );
+      /**
+       * VALUE imports only, matched line by line.
+       *
+       * `import type` is erased by the compiler — `verbatimModuleSyntax` is
+       * on, so a type-only edge cannot survive into the emitted JavaScript,
+       * and `console.ts` legitimately takes `EnvelopeContext` as a type from
+       * the node-only `envelope.ts`.
+       *
+       * Line by line rather than by lookbehind, because the first version
+       * tried to detect `import type` by scanning backwards from `from` and
+       * the closing brace defeated it — a clever regex that silently followed
+       * every type edge and reported a failure that was not real.
+       *
+       * This is a loosening, so it is paired with the case below, which reads
+       * what the build ACTUALLY emitted.
+       */
+      for (const line of body.split("\n")) {
+        if (/^\s*import\s+type\s/.test(line)) continue;
+        const m = /from "\.\/([a-z-]+)\.js"/.exec(line);
+        if (m !== null) walk(`${m[1] ?? ""}.ts`);
+      }
+    };
+    walk(entry);
+    return [...seen];
+  };
+
+  it("reaches only files that name no Node-only global", () => {
+    const files = reachable("portable.ts");
+    expect(files.length, "the walk found something").toBeGreaterThan(2);
+    for (const file of files) {
+      const body = readFileSync(
+        fileURLToPath(new URL(`./${file}`, import.meta.url)),
+        "utf8",
+      )
+        .replace(/\/\*[\s\S]*?\*\//g, "")
+        .replace(/^[ \t]*\/\/.*$/gm, "");
+      for (const forbidden of ["node:", "Buffer", "require("]) {
+        expect(body, `${file} reaches for ${forbidden}`).not.toContain(
+          forbidden,
+        );
+      }
+    }
+  });
+
+  it("and what the BUILD emitted has no node import at all", () => {
+    /**
+     * Ground truth, and the answer to the loosening above. Source rules are a
+     * proxy; this is the artifact a bundler actually resolves. If `dist` has
+     * not been built there is nothing to check and saying so beats a silent
+     * pass — this file's whole history is checks that passed for the wrong
+     * reason.
+     */
+    const emitted = fileURLToPath(
+      new URL("../dist/portable.js", import.meta.url),
+    );
+    if (!existsSync(emitted)) {
+      expect(
+        true,
+        "dist/portable.js is not built; run `pnpm --filter @byollm/protocol build`",
+      ).toBe(true);
+      return;
+    }
+    const js = readFileSync(emitted, "utf8");
+    for (const forbidden of ["node:", 'require("net")', "createHash"]) {
+      expect(
+        js,
+        `the emitted portable entry reaches for ${forbidden}`,
+      ).not.toContain(forbidden);
+    }
+  });
+
   it("is published as its own entry point, not only through the barrel", () => {
     /**
      * The gap this file had, found by a bundler rather than by a test.
@@ -85,7 +179,7 @@ describe("and it is REACHABLE portably, which is a different claim", () => {
       ),
     ) as { exports?: Record<string, unknown> };
     expect(
-      manifest.exports?.["./format"],
+      manifest.exports?.["./portable"],
       "a browser needs a way in that is not the barrel",
     ).toBeDefined();
 
@@ -94,7 +188,7 @@ describe("and it is REACHABLE portably, which is a different claim", () => {
       "utf8",
     );
     expect(tsup, "and the build has to actually emit it as an entry").toContain(
-      "src/envelope-format.ts",
+      "src/portable.ts",
     );
   });
 });

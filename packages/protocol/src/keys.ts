@@ -8,6 +8,11 @@ import {
   type KeyObject,
 } from "node:crypto";
 import { z } from "zod";
+import { PublicIdentity } from "./public-identity.js";
+
+/* Re-exported so every existing import still resolves: the schema moved to a
+   portable module for B018c, and a file move must not become an API change. */
+export { PublicIdentity };
 
 /**
  * Device and site keys — byollm_009 §3.
@@ -33,23 +38,6 @@ import { z } from "zod";
  */
 
 /** A public identity, as it travels on the wire. All values base64url. */
-export const PublicIdentity = z
-  .object({
-    /** Raw Ed25519 public key. The pinned one. */
-    identity: z.string().min(1),
-    /** Raw X25519 public key, for sealing to this party. */
-    encryption: z.string().min(1),
-    /**
-     * Ed25519 signature over the encryption key, by the identity key.
-     *
-     * This is what stops an upstream substituting an encryption key of its
-     * own while relaying a genuine identity: the receiver pins the identity
-     * and refuses any encryption key not signed by it.
-     */
-    encryptionSig: z.string().min(1),
-  })
-  .strict();
-export type PublicIdentity = z.infer<typeof PublicIdentity>;
 
 /** Private key material, as stored on disk. Never leaves the machine. */
 export const StoredKeys = z

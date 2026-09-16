@@ -9,9 +9,9 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
     },
-    "./format": {
-      "types": "./dist/envelope-format.d.ts",
-      "import": "./dist/envelope-format.js"
+    "./portable": {
+      "types": "./dist/portable.d.ts",
+      "import": "./dist/portable.js"
     }
   },
   "main": "./dist/index.js",

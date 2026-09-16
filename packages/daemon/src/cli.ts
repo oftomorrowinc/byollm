@@ -53,6 +53,7 @@ import {
   runConsoleAgent,
 } from "./console-agent-main.js";
 import { ConsoleAgentSpec } from "./console-agent-spec.js";
+import { CONSOLE_DEVICE_ENDPOINT, consoleListener } from "./console-listen.js";
 import { Pairings, recordSites } from "./pairings.js";
 import { dollars, SpendLedger } from "./spend.js";
 import { SpentGrants } from "./spent-grants.js";
@@ -849,13 +850,66 @@ async function commandConsoleAgent(
   args: readonly string[],
   io: CliIo,
 ): Promise<ExitCode> {
+  const keys = await new DeviceIdentity(paths.keys).load(Date.now());
+
   const spec = args[0];
   if (spec === undefined) {
-    io.err(
-      "byollm console-agent is started by a hosted box, not by hand.\n" +
-        "It takes one argument: the session description the hub sent.\n",
-    );
-    return 2;
+    /**
+     * No argument means LISTEN — B018c hole 2.
+     *
+     * The box holds a control socket and waits to be told a console is
+     * wanted. Before this the command took a session description and nothing
+     * ever gave it one: a console could be opened by a browser and never
+     * joined, because the box did not know.
+     *
+     * The one-argument form stays, and is what this mode invokes per
+     * announcement — so the path a real console takes is the same one a
+     * person can drive by hand when something has gone wrong.
+     */
+    const pairings = new Pairings(paths.pairings);
+    await pairings.load();
+    const paired = pairings.list()[0];
+    if (paired === undefined) {
+      io.err(
+        "byollm console-agent has nothing to listen to: this device is not paired.\n" +
+          "Pair it first with `byollm connect`.\n",
+      );
+      return 1;
+    }
+
+    const url = `${paired.origin.replace(/^http/, "ws")}${CONSOLE_DEVICE_ENDPOINT}`;
+    io.out(`listening for consoles on ${paired.origin}\n`);
+
+    consoleListener({
+      url,
+      runnerId: paired.runnerId,
+      keys,
+      run: (announcement) =>
+        runConsoleAgent({
+          url: `${paired.origin.replace(/^http/, "ws")}/console/box?session=${announcement.sessionId}`,
+          sessionId: announcement.sessionId,
+          deadlineAt: announcement.deadlineAt,
+          keys,
+          browser: announcement.browser,
+          command: process.env["BYOLLM_CONSOLE_SHELL"] ?? "/bin/sh",
+          args: [],
+          cwd: process.env["HOME"] ?? "/",
+          env: { ...process.env } as Record<string, string>,
+          record: (entry) => {
+            io.out(`${JSON.stringify({ consoleSession: entry })}\n`);
+            return Promise.resolve();
+          },
+        }).then(() => undefined),
+      log: (message, fields) => {
+        io.out(`${JSON.stringify({ console: message, ...(fields ?? {}) })}\n`);
+      },
+    });
+
+    /* Returns only when the supervisor stops it: a listener that exited
+       immediately would be a box that is never reachable, which is the state
+       this command exists to end. */
+    await new Promise<void>(() => undefined);
+    return 0;
   }
 
   let parsed: unknown;
@@ -871,8 +925,6 @@ async function commandConsoleAgent(
     io.err("That session description is not one this agent understands.\n");
     return 2;
   }
-
-  const keys = await new DeviceIdentity(paths.keys).load(Date.now());
 
   try {
     const why = await runConsoleAgent({

@@ -1,6 +1,6 @@
 # What 0.1.0 locks, and what it does not
 
-**Status: draft for Todd (B221). Nothing is promised until he says so.**
+**Status: RULED (Todd, 2026-09-16). This is the promise.**
 
 A version number is a promise about what will not move. This document says
 exactly which surfaces are that promise, which are deliberately outside it,

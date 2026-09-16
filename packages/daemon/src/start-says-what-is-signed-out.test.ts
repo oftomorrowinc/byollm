@@ -306,6 +306,52 @@ describe("byollm run, when a backend is signed out", () => {
     expect(code).toBe(2);
   });
 
+  it("serves instead of hanging when a supervisor started it — B213", async () => {
+    /**
+     * The crash loop Todd hit on box-1 running the ordinary onboarding order:
+     * setup, connect, then sign in.
+     *
+     * A Pod sets `tty: true` so a person can type at the console, so
+     * `process.stdout.isTTY` is true for EVERY process in the container —
+     * including the daemon, which has no human. `run` took the preflight path,
+     * asked *"Sign in to claude now?"*, and waited for an answer that could
+     * never arrive. The event loop drained, Node exited 13, the supervisor
+     * restarted it, and the box crash-looped.
+     *
+     * **Driven through the defaults on purpose.** Every other case here passes
+     * `interactive` and `supervised` explicitly, which is exactly why none of
+     * them caught it: the expressions that shipped were the one part nothing
+     * exercised.
+     */
+    const saved = process.env["BYOLLM_SUPERVISOR_PID"];
+    process.env["BYOLLM_SUPERVISOR_PID"] = "1";
+    try {
+      await configWithClaude();
+      const code = await runCli(["run"], {
+        paths,
+        io: io(),
+        service: service(),
+        platform: "linux",
+        verify: signedOut,
+        login: () => Promise.resolve(false),
+        /* If the preflight is reached this throws instead of hanging: a test
+           that reproduces the bug by never finishing is a test nobody can
+           read the result of. */
+        ask: () => {
+          throw new Error("asked a human that a supervised daemon cannot have");
+        },
+      });
+
+      /* Nothing is paired, so `run` exits 2 having said so — the same honest
+         answer as the case above. What matters is that it GOT here at all
+         rather than waiting on an answer. */
+      expect(code).toBe(2);
+    } finally {
+      if (saved === undefined) delete process.env["BYOLLM_SUPERVISOR_PID"];
+      else process.env["BYOLLM_SUPERVISOR_PID"] = saved;
+    }
+  });
+
   it("spends nothing when a supervisor started it", async () => {
     await configWithClaude();
     let verifications = 0;

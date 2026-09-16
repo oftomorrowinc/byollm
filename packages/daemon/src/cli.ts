@@ -56,7 +56,7 @@ import {
   overriddenRootNotice,
   type DaemonPaths,
 } from "./paths.js";
-import { supervisorPid, tellSupervisor } from "./supervised.js";
+import { howItRuns, supervisorPid, tellSupervisor } from "./supervised.js";
 import { Runner, type RunnerEvent } from "./runner.js";
 import {
   installedProgram,
@@ -1427,8 +1427,12 @@ async function commandRun(
   io: CliIo,
   signal?: AbortSignal,
   pollMs = PARK_POLL_MS,
-  supervised = !process.stdout.isTTY,
-  interactive = process.stdout.isTTY,
+  /* Both from one answer — B213. `isTTY` is true inside a box because the Pod
+     gives the console a tty, so these two expressions had the supervised
+     daemon asking a human who was not there and reporting itself unsupervised.
+     See {@link howItRuns}. */
+  supervised = howItRuns().supervised,
+  interactive = howItRuns().interactive,
   preflightOptions: {
     platform?: NodeJS.Platform;
     verify?: (config: {

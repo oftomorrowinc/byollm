@@ -92,3 +92,41 @@ export function tellSupervisor(
     return "gone";
   }
 }
+
+/**
+ * Whether this daemon is supervised, and whether it may ask a human — B213.
+ *
+ * **`isTTY` lies inside a box.** The Pod sets `tty: true` so a person can type
+ * at the console, which makes `process.stdout.isTTY` true for every process in
+ * that container — including the daemon the supervisor starts, which has no
+ * human anywhere near it. So `interactive = process.stdout.isTTY` read TRUE on
+ * a box, `run` took the preflight path, and `ask("Sign in to X now?")` waited
+ * for an answer that could never come. The event loop drained, Node exited 13,
+ * the supervisor restarted it, and the box crash-looped — on the ordinary
+ * onboarding order, setup then connect then sign in.
+ *
+ * The same line got `supervised` backwards for the same reason:
+ * `!process.stdout.isTTY` is FALSE on a box, so the one daemon that certainly
+ * IS supervised reported that it was not.
+ *
+ * **The supervisor already says so.** B207 has it state `BYOLLM_SUPERVISOR_PID`
+ * into the environment of what it starts, so the answer is a fact rather than
+ * an inference from a terminal that belongs to somebody else. `isTTY` remains
+ * the answer where there is no supervisor — a person running `byollm run` in
+ * their own shell.
+ *
+ * A function rather than two default parameters because the defaults were the
+ * bug: every test passed `interactive` and `supervised` explicitly, so the
+ * expressions that shipped were the one part nothing drove.
+ */
+export function howItRuns(
+  env: NodeJS.ProcessEnv = process.env,
+  isTty = process.stdout.isTTY,
+): { readonly supervised: boolean; readonly interactive: boolean } {
+  if (supervisorPid(env) !== undefined) {
+    /* Told, not guessed. A supervised daemon never asks, whatever the tty
+       says, and it is always supervised. */
+    return { supervised: true, interactive: false };
+  }
+  return { supervised: !isTty, interactive: isTty };
+}

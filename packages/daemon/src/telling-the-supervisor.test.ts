@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { supervisorPid, tellSupervisor } from "./supervised.js";
+import { howItRuns, supervisorPid, tellSupervisor } from "./supervised.js";
 
 /**
  * B207 — duty three had a listener and no speaker.
@@ -112,3 +112,63 @@ describe("telling a supervisor that the configuration changed", () => {
 function neverCalled(): never {
   throw new Error("signalled when there was no supervisor to signal");
 }
+
+describe("how a daemon decides whether anybody is listening", () => {
+  /**
+   * B213 — the box crash-loop, and the reason no test caught it.
+   *
+   * `interactive` and `supervised` were default parameters computed from
+   * `process.stdout.isTTY`, and **every existing case passed both explicitly**
+   * — so the expressions that actually shipped were the one part nothing
+   * drove. Under vitest `isTTY` is false, which is the opposite of a box, so
+   * even a test that omitted them would have exercised the wrong side.
+   */
+  it("never asks a human when a supervisor started it, tty or not", () => {
+    /**
+     * The bug exactly. A Pod sets `tty: true` so a person can type at the
+     * console, which makes `isTTY` true for every process in the container —
+     * including the daemon, which has no human. It took the preflight path,
+     * asked "Sign in now?", waited for an answer that could not come, drained
+     * the event loop, exited 13, and was restarted into a crash loop.
+     */
+    expect(howItRuns({ BYOLLM_SUPERVISOR_PID: "1" }, true)).toEqual({
+      supervised: true,
+      interactive: false,
+    });
+  });
+
+  it("knows it is supervised even though the tty says otherwise", () => {
+    /* The second half of the same line: `supervised = !isTTY` was FALSE on a
+       box, so the one daemon that certainly is supervised reported that it
+       was not. */
+    expect(howItRuns({ BYOLLM_SUPERVISOR_PID: "1" }, true).supervised).toBe(
+      true,
+    );
+  });
+
+  it("still reads the terminal when there is no supervisor", () => {
+    /**
+     * The control, and it is what keeps `byollm run` in somebody's own shell
+     * working: with nobody supervising, a tty means a person is there and the
+     * preflight sign-in offer is the whole point of the feature.
+     */
+    expect(howItRuns({}, true)).toEqual({
+      supervised: false,
+      interactive: true,
+    });
+    expect(howItRuns({}, false)).toEqual({
+      supervised: true,
+      interactive: false,
+    });
+  });
+
+  it("ignores a supervisor pid it could not parse", () => {
+    /* Same rule as signalling: a value we cannot read is no supervisor. A
+       daemon that trusted `BYOLLM_SUPERVISOR_PID=banana` would stop asking on
+       a laptop, which is a worse failure than the one being fixed. */
+    expect(howItRuns({ BYOLLM_SUPERVISOR_PID: "banana" }, true)).toEqual({
+      supervised: false,
+      interactive: true,
+    });
+  });
+});

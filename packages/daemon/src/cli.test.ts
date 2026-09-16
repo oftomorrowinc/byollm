@@ -4,27 +4,15 @@ import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { generateKeys, publicIdentityOf, keyId } from "@byollm/protocol";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 /**
- * Windows gets longer, and only Windows, and only this file — B111.
- *
- * `byollm services … > does not promise what the daemon will advertise` timed
- * out at vitest's 5000ms default on `windows-latest` and passed on rerun with
- * no change. This file already runs 20s+ there: it drives real commands
- * against a temporary `BYOLLM_HOME`, and every one of those is filesystem
- * work on the slowest runner we have.
- *
- * **A red build nobody can reproduce is the kind that teaches people to hit
- * rerun**, and a suite whose failures are sometimes meaningless is a suite
- * that stops being read. So the limit moves where the slowness actually is.
- *
- * Not the whole suite and not every platform, deliberately. A global raise
- * would hide a genuine hang everywhere to fix a flake in one place — and the
- * 5s default is doing useful work on macOS and Linux, where this file's
- * slowest test is comfortably inside it.
+ * B111's Windows timeout used to live here as a `vi.setConfig` call. It is
+ * now the `unit` project's `testTimeout` in `vitest.config.ts`, with the
+ * evidence that moved it: the same flake turned up in a *synchronous* test
+ * elsewhere, which proved the slowness was the runner's and not this file's.
+ * One definition, because the next file to flake will not be this one.
  */
-if (process.platform === "win32") vi.setConfig({ testTimeout: 20_000 });
 import { runCli, type CliIo } from "./cli.js";
 import { IngressLog } from "./ingress.js";
 import { daemonPaths, type DaemonPaths } from "./paths.js";

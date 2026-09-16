@@ -6,6 +6,37 @@ import { defineConfig } from "vitest/config";
  * `dist`. Without this a stale build silently shadows an edit, and the
  * failure looks like a logic bug rather than a missing `pnpm build`.
  */
+/**
+ * Windows CI is slow in a way that is *ambient*, not local to any test.
+ *
+ * Found twice. The first time the flake was in `cli.test.ts`, which spawns
+ * real CLI processes, and the fix was a bump inside that one file on the
+ * stated reasoning that "the limit moves where the slowness actually is".
+ * That reasoning was wrong, and the second sighting is what shows it:
+ * `quota-block.test.ts` timed out at 5000ms in a test whose body is
+ * SYNCHRONOUS -- one pure call, no I/O, no timers. Such a body cannot spend
+ * five seconds of its own. It was starved by the runner, on a job whose
+ * import phase alone took 28.58s for 144 files.
+ *
+ * So the slowness is not in any file, and a per-file bump would have to be
+ * repeated in every file that ever loses the scheduling lottery -- which is
+ * all of them. On this runner the 5s default has stopped distinguishing
+ * "hung" from "scheduled late", and a limit that cannot tell those apart is
+ * not measuring anything.
+ *
+ * Still Windows-only, because that part of the original reasoning holds: 5s
+ * is doing real work on macOS and Linux, and a global raise would hide a
+ * genuine hang on two platforms to quiet a flake on the third. And 20s is a
+ * raise, not a removal -- a real hang is still red, just later.
+ *
+ * A red build nobody can reproduce teaches people to hit rerun, and a suite
+ * whose failures are sometimes meaningless stops being read. That cost lands
+ * hardest on the first outside contributor, who cannot tell our flake from
+ * their mistake.
+ */
+const SLOW_RUNNER = process.platform === "win32";
+const unitTimeout = SLOW_RUNNER ? 20_000 : 5_000;
+
 const sourceAliases = {
   "@byollm/protocol": fileURLToPath(
     new URL("./packages/protocol/src/index.ts", import.meta.url),
@@ -54,6 +85,8 @@ export default defineConfig({
           name: "unit",
           include: ["packages/*/src/**/*.test.ts", "scripts/**/*.test.mjs"],
           environment: "node",
+          testTimeout: unitTimeout,
+          hookTimeout: unitTimeout,
         },
       },
       {

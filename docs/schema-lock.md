@@ -48,6 +48,13 @@ silently accepts malformed input is the thing this protocol refuses to be.
 So inside 0.1.x, a locked surface takes **no new fields at all**, optional or
 otherwise. A new field is a new version, and both ends move together.
 
+**Say the consequence out loud, because it is the part worth deciding
+knowingly:** every feature that needs a new field on a locked shape is
+**0.2.0**, not a 0.1.x. Not "probably", not "unless it is small" — the
+strictness above leaves no third option. That is a real constraint on how fast
+the wire can grow, and it is the price of a lock that means anything. Agreeing
+to the lock is agreeing to that.
+
 ## What is NOT locked, stated here rather than somewhere quieter
 
 Carve-outs belong in the same document as the promise, or the promise reads

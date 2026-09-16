@@ -1,6 +1,6 @@
 import { generateKeys, publicIdentityOf, type JobStub } from "@byollm/protocol";
 import { describe, expect, it } from "vitest";
-import { routeKey } from "./state.js";
+import { AWAITING_PAYLOAD_MS, routeKey } from "./state.js";
 import type { RoutingStore } from "./store.js";
 
 /**
@@ -122,6 +122,16 @@ export interface StoreContractOptions {
    * proving (cloud_008 §2.1a).
    */
   readonly serialising?: boolean;
+  /**
+   * Move this store's clock, for the cases that are about time — B187.
+   *
+   * Optional, and the cases that need it skip without it, on the same
+   * reasoning `serialising` is written down: a reader should know which half
+   * of this contract each store is proving. A store that cannot be advanced
+   * is not broken, it is untested here — and the sticky re-offer is exactly
+   * the rule a second implementation would get wrong quietly.
+   */
+  readonly advance?: (store: RoutingStore, ms: number) => Promise<void>;
   /** Write a stub's raw bytes, bypassing serialisation. */
   readonly writeRawStub?: (
     store: RoutingStore,
@@ -135,7 +145,7 @@ export function describeStoreContract(
   name: string,
   options: StoreContractOptions,
 ): void {
-  const { make, serialising, writeRawStub } = options;
+  const { make, serialising, writeRawStub, advance } = options;
   describe(`the routing store — ${name}`, () => {
     it("is idempotent by job id", async () => {
       const { store, done } = await make();
@@ -198,6 +208,55 @@ export function describeStoreContract(
         forBob,
         "and bob gets his own two, rather than what is left of a site-wide pair",
       ).toHaveLength(2);
+      await done();
+    });
+
+    it("re-offers an abandoned grant only to the device that abandoned it", async () => {
+      /**
+       * B187's sticky re-offer, ruled in 09-16 — and it is the half that
+       * closes the hole rather than slowing it.
+       *
+       * The cap bounds how fast a site is handed identities and the churn
+       * report makes a walk noticeable, but a patient site could still sample
+       * a fleet: abandon, wait, claim again, meet a different device. Sticking
+       * the job to its first claimant means repeated abandonment reveals
+       * **one** device however long somebody waits.
+       */
+      const { store, done } = await make();
+      if (advance === undefined) {
+        await done();
+        return;
+      }
+      await store.enqueue({ id: "a", siteId: SITE, stub: stub("a") });
+
+      const first = await store.claim(claimArgs());
+      expect(first).toHaveLength(1);
+
+      /* The site never seals. The grant lapses. */
+      await advance(store, AWAITING_PAYLOAD_MS + 1_000);
+
+      const stranger = await store.claim(claimArgs({ runnerId: "runner_2" }));
+      expect(stranger, "a device that never held it gets nothing").toEqual([]);
+
+      const again = await store.claim(claimArgs());
+      expect(again, "its first claimant gets it back").toHaveLength(1);
+      await done();
+    });
+
+    it("leaves an unabandoned job free for whoever asks", async () => {
+      /**
+       * The control, and the reason this is not "jobs are sticky".
+       *
+       * A job nobody has abandoned is free work for any consented device —
+       * that is the routing this product wants, and B194's random pick
+       * depends on it. Stickiness is a consequence of abandonment, not a
+       * property of jobs.
+       */
+      const { store, done } = await make();
+      await store.enqueue({ id: "a", siteId: SITE, stub: stub("a") });
+
+      const other = await store.claim(claimArgs({ runnerId: "runner_9" }));
+      expect(other).toHaveLength(1);
       await done();
     });
 

@@ -167,6 +167,29 @@ export interface RoutedJob {
    */
   sealAttempts?: number;
   /**
+   * The device an ABANDONED grant goes back to — B187's sticky re-offer,
+   * ruled 09-16.
+   *
+   * Set when an unsealed grant lapses, not at claim: a job nobody abandoned
+   * is free work for whoever asks, and that is the routing this product
+   * wants. Once a site has taken a grant and let it rot, the job is offered
+   * only to the device that already answered for it.
+   *
+   * **This is what turns "slower and visible" into "closed".** The cap bounds
+   * the rate; the churn report makes a walk noticeable; this removes the walk
+   * itself, because abandoning the same job repeatedly now reveals ONE
+   * identity instead of a fresh sample each window.
+   *
+   * Survives `#requeue` for the same reason `sealAttempts` does — the requeue
+   * is the thing it has to outlive.
+   *
+   * **The accepted edge (Todd, 09-16): a device that never comes back takes
+   * the job with it.** It is still evicted after
+   * {@link SEAL_ATTEMPTS_BEFORE_EVICTION}, so the queue does not fill with
+   * work nobody can reach; the site simply has to enqueue it again.
+   */
+  reofferTo?: string;
+  /**
    * Runners that released this job with reason `refused` — cloud_008 §2.1.
    *
    * `REFUSAL_NOT_REOFFERED`, which the relay did not implement: it dropped
@@ -715,6 +738,16 @@ export class RelayState implements RoutingStore {
        * RATE of unsealed grants that is bounded. The moment it seals one, the
        * next claim takes this job.
        */
+      /**
+       * Abandoned once, so it goes back only to the device that answered for
+       * it — B187's sticky re-offer.
+       *
+       * Checked before the cap, because a job this device may not have should
+       * not spend that device's budget on the way to being skipped.
+       */
+      if (job.reofferTo !== undefined && job.reofferTo !== input.runnerId) {
+        continue;
+      }
       const pair = routeKey(job.siteId, job.stub.owner);
       if ((unsealed.get(pair) ?? 0) >= UNSEALED_PER_PAIR) continue;
       // By kind, and only by kind — Amendment L. Which of the owner's
@@ -1161,6 +1194,10 @@ export class RelayState implements RoutingStore {
          */
         /* A grant this pair took and did not seal — B187's signature. */
         this.#noteChurn(job.siteId, job.stub.owner, now);
+        /* And from here it is that device's job or nobody's — the sticky
+           re-offer. Set before the requeue, which clears `claimedBy`. */
+        const abandonedBy = job.claimedBy?.runnerId;
+        if (abandonedBy !== undefined) job.reofferTo ??= abandonedBy;
         const attempts = (job.sealAttempts ?? 0) + 1;
         if (attempts >= SEAL_ATTEMPTS_BEFORE_EVICTION) {
           this.#forget(job);

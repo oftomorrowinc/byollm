@@ -20,10 +20,32 @@ beforeAll(async () => {
   await cryptoReady();
 });
 
+/**
+ * One clock per store, so the time-dependent cases actually run — B187.
+ *
+ * `advance` is optional in the contract and its cases skip without it. Left
+ * unwired, the sticky re-offer would be a rule this package declares and does
+ * not check — the shape this repository keeps finding, in the file whose whole
+ * job is to stop a second implementation diverging quietly.
+ */
+const clocks = new WeakMap<RelayState, { at: number }>();
+
 describeStoreContract("RelayState (in memory)", {
-  make: () =>
-    Promise.resolve({
-      store: new RelayState(),
+  make: () => {
+    /* Anchored to the real clock rather than a fixed epoch: cases that
+       compute a not-before from `Date.now()` compare against this one, and a
+       store living in 2027 makes every such deadline already past. */
+    const clock = { at: Date.now() };
+    const store = new RelayState({ now: () => clock.at });
+    clocks.set(store, clock);
+    return Promise.resolve({
+      store,
       done: () => Promise.resolve(),
-    }),
+    });
+  },
+  advance: (store, ms) => {
+    const clock = clocks.get(store as RelayState);
+    if (clock) clock.at += ms;
+    return Promise.resolve();
+  },
 });

@@ -102,7 +102,7 @@ describe("claim", () => {
     ).toHaveLength(1);
   });
 
-  it("sweeps first, so an abandoned job is claimable again", async () => {
+  it("sweeps first, and hands the job back to who abandoned it", async () => {
     // `claim` sweeps before it grants, and this is the only thing that makes
     // that visible: a job whose site never sealed sits in `awaiting-payload`
     // until the timeout requeues it, and the requeue happens on somebody
@@ -118,13 +118,21 @@ describe("claim", () => {
     const first = await state.claim(claimArgs());
     expect(first).toHaveLength(1);
 
-    // The site never sealed. Past AWAITING_PAYLOAD_MS, a different device
-    // asks — and gets it, because the claim swept the abandoned grant.
+    // The site never sealed. Past AWAITING_PAYLOAD_MS the grant is swept —
+    // and the job goes back to the device that already answered for it, not
+    // to whoever asks next.
+    //
+    // **This case used to assert the opposite**, and the opposite was the
+    // vulnerability: B187's leak is a site abandoning grant after grant and
+    // reading a fresh device identity each time. Todd ruled the sticky
+    // re-offer in on 09-16, so repeated abandonment now reveals ONE device.
     clock += 11_000;
-    const second = await state.claim(claimArgs({ runnerId: "runner_2" }));
+    const stranger = await state.claim(claimArgs({ runnerId: "runner_2" }));
+    expect(stranger, "a device that never held it gets nothing").toEqual([]);
 
-    expect(second).toHaveLength(1);
-    expect((await state.job(SITE, "a"))?.claimedBy?.runnerId).toBe("runner_2");
+    const second = await state.claim(claimArgs());
+    expect(second, "its first claimant gets it back").toHaveLength(1);
+    expect((await state.job(SITE, "a"))?.claimedBy?.runnerId).toBe("runner_1");
     // A new grant, not the old one handed over.
     expect(second[0]?.lease.id).not.toBe(first[0]?.lease.id);
   });

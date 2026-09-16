@@ -431,10 +431,30 @@ const job = await getApp().enqueue({
 
 // resolves via your delivery channel (webhook / Realtime / poll),
 // with a timeout and a noRunnerAvailable path — never a bare await
-const { outcome } = await job.result({ onNoRunner: promptUserToConnect });
+const { outcome } = await job.result({
+  // Return something and the wait resolves with it, labelled `fallback: true`.
+  onNoRunner: (reason) => hostedModelAnswer(prompt, reason),
+});
 ```
 
-That's the whole integration: **one route, one store, one `enqueue`.** If no daemon is online, you get a `noRunnerAvailable` signal (fall back to a hosted model, or prompt the user to connect) — never a promise that hangs forever.
+That's the whole integration: **one route, one store, one `enqueue`.** If no daemon is online you get a `noRunnerAvailable` signal — never a promise that hangs forever.
+
+**`onNoRunner` decides which of two things happens.** Return a string (or a
+full result) and the wait resolves with it, stamped `fallback: true` so a
+hosted answer can never be reported as the user's own compute. Return nothing
+— including from a handler that only prompts the person to connect — and
+`NoRunnerAvailableError` is thrown instead, so catch it:
+
+```ts
+try {
+  const { outcome } = await job.result({
+    onNoRunner: async () => { await showConnectModal(); },
+  });
+} catch (error) {
+  if (error instanceof NoRunnerAvailableError) return renderConnectPrompt();
+  throw error;
+}
+```
 
 ### For users
 

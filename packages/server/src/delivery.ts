@@ -33,6 +33,17 @@ export interface WaitOptions {
    * substitute and the wait resolves with it; return nothing and
    * {@link NoRunnerAvailableError} is thrown.
    *
+   * **`void` is in the union so that "return nothing" can be written the way
+   * anybody would write it.** The sentence above has always promised that
+   * mode, and the type refused it: `() => { showConnectModal(); }` is
+   * `() => void`, which TypeScript will not assign to a signature returning
+   * `string | undefined`, and `async () => { await ask(); }` failed the same
+   * way. The async one is the worse miss, because prompting somebody to
+   * connect and waiting for them IS asynchronous — the README advertises that
+   * exact use and the first person to follow it would have been told their
+   * correct code was wrong. Found by installing the published package into an
+   * empty project and typing the README out.
+   *
    * **A string is enough.** It is the app's own fallback answer — a hosted
    * model's text, a cached reply — not wire data, and requiring a whole
    * `DeliveredResult` for it was ceremony that invited invented shapes. The
@@ -45,13 +56,22 @@ export interface WaitOptions {
    * assembled itself. The stamp is applied after this function returns, so
    * there is no shape an app can hand back that hides what it is.
    */
+  /* eslint-disable @typescript-eslint/no-invalid-void-type -- the rule exists
+     to stop `void` standing in for `undefined`, and this is the case its own
+     documentation excepts: a CALLBACK the caller may implement for its effect.
+     `undefined` alone does not accept `() => { … }` or `async () => { … }`,
+     which is the whole bug being fixed; the runtime already treats anything
+     falsy as "no substitute". TypeScript's own DOM listener types read the
+     same way. */
   readonly onNoRunner?: (
     reason: string,
   ) =>
     | string
     | DeliveredResult
     | undefined
-    | Promise<string | DeliveredResult | undefined>;
+    | void
+    | Promise<string | DeliveredResult | undefined | void>;
+  /* eslint-enable @typescript-eslint/no-invalid-void-type */
   /** Abort the wait. */
   readonly signal?: AbortSignal;
 }

@@ -143,6 +143,57 @@ describe("PollingDelivery", () => {
     ).rejects.toBeInstanceOf(NoRunnerAvailableError);
   });
 
+  it("accepts a handler that just does something and returns nothing", async () => {
+    /**
+     * A TYPE test as much as a runtime one, and it belongs in the suite
+     * because the suite is what compiles.
+     *
+     * `onNoRunner`'s docblock has always said "return nothing and
+     * NoRunnerAvailableError is thrown", and the type refused the ordinary way
+     * to write that: `() => { showModal(); }` is `() => void`, which
+     * TypeScript will not assign to a signature returning `string | undefined`.
+     * Anybody following the README's "prompt the user to connect" wrote this
+     * and was told their correct code was wrong.
+     */
+    let asked = "";
+    const { delivery } = makeDelivery({
+      reads: [pending],
+      availability: [
+        { available: false, reason: "no-runner-online", blocked: false },
+      ],
+    });
+    await expect(
+      delivery.waitFor("job_1", {
+        onNoRunner: (reason) => {
+          asked = reason;
+        },
+      }),
+    ).rejects.toBeInstanceOf(NoRunnerAvailableError);
+    expect(asked).toBe("no-runner-online");
+  });
+
+  it("accepts an ASYNC handler that returns nothing", async () => {
+    /* The worse half of the same miss. Prompting somebody to connect and
+       waiting for them is asynchronous by nature, so `async () => { … }` —
+       `Promise<void>` — is what that handler actually looks like. */
+    let asked = false;
+    const { delivery } = makeDelivery({
+      reads: [pending],
+      availability: [
+        { available: false, reason: "no-runner-online", blocked: false },
+      ],
+    });
+    await expect(
+      delivery.waitFor("job_1", {
+        onNoRunner: async () => {
+          await Promise.resolve();
+          asked = true;
+        },
+      }),
+    ).rejects.toBeInstanceOf(NoRunnerAvailableError);
+    expect(asked).toBe(true);
+  });
+
   it("times out rather than hanging forever", async () => {
     const { delivery } = makeDelivery({ reads: [pending] });
     await expect(

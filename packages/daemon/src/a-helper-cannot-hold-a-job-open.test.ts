@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { chmod, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -179,4 +180,82 @@ describe("clearing up after a job", () => {
       await rm(parent, { recursive: true, force: true });
     }
   });
+});
+
+describe("a helper that ignores SIGTERM — B216", () => {
+  /**
+   * Reported privately by Rob through SECURITY.md, verified in the code, and
+   * the test gap he named was real: every case above uses a DETACHED helper
+   * and asserts settlement, output, or timing — **none asserts that anything
+   * was terminated.**
+   *
+   * The bug: `signal()` addresses the process GROUP, but the SIGKILL
+   * escalation was gated on `exited`, which is the DIRECT child's `close`. So
+   * a well-behaved parent that obeys SIGTERM suppressed the escalation, and a
+   * same-group helper with a no-op SIGTERM handler outlived its job.
+   *
+   * Sharpest on a box: 320 MiB and concurrency 1, one orphan per timed-out
+   * job, until the OOM killer arrives.
+   */
+  async function asymmetric(): Promise<{ script: string; pidFile: string }> {
+    const pidFile = join(dir, "helper.pid");
+    const script = join(dir, "obedient-parent.mjs");
+    await writeFile(
+      script,
+      /* The parent OBEYS SIGTERM — that is the whole point. It is the
+         well-behaved case that used to suppress the group kill. The helper
+         stays in the parent's process group (no `detached`) and refuses
+         SIGTERM, which is what a stuck CLI subprocess does in practice. */
+      `import { spawn } from "node:child_process";\n` +
+        `import { writeFileSync } from "node:fs";\n` +
+        `const helper = spawn(process.execPath, ["-e",\n` +
+        `  "process.on('SIGTERM', () => {}); setTimeout(() => {}, 60000);"\n` +
+        `], { stdio: ["ignore", "ignore", "ignore"] });\n` +
+        `writeFileSync(${JSON.stringify(pidFile)}, String(helper.pid));\n` +
+        `process.stdout.write("parent up\\n");\n` +
+        `process.on("SIGTERM", () => process.exit(0));\n` +
+        `setTimeout(() => {}, 60000);\n`,
+      "utf8",
+    );
+    return { script, pidFile };
+  }
+
+  /** Is that pid still there? Signal 0 delivers nothing and answers exactly. */
+  const alive = (pid: number): boolean => {
+    try {
+      process.kill(pid, 0);
+      return true;
+    } catch {
+      return false;
+    }
+  };
+
+  /* Skipped on Windows, and honestly: there are no POSIX process groups there,
+     so `groupAlive()` falls back to `!exited` and the helper legitimately
+     survives. Asserting termination there would be asserting a behaviour the
+     platform does not have — the previous Windows red in this repo came from
+     exactly that kind of test. */
+  it.skipIf(process.platform === "win32")(
+    "is killed with the group, not left behind by an obedient parent",
+    async () => {
+      const { script, pidFile } = await asymmetric();
+
+      /* A short budget, so the timeout fires and the escalation runs. */
+      const result = await run(script, 1_500);
+      expect(result.ok).toBe(false);
+
+      const helperPid = Number(readFileSync(pidFile, "utf8").trim());
+      expect(Number.isInteger(helperPid)).toBe(true);
+
+      /* The escalation is SIGTERM then SIGKILL after 2s, so give it room —
+       and assert TERMINATION, which is the thing no case here asserted. */
+      await new Promise((wake) => setTimeout(wake, 3_500));
+
+      expect(
+        alive(helperPid),
+        "the helper ignored SIGTERM and must have been SIGKILLed with its group",
+      ).toBe(false);
+    },
+    20_000,
+  );
 });

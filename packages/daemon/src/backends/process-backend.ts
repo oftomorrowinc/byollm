@@ -249,18 +249,56 @@ function spawnIn(job: ProcessJob, scratch: string): Promise<BackendResult> {
       }
     };
 
+    /**
+     * Is anything in the child's process group still running — B216.
+     *
+     * Signal 0 delivers nothing and reports whether a target exists, so this
+     * asks the question the escalation actually needs: not "did the child
+     * exit" but "is there still something in the group to kill". A group is
+     * alive while ANY member is, which is exactly the helper case.
+     *
+     * **The honest caveat:** once the child is reaped its pid can be reused,
+     * and a reused pid that happens to lead a group would answer yes here. A
+     * 2-second window makes that rare, and the trade is deliberate — the
+     * alternative is the leak this fixes, where every timed-out job on a
+     * 320 MiB box leaves a helper behind until the box dies. Falls back to
+     * `!exited` where groups do not exist (Windows) or there is no pid.
+     */
+    const groupAlive = (): boolean => {
+      const pid = child.pid;
+      if (pid === undefined || process.platform === "win32") return !exited;
+      try {
+        process.kill(-pid, 0);
+        return true;
+      } catch {
+        return false;
+      }
+    };
+
     const kill = (why: typeof reason): void => {
       reason = why;
       // SIGTERM first, SIGKILL shortly after: a wedged child must not be able
       // to outlive its budget by ignoring the polite signal.
       //
-      // The escalation is gated on `exited`, which we set from the `close`
-      // event, and NOT on `child.killed` — that flag means "a signal was
-      // sent", not "the process died", so gating on it would mean the SIGKILL
-      // never fires against exactly the child that ignores SIGTERM.
+      // The escalation is NOT gated on `child.killed` — that flag means "a
+      // signal was sent", not "the process died", so gating on it would mean
+      // the SIGKILL never fires against exactly the child that ignores
+      // SIGTERM.
+      //
+      // **Nor on `exited` — B216, reported privately by Rob and verified in
+      // this file.** `exited` comes from the DIRECT child's `close`, and the
+      // kill is aimed at the GROUP. So a well-behaved parent that obeys
+      // SIGTERM suppressed the escalation while a same-group helper with a
+      // no-op SIGTERM handler lived on, past its job, un-SIGKILLed. **The gate
+      // answered "did the child die" while the target was "the group".**
+      // B200 aimed at the group precisely because helpers exist; the gate
+      // never followed.
+      //
+      // Sharpest on a box — 320 MiB, concurrency 1 — where one orphan per
+      // timed-out job accumulates until the OOM killer arrives.
       signal("SIGTERM");
       setTimeout(() => {
-        if (!exited) signal("SIGKILL");
+        if (groupAlive()) signal("SIGKILL");
       }, 2_000).unref();
     };
 

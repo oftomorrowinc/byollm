@@ -101,6 +101,11 @@ const run = (
     probe: noServers,
     login: () => Promise.resolve(true),
     platform: "darwin",
+    /* B218: no suggestions unless a case asks for them. Without this the
+       suite reads the real `~/.codex` and passes or fails by whose machine
+       it runs on — the prompt's text, and what a bare "1" means, would both
+       depend on a file nobody wrote for this test. */
+    suggest: () => Promise.resolve([]),
     ...extra,
   }).then((outcome) => ({ outcome, io }));
 };
@@ -1217,6 +1222,80 @@ describe("a CLI whose model we do not know", () => {
       verifier: () => Promise.resolve({ installed: true, answers: true }),
     });
     expect(outcome.services["claude"]).toBeUndefined();
+  });
+
+  it("SHOWS what the CLI has, instead of asking a question only it can answer", async () => {
+    /**
+     * B218, and Todd's words at this exact prompt on the real box: *"I have
+     * no idea how to answer since I don't know what codex has and it doesn't
+     * show me."* `gpt-5.6-terra` was in a file on that disk the whole time.
+     */
+    const { outcome, io } = await run(["1", ""], {
+      detector: machineWith(["codex-cli"]),
+      suggest: () =>
+        Promise.resolve([
+          { id: "gpt-5.6-terra", note: "Balanced agentic coding model." },
+          { id: "gpt-5.6-luna", note: "Fast and affordable." },
+        ]),
+    });
+
+    const asked = io.transcript();
+    expect(asked).toContain("gpt-5.6-terra");
+    expect(asked).toContain("Balanced agentic coding model.");
+    /* And "1" picked it — the whole point. */
+    expect(outcome.services["codex"]).toMatchObject({
+      model: "gpt-5.6-terra",
+    });
+  });
+
+  it("still takes a typed name that is in no list", async () => {
+    /**
+     * B211's lesson, which B218 must not undo: the model namespace moves
+     * faster than our releases, so the menu is a source of SUGGESTIONS and
+     * never a validator. A name nobody offered is still accepted.
+     */
+    const { outcome } = await run(["gpt-5.7-something-new", ""], {
+      detector: machineWith(["codex-cli"]),
+      suggest: () => Promise.resolve([{ id: "gpt-5.6-terra" }]),
+    });
+    expect(outcome.services["codex"]).toMatchObject({
+      model: "gpt-5.7-something-new",
+    });
+  });
+
+  it("treats a number OUTSIDE the menu as a typed name, not as a pick", async () => {
+    /**
+     * The boundary. "9" with two suggestions is not a selection, and turning
+     * it into one would silently configure a model the person never saw.
+     * It goes to the verifier as itself and fails there, which is the honest
+     * outcome.
+     */
+    const said: string[] = [];
+    await run(["9", "", ""], {
+      detector: machineWith(["codex-cli"]),
+      suggest: () => Promise.resolve([{ id: "a" }, { id: "b" }]),
+      verifier: (_id, model) => {
+        said.push(model);
+        return Promise.resolve({ installed: true, answers: false });
+      },
+    });
+    expect(said).toContain("9");
+    expect(said).not.toContain("a");
+  });
+
+  it("is the old prompt exactly when there is nothing to suggest", async () => {
+    /**
+     * A fresh install has no cache, which is normal and must not look like a
+     * failure. This is the path every case in this file took before B218.
+     */
+    const { outcome, io } = await run(["gpt-5.6-terra", ""], {
+      detector: machineWith(["codex-cli"]),
+      suggest: () => Promise.resolve([]),
+    });
+    expect(io.asked().join("")).toContain("Which model does it serve?");
+    expect(outcome.services["codex"]).toMatchObject({
+      model: "gpt-5.6-terra",
+    });
   });
 
   it("accepts a named model from a backend that has no canary", async () => {

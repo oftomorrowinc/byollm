@@ -1,6 +1,7 @@
 import type { BackendId, BackendCost, JobKind } from "@byollm/protocol";
 import { backendName, classifyCost } from "@byollm/protocol";
 import { createBackend } from "./backends/index.js";
+import { modelSuggestions, type ModelSuggestion } from "./cli-models.js";
 import { probeLocalServers, type LocalServer } from "./probe-local.js";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
@@ -92,8 +93,34 @@ async function modelByHand(input: {
   cli: { readonly id: BackendId; readonly binary: string };
   io: ManageIo;
   verifier: Verifier;
+  /** Injected in tests; production reads the vendor CLIs' own files. */
+  suggest?: (cli: BackendId) => Promise<readonly ModelSuggestion[]>;
 }): Promise<string | undefined> {
   const { cli, io, verifier } = input;
+
+  /**
+   * What the CLI itself says it has — B218.
+   *
+   * Todd, at this exact prompt on the real box: *"I have no idea how to
+   * answer since I don't know what codex has and it doesn't show me."* The
+   * question was honest and still the wrong one to ask a person, because
+   * `gpt-5.6-terra` was in a file on that disk the whole time.
+   *
+   * Empty is fine and common — a fresh install has no cache — and then this
+   * is exactly the prompt it was before.
+   */
+  const suggestions = await (input.suggest ?? ((id) => modelSuggestions(id)))(
+    cli.id,
+  );
+  const menu =
+    suggestions.length === 0
+      ? ""
+      : `\n${suggestions
+          .map(
+            (s, at) =>
+              `    ${String(at + 1)}  ${s.id}${s.note === undefined ? "" : ` — ${s.note}`}`,
+          )
+          .join("\n")}\n`;
   const byHand =
     `\n  \`${cli.binary}\` is installed, and byollm does not know which ` +
     `model it serves.\n  Add it by hand and it will appear here next ` +
@@ -102,8 +129,11 @@ async function modelByHand(input: {
   for (let round = 0; round < 3; round += 1) {
     const answer = (
       await io.ask(
-        `\n  \`${cli.binary}\` is installed. Which model does it serve?` +
-          `\n  (press enter to skip — it will not be offered) `,
+        `\n  \`${cli.binary}\` is installed. Which model does it serve?\n` +
+          menu +
+          (suggestions.length === 0
+            ? `  (press enter to skip — it will not be offered) `
+            : `  (a number, or type a model name; enter skips — it will not be offered) `),
       )
     ).trim();
 
@@ -113,13 +143,25 @@ async function modelByHand(input: {
       return undefined;
     }
 
-    const proof = await verifier(cli.id, answer);
+    /**
+     * A number picks from the menu; anything else is the model name.
+     *
+     * Only when it lands IN the menu — free text stays the rule, and a model
+     * genuinely called "2" (nobody's, but the rule should not depend on that)
+     * still reaches the verifier as itself once the menu is empty or short.
+     */
+    const picked = /^[0-9]+$/.test(answer)
+      ? suggestions[Number(answer) - 1]
+      : undefined;
+    const chosen = picked?.id ?? answer;
+
+    const proof = await verifier(cli.id, chosen);
     /* `undefined` is "this backend has no canary" and is NOT a refusal — the
        `Detected` docstring is explicit that rendering it as one is wrong. */
-    if (proof.answers !== false) return answer;
+    if (proof.answers !== false) return chosen;
 
     io.out(
-      `\n  \`${cli.binary}\` did not answer for \`${answer}\`` +
+      `\n  \`${cli.binary}\` did not answer for \`${chosen}\`` +
         `${proof.detail === undefined ? "" : `: ${proof.detail}`}\n`,
     );
   }
@@ -848,6 +890,8 @@ async function candidates(input: {
   readonly verifier: Verifier;
   readonly probe: Probe;
   readonly io: ManageIo;
+  /** B218. Injected in tests so no case reads a real home directory. */
+  readonly suggest?: (cli: BackendId) => Promise<readonly ModelSuggestion[]>;
 }): Promise<{
   readonly rows: Candidate[];
   /** Entries the schema refused, put back untouched. */
@@ -1055,6 +1099,7 @@ async function candidates(input: {
         cli,
         io: input.io,
         verifier: input.verifier,
+        ...(input.suggest === undefined ? {} : { suggest: input.suggest }),
       });
       if (named === undefined) continue;
       model = named;
@@ -1157,6 +1202,13 @@ export async function manageServices(input: {
   readonly probe?: Probe;
   readonly login?: (command: LoginCommand) => Promise<boolean>;
   readonly platform?: NodeJS.Platform;
+  /**
+   * What each CLI has to offer — B218. Injected so no test reads a real home
+   * directory: without this the suite would pick up whatever `~/.codex` held
+   * on the machine running it, which is a test that passes or fails by
+   * whose laptop it is on.
+   */
+  readonly suggest?: (cli: BackendId) => Promise<readonly ModelSuggestion[]>;
 }): Promise<ManageResult> {
   const io = input.io;
   const empty: ManageResult = {
@@ -1191,6 +1243,7 @@ export async function manageServices(input: {
     verifier,
     probe,
     io,
+    ...(input.suggest === undefined ? {} : { suggest: input.suggest }),
   });
 
   if (rows.length === 0) {

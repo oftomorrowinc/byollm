@@ -1084,7 +1084,11 @@ describe("a CLI whose model we do not know", () => {
      * because a hosted console cannot add anything by hand.
      */
     const asked: string[] = [];
-    const { outcome } = await run(["gpt-5.6-terra", "1", ""], {
+    /* No "1" — B219. Naming the model is the affirmative act, so the row
+       arrives already on and a toggle here would turn it back OFF. That the
+       input shrank is the fix: this sequence used to be the say-yes-twice
+       Todd hit on the real box. */
+    const { outcome } = await run(["gpt-5.6-terra", ""], {
       detector: machineWith(["codex-cli"]),
       verifier: (_id, model) => {
         asked.push(model);
@@ -1153,7 +1157,7 @@ describe("a CLI whose model we do not know", () => {
 
     /* Re-entry with nothing in config — exactly what box-1 had, and what a
        new customer has always had. */
-    const asOn = await run(["gpt-5.6-terra", "1", ""], {
+    const asOn = await run(["gpt-5.6-terra", ""], {
       detector: machineWith(["codex-cli"]),
       existing: {},
       verifier: () => Promise.resolve({ installed: true, answers: true }),
@@ -1162,6 +1166,57 @@ describe("a CLI whose model we do not know", () => {
       asOn.outcome.services["codex"],
       "and back on, which it could not be before",
     ).toMatchObject({ model: "gpt-5.6-terra" });
+  });
+
+  it("is ON without a second yes — naming the model IS the yes", async () => {
+    /**
+     * B219, reported by Todd from the real box: straight after typing
+     * `gpt-5.6-terra` at the prompt, the toggle screen showed `codex`
+     * UNCHECKED and he had to press `2` to turn on the thing he had just
+     * configured.
+     *
+     * Asserted with an input that touches NO toggle at all — type the model,
+     * press enter, done. There is no reason to name a model for a service you
+     * do not want offered, so the two answers never meant different things.
+     */
+    const { outcome } = await run(["gpt-5.6-terra", ""], {
+      detector: machineWith(["codex-cli"]),
+      verifier: () => Promise.resolve({ installed: true, answers: true }),
+    });
+    expect(outcome.services["codex"]).toMatchObject({
+      model: "gpt-5.6-terra",
+    });
+  });
+
+  it("and a SKIPPED prompt still leaves the service out entirely", async () => {
+    /**
+     * The complement, and the half that keeps the change honest. "Answered →
+     * on" is only safe because "skipped → absent" still holds: if both landed
+     * a service in the config, the prompt would stop being a question.
+     *
+     * This is the case the row asked for by name — one default flipped, plus
+     * the test that its opposite did not move with it.
+     */
+    const { outcome } = await run(["", ""], {
+      detector: machineWith(["codex-cli"]),
+      verifier: () => Promise.resolve({ installed: true, answers: true }),
+    });
+    expect(outcome.services["codex"]).toBeUndefined();
+  });
+
+  it("does NOT flip a service whose model this build already knew", async () => {
+    /**
+     * The boundary. `namedByOwner` is about an answer given THIS RUN — a CLI
+     * whose model was already known was never asked anything, so nothing was
+     * affirmed and its default must not move. Without this, "default on"
+     * quietly becomes "everything detected is on", which is a different and
+     * much larger change than the one Todd asked for.
+     */
+    const { outcome } = await run(["", ""], {
+      detector: machineWith(["claude-cli"]),
+      verifier: () => Promise.resolve({ installed: true, answers: true }),
+    });
+    expect(outcome.services["claude"]).toBeUndefined();
   });
 
   it("accepts a named model from a backend that has no canary", async () => {
@@ -1175,7 +1230,7 @@ describe("a CLI whose model we do not know", () => {
      * Found by mutation: narrowing the accept to `answers === true` left every
      * case green, because nothing here described a backend without a canary.
      */
-    const { outcome } = await run(["some-model", "1", ""], {
+    const { outcome } = await run(["some-model", ""], {
       detector: machineWith(["codex-cli"]),
       verifier: () => Promise.resolve({ installed: true, answers: undefined }),
     });

@@ -1013,6 +1013,24 @@ async function candidates(input: {
     }
 
     let model = cli.model;
+    /**
+     * Did the OWNER name this model just now — B219.
+     *
+     * Todd, on the real box, straight after typing `gpt-5.6-terra` at the
+     * prompt: the toggle screen showed `codex` unchecked and he had to press
+     * `2` to turn on the thing he had just configured.
+     *
+     * Typing a model name is an affirmative act. The old semantics made a
+     * person say yes twice for one intention, and the two answers did not
+     * even mean different things — there is no reason to name a model for a
+     * service you do not want offered.
+     *
+     * Only for a model answered THIS RUN. A CLI whose model this build
+     * already knew was never asked anything, so nothing was affirmed and its
+     * default is unchanged; and a SKIPPED prompt still leaves the row out
+     * entirely, which is the `continue` below.
+     */
+    let namedByOwner = false;
     if (model === undefined) {
       /**
        * Detected, and its model is not one this build can confirm — so ASK.
@@ -1040,6 +1058,7 @@ async function candidates(input: {
       });
       if (named === undefined) continue;
       model = named;
+      namedByOwner = true;
     }
 
     /*
@@ -1076,7 +1095,8 @@ async function candidates(input: {
       identified: true,
       signedOut: proof.answers === false,
       ...(proof.detail === undefined ? {} : { detail: proof.detail }),
-      selected: false,
+      /* B219: on, if its model was just answered. See `namedByOwner`. */
+      selected: namedByOwner,
       shared: false,
       capCents: undefined,
     });

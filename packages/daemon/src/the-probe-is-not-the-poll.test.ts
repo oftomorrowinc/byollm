@@ -63,6 +63,14 @@ let probes = 0;
 let failJobs = false;
 /** Whether the CLI is signed out: refuses jobs, and its canary says no. */
 let signedOut = false;
+/**
+ * Holds a claimed job open, so a slot can be observed as BUSY — B212.
+ *
+ * The backend here answers instantly, which is right for every other case and
+ * useless for one about capacity: by the time a test looks, the job has
+ * finished and the slot is free again. `release()` ends it.
+ */
+let holding: (() => void) | undefined;
 /** Every canary attempt — the spawn the recheck interval is spacing out. */
 let canaries = 0;
 /** When a quota block lifts, or undefined for a backend with no quota fault. */
@@ -90,6 +98,13 @@ class CountingBackend implements Backend {
     return Promise.resolve({ healthy: !signedOut, models: ["m"] });
   }
   execute(_request: BackendRequest): Promise<BackendResult> {
+    if (holding !== undefined) {
+      return new Promise<BackendResult>((resolve) => {
+        holding = () => {
+          resolve({ ok: true, text: "answered", durationMs: 1, stop: "end" });
+        };
+      });
+    }
     if (quotaUntil !== undefined) {
       return Promise.resolve({
         ok: false,
@@ -129,6 +144,7 @@ beforeEach(async () => {
   canaries = 0;
   quotaUntil = undefined;
   missing = false;
+  holding = undefined;
 });
 afterEach(async () => {
   await removeTemp(dir);
@@ -139,6 +155,9 @@ const FIFTEEN_MINUTES = 15 * 60_000;
 async function makeRunner() {
   const loaded = resolveConfig(
     DaemonConfig.parse({
+      /* One slot, so 'every slot is busy' is reachable with a single job —
+         and it is what a hosted box runs (B185 pins concurrency 1). */
+      concurrency: 1,
       services: {
         primary: {
           model: "m",
@@ -506,6 +525,60 @@ describe("what a claim costs when nothing has changed", () => {
  * 60s — T2-S1's "the remedy has to work") and the quota-block release (019
  * §3.2, *"advertised again with nobody lifting a finger"*).
  */
+describe("what a tick tells the poll ladder", () => {
+  /**
+   * B212. The ladder resets on a PRODUCTIVE tick and climbs on an empty one,
+   * so "productive" has to be a fact the tick reports rather than a guess the
+   * loop makes. It is the number CLAIMED, not the number finished — the jobs
+   * are deliberately not awaited, so "this device just took work" is the only
+   * thing knowable at that moment, and it is also the better predictor: a
+   * device that just claimed is the one a follow-up is likely for.
+   */
+  it("reports how many it took, which is what resets the ladder", async () => {
+    const { tick, offer, settle } = await makeRunner();
+    expect(await tick(), "an empty queue is an unproductive tick").toBe(0);
+
+    offer(true);
+    expect(await tick(), "and taking work is a productive one").toBe(1);
+    await settle();
+  });
+
+  it("reports nothing taken when every slot is busy", async () => {
+    /**
+     * Found by mutation: making the no-free-slot path report a claim left
+     * every case green. It is the worst one to get wrong — a device at its
+     * concurrency limit would be read as productive and polled at the FAST
+     * end of the ladder, hammering a server to be told each time that it has
+     * no room.
+     */
+    const { tick, offer } = await makeRunner();
+    /* The backend parks, so the claimed job keeps its slot while we look. */
+    holding = () => {
+      /* Replaced by the backend with its own resolver the moment a job
+         arrives; this is only the flag that says "park the next one". */
+    };
+    offer(true);
+    expect(await tick(), "the first tick takes the only slot").toBe(1);
+
+    /* The handler is dispatched unawaited, so the slot is taken a turn later.
+       Production ticks are seconds apart; these are back to back. */
+    await new Promise((wake) => setTimeout(wake, 10));
+    expect(await tick(), "and the next one finds no room").toBe(0);
+    holding();
+  });
+
+  it("reports nothing taken when it is not claiming at all", async () => {
+    /**
+     * The cases that must NOT read as productive, or a device that is full,
+     * draining, or advertising nothing would be polled hardest — the exact
+     * inverse of the ladder's intent, and an easy way to build a spin.
+     */
+    const { runner, tick } = await makeRunner();
+    await runner.drain(0);
+    expect(await tick()).toBe(0);
+  });
+});
+
 describe("a service that starts working again", () => {
   /**
    * Withdraw the service, then let the cache REPOPULATE while it is still

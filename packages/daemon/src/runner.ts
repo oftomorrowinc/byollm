@@ -533,6 +533,81 @@ const DETECT_INTERVAL_MS = 15 * 60_000;
 const DEFAULT_HEARTBEAT_MS = 10_000;
 
 /**
+ * How long to wait after an unproductive tick — B212, Todd's ladder, ruled
+ * 09-15.
+ *
+ * **The flat cadence WAS the product's perceived slowness.** Every chat
+ * message is a job, and every job waited up to a full interval for pickup, so
+ * a conversation paid ~10s per turn on an idle fleet before a model saw a
+ * word of it.
+ *
+ * Stepped rather than exponential, and expressed as FRACTIONS of the
+ * configured heartbeat rather than as seconds: at the default 10s these are
+ * Todd's 0/1/2/4/6/8/10, and a deployment that configures a different cadence
+ * gets the same shape instead of a ladder that climbs past its own ceiling.
+ * A productive tick drops straight back to the first rung.
+ */
+/**
+ * How long to wait before the next poll — B212.
+ *
+ * **The ceiling keeps the multiplicative jitter it always had**, and that is
+ * not a detail: ±15% of 10s is ±1.5s of fleet desynchronisation, and the whole
+ * reason it exists is that idle daemons must not synchronise into a herd
+ * against one server. Replacing it with the ladder's small additive jitter
+ * would shrink that to ±0.35s and quietly undo a protection nobody asked to
+ * remove — the ruling says so in its own third note.
+ *
+ * Below the ceiling the additive jitter is the right shape instead: at a
+ * 1-second rung, ±15% is ±150ms, a tie-break tight enough that the device with
+ * the faster clock wins every follow-up. Additive keeps B194's "ties are luck,
+ * not speed" property where the polling is fastest.
+ *
+ * A module function rather than a method, and `random` injected, because a
+ * private method cannot be driven — and the first version's ceiling case
+ * asserted a relationship between two CONSTANTS, which stayed green when the
+ * ceiling branch was deleted entirely.
+ */
+/**
+ * Which rung the next sleep uses — B212's transition rule.
+ *
+ * Took work: back to the first rung, because the device that just claimed is
+ * the one a follow-up is most likely for. That is the conversation
+ * stickiness the ruling is after — one device and one model for a chat, which
+ * also softens B197's mixed-model surprise. Took none: climb one, to the
+ * ceiling and no further.
+ *
+ * A function rather than a line inside the loop because it is the rule, and a
+ * rule inside a `while` that only real time can drive is a rule nothing
+ * checks — replacing it with `step = 0` left every case green.
+ */
+export function nextRung(step: number, claimed: number): number {
+  return claimed > 0 ? 0 : Math.min(step + 1, POLL_LADDER.length - 1);
+}
+
+export function pollDelay(
+  step: number,
+  heartbeatMs: number,
+  random: () => number = Math.random,
+): number {
+  const rung = POLL_LADDER[step] ?? 1;
+  const base = heartbeatMs * rung;
+  if (rung === 1) return base * (0.85 + random() * 0.3);
+  return base + POLL_JITTER_MS.min + random() * POLL_JITTER_MS.span;
+}
+
+export const POLL_LADDER = [0, 0.1, 0.2, 0.4, 0.6, 0.8, 1] as const;
+
+/**
+ * Jitter below the ceiling: additive, small, and on EVERY rung.
+ *
+ * B194's property is that two devices racing for the same job tie by luck
+ * rather than by clock speed. A ladder without this turns the fast end into a
+ * speed contest — the device that polled 20ms sooner wins every follow-up —
+ * which is the thing B194 declined to build a picker for.
+ */
+export const POLL_JITTER_MS = { min: 200, span: 300 } as const;
+
+/**
  * Whether two accounts of a site are the same key material.
  *
  * All three fields, not the encryption key alone: the identity is what a
@@ -627,6 +702,16 @@ export class Runner {
    * may since have been fixed. Nothing here should outlive the process that
    * observed it.
    */
+  /**
+   * The sleep a completing job can end early — B212.
+   *
+   * Held rather than passed because the waker is a job's `finally`, which is
+   * nowhere near the loop. `undefined` while nothing is sleeping, so a wake
+   * that arrives mid-tick is a no-op rather than an abort saved up for the
+   * next sleep — the next poll is already imminent.
+   */
+  #wake: AbortController | undefined;
+
   readonly #unauthenticated = new Set<string>();
   /**
    * Services out of quota, and when each expects to be back — 019 §3.2.
@@ -2280,6 +2365,9 @@ export class Runner {
       };
     } finally {
       this.#active.delete(job.lease.id);
+      /* A slot is free, so the loop should not wait out its rung — B212.
+         After the delete, so the tick this wakes sees the capacity. */
+      this.#wakeNow();
     }
   }
 
@@ -2308,10 +2396,13 @@ export class Runner {
    */
   async run(signal: AbortSignal): Promise<void> {
     const heartbeatMs = this.#options.heartbeatMs ?? DEFAULT_HEARTBEAT_MS;
+    /** Which rung of {@link POLL_LADDER} the next sleep uses — B212. */
+    let step = 0;
 
     while (!signal.aborted && !this.#stopped) {
       try {
-        await this.tick();
+        const claimed = await this.tick();
+        step = nextRung(step, claimed);
         this.#lastError = undefined;
       } catch (error) {
         this.#lastError =
@@ -2325,13 +2416,46 @@ export class Runner {
           error instanceof ClientError && error.retryAfter !== undefined
             ? error.retryAfter * 1000
             : heartbeatMs;
+        /* The error path keeps its own backoff and does NOT touch the rung —
+           B212 note 2. A tick that threw is not a tick that took work, and
+           resetting to the fast end here is how a claim→fail→claim spin would
+           get built: the server's retry-after is the guard, and this must not
+           out-poll it. */
         await sleep(backoff, signal);
         continue;
       }
-      // Jitter so a fleet of daemons does not synchronise into a thundering
-      // herd against one server.
-      await sleep(heartbeatMs * (0.85 + Math.random() * 0.3), signal);
+      /* The ladder's own clock — B212. A wake (a job finished and freed a
+         slot) ends this sleep early, so a chat's next message is picked up
+         now rather than on the next rung. */
+      const wake = new AbortController();
+      this.#wake = wake;
+      try {
+        await sleep(
+          this.#pollDelay(step, heartbeatMs),
+          AbortSignal.any([signal, wake.signal]),
+        );
+      } finally {
+        this.#wake = undefined;
+      }
     }
+  }
+
+  #pollDelay(step: number, heartbeatMs: number): number {
+    return pollDelay(step, heartbeatMs);
+  }
+
+  /**
+   * A slot came free, so stop waiting — B212's chat win.
+   *
+   * Called when a job leaves `#active`. Without it a back-to-back message
+   * waits out whatever rung the ladder is on, which on an idle device is the
+   * full interval — the thing this row exists to remove.
+   *
+   * Safe to call when nothing is sleeping: the controller is cleared by the
+   * sleeper itself, and aborting a spent one does nothing.
+   */
+  #wakeNow(): void {
+    this.#wake?.abort();
   }
 
   /**
@@ -2434,7 +2558,7 @@ export class Runner {
   }
 
   /** One heartbeat-and-claim cycle. Exposed so tests can step deterministically. */
-  async tick(): Promise<void> {
+  async tick(): Promise<number> {
     /**
      * The beat, written first and unconditionally — B202.
      *
@@ -2453,7 +2577,7 @@ export class Runner {
          without pretending there is a failure path to handle. */
     });
     try {
-      await this.#tick();
+      const claimed = await this.#tick();
       // A cycle that completed is the only thing that clears the count. It is
       // written on the transition rather than every beat, so a healthy daemon
       // is not rewriting a file every ten seconds to say nothing changed.
@@ -2461,12 +2585,13 @@ export class Runner {
         this.#consecutiveFailures = 0;
         await this.#recordHealth();
       }
+      return claimed;
     } catch (error) {
       // Revocation is an answer, not a failure. Swallowed once recorded, so
       // that a caller stepping this loop by hand — a test, an embedder, the
       // conformance kit — sees a daemon that has stopped rather than an
       // exception it has to know to interpret. Everything else still throws.
-      if (this.#revokedBy(error)) return;
+      if (this.#revokedBy(error)) return 0;
       // Counted before it is rethrown. One refusal is noise — a rolling
       // deploy, a dropped connection — and forty in a row is a device that
       // has stopped participating and does not know it. Only a count tells
@@ -2526,7 +2651,7 @@ export class Runner {
     });
   }
 
-  async #tick(): Promise<void> {
+  async #tick(): Promise<number> {
     const capabilities = await this.#capabilitiesForTick();
 
     const heartbeat = await this.#options.client.heartbeat({
@@ -2649,7 +2774,8 @@ export class Runner {
     }
 
     /* Draining: the running job finishes and nothing new is taken. */
-    if (this.#draining || capabilities.length === 0) return;
+    /* Nothing taken, so the ladder treats it as unproductive — B212. */
+    if (this.#draining || capabilities.length === 0) return 0;
 
     const { concurrency } = this.#options.loaded.config;
     const free = concurrency - this.#active.size;
@@ -2675,7 +2801,9 @@ export class Runner {
           concurrency,
         });
       }
-      return;
+      /* No slot, so nothing was claimed — the ladder must not read a full
+         device as a productive tick and poll it harder. B212. */
+      return 0;
     }
     if (this.#noFreeSlot) {
       /* The other edge. Without it somebody reads "taking no work" and never
@@ -2705,6 +2833,15 @@ export class Runner {
         this.#options.onEvent?.({ type: "error", message: this.#lastError });
       });
     }
+    /**
+     * What the ladder reads — B212.
+     *
+     * The number CLAIMED, not the number finished: the jobs above are
+     * deliberately not awaited, so "productive" has to mean "this device just
+     * took work" rather than "this device just delivered". A device that
+     * claimed three jobs is exactly the device a fourth is likely to be for.
+     */
+    return jobs.length;
   }
 
   /**

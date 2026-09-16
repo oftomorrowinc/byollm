@@ -61,6 +61,44 @@ describe("what the source says", () => {
   });
 });
 
+describe("and it is REACHABLE portably, which is a different claim", () => {
+  it("is published as its own entry point, not only through the barrel", () => {
+    /**
+     * The gap this file had, found by a bundler rather than by a test.
+     *
+     * Everything above proves the MODULE is portable. None of it proved a
+     * browser could get to it — and it could not: the package exposed one
+     * export, the barrel, which pulls the whole protocol including
+     * `node:crypto`. A dashboard importing the portable functions failed to
+     * build with `Can't resolve 'net'`, because the path in was not portable
+     * even though the destination was.
+     *
+     * A portable module nobody can reach portably is not portable. So this
+     * asserts the route, not the file: `@byollm/protocol/format` exists, and
+     * `tsup` emits it as its own entry rather than inlining it into the
+     * barrel.
+     */
+    const manifest = JSON.parse(
+      readFileSync(
+        fileURLToPath(new URL("../package.json", import.meta.url)),
+        "utf8",
+      ),
+    ) as { exports?: Record<string, unknown> };
+    expect(
+      manifest.exports?.["./format"],
+      "a browser needs a way in that is not the barrel",
+    ).toBeDefined();
+
+    const tsup = readFileSync(
+      fileURLToPath(new URL("../tsup.config.ts", import.meta.url)),
+      "utf8",
+    );
+    expect(tsup, "and the build has to actually emit it as an entry").toContain(
+      "src/envelope-format.ts",
+    );
+  });
+});
+
 describe("what the code does with the Node globals taken away", () => {
   it("still produces the same bytes", () => {
     /**

@@ -148,6 +148,91 @@ export function describeStoreContract(
       await done();
     });
 
+    it("hands one pair at most two unsealed grants at a time", async () => {
+      /**
+       * B187, ruled 09-16. A site is told which device claimed its job
+       * because it seals the payload to that device's public key — that is
+       * what lets a blind relay exist. **The leak was the ratio:** nothing
+       * required a site to finish a job, so one that enqueued many and sealed
+       * none read many device identities in a single window.
+       *
+       * Ten queued, `max: 10`, one claim call: two.
+       */
+      const { store, done } = await make();
+      for (const id of ["a", "b", "c", "d", "e", "f", "g", "h", "i", "j"]) {
+        await store.enqueue({ id, siteId: SITE, stub: stub(id) });
+      }
+
+      const granted = await store.claim(claimArgs());
+
+      expect(granted).toHaveLength(2);
+      await done();
+    });
+
+    it("counts the cap per owner, not per site", async () => {
+      /**
+       * The correction that made this rulable — a flat per-site cap throttles
+       * a real product to two in-flight jobs across ALL its users.
+       *
+       * The pair is also how consent is already modelled here
+       * (`routeKey(site, owner)`), so the bound and the permission share a
+       * unit. **Two devices, because a device serves its own owner's work** —
+       * alice's machine cannot claim bob's private jobs, which is the
+       * separation the pair key is named for.
+       */
+      const { store, done } = await make();
+      for (const id of ["a1", "a2", "a3"]) {
+        await store.enqueue({ id, siteId: SITE, stub: stub(id, "alice") });
+      }
+      for (const id of ["b1", "b2", "b3"]) {
+        await store.enqueue({ id, siteId: SITE, stub: stub(id, "bob") });
+      }
+
+      const forAlice = await store.claim(claimArgs());
+      const forBob = await store.claim(
+        claimArgs({ owner: "bob", owners: ["bob"], runnerId: "runner_2" }),
+      );
+
+      expect(forAlice, "alice gets her two").toHaveLength(2);
+      expect(
+        forBob,
+        "and bob gets his own two, rather than what is left of a site-wide pair",
+      ).toHaveLength(2);
+      await done();
+    });
+
+    it("lets a sealing site keep working, which is every honest one", async () => {
+      /**
+       * The control, and the reason a cap of two is not a throughput ceiling.
+       * A healthy site seals in about a round trip, and the slot frees the
+       * moment it does — so the cap bounds only a site that claims and does
+       * NOT seal, which is the shape this row is about.
+       *
+       * Without this, a cap that simply stopped at two would pass the case
+       * above and break the product.
+       */
+      const { store, done } = await make();
+      for (const id of ["a", "b", "c", "d"]) {
+        await store.enqueue({ id, siteId: SITE, stub: stub(id) });
+      }
+
+      const first = await store.claim(claimArgs());
+      expect(first).toHaveLength(2);
+
+      /* The site seals both, as a working one does. */
+      for (const job of first) {
+        await store.seal({
+          siteId: SITE,
+          jobId: job.id,
+          envelope: ENVELOPE,
+        });
+      }
+
+      const next = await store.claim(claimArgs());
+      expect(next, "the slots came back").toHaveLength(2);
+      await done();
+    });
+
     it("gives two sites the same id without either seeing the other", async () => {
       // cloud_009 §3. Keyed by the bare id, the second site's enqueue returned
       // the *first* site's job (cloud_008 finding 58), and the refusal that

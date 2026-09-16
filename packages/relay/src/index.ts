@@ -12,6 +12,7 @@ import { debugPage } from "./debug.js";
 import { Projection, type RelayFixture } from "./fixture.js";
 import { MemoryPairingCodes, type PairingCodes } from "./pairing-codes.js";
 import { SitePlane, type Satisfiable } from "./site-plane.js";
+import type { UnsealedChurn } from "./state.js";
 import { RelayState } from "./state.js";
 import type { RoutingStore } from "./store.js";
 
@@ -137,6 +138,20 @@ export interface RelayOptions {
    * per-purpose mapping. The seam does not change.
    */
   readonly authorGrant?: GrantAuthor;
+  /**
+   * Told when a site keeps claiming grants and never sealing them — B187.
+   *
+   * The cap bounds how fast a site can be handed device identities; this is
+   * how anybody finds out it is trying. **An honest site never produces this
+   * shape** — it seals in about a round trip, long before a grant lapses —
+   * so the signal is worth waking somebody for.
+   *
+   * A callback, not an address: where a report goes is a deployment's
+   * business. The hosted hub mails it; a self-hoster wires whatever they
+   * read. Only consulted when this relay owns its own store — a deployment
+   * passing `store` wires the report on that store instead.
+   */
+  readonly onUnsealedChurn?: (churn: UnsealedChurn) => void;
   /** How long a claim is good for. */
   readonly leaseMs?: number;
   /** Injectable clock, so tests move time instead of sleeping. */
@@ -211,7 +226,13 @@ export class Relay {
 
   constructor(options: RelayOptions) {
     this.state =
-      options.store ?? new RelayState({ now: options.now ?? Date.now });
+      options.store ??
+      new RelayState({
+        now: options.now ?? Date.now,
+        ...(options.onUnsealedChurn === undefined
+          ? {}
+          : { onUnsealedChurn: options.onUnsealedChurn }),
+      });
     this.projection = new Projection(options.fixture);
     this.#now = options.now ?? Date.now;
     this.#basePath = (options.basePath ?? "/byollm").replace(/\/+$/, "");
@@ -482,7 +503,14 @@ export {
  * imports the first with the note *"Imported rather than restated"*, and the
  * second was left unexported, which made it impossible to obey that rule.
  */
-export { AWAITING_PAYLOAD_MS, SEAL_ATTEMPTS_BEFORE_EVICTION } from "./state.js";
+export {
+  AWAITING_PAYLOAD_MS,
+  CHURN_EXPIRIES,
+  CHURN_QUIET_MS,
+  CHURN_WINDOW_MS,
+  SEAL_ATTEMPTS_BEFORE_EVICTION,
+  UNSEALED_PER_PAIR,
+} from "./state.js";
 /**
  * How a (site, owner) route is written — cloud_009 §3.
  *
@@ -522,6 +550,7 @@ export { routeKey } from "./state.js";
  */
 export type {
   ClaimInput,
+  UnsealedChurn,
   HolderRefusal,
   Presence,
   ReleaseReason,

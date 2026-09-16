@@ -74,6 +74,30 @@ export const AWAITING_PAYLOAD_MS = 10_000;
  * nobody may run is not routing state. A daemon mid-flight learns through
  * `renewLeases`, which reports a job the store no longer holds as `lost`.
  */
+/**
+ * How many grants one (site, owner) pair may hold UNSEALED at once — B187,
+ * ruled 09-16.
+ *
+ * A site must be told which device claimed its job, because it seals the
+ * payload to that device's public key — that is what lets a blind relay
+ * exist at all. **The leak is the ratio, not the key**: nothing required a
+ * site to complete a single job, so one that enqueued a thousand and sealed
+ * none read a thousand device identities inside one
+ * {@link AWAITING_PAYLOAD_MS} window.
+ *
+ * Keyed on the PAIR rather than on the site, and that is load-bearing twice
+ * over. A flat per-site cap would throttle a real product to two in-flight
+ * jobs across all its users. And the pair is already how consent is modelled
+ * here — `routeKey(siteId, owner)` — so the cap is bounded by the same unit
+ * the permission is.
+ *
+ * **It buys time, not secrecy.** Which device claims is deliberately random
+ * (B194: ties are luck), so a patient site still samples a small fleet over
+ * minutes. That is the point: minutes leave a signature, and
+ * {@link RelayStateOptions.onUnsealedChurn} is what reads it.
+ */
+export const UNSEALED_PER_PAIR = 2;
+
 export const SEAL_ATTEMPTS_BEFORE_EVICTION = 3;
 
 /**
@@ -355,8 +379,48 @@ export const routeKey = (siteId: string, owner: string): string =>
  * two minutes of disagreement, and a network round trip to timestamp every
  * inbound request would be a cost with no property behind it.
  */
+/**
+ * How often a pair may burn unsealed grants before it is worth a human's
+ * attention — B187's other half, ruled 09-16.
+ *
+ * **The cap buys time; it does not buy secrecy.** Which device claims is
+ * deliberately random (B194: ties are luck), so a patient site still samples a
+ * small fleet over minutes. You cannot cap your way out of a slow walk — but
+ * you can notice one, and this is the shape to notice: **an honest site never
+ * gets here at all**, because it seals in about a round trip and the grant
+ * never reaches {@link AWAITING_PAYLOAD_MS}.
+ *
+ * Six in five minutes is comfortably above the noise a flaky network makes and
+ * far below what a walk produces — a pair burning its {@link
+ * UNSEALED_PER_PAIR} slots every ten seconds passes this inside a minute.
+ */
+export const CHURN_EXPIRIES = 6;
+export const CHURN_WINDOW_MS = 5 * 60_000;
+/** One report per pair per hour. An alert that repeats is an alert nobody reads. */
+export const CHURN_QUIET_MS = 60 * 60_000;
+
+/** A pair burning grants without sealing them — B187. */
+export interface UnsealedChurn {
+  readonly siteId: string;
+  readonly owner: string;
+  /** How many unsealed grants expired inside the window. */
+  readonly expiries: number;
+  readonly windowMs: number;
+}
+
 export interface RelayStateOptions {
   readonly now?: () => number | Promise<number>;
+  /**
+   * Told when a pair keeps claiming and not sealing — B187.
+   *
+   * A callback rather than an email, because this package is the open-source
+   * relay: where a report GOES is a deployment's business, and `support@` is
+   * one deployment's address. The hub wires this to mail; a self-hoster wires
+   * it to whatever they read.
+   *
+   * Deliberately minimal — scaffolding until the signal system replaces it.
+   */
+  readonly onUnsealedChurn?: (churn: UnsealedChurn) => void;
 }
 
 /** Why a lease-scoped operation was refused, in the caller's vocabulary. */
@@ -469,6 +533,44 @@ export class RelayState implements RoutingStore {
     }
   }
 
+  /**
+   * Record an unsealed grant expiring, and report a pair that keeps doing it.
+   *
+   * Reported at the crossing rather than on every expiry after it, and then
+   * quiet for {@link CHURN_QUIET_MS} — a walk produces one of these every ten
+   * seconds, and an alert per expiry is an alert somebody filters.
+   *
+   * The callback is never awaited and its throw is swallowed: a report is
+   * evidence ABOUT the sweep, not part of it, and a mail server being down
+   * must not stop jobs being requeued.
+   */
+  #noteChurn(siteId: string, owner: string, now: number): void {
+    const report = this.#churnReport;
+    if (report === undefined) return;
+
+    const pair = routeKey(siteId, owner);
+    const seen = [...(this.#churn.get(pair) ?? []), now].filter(
+      (at) => now - at <= CHURN_WINDOW_MS,
+    );
+    this.#churn.set(pair, seen);
+    if (seen.length < CHURN_EXPIRIES) return;
+
+    const told = this.#churnReported.get(pair);
+    if (told !== undefined && now - told < CHURN_QUIET_MS) return;
+    this.#churnReported.set(pair, now);
+
+    try {
+      report({
+        siteId,
+        owner,
+        expiries: seen.length,
+        windowMs: CHURN_WINDOW_MS,
+      });
+    } catch {
+      /* A report that throws must not take the sweep with it. */
+    }
+  }
+
   #forget(job: RoutedJob): void {
     this.#jobs.delete(keyOf(job.siteId, job.id));
     const bare = (this.#byJobId.get(job.id) ?? []).filter((it) => it !== job);
@@ -476,11 +578,25 @@ export class RelayState implements RoutingStore {
     else this.#byJobId.set(job.id, bare);
     if (job.claimedBy) this.#byLease.delete(job.claimedBy.leaseId);
   }
+  /**
+   * When each pair's unsealed grants expired, and when it was last reported.
+   *
+   * Timestamps rather than a counter, because the threshold is "inside a
+   * window" — a counter would have to be reset by something, and whatever
+   * reset it would be the thing to get wrong. Trimmed on write, so it holds
+   * at most a window's worth per pair.
+   */
+  readonly #churn = new Map<string, number[]>();
+  readonly #churnReported = new Map<string, number>();
+
   readonly #presence = new Map<string, Presence>();
   readonly #now: () => number | Promise<number>;
+  /** Kept whole rather than destructured: B187's report seam lives on it. */
+  readonly #churnReport: RelayStateOptions["onUnsealedChurn"];
 
   constructor(options: RelayStateOptions = {}) {
     this.#now = options.now ?? Date.now;
+    this.#churnReport = options.onUnsealedChurn;
   }
 
   /** The one clock every deadline in this store is stamped from. */
@@ -567,6 +683,24 @@ export class RelayState implements RoutingStore {
     await this.sweep();
 
     const granted: ClaimedStub[] = [];
+
+    /**
+     * How many grants each pair is already sitting on, unsealed — B187.
+     *
+     * Counted in a pass rather than kept in a counter. The claim path is
+     * already O(jobs) — the loop below visits every one — so this is the same
+     * order for no new state; a maintained tally would need claim, seal,
+     * requeue, forget and lease-expiry to agree for ever, and **one missed
+     * decrement would throttle that pair permanently while looking exactly
+     * like a quiet site.**
+     */
+    const unsealed = new Map<string, number>();
+    for (const job of this.#jobs.values()) {
+      if (job.state !== "awaiting-payload") continue;
+      const pair = routeKey(job.siteId, job.stub.owner);
+      unsealed.set(pair, (unsealed.get(pair) ?? 0) + 1);
+    }
+
     for (const job of this.#jobs.values()) {
       if (granted.length >= input.max) break;
       if (job.state !== "queued") continue;
@@ -575,6 +709,14 @@ export class RelayState implements RoutingStore {
       // consented to site B, is in both a set of sites and a set of owners
       // and has no consented route between them.
       if (!input.routes.has(routeKey(job.siteId, job.stub.owner))) continue;
+      /**
+       * Already holding its share unsealed — B187. Left queued rather than
+       * refused: the site has consented and the work is legitimate, it is the
+       * RATE of unsealed grants that is bounded. The moment it seals one, the
+       * next claim takes this job.
+       */
+      const pair = routeKey(job.siteId, job.stub.owner);
+      if ((unsealed.get(pair) ?? 0) >= UNSEALED_PER_PAIR) continue;
       // By kind, and only by kind — Amendment L. Which of the owner's
       // services answers is the control plane's, resolved from this person's
       // mapping at claim; a relay that matched on it would need to hold the
@@ -620,6 +762,10 @@ export class RelayState implements RoutingStore {
       // Not the lease: this bounds how long we wait for a *site*, not how long
       // the device may work. byollm_009 §7.1's third clock.
       job.awaitingUntil = now + AWAITING_PAYLOAD_MS;
+      /* This pair now holds one more unsealed grant, so a later job in the
+         same batch sees the cap — B187. Without it `max: 10` would hand a
+         non-sealing site ten devices in one call. */
+      unsealed.set(pair, (unsealed.get(pair) ?? 0) + 1);
       // The grant is findable by its own id, which is how a holder-scoped
       // call needs no site — cloud_009 §3.
       this.#byLease.set(leaseId, job);
@@ -1013,6 +1159,8 @@ export class RelayState implements RoutingStore {
          * After three that is no longer patience, it is a queue handing the
          * same dead job around.
          */
+        /* A grant this pair took and did not seal — B187's signature. */
+        this.#noteChurn(job.siteId, job.stub.owner, now);
         const attempts = (job.sealAttempts ?? 0) + 1;
         if (attempts >= SEAL_ATTEMPTS_BEFORE_EVICTION) {
           this.#forget(job);

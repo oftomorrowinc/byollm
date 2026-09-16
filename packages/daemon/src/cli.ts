@@ -48,6 +48,11 @@ import { unusedModelsReport } from "./unused-models.js";
 import { stopLine } from "./stop-remedy.js";
 import type { MemoryPressure, MemoryReading } from "./memory.js";
 import { DeviceIdentity } from "./identity.js";
+import {
+  consoleAgentUnavailable,
+  runConsoleAgent,
+} from "./console-agent-main.js";
+import { ConsoleAgentSpec } from "./console-agent-spec.js";
 import { Pairings, recordSites } from "./pairings.js";
 import { dollars, SpendLedger } from "./spend.js";
 import { SpentGrants } from "./spent-grants.js";
@@ -390,6 +395,8 @@ export async function runCli(
       return commandConnect(paths, rest, io, signal);
     case "name":
       return commandName(paths, rest, io);
+    case "console-agent":
+      return commandConsoleAgent(paths, rest, io);
     case "run":
       return commandRun(
         paths,
@@ -816,6 +823,87 @@ async function commandName(
       "Anything already paired keeps the name it introduced itself with.\n",
   );
   return 0;
+}
+
+// -- console-agent -----------------------------------------------------------
+
+/**
+ * `byollm console-agent` — the box side of a browser console.
+ *
+ * **Not reachable from `byollm run`, and that is the design.** A capability
+ * that lets a remote broker drive a pty should be absent from a laptop
+ * daemon's behaviour rather than disabled in it, so it is started explicitly,
+ * by the box's supervisor, and by nothing else. The pty it needs is not
+ * installed outside the box image at all (Todd's ruling, 2026-09-16: node-pty
+ * goes in the container build, with no dependency entry anywhere), so on an
+ * ordinary machine this command has nothing to run and says so in one line.
+ *
+ * The session's arguments come from the hub, which is the party that decided
+ * an owner may open this console. This command does not second-guess that —
+ * it verifies what it can (every frame signed by the announced browser key,
+ * and the sealed `hello` naming the same one) and writes every session to the
+ * owner's feed, which is where the ruling puts the accountability.
+ */
+async function commandConsoleAgent(
+  paths: DaemonPaths,
+  args: readonly string[],
+  io: CliIo,
+): Promise<ExitCode> {
+  const spec = args[0];
+  if (spec === undefined) {
+    io.err(
+      "byollm console-agent is started by a hosted box, not by hand.\n" +
+        "It takes one argument: the session description the hub sent.\n",
+    );
+    return 2;
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(spec);
+  } catch {
+    io.err("That session description is not JSON.\n");
+    return 2;
+  }
+
+  const session = ConsoleAgentSpec.safeParse(parsed);
+  if (!session.success) {
+    io.err("That session description is not one this agent understands.\n");
+    return 2;
+  }
+
+  const keys = await new DeviceIdentity(paths.keys).load(Date.now());
+
+  try {
+    const why = await runConsoleAgent({
+      url: session.data.url,
+      sessionId: session.data.sessionId,
+      deadlineAt: session.data.deadlineAt,
+      keys,
+      browser: session.data.browser,
+      command: session.data.shell.command,
+      args: session.data.shell.args,
+      cwd: session.data.shell.cwd,
+      env: session.data.shell.env,
+      record: (entry) => {
+        // The feed is the ruling's item 4, and it is deliberately the plainest
+        // thing that cannot fail: a line on stdout, which the box's supervisor
+        // already collects. A session that could not be recorded because a
+        // writer was unavailable is exactly the session somebody would want.
+        io.out(`${JSON.stringify({ consoleSession: entry })}\n`);
+        return Promise.resolve();
+      },
+    });
+    io.out(`${why}\n`);
+    return 0;
+  } catch (error) {
+    const unavailable = consoleAgentUnavailable(error);
+    if (unavailable !== undefined) {
+      io.err(`${unavailable}\n`);
+      return 1;
+    }
+    throw error;
+  }
 }
 
 // -- connect -----------------------------------------------------------------

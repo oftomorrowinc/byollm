@@ -233,3 +233,18 @@ export {
   type Endpoint,
   ResultDisposition,
 } from "./wire.js";
+export {
+  CONSOLE_FRAME_VERSION,
+  CONSOLE_MAX_DATA_BYTES,
+  ConsoleBye,
+  ConsoleFrame,
+  ConsoleHello,
+  ConsoleResize,
+  ConsoleStdin,
+  ConsoleStdout,
+  consoleEnvelope,
+  consoleOrder,
+  type ConsoleOrder,
+  type ConsoleOrderFault,
+  type ConsoleOrderResult,
+} from "./console.js";

@@ -123,6 +123,39 @@ describe("the ordering rule, which is what the hub could otherwise break", () =>
     });
   });
 
+  it("refuses a resize from the BOX — the browser drives the size", () => {
+    /**
+     * CW's review nit. The old rule named stdin and stdout and was silent on
+     * every other kind, so `resize` travelled both ways unchecked and the
+     * browser would have had to decide what a box-sent resize meant. The rule
+     * is now a list of what each side may send, which has no default to
+     * forget when a kind is added.
+     */
+    const order = consoleOrder("box");
+    expect(order.accept(stdout(1) as never).ok).toBe(true);
+    expect(
+      order.accept({ v, kind: "resize", seq: 2, cols: 1, rows: 1 } as never),
+    ).toEqual({ ok: false, fault: "wrong-way" });
+  });
+
+  it("lets the browser resize, and lets either side say bye", () => {
+    const browser = consoleOrder("browser");
+    browser.accept(helloFrame as never);
+    expect(
+      browser.accept({ v, kind: "resize", seq: 2, cols: 90, rows: 30 } as never)
+        .ok,
+    ).toBe(true);
+    expect(
+      browser.accept({ v, kind: "bye", seq: 3, reason: "left" } as never).ok,
+    ).toBe(true);
+
+    const box = consoleOrder("box");
+    expect(
+      box.accept({ v, kind: "bye", seq: 1, reason: "shell exited" } as never)
+        .ok,
+    ).toBe(true);
+  });
+
   it("refuses a second hello — a new browser key mid-stream is the substitution", () => {
     const order = consoleOrder("browser");
     order.accept(helloFrame as never);
@@ -154,11 +187,22 @@ describe("the ordering rule, which is what the hub could otherwise break", () =>
     expect(order.accept(stdout(2) as never).ok).toBe(true);
   });
 
-  it("refuses a hello from the box", () => {
+  it("refuses a hello from the box — as a kind it may not send at all", () => {
+    /**
+     * `wrong-way` rather than `out-of-turn`, and that is the stricter answer:
+     * the box may not send `hello` in ANY position, so it is refused by kind
+     * before position is even considered. Before the allowed-list it was
+     * caught only because it arrived first.
+     */
     const order = consoleOrder("box");
     expect(order.accept(helloFrame as never)).toEqual({
       ok: false,
-      fault: "out-of-turn",
+      fault: "wrong-way",
+    });
+    order.accept(stdout(1) as never);
+    expect(order.accept({ ...helloFrame, seq: 2 } as never)).toEqual({
+      ok: false,
+      fault: "wrong-way",
     });
   });
 

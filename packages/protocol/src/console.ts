@@ -264,7 +264,21 @@ export function consoleOrder(from: "browser" | "box"): ConsoleOrder {
    * demanded a leading `hello` in both directions would reject every real box
    * stream at its first frame.
    */
-  const expectData = from === "browser" ? "stdin" : "stdout";
+  /**
+   * What this side is allowed to send AT ALL, rather than a special case per
+   * kind. CW's review caught `resize` travelling box→browser unchecked: the
+   * rule named stdin and stdout and said nothing about the rest, so every
+   * kind added later would have defaulted to "allowed in both directions"
+   * and needed somebody to notice. A list of what each side may send has no
+   * default to forget.
+   */
+  const maySend: Readonly<Record<"browser" | "box", readonly string[]>> = {
+    // The browser drives: it opens, it types, it sets the size, it leaves.
+    browser: ["hello", "stdin", "resize", "bye"],
+    // The box answers, and can end a session. Nothing else.
+    box: ["stdout", "bye"],
+  };
+  const allowed = maySend[from];
   const opensWithHello = from === "browser";
 
   let last = 0;
@@ -278,10 +292,7 @@ export function consoleOrder(from: "browser" | "box"): ConsoleOrder {
     accept(frame: ConsoleFrame): ConsoleOrderResult {
       if (closed) return { ok: false, fault: "closed" };
 
-      if (
-        (frame.kind === "stdin" || frame.kind === "stdout") &&
-        frame.kind !== expectData
-      ) {
+      if (!allowed.includes(frame.kind)) {
         return { ok: false, fault: "wrong-way" };
       }
 

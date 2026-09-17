@@ -243,6 +243,7 @@ export {
   ConsoleStdin,
   ConsoleStdout,
   consoleEnvelope,
+  consoleDataBytes,
   consoleOrder,
   decodeConsoleData,
   encodeConsoleData,

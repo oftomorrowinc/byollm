@@ -82,6 +82,7 @@ function setup() {
   const browser = publicIdentityOf(browserKeys);
   const socket = fakeSocket();
   const records: ConsoleSessionRecord[] = [];
+  const logs: { message: string; fields: Record<string, unknown> }[] = [];
 
   const run = runConsoleAgent({
     runnerId: RUNNER,
@@ -101,6 +102,9 @@ function setup() {
     now: () => 1_700_000_000_000,
     connect: () => Promise.resolve(socket.socket),
     openShell: () => Promise.resolve(fakeShell()),
+    log: (message, fields) => {
+      logs.push({ message, fields: fields ?? {} });
+    },
   });
 
   const sealFrame = async (frame: unknown): Promise<string> =>
@@ -128,7 +132,7 @@ function setup() {
     rows: 24,
   };
 
-  return { run, socket, records, sealFrame, hello };
+  return { run, socket, records, sealFrame, hello, logs };
 }
 
 describe("running one console session end to end", () => {
@@ -149,6 +153,36 @@ describe("running one console session end to end", () => {
     expect(await s.run).toBe("you closed the tab");
     expect(s.records.map((r) => r.event)).toEqual(["started", "ended"]);
     expect(s.socket.closed).toBe(1);
+  });
+
+  it("passes the log through to the session, or it is not wired at all", async () => {
+    /* The option existed and nothing proved it arrived. An instrumentation
+       hook that is accepted at the front door and dropped before the session
+       is worse than none: it reports silence as evidence. */
+    const s = setup();
+    await wired();
+    s.socket.deliver(await s.sealFrame(s.hello));
+    await wired();
+    s.socket.deliver(
+      await s.sealFrame({ v: V, kind: "stdin", seq: 2, data: "YQ==" }),
+    );
+    await wired();
+    s.socket.deliver(
+      await s.sealFrame({ v: V, kind: "bye", seq: 3, reason: "done" }),
+    );
+    await s.run;
+
+    const ending = s.logs.filter((l) =>
+      l.message.includes("console session ending"),
+    );
+    expect(ending).toHaveLength(1);
+    /* And it carries the counters, which is the only reason it is here: a
+       session that ends having received frames and answered none is a
+       different fault from one that received none. */
+    expect(ending[0]?.fields).toMatchObject({
+      reason: "done",
+      framesFromBrowser: 1,
+    });
   });
 
   it("ends when the broker hangs up", async () => {

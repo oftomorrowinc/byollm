@@ -881,6 +881,17 @@ async function commandConsoleAgent(
     const url = `${paired.origin.replace(/^http/, "ws")}${CONSOLE_DEVICE_ENDPOINT}`;
     io.out(`listening for consoles on ${paired.origin}\n`);
 
+    /* One writer for both halves — the listener's and the agent's. It was
+       two identical lambdas, which is how the two ends of a console came to
+       disagree about an alphabet in the first place. `fields` needs no
+       default: spreading `undefined` spreads nothing. */
+    const consoleLog = (
+      message: string,
+      fields?: Record<string, unknown>,
+    ): void => {
+      io.out(`${JSON.stringify({ console: message, ...fields })}\n`);
+    };
+
     consoleListener({
       url,
       runnerId: paired.runnerId,
@@ -911,15 +922,9 @@ async function commandConsoleAgent(
           },
           /* The agent's own half of the picture, on the same stream as the
              listener's — one place to read when a console goes quiet. */
-          log: (message, fields) => {
-            io.out(
-              `${JSON.stringify({ console: message, ...(fields ?? {}) })}\n`,
-            );
-          },
+          log: consoleLog,
         }).then(() => undefined),
-      log: (message, fields) => {
-        io.out(`${JSON.stringify({ console: message, ...(fields ?? {}) })}\n`);
-      },
+      log: consoleLog,
     });
 
     /* Returns only when the supervisor stops it: a listener that exited

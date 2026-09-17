@@ -3,9 +3,9 @@ import {
   ConsoleFrame,
   CONSOLE_FRAME_VERSION,
   CONSOLE_MAX_DATA_BYTES,
+  consoleDataBytes,
   consoleEnvelope,
   consoleOrder,
-  decodeConsoleData,
   encodeConsoleData,
   keyId,
   open,
@@ -128,6 +128,10 @@ export function consoleSession(deps: ConsoleSessionDeps): ConsoleSession {
   /* Counted so a session that goes quiet can say whether it stopped RECEIVING
      or stopped ANSWERING — two different faults that look identical from a
      browser, and the ambiguity that cost this afternoon. */
+  /* Bound once rather than called through `?.` at each site: two optional
+     calls are two arms apiece, and the arm where nobody is listening is the
+     one a test forgets. One default, exercised both ways. */
+  const log = deps.log ?? (() => undefined);
   let fromBrowser = 0;
   let toBrowser = 0;
   const boxKeyId = keyId(deps.keys.identityPublic);
@@ -159,7 +163,7 @@ export function consoleSession(deps: ConsoleSessionDeps): ConsoleSession {
     /* One line per session saying what actually moved. A console that ends
        having received frames and sent none is a different fault from one that
        received none at all, and from a browser they look the same. */
-    deps.log?.("console session ending", {
+    log("console session ending", {
       reason,
       framesFromBrowser: fromBrowser,
       framesToBrowser: toBrowser,
@@ -204,7 +208,7 @@ export function consoleSession(deps: ConsoleSessionDeps): ConsoleSession {
            same sentence the socket's own onClose uses, so a failed SEAL and a
            closed SOCKET were one message with two causes and no way to tell
            them apart in a log. */
-        deps.log?.("could not send output to the browser", {
+        log("could not send output to the browser", {
           reason: cause instanceof Error ? cause.message : String(cause),
           fromBrowser,
           toBrowser,
@@ -298,10 +302,7 @@ export function consoleSession(deps: ConsoleSessionDeps): ConsoleSession {
              see `decodeConsoleData`, which is where. */
           if (!started) return;
           fromBrowser += 1;
-          /* The schema refuses a payload that cannot be read, so this
-             cannot be undefined; the codec is shared so that it stays that
-             way when someone changes an alphabet. */
-          deps.shell.write(Buffer.from(decodeConsoleData(frame.data) ?? []));
+          deps.shell.write(Buffer.from(consoleDataBytes(frame.data)));
           return;
         case "resize":
           if (!started) return; // Unreachable; see `stdin` above.

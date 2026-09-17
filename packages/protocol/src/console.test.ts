@@ -4,6 +4,7 @@ import {
   CONSOLE_MAX_DATA_BYTES,
   ConsoleFrame,
   consoleEnvelope,
+  consoleDataBytes,
   consoleOrder,
   decodeConsoleData,
   encodeConsoleData,
@@ -406,5 +407,25 @@ describe("console payload encoding", () => {
       });
       expect(good.success, spelling).toBe(true);
     }
+  });
+});
+
+describe("the bytes of an accepted payload", () => {
+  it("gives back what either alphabet spelled", () => {
+    const bytes = new Uint8Array([0xfb, 0xff, 0xbf, 0x0a]);
+    expect(consoleDataBytes(Buffer.from(bytes).toString("base64"))).toEqual(
+      bytes,
+    );
+    expect(consoleDataBytes(encodeConsoleData(bytes))).toEqual(bytes);
+  });
+
+  it("gives back nothing for what the schema would have refused", () => {
+    /* The arm both ends used to carry. It is here so that it is reachable by
+       a test rather than only by an argument about why it cannot happen. */
+    expect(consoleDataBytes("not base64!")).toEqual(new Uint8Array());
+    expect(
+      ConsoleFrame.safeParse({ v, kind: "stdout", seq: 1, data: "not base64!" })
+        .success,
+    ).toBe(false);
   });
 });

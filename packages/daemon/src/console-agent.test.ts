@@ -65,7 +65,7 @@ function fakeShell() {
 }
 
 /** A real peer: it seals what it sends and opens what it receives. */
-function harness() {
+function harness(options: { silent?: boolean } = {}) {
   const box = generateKeys(1);
   const browserKeys = generateKeys(2);
   const browser = publicIdentityOf(browserKeys);
@@ -91,9 +91,12 @@ function harness() {
       return Promise.resolve();
     },
     now: () => 1_700_000_000_000,
-    log: (message, fields) => {
-      logs.push({ message, fields: fields ?? {} });
-    },
+    log:
+      options.silent === true
+        ? undefined
+        : (message, fields) => {
+            logs.push({ message, fields: fields ?? {} });
+          },
   });
 
   const fromBrowser = async (
@@ -370,6 +373,24 @@ describe("what a console session says about itself", () => {
      back; the box could say only that a session began and ended, so a console
      that received everything and answered nothing was indistinguishable from
      one that received nothing at all. These are that distinction. */
+
+  it("runs a whole session with nobody listening", async () => {
+    /* The arm where no `log` was supplied. Every other test in this block
+       passes one, which means the default was the path no test took — and a
+       default nobody takes is a crash waiting for the first operator who
+       runs the agent without `--debug`. */
+    const h = harness({ silent: true });
+    await h.fromBrowser(h.hello);
+    await h.fromBrowser({ v: V, kind: "stdin", seq: 2, data: "YQ==" });
+    h.shell.say("out");
+    await settle();
+    await h.session.stop("done");
+    await settle();
+
+    expect(h.shell.wrote).toHaveLength(1);
+    expect(h.session.ended).toBe("done");
+    expect(h.logs).toHaveLength(0);
+  });
 
   it("counts both directions and reports them when the session ends", async () => {
     const h = harness();

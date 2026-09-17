@@ -123,6 +123,18 @@ export function decodeConsoleData(text: string): Uint8Array | undefined {
   return fromBase64Url(body.replace(/\+/g, "-").replace(/\//g, "_"));
 }
 
+/**
+ * The bytes of a payload that has already passed {@link ConsoleFrame}.
+ *
+ * Total on purpose. The schema refuses a payload that cannot be read, so both
+ * ends would otherwise carry a fallback arm that no input can reach — and an
+ * arm nothing can reach is an arm nothing can test. The guarantee lives here,
+ * once, where a test can hold it to both answers.
+ */
+export function consoleDataBytes(data: string): Uint8Array {
+  return decodeConsoleData(data) ?? new Uint8Array();
+}
+
 const data = z
   .string()
   .max(Math.ceil((CONSOLE_MAX_DATA_BYTES * 4) / 3) + 4)

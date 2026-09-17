@@ -429,6 +429,21 @@ describe("what a console session says about itself", () => {
     expect(h.shell.wrote[0]).toEqual(bytes);
   });
 
+  it("refuses a frame whose payload cannot be read at all", async () => {
+    /* The law the alphabets broke: a payload that decodes to nothing must
+       fail, not arrive. It used to be described as base64 and checked by
+       nothing, so a frame could be accepted, counted, and mean nothing. */
+    const h = harness();
+    await h.fromBrowser(h.hello);
+    await settle();
+
+    await h.fromBrowser({ v: V, kind: "stdin", seq: 2, data: "not base64!" });
+    await settle();
+
+    expect(h.shell.wrote).toHaveLength(0);
+    expect(h.session.ended).toBe("a console frame was not a console frame");
+  });
+
   it("sends output a strict base64url reader can read", async () => {
     const h = harness();
     await h.fromBrowser(h.hello);

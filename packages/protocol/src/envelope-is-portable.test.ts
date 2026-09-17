@@ -267,3 +267,44 @@ describe("what the code does with the Node globals taken away", () => {
     }
   });
 });
+
+describe("and the browser can REACH what the console protocol defines", () => {
+  /**
+   * Portability is one half. Reachability is the other, and it is the half
+   * that just cost a release.
+   *
+   * `encodeConsoleData`/`decodeConsoleData` were added so the box and the
+   * browser would stop each spelling base64 for themselves — and then exported
+   * through the barrel only. The daemon compiled. The dashboard did not, and
+   * could not have: the browser's door is this file, and the codec it was
+   * supposed to share was not in it. An export the consumer cannot import is
+   * the same as no export, arriving one publish later.
+   *
+   * So the two doors are held to the same console surface. A name added to
+   * one and forgotten in the other fails here rather than in a bundler.
+   */
+  const namesFromConsole = (file: string): string[] => {
+    const text = readFileSync(
+      fileURLToPath(new URL(file, import.meta.url)),
+      "utf8",
+    );
+    const at = text.indexOf('} from "./console.js";');
+    expect(at, `${file} re-exports from ./console.js`).toBeGreaterThan(-1);
+    const opened = text.lastIndexOf("export {", at);
+    expect(opened, `${file} has an export block for it`).toBeGreaterThan(-1);
+    return text
+      .slice(opened + "export {".length, at)
+      .split(",")
+      .map((name) => name.replace(/^\s*type\s+/, "").trim())
+      .filter((name) => name.length > 0);
+  };
+
+  it("offers the browser every console name the barrel does", () => {
+    const barrel = new Set(namesFromConsole("./index.ts"));
+    const door = new Set(namesFromConsole("./portable.ts"));
+
+    expect(barrel.size).toBeGreaterThan(5);
+    const missing = [...barrel].filter((name) => !door.has(name)).sort();
+    expect(missing, "in the barrel but not in portable.ts").toEqual([]);
+  });
+});

@@ -1,6 +1,16 @@
 import { describe, expect, it } from "vitest";
 import { watchForUpdate } from "./cli.js";
 import { DAEMON_VERSION } from "./index.js";
+
+/**
+ * A version that is always newer than the one running.
+ *
+ * Every fixture in this file needs "an offer above ours", and three of them
+ * spelled it as a literal — which stops being true the day the product ships
+ * that number. It did: `0.1.0-alpha.98` broke two of these tests on the .98
+ * cut, for reasons unrelated to anything they assert.
+ */
+const NEWER_OFFER = `${DAEMON_VERSION}.1`;
 import type { Runner } from "./runner.js";
 
 /**
@@ -48,14 +58,14 @@ describe("taking an offered update", () => {
       runners: [r.runner],
       io: surface.io,
       signal: new AbortController().signal,
-      offered: () => "0.1.0-alpha.99",
+      offered: () => NEWER_OFFER,
       wait: () => Promise.resolve(),
       drainMs: 5,
       run: (command) => {
         ran.push([...command]);
         return Promise.resolve(
           command[1] === "--version"
-            ? { code: 0, output: "byollm 0.1.0-alpha.99 (protocol 1)\n" }
+            ? { code: 0, output: `byollm ${NEWER_OFFER} (protocol 1)\n` }
             : { code: 0, output: "" },
         );
       },
@@ -69,7 +79,7 @@ describe("taking an offered update", () => {
       "npm",
       "install",
       "--global",
-      "byollm@0.1.0-alpha.99",
+      `byollm@${NEWER_OFFER}`,
     ]);
     /* Drained before installed. The order is the safety, and asserting the
        calls happened says nothing about it. */
@@ -90,7 +100,7 @@ describe("taking an offered update", () => {
       runners: [r.runner],
       io: surface.io,
       signal: controller.signal,
-      offered: () => "0.1.0-alpha.99",
+      offered: () => NEWER_OFFER,
       wait: () => {
         if (r.calls.includes("resume")) controller.abort();
         return Promise.resolve();
@@ -124,7 +134,19 @@ describe("taking an offered update", () => {
     const r = fakeRunner();
     const surface = io();
     const installed: string[] = [];
-    let offering = "0.1.0-alpha.98";
+    /**
+     * Derived, not written down — this said `0.1.0-alpha.98` and broke on the
+     * release that reached it.
+     *
+     * The fixture's whole job is to be NEWER than the running daemon, which a
+     * literal stops being the moment the product catches up with it. That is a
+     * test which passes for two hundred releases and then fails for a reason
+     * that has nothing to do with what it tests, on the day somebody is
+     * shipping. Two of them did exactly that here.
+     */
+    const NEWER = `${DAEMON_VERSION}.1`;
+    const NEWER_STILL = `${DAEMON_VERSION}.2`;
+    let offering = NEWER;
     const took = await watchForUpdate({
       runners: [r.runner],
       io: surface.io,
@@ -133,7 +155,7 @@ describe("taking an offered update", () => {
       wait: () => {
         /* The second offer arrives the way a real one does: on a later
            heartbeat, after the first has been tried and failed. */
-        offering = "0.1.0-alpha.99";
+        offering = NEWER_STILL;
         return Promise.resolve();
       },
       drainMs: 5,
@@ -148,7 +170,7 @@ describe("taking an offered update", () => {
           /* The first version installs as something else — a broken build —
              and the second installs cleanly. */
           const asked = command[3]?.replace("byollm@", "") ?? "";
-          installed.push(asked === "0.1.0-alpha.98" ? DAEMON_VERSION : asked);
+          installed.push(asked === NEWER ? DAEMON_VERSION : asked);
         }
         return Promise.resolve({ code: 0, output: "" });
       },
@@ -156,7 +178,7 @@ describe("taking an offered update", () => {
 
     expect(took).toBe(true);
     expect(surface.said.join("")).toContain("rolled back");
-    expect(installed).toContain("0.1.0-alpha.99");
+    expect(installed).toContain(NEWER_STILL);
   });
 
   it("does not retry a version it has already failed on", async () => {
@@ -176,7 +198,7 @@ describe("taking an offered update", () => {
       runners: [r.runner],
       io: surface.io,
       signal: controller.signal,
-      offered: () => "0.1.0-alpha.98",
+      offered: () => NEWER_OFFER,
       wait: () => {
         cycles += 1;
         if (cycles >= 5) controller.abort();
@@ -195,7 +217,7 @@ describe("taking an offered update", () => {
     expect(await watching).toBe(false);
     expect(cycles).toBeGreaterThan(1);
     /* Once, across five cycles of the offer still arriving. */
-    expect(attempts.filter((a) => a === "byollm@0.1.0-alpha.98")).toHaveLength(
+    expect(attempts.filter((a) => a === `byollm@${NEWER_OFFER}`)).toHaveLength(
       1,
     );
   });

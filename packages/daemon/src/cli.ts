@@ -51,6 +51,7 @@ import { DeviceIdentity } from "./identity.js";
 import {
   consoleAgentUnavailable,
   runConsoleAgent,
+  CONSOLE_BOX_ENDPOINT,
 } from "./console-agent-main.js";
 import { ConsoleAgentSpec } from "./console-agent-spec.js";
 import { CONSOLE_DEVICE_ENDPOINT, consoleListener } from "./console-listen.js";
@@ -886,10 +887,19 @@ async function commandConsoleAgent(
       keys,
       run: (announcement) =>
         runConsoleAgent({
-          url: `${paired.origin.replace(/^http/, "ws")}/console/box?session=${announcement.sessionId}`,
+          /* The endpoint from one definition, shared with the signer that
+             has to name it identically — a URL built here and a signature
+             built there, disagreeing by a character, is a 401 nobody can
+             read. */
+          url: `${paired.origin.replace(/^http/, "ws")}${CONSOLE_BOX_ENDPOINT}?session=${announcement.sessionId}`,
           sessionId: announcement.sessionId,
           deadlineAt: announcement.deadlineAt,
           keys,
+          /* The data door is authenticated too, and signs over the SESSION —
+             a signature captured from one cannot be replayed to join
+             another. Without this the dial is refused 401 before the
+             handshake, which is what attempt six hit. */
+          runnerId: paired.runnerId,
           browser: announcement.browser,
           command: process.env["BYOLLM_CONSOLE_SHELL"] ?? "/bin/sh",
           args: [],
@@ -926,12 +936,35 @@ async function commandConsoleAgent(
     return 2;
   }
 
+  /**
+   * The by-hand form needs the pairing too, for the same reason listen mode
+   * does: the data door wants a signature, and a signature needs the runner
+   * this box is known by.
+   *
+   * This path exists so "the path a real console takes is the same one a
+   * person can drive by hand when something has gone wrong" — which is only
+   * true if it authenticates the same way. A version that dialled unsigned
+   * would fail differently from production and be worse than useless for
+   * debugging it.
+   */
+  const agentPairings = new Pairings(paths.pairings);
+  await agentPairings.load();
+  const agentPaired = agentPairings.list()[0];
+  if (agentPaired === undefined) {
+    io.err(
+      "byollm console-agent cannot join a console: this device is not paired.\n" +
+        "The hub will not accept an unsigned connection. Pair it first with `byollm connect`.\n",
+    );
+    return 1;
+  }
+
   try {
     const why = await runConsoleAgent({
       url: session.data.url,
       sessionId: session.data.sessionId,
       deadlineAt: session.data.deadlineAt,
       keys,
+      runnerId: agentPaired.runnerId,
       browser: session.data.browser,
       command: session.data.shell.command,
       args: session.data.shell.args,

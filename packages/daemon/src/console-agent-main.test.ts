@@ -7,6 +7,7 @@ import {
   keyId,
   publicIdentityOf,
   seal,
+  signRequest,
 } from "@byollm/protocol";
 import { runConsoleAgent, type ConsoleSocket } from "./console-agent-main.js";
 import type { ConsoleSessionRecord, ConsoleShell } from "./console-agent.js";
@@ -25,6 +26,8 @@ import { NoPtyError } from "./pty-shell.js";
 const wired = () => new Promise((done) => setTimeout(done, 0));
 
 const SESSION = "sess_main";
+/** The runner this box is known by — the data door signs with it. */
+const RUNNER = "runner-1";
 const DEADLINE = 4_000_000_000_000;
 
 function fakeSocket() {
@@ -81,6 +84,7 @@ function setup() {
   const records: ConsoleSessionRecord[] = [];
 
   const run = runConsoleAgent({
+    runnerId: RUNNER,
     url: "wss://hub.example/console",
     sessionId: SESSION,
     deadlineAt: DEADLINE,
@@ -180,6 +184,7 @@ describe("running one console session end to end", () => {
     let emit: (b: Buffer) => void = () => undefined;
 
     const run = runConsoleAgent({
+      runnerId: RUNNER,
       url: "wss://hub.example/console",
       sessionId: SESSION,
       deadlineAt: DEADLINE,
@@ -223,6 +228,7 @@ describe("when there is no pty on this machine", () => {
     const socket = fakeSocket();
     await expect(
       runConsoleAgent({
+        runnerId: RUNNER,
         url: "wss://hub.example/console",
         sessionId: SESSION,
         deadlineAt: DEADLINE,
@@ -240,5 +246,123 @@ describe("when there is no pty on this machine", () => {
 
     expect(socket.sent).toEqual([]);
     expect(socket.closed).toBe(0);
+  });
+});
+
+/**
+ * **The data door is authenticated, and this dialer sent nothing.**
+ *
+ * Attempt six, 2026-09-17. `.97` taught the CONTROL socket to sign and the box
+ * finally held a connection and received an announcement — five releases of
+ * dead air ended in one line. Then the agent dialled the DATA socket with
+ * `new WebSocket(url)`, bare, at a door that demands runner, issued-at and a
+ * signature over the session id and refuses 401 before the handshake.
+ *
+ * The sibling of never-dialed, and its exact inverse: there the production
+ * default was missing, here it exists and cannot succeed. Every test in this
+ * file injected `connect` and therefore never asked what the real one sends —
+ * the same blindness, one door along, which is why CW's review rule #3 gained
+ * a second clause: naming the production caller is not enough, the production
+ * DEFAULT has to be exercised too.
+ */
+describe("what the agent presents at the data door", () => {
+  it("signs the dial, over the session it is joining", async () => {
+    const keys = generateKeys(7);
+    const seen: Record<string, string>[] = [];
+    const socket = fakeSocket();
+
+    /* Deliberately not awaited: the agent runs until the session ends, and
+       what this test wants is the DIAL it makes on the way in. Errors are
+       caught so a rejection cannot surface as an unhandled one. */
+    runConsoleAgent({
+      runnerId: RUNNER,
+      url: "wss://hub.example/console/box?session=sess_1",
+      sessionId: SESSION,
+      deadlineAt: 4_000_000_000_000,
+      keys,
+      browser: publicIdentityOf(generateKeys(8)),
+      command: "/bin/sh",
+      args: [],
+      cwd: "/",
+      env: {},
+      record: () => Promise.resolve(),
+      connect: (_url, headers) => {
+        seen.push(headers);
+        return Promise.resolve(socket.socket);
+      },
+      openShell: () => Promise.resolve(fakeShell()),
+    }).catch(() => undefined);
+
+    await new Promise((done) => setTimeout(done, 0));
+
+    const headers = seen[0];
+    expect(
+      headers,
+      "the dialer sent no headers at an authenticated door",
+    ).toBeDefined();
+    expect(headers?.["x-byollm-runner"]).toBe(RUNNER);
+    expect(headers?.["x-byollm-signature"]).toBeTruthy();
+    expect(Number(headers?.["x-byollm-issued-at"])).toBeGreaterThan(0);
+  });
+
+  it("signs over the SESSION, not the endpoint — so one dial cannot join another", async () => {
+    /**
+     * This test's first draft called `signRequest` twice and compared the
+     * results. That proves the crypto is a function of its input and says
+     * NOTHING about what the agent chose to sign — a mutation swapping the
+     * body to the endpoint passed it cleanly.
+     *
+     * So it now takes the signature the agent actually emitted and asks which
+     * body produces it. The control socket signs over its own endpoint because
+     * there is no session yet; this door must sign over the session, or a
+     * signature captured from one console is replayable to join another.
+     */
+    const keys = generateKeys(11);
+    const seen: Record<string, string>[] = [];
+    const socket = fakeSocket();
+
+    /* Deliberately not awaited: the agent runs until the session ends, and
+       what this test wants is the DIAL it makes on the way in. Errors are
+       caught so a rejection cannot surface as an unhandled one. */
+    runConsoleAgent({
+      runnerId: RUNNER,
+      url: "wss://hub.example/console/box?session=sess_1",
+      sessionId: SESSION,
+      deadlineAt: 4_000_000_000_000,
+      keys,
+      browser: publicIdentityOf(generateKeys(12)),
+      command: "/bin/sh",
+      args: [],
+      cwd: "/",
+      env: {},
+      record: () => Promise.resolve(),
+      now: () => 1_000,
+      connect: (_url, headers) => {
+        seen.push(headers);
+        return Promise.resolve(socket.socket);
+      },
+      openShell: () => Promise.resolve(fakeShell()),
+    }).catch(() => undefined);
+    await new Promise((done) => setTimeout(done, 0));
+
+    const sent = seen[0]?.["x-byollm-signature"];
+    const overSession = signRequest(keys, {
+      endpoint: "/console/box",
+      runnerId: RUNNER,
+      issuedAt: 1_000,
+      body: SESSION,
+    }).signature;
+    const overEndpoint = signRequest(keys, {
+      endpoint: "/console/box",
+      runnerId: RUNNER,
+      issuedAt: 1_000,
+      body: "/console/box",
+    }).signature;
+
+    expect(sent).toBe(overSession);
+    expect(
+      sent,
+      "signed over the endpoint — one session's dial would join another",
+    ).not.toBe(overEndpoint);
   });
 });

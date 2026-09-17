@@ -101,7 +101,8 @@ export interface ConsoleSessionDeps {
    *
    * Kinds and counts, never contents — the frames carry somebody's shell.
    */
-  log?: (message: string, fields?: Record<string, unknown>) => void;
+  log?:
+    ((message: string, fields?: Record<string, unknown>) => void) | undefined;
   now(): number;
 }
 

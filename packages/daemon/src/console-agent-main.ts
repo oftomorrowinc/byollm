@@ -161,7 +161,7 @@ export async function runConsoleAgent(
       return Promise.resolve();
     },
     record: options.record,
-    ...(options.log === undefined ? {} : { log: options.log }),
+    log: options.log,
     now: options.now ?? (() => Date.now()),
   });
 

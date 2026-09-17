@@ -909,6 +909,13 @@ async function commandConsoleAgent(
             io.out(`${JSON.stringify({ consoleSession: entry })}\n`);
             return Promise.resolve();
           },
+          /* The agent's own half of the picture, on the same stream as the
+             listener's — one place to read when a console goes quiet. */
+          log: (message, fields) => {
+            io.out(
+              `${JSON.stringify({ console: message, ...(fields ?? {}) })}\n`,
+            );
+          },
         }).then(() => undefined),
       log: (message, fields) => {
         io.out(`${JSON.stringify({ console: message, ...(fields ?? {}) })}\n`);

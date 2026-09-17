@@ -72,6 +72,7 @@ function harness() {
   const shell = fakeShell();
   const sent: SealedEnvelope[] = [];
   const records: ConsoleSessionRecord[] = [];
+  const logs: { message: string; fields: Record<string, unknown> }[] = [];
   let sendFails = false;
 
   const session = consoleSession({
@@ -90,6 +91,9 @@ function harness() {
       return Promise.resolve();
     },
     now: () => 1_700_000_000_000,
+    log: (message, fields) => {
+      logs.push({ message, fields: fields ?? {} });
+    },
   });
 
   const fromBrowser = async (
@@ -141,6 +145,8 @@ function harness() {
     shell,
     sent,
     records,
+    logs,
+    said: (part: string) => logs.filter((l) => l.message.includes(part)),
     fromBrowser,
     readSent,
     hello,
@@ -356,5 +362,83 @@ describe("what ends a session, and what the owner is told", () => {
     const before = h.shell.wrote.length;
     await h.fromBrowser({ v: V, kind: "stdin", seq: 2, data: "aGk" });
     expect(h.shell.wrote.length).toBe(before);
+  });
+});
+
+describe("what a console session says about itself", () => {
+  /* The box was the silent end. A browser could count frames it sent and got
+     back; the box could say only that a session began and ended, so a console
+     that received everything and answered nothing was indistinguishable from
+     one that received nothing at all. These are that distinction. */
+
+  it("counts both directions and reports them when the session ends", async () => {
+    const h = harness();
+    await h.fromBrowser(h.hello);
+    await h.fromBrowser({ v: V, kind: "stdin", seq: 2, data: "YQ" });
+    await h.fromBrowser({ v: V, kind: "stdin", seq: 3, data: "Yg" });
+    h.shell.say("out");
+    await settle();
+
+    await h.session.stop("done");
+    await settle();
+
+    const ending = h.said("console session ending");
+    expect(ending).toHaveLength(1);
+    /* Two stdin frames in, one chunk out — the asymmetry is the point: a
+       session that shows frames in and zero out has a shell that went quiet,
+       not a channel that dropped them. */
+    expect(ending[0]?.fields).toMatchObject({
+      reason: "done",
+      framesFromBrowser: 2,
+      framesToBrowser: 1,
+    });
+  });
+
+  it("tells a failed send apart from a closed channel", async () => {
+    const h = harness();
+    await h.fromBrowser(h.hello);
+    await settle();
+    h.failSends();
+    h.shell.say("out");
+    await settle();
+
+    const failed = h.said("could not send output");
+    expect(failed).toHaveLength(1);
+    expect(failed[0]?.fields).toMatchObject({ reason: "channel gone" });
+    /* Both counters travel with the failure, because "we could not answer"
+       means something different after twenty frames than after none. */
+    expect(failed[0]?.fields["fromBrowser"]).toBe(0);
+    expect(h.session.ended).toBe("the console channel closed");
+  });
+
+  it("reads a payload a shipped box would have sent", async () => {
+    /* The shipped box encodes stdin's echo with the standard alphabet, and
+       the browser reads base64url. Nothing in this file could tell, because
+       both ends here were ours. `+`, `/` and padding are the disagreement. */
+    const h = harness();
+    await h.fromBrowser(h.hello);
+    const bytes = Buffer.from([0xfb, 0xff, 0xbf, 0x0a]);
+    await h.fromBrowser({
+      v: V,
+      kind: "stdin",
+      seq: 2,
+      data: bytes.toString("base64"),
+    });
+    await settle();
+
+    expect(h.shell.wrote[0]).toEqual(bytes);
+  });
+
+  it("sends output a strict base64url reader can read", async () => {
+    const h = harness();
+    await h.fromBrowser(h.hello);
+    h.shell.sayBytes(Buffer.from([0xfb, 0xff, 0xbf, 0x0a]));
+    await settle();
+
+    const frame = await h.readSent(0);
+    expect(frame.kind).toBe("stdout");
+    /* One typed character is one byte, which always pads — which is why the
+       operator saw every keystroke's echo vanish and only some output. */
+    if (frame.kind === "stdout") expect(frame.data).not.toMatch(/[+/=]/);
   });
 });

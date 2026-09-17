@@ -244,6 +244,8 @@ export {
   ConsoleStdout,
   consoleEnvelope,
   consoleOrder,
+  decodeConsoleData,
+  encodeConsoleData,
   type ConsoleOrder,
   type ConsoleOrderFault,
   type ConsoleOrderResult,

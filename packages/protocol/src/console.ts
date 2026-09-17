@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { fromBase64Url, toBase64Url } from "./envelope-format.js";
 import { PublicIdentity } from "./public-identity.js";
 import type { EnvelopeContext } from "./envelope.js";
 
@@ -87,10 +88,50 @@ export const CONSOLE_FRAME_VERSION = "byollm/v1/console";
  */
 export const CONSOLE_MAX_DATA_BYTES = 64 * 1024;
 
+/**
+ * Encode one frame's payload. Canonical, and the only encoder either end may
+ * use — see {@link decodeConsoleData} for what retyping it cost.
+ */
+export function encodeConsoleData(bytes: Uint8Array): string {
+  return toBase64Url(bytes);
+}
+
+/**
+ * Decode one frame's payload, accepting either base64 alphabet.
+ *
+ * The two alphabets disagree on three characters — `+`, `/`, and the `=`
+ * padding — and a box that encoded with Node's standard base64 produced
+ * frames that sealed, opened, verified against the pinned identity, and
+ * ordered correctly, and then decoded to nothing in a strict base64url
+ * reader. Nothing faulted, because a decode that returns nothing is not a
+ * fault anywhere in this file. What an operator saw was a console that ate
+ * every keystroke and roughly two output chunks in three: one typed character
+ * is one byte, which always pads, while a longer chunk survives exactly when
+ * its length is a multiple of three and its bytes happen to avoid `+` and `/`.
+ *
+ * So the tolerance here is deliberate, not lax. A box is software on someone
+ * else's machine, and a browser that accepted only the canonical spelling
+ * would fix the console for whoever upgraded and for nobody else. Anything
+ * that is neither spelling still returns `undefined`, and {@link ConsoleFrame}
+ * rejects it at the schema so it fails loudly rather than vanishing.
+ */
+export function decodeConsoleData(text: string): Uint8Array | undefined {
+  /* Base64 pads to a multiple of four with at most two `=`. More than two is
+     not a lenient spelling of anything, so it falls through and is refused. */
+  const padding = /(={0,2})$/.exec(text)?.[1]?.length ?? 0;
+  const body = text.slice(0, text.length - padding);
+  return fromBase64Url(body.replace(/\+/g, "-").replace(/\//g, "_"));
+}
+
 const data = z
   .string()
   .max(Math.ceil((CONSOLE_MAX_DATA_BYTES * 4) / 3) + 4)
-  .describe("base64");
+  /* A law with a check. This field spent its whole life described as base64
+     and validated as nothing, which is why a box could disagree with a
+     browser about what it was sending and no test anywhere could tell. */
+  .refine((text) => decodeConsoleData(text) !== undefined, {
+    message: "not base64",
+  });
 
 /** Terminal geometry. Bounded because a pty rejects absurd sizes anyway. */
 const cols = z.number().int().min(1).max(10_000);

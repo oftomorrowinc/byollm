@@ -5,6 +5,8 @@ import {
   CONSOLE_MAX_DATA_BYTES,
   consoleEnvelope,
   consoleOrder,
+  decodeConsoleData,
+  encodeConsoleData,
   keyId,
   open,
   seal,
@@ -87,6 +89,19 @@ export interface ConsoleSessionDeps {
   send(envelope: SealedEnvelope): Promise<void>;
   /** Ruling item 4: EVERY session, including any we ever open ourselves. */
   record(entry: ConsoleSessionRecord): Promise<void>;
+  /**
+   * What the agent did with each frame — the box's half of `?debug=1`.
+   *
+   * Separate from {@link record}, which is the OWNER's feed and says only that
+   * a session began and ended. This says what happened inside one, and the
+   * distinction matters: today a session sat open for five minutes producing
+   * nothing while the browser sent twenty-eight frames into it, and neither
+   * end could say whether they arrived. The browser had counters by then; this
+   * side had none.
+   *
+   * Kinds and counts, never contents — the frames carry somebody's shell.
+   */
+  log?: (message: string, fields?: Record<string, unknown>) => void;
   now(): number;
 }
 
@@ -109,6 +124,11 @@ export interface ConsoleSession {
  */
 export function consoleSession(deps: ConsoleSessionDeps): ConsoleSession {
   const inbound = consoleOrder("browser");
+  /* Counted so a session that goes quiet can say whether it stopped RECEIVING
+     or stopped ANSWERING — two different faults that look identical from a
+     browser, and the ambiguity that cost this afternoon. */
+  let fromBrowser = 0;
+  let toBrowser = 0;
   const boxKeyId = keyId(deps.keys.identityPublic);
   const browserKeyId = keyId(deps.browser.identity);
 
@@ -135,6 +155,14 @@ export function consoleSession(deps: ConsoleSessionDeps): ConsoleSession {
   const finish = async (reason: string): Promise<void> => {
     if (ended !== undefined) return;
     ended = reason;
+    /* One line per session saying what actually moved. A console that ends
+       having received frames and sent none is a different fault from one that
+       received none at all, and from a browser they look the same. */
+    deps.log?.("console session ending", {
+      reason,
+      framesFromBrowser: fromBrowser,
+      framesToBrowser: toBrowser,
+    });
     deps.shell.kill();
     // The record is written even if telling the browser fails — the owner's
     // feed is the thing that must not have a hole in it.
@@ -164,12 +192,26 @@ export function consoleSession(deps: ConsoleSessionDeps): ConsoleSession {
     for (let at = 0; at < chunk.length; at += CONSOLE_MAX_DATA_BYTES) {
       const slice = chunk.subarray(at, at + CONSOLE_MAX_DATA_BYTES);
       outSeq += 1;
+      toBrowser += 1;
       void sealTo({
         v: CONSOLE_FRAME_VERSION,
         kind: "stdout",
         seq: outSeq,
-        data: slice.toString("base64"),
-      }).catch(() => void finish("the console channel closed"));
+        data: encodeConsoleData(slice),
+      }).catch((cause: unknown) => {
+        /* Was "the console channel closed", flatly, whatever happened — the
+           same sentence the socket's own onClose uses, so a failed SEAL and a
+           closed SOCKET were one message with two causes and no way to tell
+           them apart in a log. */
+        deps.log?.("could not send output to the browser", {
+          reason: cause instanceof Error ? cause.message : String(cause),
+          fromBrowser,
+          toBrowser,
+        });
+        /* Returned, not voided: the caller already voids the chain, and the
+           catch handler owns the shutdown it starts. */
+        return finish("the console channel closed");
+      });
     }
   });
 
@@ -246,11 +288,23 @@ export function consoleSession(deps: ConsoleSessionDeps): ConsoleSession {
           return;
         }
         case "stdin":
+          /* Unreachable, and left explicit for the same reason `stdout` below
+             is: every path that leaves `started` false also ends the session,
+             and `deliver` returns at the door once it has. Keeping the guard
+             costs nothing; making it SPEAK would have been a log line for a
+             case that cannot happen, which is how a silent drop gets looked
+             for in the wrong place. The keystrokes really were vanishing —
+             see `decodeConsoleData`, which is where. */
           if (!started) return;
-          deps.shell.write(Buffer.from(frame.data, "base64"));
+          fromBrowser += 1;
+          /* The schema refuses a payload that cannot be read, so this
+             cannot be undefined; the codec is shared so that it stays that
+             way when someone changes an alphabet. */
+          deps.shell.write(Buffer.from(decodeConsoleData(frame.data) ?? []));
           return;
         case "resize":
-          if (!started) return;
+          if (!started) return; // Unreachable; see `stdin` above.
+          fromBrowser += 1;
           deps.shell.resize(frame.cols, frame.rows);
           return;
         case "stdout":

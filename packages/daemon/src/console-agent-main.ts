@@ -62,6 +62,8 @@ export interface ConsoleAgentOptions {
   readonly cwd: string;
   readonly env: Record<string, string>;
   readonly record: (entry: ConsoleSessionRecord) => Promise<void>;
+  /** What the agent did with each frame — see `ConsoleAgentDeps.log`. */
+  readonly log?: (message: string, fields?: Record<string, unknown>) => void;
   readonly now?: () => number;
   /** Injected in tests. Production opens a real WebSocket, signed. */
   readonly connect?: (
@@ -159,6 +161,7 @@ export async function runConsoleAgent(
       return Promise.resolve();
     },
     record: options.record,
+    ...(options.log === undefined ? {} : { log: options.log }),
     now: options.now ?? (() => Date.now()),
   });
 

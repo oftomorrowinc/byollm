@@ -5,6 +5,8 @@ import {
   ConsoleFrame,
   consoleEnvelope,
   consoleOrder,
+  decodeConsoleData,
+  encodeConsoleData,
 } from "./console.js";
 import { generateKeys, publicIdentityOf } from "./keys.js";
 import { open, seal } from "./envelope.js";
@@ -286,5 +288,85 @@ describe("a console frame travels as a job payload does", () => {
     expect(toBox.direction).toBe("payload");
     expect(toBrowser.direction).toBe("result");
     expect(toBox.direction).not.toBe(toBrowser.direction);
+  });
+});
+
+describe("console payload encoding", () => {
+  /* Every one of these round-trips in a strict base64url reader only by luck
+     of its length. The ones that do not are what an operator watched vanish. */
+  const payloads = [
+    "b",
+    "\r",
+    "ok\r\n",
+    "  claude\r\n",
+    "identity: BYOLLM-P8RT-S30E-Z417-7S0T-V9DA-3AYD\r\n",
+    "service: not installed \u2014 jobs only run while `byollm run` is open\r\n",
+    "\u00ff\u00fe\u00fd\u00fc",
+  ];
+
+  it("reads back what a box encoded with the standard alphabet", () => {
+    /* The shipped box encodes with Node's `toString("base64")`. A browser
+       that cannot read that is the whole defect, so this is the assertion
+       that reddens against it — not a round-trip through our own encoder,
+       which would agree with itself no matter which alphabet it picked. */
+    for (const text of payloads) {
+      const bytes = new TextEncoder().encode(text);
+      const standard = Buffer.from(bytes).toString("base64");
+      const read = decodeConsoleData(standard);
+      expect(read, `standard base64 for ${JSON.stringify(text)}`).toBeDefined();
+      expect(new TextDecoder().decode(read)).toBe(text);
+    }
+  });
+
+  it("round-trips its own encoding, which is base64url", () => {
+    for (const text of payloads) {
+      const bytes = new TextEncoder().encode(text);
+      const encoded = encodeConsoleData(bytes);
+      expect(encoded).not.toMatch(/[+/=]/);
+      expect(new TextDecoder().decode(decodeConsoleData(encoded))).toBe(text);
+    }
+  });
+
+  it("accepts both spellings of the same bytes as the same bytes", () => {
+    /* `+` and `/` only appear for some byte values, so a payload that forces
+       both is the only one that proves the alphabets were mapped and not
+       merely padded. */
+    const bytes = new Uint8Array([0xfb, 0xff, 0xbf, 0x00]);
+    const standard = Buffer.from(bytes).toString("base64");
+    expect(standard).toMatch(/\+/);
+    expect(standard).toMatch(/\//);
+    expect(decodeConsoleData(standard)).toEqual(bytes);
+    expect(decodeConsoleData(encodeConsoleData(bytes))).toEqual(bytes);
+  });
+
+  it("refuses what is neither spelling, instead of decoding it to nothing", () => {
+    for (const bad of ["not base64!", "YQ====", "a=b", "****"]) {
+      expect(decodeConsoleData(bad), bad).toBeUndefined();
+    }
+  });
+
+  it("makes a frame whose payload is unreadable fail the schema", () => {
+    /* The field was described as base64 and checked by nothing, so the two
+       ends disagreed in silence. A frame that cannot be read must not parse. */
+    const bad = ConsoleFrame.safeParse({
+      v,
+      kind: "stdout",
+      seq: 1,
+      data: "not base64!",
+    });
+    expect(bad.success).toBe(false);
+
+    for (const spelling of [
+      Buffer.from("hi\r\n").toString("base64"),
+      encodeConsoleData(new TextEncoder().encode("hi\r\n")),
+    ]) {
+      const good = ConsoleFrame.safeParse({
+        v,
+        kind: "stdout",
+        seq: 1,
+        data: spelling,
+      });
+      expect(good.success, spelling).toBe(true);
+    }
   });
 });

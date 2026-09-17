@@ -58,6 +58,10 @@ export interface ConsoleListenDeps {
     url: string,
     headers: Record<string, string>,
   ) => Promise<ConsoleSocket>;
+  /** Injected in tests, so a reconnect ladder can be walked without waiting. */
+  readonly wait?: (ms: number) => Promise<void>;
+  /** Injected in tests. Holds the event loop open; see `keepalive` below. */
+  readonly keepalive?: () => { stop(): void };
 }
 
 /** Headers the box presents. Mirrors the hub's `BOX_HEADERS`. */
@@ -151,6 +155,55 @@ export function consoleListener(deps: ConsoleListenDeps): ConsoleListener {
       });
   };
 
+  /**
+   * Something that holds the event loop open ON PURPOSE.
+   *
+   * The box logs on 09-17 read: "listening for consoles" → Node's *"Detected
+   * unsettled top-level await"* → exit → supervisor restart, every few
+   * seconds. The listener was alive only for as long as its socket was: the
+   * caller parks on `await new Promise(() => undefined)`, which settles never
+   * and REFERENCES nothing, so the moment the socket closed the loop had no
+   * work left, drained, and Node exited with that await still pending.
+   *
+   * A process whose lifetime is a side effect of an open socket cannot
+   * reconnect, because reconnecting is something you do after the socket is
+   * gone. So the listener owns a handle of its own and keeps it until `stop()`.
+   */
+  const alive = (deps.keepalive ?? defaultKeepalive)();
+
+  /* 1s doubling to 30s, reset on every successful dial. A box whose hub is
+     briefly away should be back in a second; a box whose hub is down for an
+     hour should not spend that hour dialling. */
+  let backoffMs = 1_000;
+  const wait = deps.wait ?? ((ms) => new Promise((r) => setTimeout(r, ms)));
+
+  const redial = (why: string, detail?: string): void => {
+    if (stopped) return;
+    const delay = backoffMs;
+    backoffMs = Math.min(backoffMs * 2, 30_000);
+    /* SAYS WHY, every time. The old listener printed one optimistic line and
+       then died silently on a loop — B228's status-lie in a sidecar: the
+       process reported what it intended, never what happened to it. */
+    deps.log("the console control socket is gone — reconnecting", {
+      why,
+      ...(detail === undefined ? {} : { detail }),
+      inMs: delay,
+    });
+    /* Handled rather than voided, and the rule that insisted is right: a
+       rejection here is the reconnect quietly not happening, which is the
+       exact silence this whole change exists to end. */
+    wait(delay)
+      .then(() => {
+        if (stopped) return undefined;
+        return dial();
+      })
+      .catch((cause: unknown) => {
+        deps.log("the reconnect itself failed", {
+          reason: cause instanceof Error ? cause.message : String(cause),
+        });
+      });
+  };
+
   const dial = async (): Promise<void> => {
     if (deps.connect === undefined) return;
     try {
@@ -159,18 +212,21 @@ export function consoleListener(deps: ConsoleListenDeps): ConsoleListener {
         deviceHeaders(deps.keys, deps.runnerId, now()),
       );
     } catch (cause) {
-      deps.log("could not reach the console broker", {
-        reason: cause instanceof Error ? cause.message : String(cause),
-      });
+      redial(
+        "the broker refused or could not be reached",
+        cause instanceof Error ? cause.message : String(cause),
+      );
       return;
     }
     if (stopped) {
       socket.close();
       return;
     }
+    backoffMs = 1_000;
+    deps.log("holding the console control socket");
     socket.onMessage(handle);
     socket.onClose((reason) => {
-      deps.log("the console broker closed the control socket", { reason });
+      redial("the broker closed it", reason);
     });
   };
   dial().catch(() => {
@@ -184,7 +240,18 @@ export function consoleListener(deps: ConsoleListenDeps): ConsoleListener {
     },
     stop() {
       stopped = true;
+      alive.stop();
       socket?.close();
+    },
+  };
+}
+
+/** A bare timer, unref'd nowhere: holding the loop open is its whole job. */
+function defaultKeepalive(): { stop(): void } {
+  const handle = setInterval(() => undefined, 60_000);
+  return {
+    stop() {
+      clearInterval(handle);
     },
   };
 }

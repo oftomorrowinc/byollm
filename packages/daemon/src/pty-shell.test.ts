@@ -200,3 +200,71 @@ describe("when node-pty simply is not here", () => {
     ).rejects.toThrow(abi);
   });
 });
+
+describe("what the shell says before anyone is listening", () => {
+  /**
+   * The console opens the shell, THEN dials a socket, THEN builds the session
+   * that consumes it — deliberately, so a box with no pty never dials. The
+   * shell greets and prompts in that window, and the first prompt is the
+   * whole signal that it is safe to type.
+   */
+  it("keeps the greeting and the first prompt for whoever attaches", async () => {
+    const pty = fakePty();
+    const shell = await open(pty);
+
+    pty.emit("this is your byollm box.\r\n");
+    pty.emit("byollm> ");
+
+    const seen: string[] = [];
+    shell.onData((chunk) => seen.push(chunk.toString("utf8")));
+
+    expect(seen.join("")).toBe("this is your byollm box.\r\nbyollm> ");
+  });
+
+  it("keeps them in order, and does not repeat them to a later chunk", async () => {
+    const pty = fakePty();
+    const shell = await open(pty);
+    pty.emit("one ");
+    pty.emit("two ");
+
+    const seen: string[] = [];
+    shell.onData((chunk) => seen.push(chunk.toString("utf8")));
+    pty.emit("three");
+
+    expect(seen.join("")).toBe("one two three");
+  });
+
+  it("tells a consumer about an exit that already happened", async () => {
+    /* A shell that dies before the session exists — a bad command, a missing
+       binary — would otherwise leave the session waiting on an exit it had
+       already missed. */
+    const pty = fakePty();
+    const shell = await open(pty);
+    pty.exit({ exitCode: 127 });
+
+    let reason: string | undefined;
+    shell.onExit((why) => {
+      reason = why;
+    });
+
+    expect(reason).toBe("the shell exited (127)");
+  });
+
+  it("stops holding rather than growing without limit", async () => {
+    /* "Nobody ever attaches" is reachable, and a shell left talking to itself
+       must not become a leak. The bound keeps the beginning — the greeting and
+       the prompt — which is the part that had to survive. */
+    const pty = fakePty();
+    const shell = await open(pty);
+
+    pty.emit("byollm> ");
+    for (let at = 0; at < 200; at += 1) pty.emit("x".repeat(1024));
+
+    const seen: string[] = [];
+    shell.onData((chunk) => seen.push(chunk.toString("utf8")));
+
+    const all = seen.join("");
+    expect(all.startsWith("byollm> ")).toBe(true);
+    expect(all.length).toBeLessThanOrEqual(64 * 1024);
+  });
+});

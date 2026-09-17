@@ -89,6 +89,15 @@ const isMissingModule = (error: unknown): boolean => {
   return code === "ERR_MODULE_NOT_FOUND" || code === "MODULE_NOT_FOUND";
 };
 
+/**
+ * How much a shell may say before anyone is listening.
+ *
+ * Sized for a greeting and a prompt with room to spare, not for output: a
+ * console that nobody attaches to is a leak, and the bound is what makes the
+ * hold safe to do at all.
+ */
+const HELD_BEFORE_ATTACH_BYTES = 64 * 1024;
+
 export async function openPtyShell(
   options: PtyShellOptions,
 ): Promise<ConsoleShell> {
@@ -118,6 +127,57 @@ export async function openPtyShell(
     env: options.env,
   });
 
+  /**
+   * A pty produces from the instant it spawns. The session that consumes it
+   * is not built until a socket has been dialled and a door opened, and
+   * `onData` only subscribes when it is called — so everything the shell said
+   * in that window went to a listener that did not exist yet.
+   *
+   * What the shell says in that window is its greeting and its first prompt,
+   * and the first prompt is the entire signal that it is safe to type. An
+   * operator opened a console, saw `[connected]` and an empty pane, and had
+   * no way to tell a ready shell from a dead one.
+   *
+   * This is the third time this gap has been paid for: the browser's hello
+   * went into it, then the console's stylesheet, and now the box's own
+   * greeting. So the subscription happens at spawn and what arrives is held
+   * until somebody comes for it.
+   */
+  let deliver: ((chunk: Buffer) => void) | undefined;
+  const held: Buffer[] = [];
+  let heldBytes = 0;
+  let exited: string | undefined;
+  let announce: ((reason: string) => void) | undefined;
+
+  child.onData((data) => {
+    const chunk = Buffer.from(data, "utf8");
+    if (deliver !== undefined) {
+      deliver(chunk);
+      return;
+    }
+    /* Bounded, because "nobody ever attaches" is a reachable state and a
+       shell left talking to itself must not grow without limit. A prompt is
+       bytes; this is orders of magnitude above one and still finite. */
+    if (heldBytes + chunk.length > HELD_BEFORE_ATTACH_BYTES) return;
+    held.push(chunk);
+    heldBytes += chunk.length;
+  });
+
+  child.onExit(({ exitCode, signal }) => {
+    const reason =
+      signal !== undefined && signal !== 0
+        ? `the shell was stopped (signal ${String(signal)})`
+        : `the shell exited (${String(exitCode)})`;
+    /* Same gap, same fix. A shell that dies before the session is built —
+       a bad command, a missing binary — would otherwise leave the session
+       waiting on an exit that had already happened. */
+    if (announce === undefined) {
+      exited = reason;
+      return;
+    }
+    announce(reason);
+  });
+
   return {
     write(data: Buffer) {
       // node-pty speaks strings. utf8 round-trips what a terminal sends, and
@@ -133,18 +193,16 @@ export async function openPtyShell(
       }
     },
     onData(handler: (chunk: Buffer) => void) {
-      child.onData((data) => {
-        handler(Buffer.from(data, "utf8"));
-      });
+      deliver = handler;
+      /* Drained before returning, so a consumer that attaches and then asks
+         what it has seen gets an answer that includes the greeting. */
+      const waiting = held.splice(0, held.length);
+      heldBytes = 0;
+      for (const chunk of waiting) handler(chunk);
     },
     onExit(handler: (reason: string) => void) {
-      child.onExit(({ exitCode, signal }) => {
-        handler(
-          signal !== undefined && signal !== 0
-            ? `the shell was stopped (signal ${String(signal)})`
-            : `the shell exited (${String(exitCode)})`,
-        );
-      });
+      announce = handler;
+      if (exited !== undefined) handler(exited);
     },
     kill() {
       try {

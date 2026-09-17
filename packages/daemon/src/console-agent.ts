@@ -68,6 +68,16 @@ export interface ConsoleSessionRecord {
 export interface ConsoleShell {
   write(data: Buffer): void;
   resize(cols: number, rows: number): void;
+  /**
+   * Subscribe to the shell's output.
+   *
+   * **Whatever the shell produced before this was called must be delivered
+   * here.** A pty starts producing at spawn and the console does not build
+   * its session until a socket is up, so a shell's greeting and its first
+   * prompt — the only signal that it is safe to type — land in that window.
+   * An implementation that subscribes lazily drops them and shows an
+   * operator an empty pane. See `pty-shell.test.ts`, which holds this to it.
+   */
   onData(handler: (chunk: Buffer) => void): void;
   onExit(handler: (reason: string) => void): void;
   kill(): void;

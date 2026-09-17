@@ -53,7 +53,21 @@ export interface ConsoleListenDeps {
   readonly run: (announcement: ConsoleAnnouncement) => Promise<void>;
   readonly log: (message: string, fields?: Record<string, unknown>) => void;
   readonly now?: () => number;
-  /** Injected in tests. */
+  /**
+   * Injected in tests. **Production uses {@link dialControlSocket}**, and the
+   * absence of that default is the whole reason a console never worked.
+   *
+   * `dial()` began `if (deps.connect === undefined) return;` and the CLI never
+   * passed one — so on every box, in every release, this function opened no
+   * socket, registered with no broker, and returned without a word. The box
+   * printed "listening for consoles", which was the last true thing it said.
+   *
+   * It survived because it is invisible from both ends. The box looks healthy
+   * (nothing failed). The hub looks healthy (a device that never attached is
+   * indistinguishable from one that is merely offline). And .96's keepalive
+   * made it worse by making it calm: before, the process at least crash-looped
+   * loudly; after, it held a socketless silence forever.
+   */
   readonly connect?: (
     url: string,
     headers: Record<string, string>,
@@ -102,6 +116,59 @@ export interface ConsoleListener {
  * rather than queued — a console that opens minutes later, when the person has
  * given up and clicked again, is worse than one that says no.
  */
+/**
+ * The control socket a box holds open, with the headers that say which box.
+ *
+ * Node's global `WebSocket` takes a `headers` option, which is not in the
+ * WHATWG standard but is what makes this possible without a client library —
+ * the browser's door has to carry its credentials in the query string
+ * precisely because a browser cannot do this.
+ *
+ * **Measured in the image the box actually runs**, per the standard
+ * `console-agent-main.ts` set for the same question: `node:22-bookworm-slim`
+ * at the pinned digest, Node v22.23.2, header received. Not assumed from the
+ * local Node, which is a 24.
+ */
+const dialControlSocket = (
+  url: string,
+  headers: Record<string, string>,
+): Promise<ConsoleSocket> =>
+  new Promise((resolve, reject) => {
+    /* The options bag is accepted by the runtime and by the type — no cast
+       needed, which is worth noticing: the headers path is supported rather
+       than smuggled. */
+    const socket = new WebSocket(url, { headers });
+    socket.addEventListener("open", () => {
+      resolve({
+        send: (text) => {
+          socket.send(text);
+        },
+        onMessage: (handler) => {
+          socket.addEventListener("message", (event: MessageEvent) => {
+            handler(String(event.data));
+          });
+        },
+        onClose: (handler) => {
+          socket.addEventListener("close", (event: CloseEvent) => {
+            /* The code, because "it closed" was never the question. A 1006
+               and a 1008 send an operator to different places, and the door
+               refusing a signature looks identical to a network drop without
+               it. */
+            handler(
+              `${String(event.code)}${event.reason === "" ? "" : ` ${event.reason}`}`,
+            );
+          });
+        },
+        close: () => {
+          socket.close();
+        },
+      });
+    });
+    socket.addEventListener("error", () => {
+      reject(new Error(`could not reach the console broker at ${url}`));
+    });
+  });
+
 export function consoleListener(deps: ConsoleListenDeps): ConsoleListener {
   const now = deps.now ?? Date.now;
   let stopped = false;
@@ -205,9 +272,11 @@ export function consoleListener(deps: ConsoleListenDeps): ConsoleListener {
   };
 
   const dial = async (): Promise<void> => {
-    if (deps.connect === undefined) return;
+    /* Defaulted, never skipped. An absent dependency that turns the whole
+       function into a silent no-op is not a safe default — it is the bug. */
+    const connect = deps.connect ?? dialControlSocket;
     try {
-      socket = await deps.connect(
+      socket = await connect(
         deps.url,
         deviceHeaders(deps.keys, deps.runnerId, now()),
       );

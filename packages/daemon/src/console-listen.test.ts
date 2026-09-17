@@ -3,7 +3,7 @@ import {
   publicIdentityOf,
   verifyRequest,
 } from "@byollm/protocol";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   CONSOLE_DEVICE_ENDPOINT,
   consoleListener,
@@ -437,5 +437,70 @@ describe("what keeps the process alive", () => {
 
     h.listener.stop();
     expect(h.released, "a stopped listener must let the process end").toBe(1);
+  });
+});
+
+/**
+ * **The box never opened its control socket. Not once, in any release.**
+ *
+ * `dial()` began `if (deps.connect === undefined) return;`, and `connect` was
+ * documented "Injected in tests" — which it only ever was. The CLI passed
+ * `url`, `runnerId`, `keys`, `run` and `log`, and no connect, so on every box
+ * this function returned immediately having done nothing at all.
+ *
+ * It hid for as long as it did because it is invisible from both ends. The box
+ * prints "listening for consoles" and looks connected. The hub cannot tell a
+ * device that never attached from one that is merely offline. And the console
+ * failed in four different ways on the way down — crash loop, no door, missing
+ * stylesheet, cross-pod dead air — each of them real, each of them fixed, and
+ * none of them this.
+ *
+ * .96 made it quieter. Before the keepalive the process at least died every
+ * few seconds; after, it held a socketless silence perfectly.
+ *
+ * Every test in this file passed throughout, because every one of them injects
+ * a `connect`. That is the hole: a suite that always supplies a dependency
+ * cannot notice that production never does.
+ */
+describe("what the listener does with no connect injected", () => {
+  it("dials anyway — the default is production's, not a test's", async () => {
+    /**
+     * The whole bug in one assertion. With the old guard this test passes
+     * trivially and proves nothing, so it asserts the ATTEMPT: an unroutable
+     * URL must produce a redial, because a redial can only follow a dial.
+     */
+    const logs: { message: string; fields?: Record<string, unknown> }[] = [];
+    const listener = consoleListener({
+      /* Reserved by RFC 6761 to never resolve, so this fails fast and
+         offline — the test asserts that a dial happened, not that it won. */
+      url: "ws://console.invalid/console/device",
+      runnerId: RUNNER,
+      keys: generateKeys(3),
+      run: () => Promise.resolve(),
+      log: (message, fields) =>
+        logs.push({ message, ...(fields ? { fields } : {}) }),
+      wait: () => new Promise(() => undefined),
+      keepalive: () => ({
+        stop() {
+          /* Nothing to release: this test never starts a real timer. */
+        },
+      }),
+    });
+
+    await vi.waitFor(
+      () => {
+        expect(
+          logs.some((l) => l.message.includes("control socket is gone")),
+          "the listener never attempted a connection at all",
+        ).toBe(true);
+      },
+      { timeout: 4_000 },
+    );
+
+    const said = logs.find((l) => l.message.includes("control socket is gone"));
+    expect(said?.fields?.["why"]).toBe(
+      "the broker refused or could not be reached",
+    );
+    listener.stop();
   });
 });

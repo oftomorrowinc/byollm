@@ -318,6 +318,44 @@ describe("console payload encoding", () => {
     }
   });
 
+  it("reads the two lengths that decided what an operator saw", () => {
+    /* Not a round-trip through our own encoder — that agrees with itself
+       whichever alphabet it picks, and agreeing with itself is exactly what
+       both ends were doing while they disagreed with each other. The input
+       here is produced by the call the shipped box actually makes, and read
+       by the call the browser actually makes. */
+    const encodedByTheBox = (text: string): string =>
+      Buffer.from(new TextEncoder().encode(text)).toString("base64");
+
+    /* One typed character is one byte, which always pads. This is every
+       keystroke's echo, and it is why NONE of them arrived. */
+    const keystroke = encodedByTheBox("b");
+    expect(keystroke).toBe("Yg==");
+    expect(keystroke).toMatch(/=$/);
+    expect(new TextDecoder().decode(decodeConsoleData(keystroke))).toBe("b");
+
+    /* A length that is a multiple of three does not pad, which is why SOME
+       output got through and looked, from a chair, like randomness. */
+    const lucky = encodedByTheBox("abc");
+    expect(lucky).toBe("YWJj");
+    expect(lucky).not.toMatch(/=/);
+    expect(new TextDecoder().decode(decodeConsoleData(lucky))).toBe("abc");
+
+    /* And the three remainders, so the rule is pinned rather than sampled. */
+    for (const [text, pad] of [
+      ["a", 2],
+      ["ab", 1],
+      ["abc", 0],
+      ["abcd", 2],
+    ] as const) {
+      const encoded = encodedByTheBox(text);
+      expect(encoded.length - encoded.replace(/=+$/, "").length, text).toBe(
+        pad,
+      );
+      expect(new TextDecoder().decode(decodeConsoleData(encoded))).toBe(text);
+    }
+  });
+
   it("round-trips its own encoding, which is base64url", () => {
     for (const text of payloads) {
       const bytes = new TextEncoder().encode(text);

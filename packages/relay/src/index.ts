@@ -305,28 +305,9 @@ export class Relay {
    * site vanished should return to the queue without waiting for someone to
    * ask about it.
    */
-  async sweep(): Promise<{ requeued: string[]; removed: string[] }> {
-    /**
-     * Requeued and REMOVED, told apart — B250.
-     *
-     * This returned one array called `requeued`, and a job the relay had
-     * given up on was in it: a deadline that passed, or a stub handed round
-     * until its attempts were spent. An operator reading `requeued: 3` about
-     * three jobs nobody will ever run was told the opposite of what happened
-     * — which is B096's own sentence, one layer above where B096 fixed it.
-     *
-     * **A store that does not set `sweptAway` behaves exactly as before**:
-     * `removed` is empty and `requeued` holds the union, because that is what
-     * the marker's absence means. `RelayState` sets it; `ValkeyRoutingStore`
-     * lives in another repository and adopts it when its pin moves. No
-     * lockstep, nothing to coordinate, and no moment where either side is
-     * wrong — the field says less until the store says more.
-     */
-    const swept = await this.state.sweep();
-    return {
-      requeued: swept.filter((j) => j.sweptAway !== true).map((j) => j.id),
-      removed: swept.filter((j) => j.sweptAway === true).map((j) => j.id),
-    };
+  async sweep(): Promise<{ requeued: string[] }> {
+    const requeued = await this.state.sweep();
+    return { requeued: requeued.map((j) => j.id) };
   }
 
   /** The whole HTTP surface. */

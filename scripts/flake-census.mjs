@@ -50,7 +50,25 @@ import { appendFileSync, writeFileSync } from "node:fs";
 
 const runs = Number(process.argv[2] ?? "20");
 const bare = process.argv.includes("--tests");
-const REPORT = "flake-census.txt";
+/**
+ * Extra arguments for the runner — the discriminator lives here.
+ *
+ *   --with=--no-file-parallelism    does the flake need files running at once?
+ *   --with=--max-workers=12         does more concurrency make it worse?
+ *
+ * A census that can only measure the default configuration can tell you THAT
+ * something is flaky and never WHY. Two arms differing in one flag is the
+ * cheapest experiment that separates a slow test from a contended one — and it
+ * is repeatable, which an afternoon of shell history is not.
+ */
+const extra = process.argv
+  .filter((arg) => arg.startsWith("--with="))
+  .map((arg) => arg.slice("--with=".length));
+/** Named after the arm, so two runs do not overwrite each other's evidence. */
+const REPORT =
+  extra.length === 0
+    ? "flake-census.txt"
+    : `flake-census${extra.join("").replaceAll(/[^a-z0-9]+/gi, "-")}.txt`;
 
 if (!Number.isInteger(runs) || runs < 1) {
   console.error("usage: flake-census.mjs <runs> [--tests]");
@@ -58,7 +76,9 @@ if (!Number.isInteger(runs) || runs < 1) {
 }
 
 /** The command under census. `verify` is the one the ruling names. */
-const command = bare ? ["npx", ["vitest", "run"]] : ["pnpm", ["run", "verify"]];
+const command = bare
+  ? ["npx", ["vitest", "run", ...extra]]
+  : ["pnpm", ["run", "verify", ...extra]];
 
 /**
  * Every failing case in a run's output.

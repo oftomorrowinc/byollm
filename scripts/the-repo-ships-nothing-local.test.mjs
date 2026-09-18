@@ -118,10 +118,28 @@ describe("local tooling state", () => {
      *
      * The content sweep — secret shapes across the working tree and all 858
      * commits of history — was run by hand on 2026-09-18 and found nothing but
-     * deliberate fixtures (`sk-ant-nope`, `sk-should-not-appear`). That is not
-     * something a unit test should re-run on every commit, and GitHub's own
-     * secret scanning and push protection are the durable answer once the
-     * repository is public.
+     * deliberate fixtures (`sk-ant-nope`, `sk-should-not-appear`).
+     *
+     * **This used to say GitHub's own secret scanning and push protection were
+     * the durable answer once the repository is public. They are not on.**
+     * Asked rather than assumed, with an admin token so the fields are really
+     * visible:
+     *
+     *     repos/oftomorrowinc/byollm → visibility: "public"
+     *       secret_scanning:                 disabled
+     *       secret_scanning_push_protection: disabled
+     *       secret_scanning_non_provider_patterns: disabled
+     *
+     * So the repository is public with none of it enabled, and the sentence
+     * described a control nobody had turned on — a plan, not a protection.
+     * Turning it on is Todd's (it changes what happens to a contributor's
+     * push, which is his call, not ours); reported in inbox 2026-09-18-1455.
+     *
+     * Until then `scripts/no-secrets-in-the-tree.mjs` is **the only
+     * content-level check there is**, which is also why it is not redundant
+     * with this one: that reads CONTENT across the tracked tree, this reads
+     * NAMES. If push protection is enabled later, this paragraph is what tells
+     * the next reader the overlap was deliberate rather than accidental.
      *
      * What belongs here is the cheap, fast half: a file whose NAME says it
      * holds a key should never be tracked, because that one is an accident

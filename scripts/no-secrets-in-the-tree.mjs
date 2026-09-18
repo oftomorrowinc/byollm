@@ -18,6 +18,20 @@
  * the sweep's job, it takes minutes, and a gate nobody waits for is a gate
  * somebody removes from the chain.
  *
+ * ## Its pair, and why both exist
+ *
+ * `the-repo-ships-nothing-local.test.mjs` checks tracked file NAMES — a file
+ * called `credentials.json` is an accident caught for free. This checks
+ * CONTENT. Neither subsumes the other and the split is deliberate, said here
+ * because two checks about secrets look like duplication to somebody tidying.
+ *
+ * That file used to argue the content half belonged to GitHub's secret
+ * scanning once the repository went public. **It is public and that is
+ * disabled** — asked with an admin token on 2026-09-18, along with push
+ * protection and non-provider patterns. So this is currently the only
+ * content-level check in front of a public repository, and if Todd turns
+ * GitHub's on, this becomes the faster local half rather than the only half.
+ *
  * ## Why prefixes and not entropy
  *
  * An entropy scanner finds base64 in a fixture, a hash in a lockfile and a

@@ -307,6 +307,63 @@ const liveClaims = (text) => {
   return hits;
 };
 
+/**
+ * Hand edits this gate cannot see — B284, on CW's ask of 2026-09-18.
+ *
+ * Every rule in this file walks THIS repository. The pages a customer reads
+ * live in `byollm-cloud-web`, and they carry alpha sentences of exactly the
+ * kind these rules refuse. **A gate that cannot reach them must not imply it
+ * has** — so it names them instead, and says plainly that it has not checked.
+ *
+ * Widening the gate across repositories was considered and declined: it is the
+ * divergence shape `byollm_023` names, and a checker that reads a sibling
+ * working tree reports on whatever happens to be checked out there. A written
+ * list is worse at staying true and better at being honest about it, which is
+ * the right trade for five lines somebody reads once per release.
+ *
+ * Line numbers were read on 2026-09-18 and will drift. They are here so the
+ * reader lands near the sentence, not so a script can trust them.
+ */
+const CROSS_REPO = Object.freeze([
+  {
+    row: "B284",
+    where: "byollm-cloud-web  apps/www/src/app/terms/page.tsx",
+    lines: [52, 107, 177],
+    what: 'the Terms say "It is in alpha", "During alpha…", "It is alpha software"',
+    note:
+      "NOT a delete — the middle one is B262's truth about manual provisioning " +
+      "and the last is a liability disclaimer. It is a rewrite of what " +
+      '"alpha" stands in for, and the Terms are versioned approved copy: ' +
+      "CW ruled the version moves to 1.1 and `EFFECTIVE` " +
+      '(apps/www/src/app/legal/ui.tsx, "September 16, 2026") moves with it.',
+  },
+  {
+    row: "B279",
+    where: "byollm  README.md + five package READMEs",
+    lines: [],
+    what: "the warning claims the packages have never run outside their own test suite",
+    note:
+      "Already listed above by the pre-release-claim rule, and repeated here " +
+      "because the TRUE sentence is not the one the rule implies: it is false " +
+      "today, not merely alpha-flavoured. @byollm/conformance is the one " +
+      "package where it holds and is deliberately left alone.",
+  },
+]);
+
+/** The cross-repo list, printed on every path — refusal and pass alike. */
+const crossRepoNotice = () =>
+  `\nHAND EDITS THIS GATE CANNOT SEE — it reads this repository only:\n\n` +
+  CROSS_REPO.map(
+    (item) =>
+      `  ${item.row}  ${item.where}` +
+      (item.lines.length > 0 ? `:${item.lines.map(String).join(",")}` : "") +
+      `\n      ${item.what}\n      ${item.note}\n`,
+  ).join("\n") +
+  `\n  These are not findings. Nothing here checked them, and nothing in the\n` +
+  `  cut will: the flip refuses on what this file can read, and these pages\n` +
+  `  are in another repository. They survive a green run unless somebody\n` +
+  `  edits them, which is why they are printed rather than assumed.\n`;
+
 const main = () => {
   const root = resolve(process.env["ALPHA_CLAIMS_ROOT"] ?? join(HERE, ".."));
   /* The same manifest `bump-version.mjs` reads `current` from. The root
@@ -418,13 +475,20 @@ const main = () => {
         `not \`alpha\`. Every line above that still points at it sends a reader\n` +
         `to the last prerelease instead of the version just locked, and the\n` +
         `failure looks like their mistake.\n` +
-        `B222: the warning comes out in the same cut.`,
+        `B222: the warning comes out in the same cut.\n` +
+        crossRepoNotice(),
     );
     return 1;
   }
 
+  /* "no document" was a claim about every document, made by a reader of one
+     repository. It is now scoped to what was actually read, and the rest is
+     named — the same correction B269 made when this file claimed completeness
+     for one release while six warning bodies stood behind it. */
   console.log(
-    `alpha-claims: ${version} is not a prerelease and no document claims otherwise.`,
+    `alpha-claims: ${version} is not a prerelease and no document IN THIS ` +
+      `REPOSITORY claims otherwise.\n` +
+      crossRepoNotice(),
   );
   return 0;
 };

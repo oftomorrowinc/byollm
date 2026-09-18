@@ -218,7 +218,11 @@ describe("at a clean version", () => {
     });
     const { code, out } = run(root);
     expect(code).toBe(0);
-    expect(out).toContain("no document claims otherwise");
+    /* The pass sentence gained a scope on 2026-09-18 — "no document IN THIS
+       REPOSITORY" — because it was a claim about every document made by a
+       reader of one tree. The subject of this case is the history rule, not
+       the wording, so it asserts the pass rather than the old literal. */
+    expect(out).toContain("claims otherwise");
   });
 
   it("is what the real repository would fail on today", () => {
@@ -772,5 +776,93 @@ describe("the warning body the bump leaves standing", () => {
     });
     expect(out).not.toMatch(/they are all that is left/u);
     expect(out).toMatch(/not the same as\s*\n?everything/u);
+  });
+});
+
+describe("the hand edits this gate cannot reach — B284", () => {
+  /**
+   * CW's ask of 2026-09-18: *"add B284's three lines to the cut's printed
+   * refusals so they cannot survive it silently."*
+   *
+   * Every rule in this file walks THIS repository. The Terms that say "It is
+   * alpha software" are in `byollm-cloud-web`, and they go false at the cut
+   * exactly like the sentences these rules refuse — with nothing to stop them,
+   * because nothing here can read that tree.
+   */
+
+  it("names them when it refuses", () => {
+    const root = tree("0.1.0", { "README.md": `# byollm\n\n${BANNER}` });
+    const { code, out } = run(root);
+    expect(code).toBe(1);
+    expect(out).toContain("HAND EDITS THIS GATE CANNOT SEE");
+    expect(out).toContain("terms/page.tsx");
+    expect(out).toContain("B284");
+  });
+
+  it("names them when it PASSES, which is the path that would hide them", () => {
+    /**
+     * The case that matters, and the reason the notice is not simply appended
+     * to the refusal text.
+     *
+     * The in-repo claims get fixed first — that is the whole point of the
+     * refusal — and the run after that one is green. If the list printed only
+     * on failure, the last thing anybody saw before tagging would be a clean
+     * gate, and the Terms would ship saying the software is alpha on the day
+     * it stopped being. **A green run is exactly when an unreadable surface
+     * needs naming.**
+     */
+    const root = tree("0.1.0", {
+      "README.md": "# byollm\n\nNothing to see.\n",
+    });
+    const { code, out } = run(root);
+    expect(code).toBe(0);
+    expect(out).toContain("HAND EDITS THIS GATE CANNOT SEE");
+    expect(out).toContain("terms/page.tsx");
+  });
+
+  it("stops claiming that NO document says otherwise", () => {
+    /**
+     * It said *"no document claims otherwise"* — a statement about every
+     * document, made by a reader of one repository. That is the overclaim B269
+     * already corrected once in this file, when it announced completeness for
+     * a release while six warning bodies stood behind it unnamed.
+     *
+     * Asserted by absence as well as presence, because the new sentence
+     * contains the old one as a substring and a partial edit would satisfy a
+     * `toContain` alone.
+     */
+    const root = tree("0.1.0", {
+      "README.md": "# byollm\n\nNothing to see.\n",
+    });
+    const { out } = run(root);
+    expect(out).toContain("IN THIS REPOSITORY");
+    expect(out).not.toMatch(/prerelease and no document claims otherwise/u);
+  });
+
+  it("says out loud that it has not checked them", () => {
+    /* The difference between a list and a verdict. A reader who took these
+       for findings would go looking for what turned them up, and a reader who
+       took them for checked would trust a green run that never read them. */
+    const root = tree("0.1.0", {
+      "README.md": "# byollm\n\nNothing to see.\n",
+    });
+    const { out } = run(root);
+    expect(out).toContain("These are not findings");
+    expect(out).toContain("survive a green run");
+  });
+
+  it("is carrying entries at all", () => {
+    /* An empty list prints a heading and nothing under it, which reads as
+       "there is nothing we cannot see" — the fail-open this file is written
+       against, in the section about what it cannot do. */
+    const root = tree("0.1.0", {
+      "README.md": "# byollm\n\nNothing to see.\n",
+    });
+    const { out } = run(root);
+    const body = out.slice(out.indexOf("HAND EDITS THIS GATE CANNOT SEE"));
+    expect(
+      [...body.matchAll(/^ {2}B\d+ {2}/gmu)].length,
+      "the cross-repo list has no entries",
+    ).toBeGreaterThanOrEqual(2);
   });
 });

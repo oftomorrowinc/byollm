@@ -22,6 +22,8 @@ import { join } from "node:path";
 
 const ROOT = new URL("..", import.meta.url).pathname;
 const START = "<!-- family:start -->";
+const TABLE_START = "<!-- packages:start -->";
+const TABLE_END = "<!-- packages:end -->";
 const END = "<!-- family:end -->";
 
 /**
@@ -131,6 +133,49 @@ function section(self) {
   ].join("\n");
 }
 
+/**
+ * The ROOT README's table, from the same list — B224.
+ *
+ * It was hand-kept and listed **four** packages when seven shipped: no
+ * `@byollm/relay`, no `@byollm/control-plane`, no `@byollm/agreements`. The
+ * sentence under it said "all four packages are published" and named the same
+ * four, so the front page of the project got the size of the project wrong,
+ * twice, in the week it goes public.
+ *
+ * That is the failure this file already exists to prevent one directory down.
+ * The package READMEs have been generated since B029 and were right; the root
+ * README was the copy nobody generated, and it is the one a stranger reads
+ * first.
+ *
+ * A table rather than the bullet list, because the root README's shape is a
+ * table and a generator that reformats the page it lands in is a generator
+ * people turn off.
+ */
+function table() {
+  const rows = FAMILY.map(
+    ([name, blurb]) =>
+      `| [\`${name}\`](packages/${dir(name)}) | ${blurb[0].toUpperCase()}${blurb.slice(1)}. |`,
+  ).join("\n");
+  return [
+    TABLE_START,
+    "",
+    "| Package | What it is |",
+    "|---|---|",
+    rows,
+    "",
+    /* **Not "all seven are published".** This generator reads `packages/`,
+       which says what EXISTS and nothing about what npm serves — and the
+       first version of the sentence claimed publication for
+       `@byollm/agreements` on the day it was deliberately unpublished,
+       pending a decision. A generated sentence is still a claim, and a
+       generator may only claim what its input supports. */
+    `${spelled(FAMILY.length)} packages, versioned and released together. Ask ` +
+      "for `@alpha` explicitly — see the warning at the top of this file.",
+    "",
+    TABLE_END,
+  ].join("\n");
+}
+
 const check = process.argv.includes("--check");
 const wrong = [];
 
@@ -153,6 +198,32 @@ for (const [name] of FAMILY) {
   }
   writeFileSync(path, next);
   process.stdout.write(`  updated packages/${dir(name)}/README.md\n`);
+}
+
+{
+  /* The root README, with the same list in its own shape. */
+  const path = join(ROOT, "README.md");
+  const text = readFileSync(path, "utf8");
+  const want = table();
+  const from = text.indexOf(TABLE_START);
+  const to = text.indexOf(TABLE_END);
+  if (from === -1 || to === -1) {
+    process.stderr.write(
+      `\n  README.md has no ${TABLE_START} … ${TABLE_END} block.\n` +
+        "  The packages table is generated; without the markers there is\n" +
+        "  nowhere to put it and the table goes back to being hand-kept.\n\n",
+    );
+    process.exit(1);
+  }
+  const next = `${text.slice(0, from)}${want}${text.slice(to + TABLE_END.length)}`;
+  if (next !== text) {
+    if (check) {
+      wrong.push("README.md");
+    } else {
+      writeFileSync(path, next);
+      process.stdout.write("  updated README.md\n");
+    }
+  }
 }
 
 if (check && wrong.length > 0) {

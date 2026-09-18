@@ -167,6 +167,113 @@ const fixture =
  * `null` means the question could not be asked; `false` means it was asked and
  * the name has no address.
  */
+/**
+ * Is this resolver answering faithfully, or is it answering for somebody else?
+ *
+ * **Every "dead name" verdict this script prints is a claim about the world
+ * made from inside one machine's network**, and CW was right to say so: I
+ * reported `oftomorrow.press` as having no records an hour after two people
+ * had loaded it, and a resolver behind an allowlist would look exactly like
+ * that. A control that merely resolves is not enough — it proves some names
+ * resolve, not that none are being withheld.
+ *
+ * Two questions, asked once per run, that a filtering resolver fails:
+ *
+ *   - a **known-good** name resolves, so the resolver works at all;
+ *   - a name that **cannot exist** comes back not-found, so the resolver is
+ *     not synthesising answers or sinkholing what it does not like.
+ *
+ * If either is wrong, no name can be called dead here — every verdict becomes
+ * unjudged, because the instrument is the thing that is broken. That is the
+ * difference between a finding and a faulty prover, and this script exists to
+ * report the first.
+ *
+ * It does **not** prove the resolver is unfiltered. A filter that faithfully
+ * proxies a zone and hides one record type would pass both. What it rules out
+ * is the ordinary shapes — no DNS, a sinkhole, a wildcard — and what is left
+ * is small enough to name in the output rather than to hide.
+ */
+/** @typedef {"answered" | "not-found" | "failed"} Observation */
+
+const KNOWN_GOOD = "one.one.one.one";
+const CANNOT_EXIST = "nxdomain-probe-4f2a9c.invalid";
+
+/**
+ * The judgement, separated from the two lookups that feed it.
+ *
+ * Exported and pure because the lookups cannot be staged: every case in this
+ * suite runs through the fixture, which short-circuits before any real DNS —
+ * so the rule below was written and never asked, and a mutation trusting a
+ * resolver that invents names survived every one of them. The seam hid the
+ * live path, which is the third time in this file.
+ *
+ * `good` is what a known-good name returned; `bogus` is what a name that
+ * cannot exist returned. Both are `"answered"`, `"not-found"` or `"failed"`.
+ *
+ */
+const resolverVerdict = ({ good, bogus }) => {
+  /* A resolver that cannot answer for a name it should know is not in a
+     position to say anything is missing. */
+  if (good !== "answered") return false;
+  /* A resolver that answers for a name that cannot exist is inventing them —
+     a sinkhole or a wildcard — and its not-founds mean nothing either. */
+  return bogus === "not-found";
+};
+
+/**
+ * One lookup, reduced to the three answers the verdict cares about.
+ *
+ * The lookup is injectable for the reason `beatWriterIsGone` takes its `kill`:
+ * there is no other way to stage a timeout, and a mutation reporting one as
+ * `not-found` survived otherwise. It matters in exactly one shape — the
+ * control resolves and the bogus probe times out — where treating the timeout
+ * as an admission would trust a resolver that had told us nothing.
+ *
+ */
+const observe = async (host, lookup = resolve4) => {
+  try {
+    const answers = await lookup(host);
+    return Array.isArray(answers) && answers.length > 0
+      ? "answered"
+      : "not-found";
+  } catch (error) {
+    const code = String(error.code ?? "");
+    return code === "ENOTFOUND" || code === "ENODATA" ? "not-found" : "failed";
+  }
+};
+
+/**
+ * The two probes, from the fixture rather than the network.
+ *
+ * `{ good, bogus }` name what each lookup should do: an array is what it
+ * resolved, a string is the error code it threw. They go through the same
+ * `observe` and the same `resolverVerdict` the real run uses — the point is
+ * to exercise that rule, not to restate it here, and the first version of
+ * this fixture short-circuited before both and left them untested.
+ */
+const stagedLookup = (answer) => (_name) =>
+  Array.isArray(answer)
+    ? Promise.resolve(answer)
+    : Promise.reject(
+        Object.assign(new Error(String(answer)), { code: answer }),
+      );
+
+const resolverIsAnswering = async () => {
+  if (fixture !== undefined) {
+    const staged = fixture["__resolver"];
+    if (staged === undefined) return true;
+    if (staged === "broken") return false;
+    return resolverVerdict({
+      good: await observe(KNOWN_GOOD, stagedLookup(staged.good)),
+      bogus: await observe(CANNOT_EXIST, stagedLookup(staged.bogus)),
+    });
+  }
+  return resolverVerdict({
+    good: await observe(KNOWN_GOOD),
+    bogus: await observe(CANNOT_EXIST),
+  });
+};
+
 const resolves = async (url) => {
   const host = (() => {
     try {
@@ -360,15 +467,38 @@ const main = async () => {
     return 2;
   }
 
+  /* Asked once, before any verdict is believed — see `resolverIsAnswering`. */
+  const trustworthy = await resolverIsAnswering();
+
   const dead = [];
   const unjudged = [];
   for (const [url, files_] of where) {
     const { state, why } = fromSource.has(url)
       ? await nameExists(url)
       : await judge(url);
-    if (state === "dead") dead.push({ url, why, files: files_ });
+    if (state === "dead" && !trustworthy) {
+      /* The instrument, not the finding. A resolver that cannot answer for a
+         name it should know, or that invents one it cannot, is in no position
+         to tell anybody a link is dead. */
+      unjudged.push({ url, why: "this resolver is not answering faithfully" });
+    } else if (state === "dead") dead.push({ url, why, files: files_ });
     else if (state === "unjudged") unjudged.push({ url, why });
   }
+
+  /* On stdout, with the rest of the report. This is a caveat on the result
+     rather than a failure — the same place "could not judge" is printed, and
+     the run does not exit non-zero for it. It went to stderr first, where a
+     passing run's harness never saw it: a warning nobody can read is a warning
+     that is not there. */
+  if (!trustworthy)
+    console.log(
+      "\nTHE RESOLVER HERE IS NOT ANSWERING FAITHFULLY, so no name is called\n" +
+        "dead in this run. A known-good name did not resolve, or a name that\n" +
+        "cannot exist did — either way the verdicts would be about this\n" +
+        "machine's network rather than about the links.\n" +
+        "\n" +
+        "Run it somewhere else before believing anything is broken.\n",
+    );
 
   console.log(
     `${String(where.size)} link(s) a reader is invited to follow, across ${String(files.length)} file(s).`,

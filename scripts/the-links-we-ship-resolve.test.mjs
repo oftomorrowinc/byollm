@@ -434,3 +434,154 @@ describe("our own hostnames in shipped source", () => {
     expect(code).toBe(0);
   });
 });
+
+describe("whether the resolver is worth believing", () => {
+  /**
+   * Driven through the CLI with staged lookups, which is this directory's
+   * shape — `bump-version.test.mjs` takes it and this file's own header says
+   * so. The rule cannot be exported: `explicit-module-boundary-types` wants
+   * TypeScript annotations a `.mjs` cannot carry, and JSDoc does not satisfy
+   * it. So the fixture supplies what each probe did and the script runs its
+   * real `observe` and `resolverVerdict` over it.
+   *
+   * The first version short-circuited in the fixture before both, and a
+   * mutation trusting a resolver that invents names survived every case. The
+   * seam hid the live path for the third time in this file.
+   */
+  const page =
+    "# t\n\nsee [a](https://example.org/a) and [b](https://gone.example)\n";
+  const world = (probes) => ({
+    "https://example.org/a": { status: 200 },
+    "https://gone.example": { dns: false },
+    __resolver: probes,
+  });
+  const verdict = (probes) =>
+    run(stage({ "README.md": page, "CONTRIBUTING.md": "x\n" }, world(probes)));
+
+  it("believes a resolver that answers and admits what it cannot find", () => {
+    const { code, out } = verdict({ good: ["1.1.1.1"], bogus: "ENOTFOUND" });
+    expect(code).toBe(1);
+    expect(out).toContain("DEAD");
+  });
+
+  it("does not believe one that cannot resolve a name it should know", () => {
+    /* No DNS at all, or an allowlist excluding even the control. Its
+       not-founds are about the network, not about anybody's links. */
+    for (const good of ["ENOTFOUND", "ETIMEDOUT"]) {
+      const { out } = verdict({ good, bogus: "ENOTFOUND" });
+      expect(out, `trusted a resolver whose control ${good}`).not.toContain(
+        "DEAD",
+      );
+    }
+  });
+
+  it("does not believe one that answers for a name that cannot exist", () => {
+    /**
+     * A sinkhole or a wildcard, and the case the old fixture could never
+     * reach: such a resolver never says not-found, so every link reads as
+     * alive. The checker goes quiet rather than loud, which is the failure
+     * nobody notices.
+     */
+    const { out } = verdict({ good: ["1.1.1.1"], bogus: ["10.0.0.1"] });
+    expect(out).not.toContain("DEAD");
+    expect(out).toMatch(/NOT ANSWERING FAITHFULLY/u);
+  });
+
+  it("does not read a timeout as an admission", () => {
+    /* A timeout on the bogus probe is not a not-found. Treating it as one
+       would trust a resolver that had told us nothing. */
+    const { out } = verdict({ good: ["1.1.1.1"], bogus: "ETIMEDOUT" });
+    expect(out).not.toContain("DEAD");
+  });
+
+  it("does not read an empty answer as an address", () => {
+    /* `resolve4` can return an empty array. That names nothing and is not an
+       error, and reading it as an answer would trust a mute resolver. */
+    const { out } = verdict({ good: [], bogus: "ENOTFOUND" });
+    expect(out).not.toContain("DEAD");
+  });
+});
+
+describe("the instrument, before the finding", () => {
+  /**
+   * **Every dead-name verdict here is a claim about the world made from inside
+   * one machine's network**, and CW was right to say so.
+   *
+   * I reported `oftomorrow.press` as having no records an hour after two
+   * people had loaded it in a browser. My control was that another domain
+   * resolved through the same resolver — which proves *some* names resolve,
+   * not that none are being withheld. A resolver behind an allowlist looks
+   * exactly like a dead name, and this script would have printed the same
+   * sentence either way.
+   *
+   * So a dead verdict is now gated on the resolver answering faithfully: a
+   * known-good name resolves, and a name that cannot exist does not. Fail
+   * either and nothing is called dead — the instrument is what is broken, and
+   * "unproven" is a third state rather than a synonym for "fine".
+   *
+   * It does not prove the resolver is unfiltered; a filter that faithfully
+   * proxied a zone and hid one record type would pass. It rules out the
+   * ordinary shapes, and what is left is said in the output rather than
+   * hidden.
+   */
+  const world = (over) => ({
+    "https://example.org/a": { status: 200 },
+    "https://gone.example": { dns: false },
+    ...over,
+  });
+
+  const page =
+    "# t\n\nsee [a](https://example.org/a) and [b](https://gone.example)\n";
+
+  it("reports a dead name when the resolver is sound", () => {
+    /* The control, and the one that matters: the gate must not swallow real
+       findings. Without this the whole thing could hard-code "unjudged". */
+    const { code, out } = run(
+      stage({ "README.md": page, "CONTRIBUTING.md": "x\n" }, world()),
+    );
+    expect(code).toBe(1);
+    expect(out).toContain("https://gone.example");
+    expect(out).toContain("DEAD");
+  });
+
+  it("calls nothing dead when the resolver is not answering faithfully", () => {
+    const { code, out } = run(
+      stage(
+        { "README.md": page, "CONTRIBUTING.md": "x\n" },
+        world({ __resolver: "broken" }),
+      ),
+    );
+    expect(code).not.toBe(1);
+    expect(out).not.toContain("DEAD");
+  });
+
+  it("says the instrument is why, rather than saying nothing", () => {
+    /**
+     * A run that quietly reported no dead links would be worse than one that
+     * reported the wrong ones: the person reading it concludes the tree is
+     * clean. The sentence has to name the resolver and say where to go next.
+     */
+    const { out } = run(
+      stage(
+        { "README.md": page, "CONTRIBUTING.md": "x\n" },
+        world({ __resolver: "broken" }),
+      ),
+    );
+    expect(out).toMatch(/NOT ANSWERING FAITHFULLY/u);
+    expect(out).toMatch(/Run it somewhere else/u);
+  });
+
+  it("still names the links it could not judge", () => {
+    /* Demoted, not dropped. A name that would have been called dead is still
+       listed — as unjudged, with the reason — so nobody has to diff two runs
+       to find out what changed. */
+    const { out } = run(
+      stage(
+        { "README.md": page, "CONTRIBUTING.md": "x\n" },
+        world({ __resolver: "broken" }),
+      ),
+    );
+    expect(out).toContain("https://gone.example");
+    expect(out).toMatch(/not answering faithfully/u);
+  });
+});

@@ -104,6 +104,28 @@ describe("every refusal tag.sh makes", () => {
     expect(text).toContain("--committed");
   });
 
+  it("warns that the siblings' CI goes red in the window, and why", () => {
+    /**
+     * Verified by staging the mismatch rather than by reading pnpm's docs: a
+     * manifest naming one version with a lockfile resolving another fails
+     * `pnpm install --frozen-lockfile` with `ERR_PNPM_OUTDATED_LOCKFILE`,
+     * exit 1, before a single test runs. Both sibling repositories use that
+     * flag in every workflow.
+     *
+     * The window is inherent — B234 chose it deliberately, because the
+     * manifests must move before the tag and a lockfile cannot name a version
+     * npm has not served — so the fix is not to close it but to stop it
+     * looking like a broken repository. What pnpm prints is about a lockfile;
+     * nothing in it says "a release is in progress".
+     */
+    const text = code();
+    expect(text).toContain("ERR_PNPM_OUTDATED_LOCKFILE");
+    expect(text).toContain("frozen-lockfile");
+    /* And that it is expected, not merely described. A reader who meets the
+       failure needs the word "not a defect" before the explanation. */
+    expect(text).toMatch(/not a defect/u);
+  });
+
   it("says the cut is three repositories when the pin gate refuses", () => {
     /* The sentence that turns a refusal into an instruction. Somebody meeting
        "11 pins disagree" without it would fix eleven lines in this repository,

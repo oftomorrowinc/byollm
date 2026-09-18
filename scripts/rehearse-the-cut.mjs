@@ -239,6 +239,15 @@ console.log(
         `If refusal 5 is among them, the cut is a THREE-REPOSITORY sequence:\n` +
         `bump here, bump the pins in byollm-cloud and byollm-cloud-web, commit\n` +
         `all three, then tag. The lockfiles come after the publish, because a\n` +
-        `lockfile cannot name a version npm has not served.`,
+        `lockfile cannot name a version npm has not served.\n\n` +
+        `EXPECT THOSE TWO REPOSITORIES' CI TO GO RED in that window, and it\n` +
+        `is not a defect. Their manifests will name a version npm has not\n` +
+        `served, their lockfiles still resolve the old one, and every workflow\n` +
+        `in both uses \`pnpm install --frozen-lockfile\` — which fails with\n` +
+        `\`ERR_PNPM_OUTDATED_LOCKFILE\` before a single test runs. Verified by\n` +
+        `staging the mismatch, not by reading pnpm's documentation. It lasts\n` +
+        `from the pin commit until the lockfiles are updated after the publish,\n` +
+        `and what it prints is about a lockfile rather than about a release in\n` +
+        `progress, which is the whole reason it is said here.`,
 );
 process.exit(failed === 0 ? 0 : 1);

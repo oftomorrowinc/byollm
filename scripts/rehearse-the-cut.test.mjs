@@ -180,3 +180,76 @@ describe("what the rehearsal claims about itself", () => {
     expect(text).toMatch(/const node = \([\s\S]{0,160}cwd = scratch/u);
   });
 });
+
+describe("the one npm question the rehearsal now asks", () => {
+  /**
+   * The rehearsal said twice that it never talks to npm, for three reasons:
+   * the network, speed, and that those checks *"already have their own
+   * gates"*. The third is false for exactly one question — **which names this
+   * cut would claim for the first time** — and that is the only step of a cut
+   * that cannot be undone. A first publish claims a name; versions are
+   * immutable and unpublishing leaves it burned.
+   *
+   * It matters here because the release publishes anything under `packages/`
+   * that is not `private`, so a first publish happens by DEFAULT rather than
+   * by decision: `@byollm/agreements` was added three hours after `alpha.102`
+   * was tagged, and the next tag claims its name.
+   */
+  it("actually runs the announcer, rather than describing it", () => {
+    /* Asked of the CODE. A paragraph explaining the first-publish risk with
+       no call under it is the same defect the pin gate had — documented and
+       not asked — and it is why this file strips prose before it counts. */
+    expect(code()).toContain("a-first-publish-is-announced.mjs");
+  });
+
+  it("asks it of the REAL repository, not the scratch copy", () => {
+    /**
+     * What the registry has served is a fact about the world, exactly like
+     * refusal 5's sibling pins. Asked against a copy it would still be right
+     * today and would stop being right the moment the copy's manifests
+     * diverge — and the copy is BUMPED, which is when it matters.
+     */
+    const text = code();
+    expect(text).toMatch(
+      /a-first-publish-is-announced\.mjs[\s\S]{0,200}cwd: ROOT/u,
+    );
+  });
+
+  it("reports it without failing the rehearsal", () => {
+    /**
+     * It is not one of `tag.sh`'s refusals, and counting it as one would
+     * misreport what the cut will do — the rehearsal's whole claim is which
+     * refusals would fire. So the announcer's exit code must not reach
+     * `failed`.
+     */
+    const text = code();
+    expect(text).toMatch(/const firstPublish = \(\(\) => \{/u);
+    expect(
+      /firstPublish[\s\S]{0,400}failed \+= 1/u.test(text),
+      "the first-publish result feeds the refusal count; it is not a refusal",
+    ).toBe(false);
+  });
+
+  it("never claims again that it does not ask npm", () => {
+    /**
+     * Asserted by ABSENCE, and against the claim rather than one sentence —
+     * the same shape the box console's banner needed after it taught an
+     * escape it could not honour three times.
+     *
+     * The file carried that sentence twice, in the docstring and in the
+     * closing summary. Both were true when written and both became false in
+     * the same edit; a reader who believes either one stops looking for the
+     * warning that is now there.
+     */
+    const text = rehearsal();
+    expect(text).not.toMatch(/does not talk to npm/iu);
+    expect(text).not.toMatch(/does not ask npm/iu);
+  });
+
+  it("says the registry may be unaskable, rather than guessing", () => {
+    /* An offline run that announced every package as new would teach the
+       reader to skip this section forever after. The third state is the
+       point, and it has to survive in the prose a person reads. */
+    expect(rehearsal()).toMatch(/COULD NOT ASK/u);
+  });
+});

@@ -2,7 +2,7 @@
 /**
  * Every package README links the rest of the family — B029.
  *
- * Six packages ship to npm and a reader arrives at exactly one of them. Before
+ * The packages ship to npm and a reader arrives at exactly one of them. Before
  * this, `@byollm/daemon`'s README named one sibling and `@byollm/protocol`
  * named one, so somebody landing on either had no way to learn the other four
  * exist — and the family is the argument: a protocol, a relay, an SDK and a

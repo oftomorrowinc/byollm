@@ -35,10 +35,31 @@
  *
  * ## What it deliberately does NOT do
  *
- * It does not run `verify`, and it does not talk to npm. Those need the real
- * tree and the network, they already have their own gates, and a rehearsal
- * that took four minutes would be run once. This answers the question a person
- * cannot answer by reading: **after the bump, what is still wrong?**
+ * It does not run `verify`. That needs the real tree, it takes minutes, and it
+ * has its own gate; a rehearsal that took four minutes would be run once. This
+ * answers the question a person cannot answer by reading: **after the bump,
+ * what is still wrong?**
+ *
+ * ## The one npm question it does ask, and why that one
+ *
+ * This file used to say it never talks to npm, for three reasons: the network,
+ * speed, and that those checks *"already have their own gates"*. The third is
+ * false for exactly one question, and that is the one now asked.
+ *
+ * **Which packages would publish for the FIRST time.** A first publish claims
+ * a name on a public registry and cannot be taken back — versions are
+ * immutable, unpublishing is limited and leaves the name burned. Every other
+ * step of a cut can be superseded. And the release publishes anything under
+ * `packages/` that is not `private`, so it happens by DEFAULT rather than by
+ * decision: `@byollm/agreements` was added three hours after `alpha.102` was
+ * tagged and the next tag claims its name, while the decision to publish it
+ * sits open in a note.
+ *
+ * It is **reported, never fatal**, and it says "could not ask" rather than
+ * guessing when the registry is unreachable — an offline run that announced
+ * every package would teach the reader to skip this section forever. Two
+ * seconds, seven reads, and it is the only thing here that can be wrong in a
+ * way no later step catches.
  *
  * It also cannot tell you the cut will succeed. It tells you which of
  * `tag.sh`'s refusals would fire, which is a smaller and honest claim — the
@@ -193,6 +214,41 @@ ask("6. the docs stop saying alpha", () =>
   }),
 );
 
+/**
+ * Which names this cut would claim for the first time — reported, not asked.
+ *
+ * Against the REAL repository rather than the copy, for the same reason
+ * refusal 5 reads the real siblings: what the registry has served is a fact
+ * about the world, and a scratch copy of it would be a rehearsal of a
+ * rehearsal.
+ *
+ * Exit 1 means "there is something here for you", exit 2 means the registry
+ * could not be asked. Neither fails the rehearsal: this is not one of
+ * `tag.sh`'s refusals and pretending otherwise would misreport what the cut
+ * will do.
+ */
+const firstPublish = (() => {
+  try {
+    return {
+      code: 0,
+      out: execFileSync(
+        process.execPath,
+        [join(ROOT, "scripts", "a-first-publish-is-announced.mjs")],
+        { cwd: ROOT, encoding: "utf8" },
+      ),
+    };
+  } catch (error) {
+    const failure =
+      /** @type {{status?: number, stdout?: string, stderr?: string}} */ (
+        error
+      );
+    return {
+      code: failure.status ?? -1,
+      out: `${failure.stdout ?? ""}${failure.stderr ?? ""}`,
+    };
+  }
+})();
+
 /* Refusal 4 is about the tree you tag, which is the real one at the moment you
    tag it — a copy cannot answer it and pretending otherwise would be the kind
    of green this whole file exists to avoid. Reported, not asked. */
@@ -219,6 +275,20 @@ for (const { what, ok, out } of asked) {
 }
 
 console.log(
+  firstPublish.code === 0
+    ? "\n  (no package would publish for the first time — this cut claims no new name)"
+    : firstPublish.code === 2
+      ? `\n  ?? COULD NOT ASK the registry which names are new. Not an answer either\n     way, and the one thing here nothing else catches:\n${firstPublish.out
+          .split("\n")
+          .map((line) => `     ${line}`)
+          .join("\n")}`
+      : `\n  !! A FIRST PUBLISH IS COMING, and it cannot be undone:\n${firstPublish.out
+          .split("\n")
+          .map((line) => `     ${line}`)
+          .join("\n")}`,
+);
+
+console.log(
   dirty === ""
     ? "\n  (4. the working tree is clean — tag.sh checks this at the moment you cut)"
     : `\n  NO 4. the working tree is dirty, and tag.sh refuses that:\n${dirty
@@ -230,7 +300,10 @@ console.log(
 console.log(
   failed === 0
     ? `\nEvery refusal this rehearsal can ask would pass at ${target}.\n` +
-        `It does NOT run verify and does not ask npm — those have their own\n` +
+        `It does NOT run verify — that has its own gate. The one npm question\n` +
+        `it asks is which names would be claimed for the first time, because\n` +
+        `that is the only step of a cut nothing else catches and nothing can\n` +
+        `undo.\n` +
         `gates and need the real tree. This says which of tag.sh's refusals\n` +
         `fire, which is smaller than saying the cut will work.`
     : `\n${String(failed)} of tag.sh's refusals would fire at ${target}.\n` +

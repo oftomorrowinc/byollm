@@ -14,24 +14,36 @@
  * > Anything under packages/ that is not `private` ships. To keep a package
  * > out of a release, mark it private; there is no list to forget to update.
  *
- * So **the next tag publishes it**, and the next tag is the 0.1.0 flip. At the
- * same time, B039 sits BLOCKED on "the publish decision" for that exact
- * package. The decision is pending in a note while the mechanism has already
- * answered it — a rule in prose against a rule in the tree, and the tree wins
- * without saying anything.
+ * So the next tag carries it into the release, and the next tag is the 0.1.0
+ * flip. B039 sits BLOCKED on "the publish decision" for that exact package.
  *
- * That rule is RIGHT, and this is not an argument against it: deriving the
- * list is what stopped `@byollm/relay` being silently skipped by four
- * hardcoded copies. The gap is that the derivation is silent in the one
- * direction that cannot be undone.
+ * ## What actually happens — corrected 09-18 after READING the workflow
  *
- * ## Why a first publish is different from every other step of a release
+ * **The first version of this file said the flip would publish it silently.
+ * That is wrong, and `release.yml` is better than I gave it credit for.** It
+ * asks the registry about every name in `$PKGS` *before publishing anything*:
  *
- * A wrong version can be superseded. A wrong dist-tag can be moved. **A first
- * publish claims a name on a public registry and cannot be taken back** — npm
- * versions are immutable, unpublishing is limited to 72 hours and leaves the
- * name burned. It is the one step of a cut that is irreversible in the strong
- * sense, and it is currently the only one nothing announces.
+ *     if ! npm view "$name" name >/dev/null 2>&1; then
+ *       echo "::error::$name has never been published, so trusted publishing
+ *             cannot be configured for it …"
+ *       exit 1
+ *
+ * The release **stops at a precondition check**. Nothing is half-published, no
+ * name is claimed by accident, and the error carries its own remedy. The
+ * repository had already thought about this exact case, and I asserted the
+ * opposite in a note that went to the top of Todd's list.
+ *
+ * ## Which makes this file MORE useful, not less
+ *
+ * The cost is not an irreversible name claim. It is **a release that fails
+ * after the tag exists** — the tag is pushed before the workflow runs, so the
+ * failure arrives with `v0.1.0` already on the remote and a red run under it.
+ * Getting out means deleting a tag, or cutting the next patch to step past a
+ * name nobody meant to publish.
+ *
+ * Telling somebody before they tag is worth what it always was. The sentence
+ * under it just has to be true: a first publish here is a **decision with a
+ * one-time manual setup**, not an accident waiting to happen.
  *
  * ## Reported, not refused
  *
@@ -151,12 +163,16 @@ const main = () => {
   console.log(
     `${String(first.length)} package(s) would publish for the FIRST time:\n` +
       first.map((name) => `  ${name}`).join("\n") +
-      "\n\nA first publish claims a name on a public registry and cannot be\n" +
-      "taken back: versions are immutable and unpublishing is limited and\n" +
-      "leaves the name burned. Every other step of a cut can be superseded.\n\n" +
-      "The release publishes anything under packages/ that is not `private`,\n" +
-      "so this happens by default rather than by decision. If one of these is\n" +
-      'not meant to ship yet, mark it `"private": true` before tagging.',
+      "\n\nThe release will NOT publish these silently. `release.yml` asks the\n" +
+      "registry about every name before publishing anything, and a name npm has\n" +
+      "never served makes the run exit 1 with the remedy in its error.\n\n" +
+      "What it costs is a release that fails AFTER the tag exists: the tag is\n" +
+      "pushed before the workflow runs, so getting out means deleting a tag or\n" +
+      "cutting the next patch to step past a name nobody meant to publish.\n\n" +
+      "Two ways past it, both BEFORE tagging:\n" +
+      "  - publish it once by hand (`npm publish --access public`, with 2FA)\n" +
+      "    and authorise the workflow with `npm trust github <name> ...`; or\n" +
+      '    - mark it `"private": true` so the release does not carry it.',
   );
   return 1;
 };

@@ -46,13 +46,21 @@
  * speed, and that those checks *"already have their own gates"*. The third is
  * false for exactly one question, and that is the one now asked.
  *
- * **Which packages would publish for the FIRST time.** A first publish claims
- * a name on a public registry and cannot be taken back — versions are
- * immutable, unpublishing is limited and leaves the name burned. Every other
- * step of a cut can be superseded. And the release publishes anything under
- * `packages/` that is not `private`, so it happens by DEFAULT rather than by
- * decision: `@byollm/agreements` was added three hours after `alpha.102` was
- * tagged and the next tag claims its name, while the decision to publish it
+ * **Which packages would publish for the FIRST time.** `release.yml` §3c asks
+ * the registry about every name before publishing anything, so a name npm has
+ * never served makes the release `exit 1` — nothing is half-published and no
+ * name is claimed by accident. **What it costs is a release that fails AFTER
+ * the tag exists**, because the tag is pushed before the workflow runs, and
+ * getting out means deleting a tag or cutting the next patch.
+ *
+ * (An earlier version of this paragraph said a first publish claims a name
+ * irreversibly. It does not, and the correction is kept rather than quietly
+ * swapped: the claim reached the top of Todd's launch list before anybody read
+ * the workflow's own guard.)
+ *
+ * And the release publishes anything under `packages/` that is not `private`,
+ * so a package arrives in that list by DEFAULT: `@byollm/agreements` was added
+ * three hours after `alpha.102` was tagged, while the decision to publish it
  * sits open in a note.
  *
  * It is **reported, never fatal**, and it says "could not ask" rather than
@@ -282,7 +290,7 @@ console.log(
           .split("\n")
           .map((line) => `     ${line}`)
           .join("\n")}`
-      : `\n  !! A FIRST PUBLISH IS COMING, and it cannot be undone:\n${firstPublish.out
+      : `\n  !! A FIRST PUBLISH IS COMING, and the release will STOP on it:\n${firstPublish.out
           .split("\n")
           .map((line) => `     ${line}`)
           .join("\n")}`,

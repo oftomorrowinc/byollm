@@ -186,9 +186,14 @@ describe("the one npm question the rehearsal now asks", () => {
    * The rehearsal said twice that it never talks to npm, for three reasons:
    * the network, speed, and that those checks *"already have their own
    * gates"*. The third is false for exactly one question — **which names this
-   * cut would claim for the first time** — and that is the only step of a cut
-   * that cannot be undone. A first publish claims a name; versions are
-   * immutable and unpublishing leaves it burned.
+   * cut would carry into a release for the first time** — and nothing else
+   * asks it.
+   *
+   * **Corrected 09-18:** this said a first publish claims a name
+   * irreversibly. `release.yml` §3c asks the registry about every name before
+   * publishing anything, so the release stops at a precondition instead. The
+   * cost is a release that fails AFTER the tag exists, which is worth warning
+   * about and is not the same sentence.
    *
    * It matters here because the release publishes anything under `packages/`
    * that is not `private`, so a first publish happens by DEFAULT rather than

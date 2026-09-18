@@ -494,3 +494,56 @@ describe("the paths it hands a person during a cut", () => {
     expect(out).not.toMatch(/packages\\protocol/u);
   });
 });
+
+describe("the hand-edit list shows why each line is in it", () => {
+  /**
+   * The list is what somebody works from **during a cut**, and it used to
+   * head-truncate at 96 characters. Three of the six real hits sit past that:
+   * the README's `status-alpha` badge is at ~180, and the site's two `<meta>`
+   * descriptions bury "Alpha software, under active development." at the end
+   * of a sentence about something else.
+   *
+   * So a person opened `README.md:351`, saw an npm badge, and had no reason it
+   * was listed — in a ceremony that cannot be undone. A list nobody can act on
+   * without hunting is a list they start skimming.
+   */
+  it("shows the matched word even when it is far along a long line", () => {
+    const root = tree("0.1.0", {
+      "README.md": `# x\n\n${"padding text that goes on and on. ".repeat(6)}status-alpha-orange badge\n`,
+    });
+    const { out } = run(root);
+    expect(out).toContain("status-alpha");
+    /* And says it is an excerpt, so a fragment is not read as the line. */
+    expect(out).toMatch(/…/u);
+  });
+
+  it("centres on the alpha word, not on where the rule began", () => {
+    /**
+     * `META` matches from `content="`, which on a real description tag is the
+     * start of a long sentence about something else. Centring there showed
+     * everything except the word that put the line in the list.
+     */
+    const root = tree("0.1.0", {
+      "site/index.html": `<meta name="description" content="${"a long sentence about the product. ".repeat(4)}Alpha software.">\n`,
+    });
+    const { out } = run(root);
+    expect(out).toContain("Alpha software");
+  });
+
+  it("names the rule that fired", () => {
+    const root = tree("0.1.0", {
+      "README.md": "# x\n\nAsk for `@alpha` explicitly.\n",
+    });
+    expect(run(root).out).toContain("[@alpha]");
+  });
+
+  it("does not mark an excerpt that is the whole line", () => {
+    /* An ellipsis on a short line would be a lie about what was cut. */
+    const root = tree("0.1.0", { "README.md": "# x\n\n`@alpha`\n" });
+    const line =
+      run(root)
+        .out.split("\n")
+        .find((l) => l.includes("README.md:")) ?? "";
+    expect(line).not.toContain("…");
+  });
+});

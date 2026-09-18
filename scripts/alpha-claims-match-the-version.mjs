@@ -179,13 +179,42 @@ const liveClaims = (text) => {
     const isBanner = BANNER.test(line);
     const isHistory = /^\s*>/.test(line) && !isBanner;
     if (isHistory) return;
-    if (
-      isBanner ||
-      CLAIM.test(line) ||
-      META.test(line) ||
-      POINTS_AT_THE_BANNER.test(line)
-    )
-      hits.push({ line: at + 1, text: line.trim() });
+    /* Which rule fired, and WHERE. Both are for the reader: the list is what
+       somebody works from during a cut, and "README.md:351" plus the first 96
+       characters of a badge row does not say why that row is in it. None of
+       these are global regexes, so `.exec` is stateless here. */
+    const why =
+      (isBanner && { rule: "banner", at: BANNER.exec(line)?.index ?? 0 }) ||
+      (CLAIM.exec(line) && { rule: "@alpha", at: CLAIM.exec(line).index }) ||
+      (META.exec(line) && { rule: "meta", at: META.exec(line).index }) ||
+      (POINTS_AT_THE_BANNER.exec(line) && {
+        rule: "points at the banner",
+        at: POINTS_AT_THE_BANNER.exec(line).index,
+      });
+    if (why) {
+      /**
+       * Centre on the EVIDENCE, not on where the rule happened to start.
+       *
+       * `META` matches from `content="`, which on the site's two description
+       * tags is the start of a long sentence about something else entirely —
+       * so a window centred there showed everything except the word that put
+       * the line in the list. The word itself is the thing a reader is looking
+       * for, so it wins when the line has one.
+       *
+       * `POINTS_AT_THE_BANNER` is the case that has none: "see the warning at
+       * the top" is a claim about the banner without naming alpha, and there
+       * the rule's own position is the best evidence there is.
+       */
+      const word = /\balpha\b/iu.exec(line);
+      const indent = line.length - line.trimStart().length;
+      hits.push({
+        line: at + 1,
+        text: line.trim(),
+        rule: why.rule,
+        /* Against the trimmed text, which is what gets printed. */
+        at: Math.max(0, (word?.index ?? why.at) - indent),
+      });
+    }
   });
   return hits;
 };
@@ -239,8 +268,31 @@ const main = () => {
     })),
   );
   const prerelease = version.includes("-");
-  const show = (hit) =>
-    `  ${hit.file}:${String(hit.line)}${hit.post === true ? " (post-bump)" : ""}  ${hit.text.slice(0, 96)}`;
+  /**
+   * One row of the hand-edit list, showing WHAT MATCHED rather than the first
+   * 96 characters of the line.
+   *
+   * Three of the six real hits sit past character 96 — the README's
+   * `status-alpha` badge is at ~180, and the site's two `<meta>` descriptions
+   * bury "Alpha software, under active development." at the end of a sentence
+   * about something else. Head-truncating showed a person an npm badge and no
+   * reason it was listed, in the list they work from during a ceremony that
+   * cannot be undone.
+   *
+   * So the window is centred on the match and the rule is named. An ellipsis
+   * marks each side that was cut, so nobody reads a fragment as the whole
+   * line.
+   */
+  const WINDOW = 96;
+  const show = (hit) => {
+    const start = Math.max(0, hit.at - Math.floor(WINDOW / 3));
+    const end = Math.min(hit.text.length, start + WINDOW);
+    const excerpt =
+      (start > 0 ? "…" : "") +
+      hit.text.slice(start, end) +
+      (end < hit.text.length ? "…" : "");
+    return `  ${hit.file}:${String(hit.line)}${hit.post === true ? " (post-bump)" : ""}  [${hit.rule}]  ${excerpt}`;
+  };
 
   if (prerelease) {
     if (found.length === 0) {

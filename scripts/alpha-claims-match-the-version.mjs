@@ -72,6 +72,20 @@ import { readFileSync, readdirSync, existsSync, realpathSync } from "node:fs";
 import { dirname, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
+/**
+ * A path as this project writes paths: relative, forward slashes, everywhere.
+ *
+ * `relative` gives `packages\\server\\README.md` on Windows, and these strings
+ * are the list somebody opens files from **while cutting a release** — while
+ * git, GitHub and the READMEs themselves all use `/`.
+ *
+ * **One helper because fixing one site is not fixing it.** The first pass
+ * normalised the findings and left the no-manifest refusal alone, and CI
+ * failed again on the second site a commit later. Both go through here now,
+ * and so does the third.
+ */
+const repoPath = (root, path) => relative(root, path).split(sep).join("/");
+
 const HERE = dirname(fileURLToPath(import.meta.url));
 
 /**
@@ -183,7 +197,7 @@ const main = () => {
      the one file that cannot answer. */
   const manifest = join(root, "packages", "protocol", "package.json");
   if (!existsSync(manifest)) {
-    console.error(`alpha-claims: no ${relative(root, manifest)} under ${root}`);
+    console.error(`alpha-claims: no ${repoPath(root, manifest)} under ${root}`);
     return 2;
   }
   const version = JSON.parse(readFileSync(manifest, "utf8")).version;
@@ -221,13 +235,7 @@ const main = () => {
   const found = files.flatMap((path) =>
     renumber(path, liveClaims(readFileSync(path, "utf8"))).map((hit) => ({
       ...hit,
-      /* Forward slashes on every platform. `relative` gives
-         `packages\\server\\README.md` on Windows, and this list is the one a
-         person opens files from during a cut — every other path they will
-         see, in git and on GitHub, uses `/`. Same fix as
-         `the-links-we-ship-resolve.mjs` needed an hour earlier; the principle
-         was swept rather than the instance. */
-      file: relative(root, path).split(sep).join("/"),
+      file: repoPath(root, path),
     })),
   );
   const prerelease = version.includes("-");

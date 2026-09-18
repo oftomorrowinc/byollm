@@ -476,4 +476,21 @@ describe("the paths it hands a person during a cut", () => {
       "a path in the hand-edit list uses the platform separator; the reader's git, GitHub and READMEs all use /",
     ).toEqual([]);
   });
+
+  it("uses them in the refusal too, not only in the findings", () => {
+    /**
+     * The second site, and the reason this file now says so out loud: the
+     * first pass normalised the findings list and left the no-manifest
+     * refusal reporting `packages\protocol\package.json`. CI went red again
+     * one commit later, on the same defect in the same file.
+     *
+     * One path fixed is not fixed — and here it was not even one FILE fixed.
+     * Both spellings go through one helper now, and this asserts the site the
+     * first attempt missed.
+     */
+    const root = mkdtempSync(join(tmpdir(), "alpha-claims-nomanifest-"));
+    const { out } = run(root);
+    expect(out).toMatch(/no packages\/protocol\/package\.json/u);
+    expect(out).not.toMatch(/packages\\protocol/u);
+  });
 });

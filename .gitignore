@@ -38,3 +38,20 @@ flake-census*.txt
 # repository's own history is full of. A local exclude is a fact about one
 # machine; a public repository needs the rule in the tree.
 .claude/
+
+# Credential-shaped files — B242b, prevention rather than a find.
+#
+# `.npmrc` leads deliberately. This repository publishes seven packages under
+# OIDC, and a root `.npmrc` with an `_authToken` is the file somebody creates
+# while debugging a publish — at the repository root, where `git add -A` takes
+# it. The generic list below is the borrowed one; `.npmrc` is ours.
+.npmrc
+*.pem
+*.p12
+*.pfx
+*.jks
+*.key
+id_rsa
+id_rsa.*
+credentials.json
+service-account*.json

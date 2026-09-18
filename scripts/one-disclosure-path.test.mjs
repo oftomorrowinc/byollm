@@ -47,7 +47,27 @@ describe("how to report a vulnerability", () => {
      * existed had drifted apart.
      */
     const contributing = read("CONTRIBUTING.md");
-    expect(contributing).toContain("SECURITY.md");
+    /**
+     * **A route, not a mention — B242a, and it is my own law caught by CW
+     * eight lines from where I applied it correctly.**
+     *
+     * This asserted `toContain("SECURITY.md")`, which prose about the file
+     * satisfies. The assertion for the threat model, right above, already
+     * required `](../SECURITY.md)` — a link — because I had just watched a
+     * mutation walk through the substring version. Writing both in one file,
+     * two hours after writing the law down, is the clearest evidence I have
+     * that these do not work as knowledge.
+     *
+     * `CONTRIBUTING.md` carries a real link today, so the weak version was
+     * green — and would have stayed green the day somebody rewrote that line
+     * as prose, which is the only day it exists for.
+     */
+    expect(
+      contributing,
+      "CONTRIBUTING.md mentions SECURITY.md but does not link to it — a " +
+        "mention is not a route, and this is the file somebody with a finding " +
+        "reaches from the new-issue screen",
+    ).toContain("](SECURITY.md)");
     expect(
       contributing,
       "CONTRIBUTING.md is explaining how to report — SECURITY.md is the one " +

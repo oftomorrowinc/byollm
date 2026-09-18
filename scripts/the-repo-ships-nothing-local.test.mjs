@@ -51,6 +51,28 @@ const rules = readFileSync(".gitignore", "utf8")
 /** Directories that are one `git add -A` away from being published. */
 const LOCAL = [".claude/"];
 
+/**
+ * Is this filename credential-shaped?
+ *
+ * **Two plain conditions rather than one clever pattern**, which is the second
+ * time tonight that choice has been forced. A single regex with a lookahead on
+ * the segment after `.env` flagged `.env.vercel.example`: the lookahead asked
+ * about `vercel` when the question was about the ENDING. `.env.<anything>` is a
+ * real environment file; `.env<anything>.example` is a shape file, and only the
+ * ending says which.
+ *
+ * `.npmrc` leads the list because it is the accident this portfolio actually
+ * invites — seven packages published under OIDC, and a root `.npmrc` with an
+ * `_authToken` is what somebody creates while debugging a publish. `id_rsa` is
+ * from somebody else's threat model.
+ */
+const SHAPE_FILE = /\.(example|sample|template)$/u;
+const CREDENTIAL_NAMES =
+  /(^|\/)\.npmrc$|(^|\/)\.env($|\.)|\.pem$|\.p12$|\.pfx$|\.jks$|\.key$|id_rsa|(^|\/)credentials?\.json$|service-account[^/]*\.json$/u;
+
+const credentialShaped = (path) =>
+  CREDENTIAL_NAMES.test(path) && !SHAPE_FILE.test(path);
+
 describe("local tooling state", () => {
   it("is covered by the tracked .gitignore, not a local exclude", () => {
     for (const dir of LOCAL) {
@@ -61,6 +83,22 @@ describe("local tooling state", () => {
           "the directory is not a rule either",
       ).toContain(dir);
     }
+    /**
+     * **And `.npmrc`, which I first asserted only in the ported copies.**
+     *
+     * The rule went into three repositories and the assertion into two — and
+     * the one it was missing from is *this* one, which publishes seven
+     * packages under OIDC and is therefore the only repository where a root
+     * `.npmrc` holding an `_authToken` is a plausible accident.
+     *
+     * That is the uneven-application defect CW had just boarded, repeated
+     * inside the fix for it, and caught by a mutation that dropped the rule
+     * and stayed green.
+     */
+    expect(
+      rules,
+      "no `.npmrc` rule — this is the repository that publishes to npm",
+    ).toContain(".npmrc");
   });
 
   it("has never been committed", () => {
@@ -92,11 +130,39 @@ describe("local tooling state", () => {
     const tracked = execFileSync("git", ["ls-files"], { encoding: "utf8" });
     const suspicious = tracked
       .split("\n")
-      .filter((path) =>
-        /(^|\/)\.env($|\.)|\.pem$|\.p12$|id_rsa|(^|\/)credentials?\.json$/.test(
-          path,
-        ),
-      );
+      .filter((path) => credentialShaped(path));
     expect(suspicious, "a credential-shaped filename is tracked").toEqual([]);
+  });
+
+  it("knows which .env files are conventions and which are secrets", () => {
+    /**
+     * The control on the pattern, added after the ported copy in
+     * `byollm-cloud` flagged a tracked `.env.example` whose first line reads
+     * *"Nothing secret belongs in this repository, including in a gitignored
+     * file."*
+     *
+     * A check that flags the deliberate example is a check people learn to
+     * override, and the override is what lets the real one through. The
+     * exclusion is therefore narrow — the three conventional suffixes — rather
+     * than a blanket pass on `.env.*`.
+     */
+    for (const safe of [
+      ".env.example",
+      ".env.sample",
+      "app/.env.template",
+      ".env.vercel.example",
+    ]) {
+      expect(credentialShaped(safe), safe).toBe(false);
+    }
+    for (const unsafe of [
+      ".env",
+      ".env.production",
+      ".env.local",
+      ".npmrc",
+      "deploy/service-account-prod.json",
+      "certs/server.key",
+    ]) {
+      expect(credentialShaped(unsafe), unsafe).toBe(true);
+    }
   });
 });

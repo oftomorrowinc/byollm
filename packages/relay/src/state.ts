@@ -151,6 +151,28 @@ export interface RoutedJob {
   /** When {@link AWAITING_PAYLOAD_MS} runs out for this claim. */
   awaitingUntil?: number;
   /**
+   * This job was DROPPED by a sweep, not put back — B250.
+   *
+   * A sweep does two things and reported one word for both. A requeue puts
+   * the work back and the next device gets it; a removal is the relay giving
+   * up — a deadline that passed, or a stub handed round until its attempts
+   * were spent — and nobody will ever run it. `Relay.sweep()` called the
+   * union `requeued`, so an operator reading `requeued: 3` about three jobs
+   * nobody will ever run was told the opposite of what happened.
+   *
+   * Optional, and absent means requeued. **A store that never sets it behaves
+   * exactly as it did before this field existed**, which is the whole design:
+   * `ValkeyRoutingStore` lives in another repository and adopts it when its
+   * pin moves, with no lockstep and nothing to coordinate. Until then
+   * `Relay.sweep().removed` is empty and `requeued` holds the union, as
+   * today.
+   *
+   * Set on the reported copy rather than on the stored job, because by the
+   * time this is true the job is forgotten and there is no stored job to set
+   * it on.
+   */
+  readonly sweptAway?: true;
+  /**
    * How many devices have waited for this payload and not received it — B042.
    *
    * A job whose site never seals is offered, waited on, requeued, and offered
@@ -1218,8 +1240,14 @@ export class RelayState implements RoutingStore {
         requeued.push(job);
       }
     }
-    // Both, because a caller that logs "requeued" and never mentions expiry
-    // would report a shrinking queue with no reason for it.
-    return [...requeued, ...expired];
+    /* Both, because a caller that logs "requeued" and never mentions expiry
+       would report a shrinking queue with no reason for it — and now the two
+       are TOLD APART rather than merely both present, which is B250. This
+       list was the only thing a caller got, so "both" meant "one word for
+       two facts" until the marker existed. */
+    return [
+      ...requeued,
+      ...expired.map((job): RoutedJob => ({ ...job, sweptAway: true })),
+    ];
   }
 }

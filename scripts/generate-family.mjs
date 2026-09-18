@@ -102,6 +102,51 @@ const NUMBER_WORDS = [
 ];
 const spelled = (n) => NUMBER_WORDS[n] ?? String(n);
 
+/**
+ * Where the rest of it lives — B272.
+ *
+ * The six package READMEs linked each other on npm and **nothing else**: not
+ * GitHub, not either site, not the docs. `@byollm/server`'s README says
+ * `byollm.cloud` four times in prose and never once as a link. So an npm page
+ * — which for most readers is the first page of this project they ever see —
+ * was a dead end in every direction but sideways.
+ *
+ * One list, emitted into both generated blocks, so the six package READMEs and
+ * the root README carry the same four destinations and `--check` keeps them
+ * identical. A hand-kept footer on seven files is seven chances to drift, and
+ * the packages table in this very file was hand-kept once and listed four
+ * packages while seven shipped.
+ *
+ * Every one of these was measured before it was written down: GitHub 200,
+ * `byo-llm.com` 200, `byollm.cloud` 308 to `www` and 200 there,
+ * `docs.byollm.cloud` 200. The byline that shipped dead for a fortnight is the
+ * argument for checking rather than assuming.
+ */
+const WHERE = [
+  [
+    "GitHub",
+    "https://github.com/oftomorrowinc/byollm",
+    "the source, and where issues go",
+  ],
+  ["byo-llm.com", "https://byo-llm.com", "what this is, and why"],
+  [
+    "byollm.cloud",
+    "https://byollm.cloud",
+    "the hosted relay — devices, consent and billing",
+  ],
+  [
+    "docs.byollm.cloud",
+    "https://docs.byollm.cloud",
+    "integrating a site, end to end",
+  ],
+];
+
+const whereLines = () => [
+  "### Where the rest lives",
+  "",
+  ...WHERE.map(([label, url, blurb]) => `- [${label}](${url}) — ${blurb}`),
+];
+
 const dir = (name) =>
   name === "byollm" ? "daemon" : name.replace("@byollm/", "");
 
@@ -124,6 +169,8 @@ function section(self) {
     `${spelled(FAMILY.length)} packages, and they are only interesting together:`,
     "",
     rows,
+    "",
+    ...whereLines(),
     "",
     END,
   ].join("\n");
@@ -167,6 +214,8 @@ function table() {
        generator may only claim what its input supports. */
     `${spelled(FAMILY.length)} packages, versioned and released together. Ask ` +
       "for `@alpha` explicitly — see the warning at the top of this file.",
+    "",
+    ...whereLines(),
     "",
     TABLE_END,
   ].join("\n");

@@ -566,6 +566,13 @@ We're precise about the boundary: BYOLLM makes **breakout** impossible; **prompt
 
 Six packages, versioned and released together. Ask for `@alpha` explicitly — see the warning at the top of this file.
 
+### Where the rest lives
+
+- [GitHub](https://github.com/oftomorrowinc/byollm) — the source, and where issues go
+- [byo-llm.com](https://byo-llm.com) — what this is, and why
+- [byollm.cloud](https://byollm.cloud) — the hosted relay — devices, consent and billing
+- [docs.byollm.cloud](https://docs.byollm.cloud) — integrating a site, end to end
+
 <!-- packages:end -->
 
 A server is **byollm-compatible** when the conformance kit passes against it. That sentence is the whole versioning story — no framework version to chase.

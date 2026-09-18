@@ -284,4 +284,11 @@ Six packages, and they are only interesting together:
 - [`@byollm/relay`](https://www.npmjs.com/package/@byollm/relay) — the broker that holds jobs between a site and a device, and can read neither
 - [`@byollm/control-plane`](https://www.npmjs.com/package/@byollm/control-plane) — who may ask whom, and the policy store behind it
 
+### Where the rest lives
+
+- [GitHub](https://github.com/oftomorrowinc/byollm) — the source, and where issues go
+- [byo-llm.com](https://byo-llm.com) — what this is, and why
+- [byollm.cloud](https://byollm.cloud) — the hosted relay — devices, consent and billing
+- [docs.byollm.cloud](https://docs.byollm.cloud) — integrating a site, end to end
+
 <!-- family:end -->

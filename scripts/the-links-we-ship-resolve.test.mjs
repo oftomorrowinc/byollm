@@ -254,6 +254,135 @@ describe("a link a reader cannot follow", () => {
   });
 });
 
+describe("the manifests npm turns into a page", () => {
+  /**
+   * `homepage`, `bugs.url` and `repository.url` are rendered by npm in the
+   * sidebar of every published package's page — six public pages today — and
+   * **nothing read them**. This file's subject is *"the links this repository
+   * ships to strangers"*, and an npm page is the most strangerly surface the
+   * project has.
+   *
+   * Not hypothetical: `@byollm/agreements` 404'd from six live npm pages for
+   * days, and was found only when this checker learned to read package
+   * READMEs. The same defect, one field over, with nothing looking.
+   */
+  const MANIFEST = (extra) =>
+    JSON.stringify({ name: "@x/a", version: "1.0.0", ...extra });
+
+  it("reports a dead homepage, and names the manifest", () => {
+    /* The case that makes the reader load-bearing. Without it the collector
+       could return nothing and every other case here would still pass — a
+       feature nobody consumes is dead code wearing an API. */
+    const { code, out } = run(
+      stage(
+        {
+          "README.md": "a link https://example.org/ok\n",
+          "CONTRIBUTING.md": "more\n",
+          "packages/a/package.json": MANIFEST({
+            homepage: "https://gone.example/",
+          }),
+        },
+        {
+          "https://example.org/ok": { status: 200 },
+          "https://gone.example/": { dns: false },
+        },
+      ),
+    );
+    expect(code).toBe(1);
+    expect(out).toContain("DEAD");
+    expect(out).toContain("packages/a/package.json");
+  });
+
+  it("reads bugs.url and repository.url too, not only homepage", () => {
+    /* Three fields render, so checking one would leave two unread — the
+       partial-coverage shape this repository keeps finding. */
+    for (const field of [
+      { bugs: { url: "https://gone.example/" } },
+      { repository: { type: "git", url: "https://gone.example/" } },
+    ]) {
+      const { code, out } = run(
+        stage(
+          {
+            "README.md": "a link https://example.org/ok\n",
+            "CONTRIBUTING.md": "more\n",
+            "packages/a/package.json": MANIFEST(field),
+          },
+          {
+            "https://example.org/ok": { status: 200 },
+            "https://gone.example/": { dns: false },
+          },
+        ),
+      );
+      expect(code, JSON.stringify(field)).toBe(1);
+      expect(out, JSON.stringify(field)).toContain("DEAD");
+    }
+  });
+
+  it("strips npm's git+ prefix and .git suffix before asking", () => {
+    /**
+     * `repository.url` is addressing for a clone, not a link: npm writes
+     * `git+https://…/repo.git` and renders `https://…/repo`.
+     *
+     * **The first version of this case could not fail, and two mutations
+     * proved it.** It answered only the stripped form and asserted exit 0 — but
+     * a reader that did not strip asks about `git+https://…/repo.git`, which is
+     * `unjudged` rather than dead, and unjudged is not a failure. So "strips"
+     * and "does not strip" both exited 0.
+     *
+     * Inverted: the STRIPPED form is the dead one. A reader that strips finds
+     * it and reports the URL a person would visit; a reader that does not asks
+     * about a string nobody visits, learns nothing, and exits 0 — which now
+     * fails this case instead of satisfying it.
+     */
+    const { code, out } = run(
+      stage(
+        {
+          "README.md": "a link https://example.org/ok\n",
+          "CONTRIBUTING.md": "more\n",
+          "packages/a/package.json": MANIFEST({
+            repository: {
+              type: "git",
+              url: "git+https://gone.example/repo.git",
+            },
+          }),
+        },
+        {
+          "https://example.org/ok": { status: 200 },
+          "https://gone.example/repo": { dns: false },
+        },
+      ),
+    );
+    expect(code, "the stripped URL was never asked about").toBe(1);
+    expect(out).toContain("https://gone.example/repo");
+    /* And the decorations are gone from what a person is shown to fix. */
+    expect(out).not.toContain("git+");
+    expect(out).not.toContain("repo.git");
+  });
+
+  it("leaves a private manifest alone, because npm never renders it", () => {
+    /* The root manifest is private. Checking its links would report a dead
+       URL on a page that does not exist, which is the false-alarm direction
+       on a checker whose whole value is that its findings are real. */
+    const { code } = run(
+      stage(
+        {
+          "README.md": "a link https://example.org/ok\n",
+          "CONTRIBUTING.md": "more\n",
+          "packages/a/package.json": MANIFEST({
+            private: true,
+            homepage: "https://gone.example/",
+          }),
+        },
+        {
+          "https://example.org/ok": { status: 200 },
+          "https://gone.example/": { dns: false },
+        },
+      ),
+    );
+    expect(code).toBe(0);
+  });
+});
+
 describe("the states that are not failures", () => {
   it("does not call a 403 dead", () => {
     /**

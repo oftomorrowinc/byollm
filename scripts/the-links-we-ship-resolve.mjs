@@ -116,6 +116,52 @@ const shipped = (root) => {
 };
 
 /**
+ * The manifests npm turns into a page — B281.
+ *
+ * `homepage`, `bugs.url` and `repository.url` are rendered by npm on every
+ * published package's page, in the sidebar, above the README. Six public pages
+ * carry them today and **nothing read them**: this file's subject is *"the
+ * links this repository ships to strangers"*, and an npm page is the most
+ * strangerly surface the project has.
+ *
+ * It is not a hypothetical gap. `@byollm/agreements` 404'd from six live npm
+ * pages for days, found only when this checker learned to read package
+ * READMEs — the same defect, one field over.
+ *
+ * `private` manifests are skipped because npm never renders them. The root
+ * manifest is private, so this is the six publishable packages.
+ */
+const manifests = (root) => {
+  const out = [];
+  const packages = join(root, "packages");
+  if (!existsSync(packages)) return out;
+  for (const entry of readdirSync(packages)) {
+    const file = join(packages, entry, "package.json");
+    if (!existsSync(file)) continue;
+    /* A manifest that cannot be parsed is not a manifest with no links. */
+    const json = JSON.parse(readFileSync(file, "utf8"));
+    if (json.private === true) continue;
+    out.push({ file, json });
+  }
+  return out;
+};
+
+/**
+ * The URLs a manifest puts on an npm page.
+ *
+ * `repository.url` carries npm's `git+` prefix and a `.git` suffix, which are
+ * addressing for a clone rather than a link — npm strips both when it renders
+ * the sidebar, and so does this, because the thing to check is the page a
+ * reader lands on rather than the string in the field.
+ */
+const manifestLinks = (json) => {
+  const raw = [json.homepage, json.bugs?.url, json.repository?.url].filter(
+    (url) => typeof url === "string" && /^(https?:|git\+https?:)/u.test(url),
+  );
+  return raw.map((url) => url.replace(/^git\+/u, "").replace(/\.git$/u, ""));
+};
+
+/**
  * Every URL a reader is invited to follow, which is every URL NOT in code.
  *
  * Fenced blocks first, then inline spans — in that order, because an inline
@@ -446,6 +492,37 @@ const main = async () => {
          pastes into a search box should match what they will find. Caught by
          CI on windows-latest, which is the whole argument for the commit
          before this one. */
+      at.push(
+        file
+          .slice(ROOT.length + 1)
+          .split(sep)
+          .join("/"),
+      );
+      where.set(url, at);
+    }
+
+  /* And the manifests npm renders — B281. Kept in its own set for the same
+     reason the markdown reader is: an emptiness guard that counted the
+     combined map would pass on a broken manifest reader so long as the prose
+     found something, which is an unreadable answer promoted by a scan
+     standing next to it. */
+  const fromManifests = new Set();
+  /**
+   * No emptiness guard here, deliberately, and it is the opposite call from
+   * the markdown reader below.
+   *
+   * Markdown with no links on a real tree is always a broken extractor. A
+   * publishable package with no `homepage`, `bugs` or `repository` is
+   * unusual but legitimate — npm simply renders no links — so refusing it
+   * would be a false alarm on a correct tree, which is how a checker gets
+   * switched off. What proves this reader works is a case that stages a dead
+   * manifest URL and requires it to be reported; if the reader breaks, that
+   * case fails rather than this tree passing quietly.
+   */
+  for (const { file, json } of manifests(ROOT))
+    for (const url of manifestLinks(json)) {
+      fromManifests.add(url);
+      const at = where.get(url) ?? [];
       at.push(
         file
           .slice(ROOT.length + 1)

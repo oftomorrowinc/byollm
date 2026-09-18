@@ -128,6 +128,11 @@ export default tseslint.config(
         setInterval: "readonly",
         console: "readonly",
         URL: "readonly",
+        /* Node 22 globals. The engines field requires >=22.14, where both are
+           standard — their absence here was an incomplete list rather than a
+           decision, and it surfaced the first time a script fetched. */
+        fetch: "readonly",
+        AbortSignal: "readonly",
       },
     },
   },

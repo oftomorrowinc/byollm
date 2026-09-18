@@ -460,6 +460,16 @@ build.
 
 ## 9. Reporting a vulnerability
 
-Open a security advisory on `github.com/oftomorrowinc/byollm` rather than a
-public issue. Pre-release, there is no formal SLA; the honest expectation is
-best effort.
+**[`SECURITY.md`](../SECURITY.md) is the one place that says how.** Read it
+there; this section deliberately does not repeat it.
+
+It used to, and the two had already drifted: this file said *"open a security
+advisory … rather than a public issue"* and nothing about email, while
+`SECURITY.md` offers both channels — and the two disagreed about what to
+expect back, one saying "no formal SLA" and the other "within a few days".
+
+That is a bad thing to have two answers to. Our own README and issue templates
+link *here*, and GitHub's security tab surfaces *there*, so which promise a
+reporter read depended on which door they came through — and one of the doors
+hid a channel that works. `scripts/one-disclosure-path.test.mjs` fails if this
+section starts explaining again.

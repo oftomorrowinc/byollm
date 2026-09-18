@@ -363,6 +363,7 @@ wait.
 ## Certifying an adapter
 
 ```bash
+npm install --save-dev @byollm/conformance
 npx byollm-certify ./my-target.js
 ```
 

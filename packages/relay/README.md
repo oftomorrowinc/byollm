@@ -245,7 +245,7 @@ authenticated channel instead.
 which is what an attacker has:
 
 ```bash
-npx byollm-audit-deployment https://your-relay.example
+npx --package @byollm/conformance byollm-audit-deployment https://your-relay.example
 ```
 
 It exists because eight of byollm_009's findings came from a suite in which

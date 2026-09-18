@@ -122,7 +122,20 @@ passes against it** — that sentence is the whole versioning story. There is no
 framework version to chase; the tests are what compatibility means.
 
 ```bash
+npm install --save-dev @byollm/conformance
 npx byollm-certify ./my-target.js
+```
+
+**The install line is not optional, and the reason is worth a sentence.**
+`byollm-certify` is a bin inside this package, and there is no package called
+`byollm-certify` — so a bare `npx byollm-certify` asks npm for one and gets a
+404. Installing it first is what makes the second line work, and it is where
+you want the kit anyway: in `devDependencies`, running in CI.
+
+For a one-off without installing, name the package explicitly:
+
+```bash
+npx --package @byollm/conformance byollm-certify ./my-target.js
 ```
 
 ```

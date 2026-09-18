@@ -780,11 +780,12 @@ describe("what setup tells a supervisor — B207", () => {
    *
    * Driven through `runSetup`, which is the real path a person takes.
    */
-  const saved = process.env["BYOLLM_SUPERVISOR_PID"];
-  const restore = (): void => {
-    if (saved === undefined) delete process.env["BYOLLM_SUPERVISOR_PID"];
-    else process.env["BYOLLM_SUPERVISOR_PID"] = saved;
-  };
+  /* No save-and-restore of `BYOLLM_SUPERVISOR_PID` any more — B241. Both
+     cases below hand `runSetup` an environment instead of writing one, so
+     there is no global to put back. The save/restore pair was not wrong; it
+     was the honest handling of a global that should not have been touched at
+     all, and it could not protect against a SIBLING FILE writing the same
+     variable in a worker that shares `process.env`. */
 
   /* Windows has no SIGHUP — `tellSupervisor` refuses there by design, which
      `telling-the-supervisor.test.ts` proves with an injected platform. This
@@ -801,12 +802,28 @@ describe("what setup tells a supervisor — B207", () => {
         hups += 1;
       };
       process.on("SIGHUP", onHup);
-      process.env["BYOLLM_SUPERVISOR_PID"] = String(process.pid);
+      /* **Injected, not set on the process — B241.** The signal is still real
+         and still delivered to a handler installed here; what changed is that
+         the pid is handed to `runSetup` rather than announced to every test
+         file sharing this worker's `process.env`. */
+      const env = {
+        ...process.env,
+        BYOLLM_SUPERVISOR_PID: String(process.pid),
+      };
 
       try {
         const p = await paths();
         const io = scripted([...ONE_CLI]);
-        await runSetup(p, io, machineWith(["claude-cli"]));
+        await runSetup(
+          p,
+          io,
+          machineWith(["claude-cli"]),
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          env,
+        );
 
         /* Signal delivery is not synchronous with `process.kill`. */
         await new Promise((wake) => setTimeout(wake, 50));
@@ -814,23 +831,37 @@ describe("what setup tells a supervisor — B207", () => {
         expect(io.transcript()).toContain("Told the supervisor");
       } finally {
         process.off("SIGHUP", onHup);
-        restore();
       }
     },
   );
 
   it("says nothing about a supervisor when there is none", async () => {
-    /* The control, and the ordinary laptop case: no variable, no signal, and
-       no sentence about a thing the person does not have. */
-    delete process.env["BYOLLM_SUPERVISOR_PID"];
-    try {
+    /**
+     * The control, and the ordinary laptop case: no variable, no signal, and
+     * no sentence about a thing the person does not have.
+     *
+     * **An environment without the variable, rather than a `delete` on the
+     * global — B241.** The delete was the other half of the race: it announced
+     * "no supervisor" to every file in this worker, and was itself overwritten
+     * by a sibling announcing one.
+     */
+    const env = { ...process.env };
+    delete env["BYOLLM_SUPERVISOR_PID"];
+    {
       const p = await paths();
       const io = scripted([...ONE_CLI]);
-      await runSetup(p, io, machineWith(["claude-cli"]));
+      await runSetup(
+        p,
+        io,
+        machineWith(["claude-cli"]),
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        env,
+      );
       expect(io.transcript()).not.toContain("Told the supervisor");
       expect(io.transcript()).not.toContain("supervisor is not answering");
-    } finally {
-      restore();
     }
   });
 });

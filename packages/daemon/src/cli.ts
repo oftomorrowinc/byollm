@@ -342,6 +342,22 @@ export async function runCli(
      */
     supervised?: boolean;
     /**
+     * The environment to read the supervisor's pid from — B241.
+     *
+     * **Not the same seam as `supervised` above, and the difference is the
+     * whole reason this exists.** `supervised` states the answer; this states
+     * the INPUT the answer is derived from, so a test can exercise the
+     * derivation itself — which is what `start-says-what-is-signed-out.test.ts`
+     * is for, and why it could not use `supervised`.
+     *
+     * Before this, saying "there is a supervisor" meant setting
+     * `process.env` on the whole process, and `process.env` is shared across
+     * vitest's worker threads. Two files did it, and their paired runs failed
+     * 8% of the time: each hung waiting on a supervisor the other had
+     * announced. A global is not a fixture.
+     */
+    env?: NodeJS.ProcessEnv;
+    /**
      * Which machine this is, and how a backend is checked and signed in —
      * B047's seams.
      *
@@ -460,7 +476,13 @@ export async function runCli(
        * no use for says so and names the one it has.
        */
       if (rest[0] === "manage") {
-        return commandServicesManage(paths, io, rest.slice(1), signal);
+        return commandServicesManage(
+          paths,
+          io,
+          rest.slice(1),
+          signal,
+          options.env,
+        );
       }
       if (rest.length > 0) {
         io.err(
@@ -3899,6 +3921,10 @@ async function commandServicesManage(
   io: CliIo,
   rest: readonly string[],
   signal?: AbortSignal,
+  /* The environment the supervisor is read from — B241. Threaded rather than
+     read from the global so a test can say "there is a supervisor" without
+     announcing it to every other test file in the process. */
+  env: NodeJS.ProcessEnv = process.env,
 ): Promise<ExitCode> {
   if (rest.length > 0) {
     io.err(
@@ -3916,7 +3942,7 @@ async function commandServicesManage(
     },
   );
   try {
-    return await manageWith(paths, io, terminal, signal);
+    return await manageWith(paths, io, terminal, signal, env);
   } catch (error) {
     return endedOrThrow(error, io);
   } finally {
@@ -3929,6 +3955,9 @@ async function manageWith(
   io: CliIo,
   terminal: TerminalIo,
   signal?: AbortSignal,
+  /* The environment the supervisor is read from — B241, threaded rather than
+     taken from the global. */
+  env: NodeJS.ProcessEnv = process.env,
 ): Promise<ExitCode> {
   const existing = await readExistingConfig(paths.config);
   const outcome = await manageServices({
@@ -3937,7 +3966,13 @@ async function manageWith(
   });
   if (!outcome.decided) return 1;
   if (
-    !(await writeManaged(paths.config, terminal, existing?.rest ?? {}, outcome))
+    !(await writeManaged(
+      paths.config,
+      terminal,
+      existing?.rest ?? {},
+      outcome,
+      env,
+    ))
   )
     return 1;
 
@@ -3961,7 +3996,7 @@ async function manageWith(
   /* `writeManaged` has already told a supervisor, if there is one — B207. This
      is the other world: a systemd/launchd service, which nothing signals. */
   const installed =
-    supervisorPid() === undefined &&
+    supervisorPid(env) === undefined &&
     (await serviceIsInstalled(serviceTarget(paths, defaultServiceIo())));
   if (installed) {
     io.out(

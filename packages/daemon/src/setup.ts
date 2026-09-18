@@ -96,6 +96,16 @@ export async function runSetup(
    */
   run: (argv: readonly string[]) => Promise<number> = () => Promise.resolve(0),
   /**
+   * The environment the supervisor is read from — B241.
+   *
+   * Injected for the same reason every other dependency here is: a test that
+   * had to set `process.env` to say "there is a supervisor" was mutating a
+   * global two other test files read, and paired runs failed 8% of the time
+   * because of it. The default is the real environment, so nothing about a
+   * person running `byollm setup` changes.
+   */
+  env: NodeJS.ProcessEnv = process.env,
+  /**
    * Which machine this is — last, for the same reason `verifier` was last.
    *
    * Injected rather than read from `process` at the point of use so the
@@ -187,7 +197,9 @@ export async function runSetup(
   if (!outcome.decided) return { wrote: false, services: [] };
   const enabled = [...outcome.enabled];
 
-  if (!(await writeManaged(paths.config, io, existing?.rest ?? {}, outcome))) {
+  if (
+    !(await writeManaged(paths.config, io, existing?.rest ?? {}, outcome, env))
+  ) {
     return { wrote: false, services: [] };
   }
 

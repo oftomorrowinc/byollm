@@ -323,9 +323,21 @@ describe("byollm run, when a backend is signed out", () => {
      * them caught it: the expressions that shipped were the one part nothing
      * exercised.
      */
-    const saved = process.env["BYOLLM_SUPERVISOR_PID"];
-    process.env["BYOLLM_SUPERVISOR_PID"] = "1";
-    try {
+    /**
+     * **Injected, not set on the process — B241.**
+     *
+     * This used to write `BYOLLM_SUPERVISOR_PID` onto `process.env`, which
+     * vitest's worker threads share. `setup.test.ts`'s supervisor cases read
+     * the same variable, so in parallel runs they saw a supervisor this test
+     * had announced and hung waiting for it: **2 failures in 25 paired runs,
+     * 0 when the same two files ran sequentially.**
+     *
+     * The point of the case is unchanged and is why `supervised: true` is
+     * still not the answer here: what is under test is the DERIVATION from the
+     * environment, so the environment is what gets injected.
+     */
+    const env = { ...process.env, BYOLLM_SUPERVISOR_PID: "1" };
+    {
       await configWithClaude();
       const code = await runCli(["run"], {
         paths,
@@ -340,15 +352,15 @@ describe("byollm run, when a backend is signed out", () => {
         ask: () => {
           throw new Error("asked a human that a supervised daemon cannot have");
         },
+        env,
       });
 
       /* Nothing is paired, so `run` exits 2 having said so — the same honest
          answer as the case above. What matters is that it GOT here at all
          rather than waiting on an answer. */
       expect(code).toBe(2);
-    } finally {
-      if (saved === undefined) delete process.env["BYOLLM_SUPERVISOR_PID"];
-      else process.env["BYOLLM_SUPERVISOR_PID"] = saved;
+      /* No `finally` restoring a global any more: there is nothing to restore,
+         which is the whole repair. */
     }
   });
 

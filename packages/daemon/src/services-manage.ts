@@ -1697,6 +1697,23 @@ export async function writeManaged(
   io: ManageIo,
   rest: Record<string, unknown>,
   outcome: ManageResult,
+  /**
+   * The environment the supervisor is read from — B241.
+   *
+   * Last and optional, defaulting to the real one, so every existing caller
+   * is unchanged and production behaviour is identical. It exists because
+   * `tellSupervisor` has taken an `env` since it was written, and this was the
+   * one link in the chain that did not pass one — so the only way a test could
+   * say "there is a supervisor" was to set `process.env` on the whole process.
+   *
+   * **Two test files did exactly that, and it cost 8% of paired runs.**
+   * `start-says-what-is-signed-out.test.ts` sets `BYOLLM_SUPERVISOR_PID` while
+   * `setup.test.ts`'s supervisor cases read it; in parallel workers sharing one
+   * `process.env`, each hung waiting for a supervisor that was not theirs. A
+   * global is not a fixture, and the seam to avoid it already existed one layer
+   * down.
+   */
+  env: NodeJS.ProcessEnv = process.env,
 ): Promise<boolean> {
   const config = {
     // Whatever the owner had that this screen does not ask about, first, so
@@ -1738,7 +1755,7 @@ export async function writeManaged(
    * minute later, and a supervisor that was NOT respawning (because the daemon
    * was up and serving) never picked it up at all.
    */
-  const told = tellSupervisor();
+  const told = tellSupervisor(undefined, env);
   if (told === "told") {
     io.out(
       "\nTold the supervisor — this device is picking the change up now.\n",

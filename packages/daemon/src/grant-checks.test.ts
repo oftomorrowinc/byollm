@@ -456,3 +456,105 @@ describe("check 4 — private is absolute", () => {
     expect(result.ok).toBe(true);
   });
 });
+
+/**
+ * Is `audience` doing any admission work the grant does not already do?
+ *
+ * CW ruled on 2026-09-18 that the admission reader should go — that the signed
+ * grant earns it, and `runner.ts`'s own comment at the `admits: () => true`
+ * shortcut already says so. **With a requirement attached, which is the reason
+ * this file exists rather than a diff:** *"a mutation restoring `matchAudience`
+ * that does NOT redden it (proving redundancy) while removing `#grantAdmits`
+ * DOES. Redundancy claimed is not redundancy shown."*
+ *
+ * So this is the measurement, written before the removal. The claim under test
+ * is narrow and falsifiable: **on the cloud lane, `job.audience` never changes
+ * the admission outcome.** If that holds, the field is doing nothing here and
+ * the reader can go. If it does not hold, there is a case the grant does not
+ * cover and the removal would take a check with it.
+ *
+ * The harness is the one above: this device belongs to `bob`, the job belongs
+ * to `alice`, and the grant is a genuine team grant — the shape in which the
+ * two owners differ, which is the only shape where side one of
+ * {@link matchAudience} can fire at all.
+ */
+describe("what `audience` decides that the grant does not", () => {
+  it("admits alice's `team` job on bob's device — the control", async () => {
+    /* The baseline both cases below are measured against. Without it, a device
+       that refused everything would satisfy the comparison perfectly. */
+    expect((await device()).admit(job({ audience: "team" })).ok).toBe(true);
+  });
+
+  it("REFUSES the same job, same grant, with `audience: private`", async () => {
+    /**
+     * **This is the measurement, and it refutes the premise.**
+     *
+     * Everything else is identical: the same signed grant, the same device,
+     * the same service, the same person. `#grantAdmits` passes it — the
+     * signature verifies, the grant names this device's owner and this job,
+     * and `grant.user` matches `job.owner`. Only `audience` differs, and only
+     * `matchAudience` refuses.
+     *
+     * So the field is NOT redundant with the grant on this lane. It is the
+     * only thing standing between a control plane that issues a grant
+     * contradicting the site's declared audience and a device that runs the
+     * job anyway. Removing the reader would remove that, and nothing else
+     * would notice.
+     *
+     * What the field is NOT is a defence against a hostile router: `audience`
+     * travels UNSIGNED, so a relay can rewrite `private` to `team` and this
+     * check passes. It catches an honest control plane's bug, not an
+     * adversary's choice — which is a real thing to catch and a smaller claim
+     * than "admission is enforced here".
+     */
+    const result = (await device()).admit(job({ audience: "private" }));
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.reason).toContain("private");
+    }
+  });
+
+  it("is the only difference between those two — proven, not asserted", async () => {
+    /**
+     * The claim above is "everything else is identical", and a reader has no
+     * reason to believe it from prose. So it is built here: one job object,
+     * one field changed, both outcomes taken.
+     *
+     * A test that constructed the two jobs separately could differ in a second
+     * field and blame the first — which is the shape of wrong conclusion this
+     * whole measurement exists to avoid.
+     */
+    const base = job({ audience: "team" });
+    const withPrivate = { ...base, audience: "private" as const };
+
+    /* The grant is the SAME OBJECT, not a second signature over the same
+       claims. Two signatures would leave "maybe the other grant differed" as
+       an unexamined explanation. */
+    expect(withPrivate.grant).toBe(base.grant);
+    expect(Object.keys(withPrivate).sort()).toEqual(Object.keys(base).sort());
+
+    const admitted = (await device()).admit(base);
+    const refused = (await device()).admit(withPrivate);
+
+    expect(admitted.ok).toBe(true);
+    expect(refused.ok).toBe(false);
+  });
+
+  it("still admits alice's private job on ALICE's own device", async () => {
+    /**
+     * The control that keeps the case above from meaning "private is off".
+     * `private` means "the owner's own devices", so the owner's own device
+     * runs it — and if this ever failed, the refusal above would be measuring
+     * a broken `private` rather than an audience check doing its job.
+     */
+    const result = (await device()).admit(
+      job(
+        { audience: "private", owner: "bob" },
+        { user: "bob", owner: "bob", service: "shared" },
+      ),
+    );
+
+    expect(result.ok).toBe(true);
+  });
+});

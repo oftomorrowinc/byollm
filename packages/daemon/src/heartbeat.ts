@@ -86,3 +86,60 @@ export async function readHeartbeat(
     return undefined;
   }
 }
+
+/**
+ * Is the process that wrote this beat definitely gone — B228.
+ *
+ * `pid` has been on this record since B202 with a comment saying what it is
+ * for — *"so a reader can check it is still there"* — and for three releases
+ * nothing checked it. `status` read the beat's AGE and nothing else, which
+ * leaves a window: a daemon killed five seconds ago has a fresh file, so the
+ * age arm says nothing, `consecutiveFailures` is zero because it was working
+ * when it died, `supervision.state` is `absent` for a daemon run in a
+ * terminal, and the headline falls through to **`running` for a process that
+ * does not exist.** That is a full minute of lying, and it is precisely the
+ * minute in which somebody who just typed `byollm stop` types `byollm status`.
+ *
+ * ## It may demote, and it may never promote
+ *
+ * The asymmetry is the whole design, and getting it backwards is the classic
+ * pidfile bug.
+ *
+ * **`ESRCH` is proof of death.** No process holds that id, so the writer is
+ * gone, and nothing else has to be true for that to hold.
+ *
+ * **Success is not proof of life.** A pid is reused: the daemon's id can be
+ * handed to something unrelated between its death and this read, and
+ * `kill(pid, 0)` would then succeed about a process that has nothing to do
+ * with byollm. So a successful signal returns `false` — *"not proven gone"* —
+ * and the age rule still decides. This function can only ever move the answer
+ * toward NOT RUNNING, never toward running, which means pid reuse costs a
+ * missed demotion rather than a false reassurance.
+ *
+ * **`EPERM` is not death either.** Something exists under that id and belongs
+ * to another user — evidence the id has been reused, but not evidence about
+ * our daemon. Treated as "not proven gone" for the same reason.
+ *
+ * ## Where it is wrong, said out loud
+ *
+ * A pid only means something inside the namespace that issued it. If `status`
+ * ever ran outside the daemon's namespace — a different container to the one
+ * the daemon runs in — every pid would read `ESRCH` and this would demote a
+ * healthy device. That is not today's shape (on a box the supervisor and the
+ * daemon share a container, and on a laptop there is one namespace), and the
+ * caller prints its evidence so a reader meeting that case can see the
+ * reasoning rather than just the verdict.
+ */
+export function beatWriterIsGone(beat: DaemonHeartbeat): boolean {
+  /* `process.kill(0, ...)` signals the whole process group and a negative pid
+     signals a group too. Neither is a question about this daemon, and one of
+     them is dangerous even with signal 0, so a pid that is not a plain process
+     id is simply not evidence. */
+  if (!Number.isInteger(beat.pid) || beat.pid <= 0) return false;
+  try {
+    process.kill(beat.pid, 0);
+    return false;
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code === "ESRCH";
+  }
+}

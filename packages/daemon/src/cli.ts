@@ -14,7 +14,11 @@ import { hostname, userInfo } from "node:os";
 import { dirname } from "node:path";
 import { createInterface } from "node:readline/promises";
 import { FAILURES_BEFORE_ALARM, readHealth } from "./health.js";
-import { readHeartbeat } from "./heartbeat.js";
+import {
+  beatWriterIsGone,
+  readHeartbeat,
+  type DaemonHeartbeat,
+} from "./heartbeat.js";
 import { InputEnded, runSetup, terminalIo, type TerminalIo } from "./setup.js";
 import {
   manageServices,
@@ -2666,6 +2670,23 @@ export function memoryGuardLines(input: {
  */
 const HEARTBEAT_STALE_AFTER_MS = 60_000;
 
+/**
+ * Which sentence this beat has earned — B228.
+ *
+ * Asked again here rather than carried down from the decision above, because
+ * the two call sites want different things: the decision wants "is it stale at
+ * all", and the message wants "which fact am I explaining".
+ *
+ * **My first version suppressed this whenever the beat was also old**, on the
+ * theory that the age was the better thing to tell somebody. A mutation went
+ * straight through it, and the reason is that the theory was wrong: a beat
+ * twenty minutes old whose process is GONE and one whose process is still
+ * there are different situations — stopped versus wedged — and only one of
+ * them is fixed by restarting. Suppressing the specific fact because a vaguer
+ * one was also true is the wrong way round.
+ */
+const beatIsGone = (beat: DaemonHeartbeat): boolean => beatWriterIsGone(beat);
+
 /** An age in the plainest words — the shape `describeDrift` uses for a skew. */
 function describeAge(ms: number): string {
   const seconds = Math.round(Math.abs(ms) / 1000);
@@ -2756,8 +2777,25 @@ async function commandStatus(
    * up it is just that, which the screen says better further down.
    */
   const serving = pairings.list().length > 0;
-  const stale =
-    beat === undefined ? serving : now - beat.at > HEARTBEAT_STALE_AFTER_MS;
+  /**
+   * Two ways to know, and the second closes a full minute of lying — B228.
+   *
+   * The age arm alone leaves a window the width of the staleness threshold: a
+   * daemon killed five seconds ago has a fresh file, `consecutiveFailures` is
+   * zero because it was working when it died, `supervision.state` is `absent`
+   * for a daemon run in a terminal, and the headline falls through to
+   * `running` for a process that does not exist. **That is exactly the minute
+   * in which somebody who just typed `byollm stop` types `byollm status`** —
+   * which is what Todd did on 09-16, on `.89`, before the beat file existed
+   * at all.
+   *
+   * The pid has been on the record since B202 with a comment saying what it
+   * is for, and nothing asked it for three releases. Asking it can only
+   * demote: `ESRCH` is proof of death, a successful signal proves nothing
+   * because pids are reused. See {@link beatWriterIsGone}.
+   */
+  const aged = beat !== undefined && now - beat.at > HEARTBEAT_STALE_AFTER_MS;
+  const stale = beat === undefined ? serving : aged || beatWriterIsGone(beat);
 
   /**
    * The supervisor's answer, asked once and used twice — ruled 2026-09-03.
@@ -2805,16 +2843,36 @@ async function commandStatus(
     );
   }
   if (stale) {
-    /* Said with the evidence, because "NOT RUNNING" from a surface that was
-       wrong about this an hour ago has to show its working. The age is the
-       whole argument: a live daemon rewrites this file every heartbeat. */
+    /**
+     * Said with the evidence, because "NOT RUNNING" from a surface that was
+     * wrong about exactly this an hour ago has to show its working — and the
+     * three ways of being not-running have DIFFERENT working.
+     *
+     * Printing the age when the argument was the missing process would show a
+     * reader a number that does not support the verdict, on the one screen
+     * that has to be believed. And the never-beat case used to print the age
+     * too: `now - (beat?.at ?? now)` is zero when there is no beat, so a
+     * paired machine whose daemon has never run was told "nothing has written
+     * this device's heartbeat for 0 seconds", which is not a sentence about
+     * anything.
+     */
+    const why =
+      beat === undefined
+        ? `  nothing has ever written this device's heartbeat, and this ` +
+          `device is paired — so a daemon was meant to be running here and ` +
+          `has not.\n`
+        : beatIsGone(beat)
+          ? /* No "only": this arm is reached for an old beat too, and "only
+               20 minutes old" would be the sentence being wrong out loud. */
+            `  the process that wrote this device's heartbeat (pid ` +
+            `${String(beat.pid)}) is gone, and the beat is ` +
+            `${describeAge(now - beat.at)} old — it was stopped rather than ` +
+            `wedged.\n`
+          : `  nothing has written this device's heartbeat for ` +
+            `${describeAge(now - beat.at)} — a running daemon rewrites it ` +
+            `every heartbeat, so it is not running.\n`;
     io.out(
-      `  nothing has written this device's heartbeat for ` +
-        /* `stale` is only true when `health` is defined, so no optional
-           chain: the compiler knows, and a `?.` here would be a claim that
-           this branch can be reached without one. */
-        `${describeAge(now - (beat?.at ?? now))} — a running daemon ` +
-        `rewrites it every heartbeat, so it is not running.\n` +
+      why +
         `  anything below is the last thing it believed, not what is true ` +
         `now.\n`,
     );

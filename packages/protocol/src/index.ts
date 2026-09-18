@@ -13,6 +13,8 @@
  * @packageDocumentation
  */
 
+export { HUB_FENCE, HUB_FENCE_CLAUSES, type FenceClause } from "./hub-fence.js";
+
 export { UPGRADE_COMMAND } from "./wire.js";
 export {
   UPDATE_OFFER_SINCE,

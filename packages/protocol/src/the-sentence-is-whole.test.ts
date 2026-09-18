@@ -46,6 +46,26 @@ describe("the hub fence", () => {
         HUB_FENCE,
         `"${clause.says}" claims to be a clause of the fence and is not in it`,
       ).toContain(clause.says);
+
+      /**
+       * And not as a TRUNCATION of a longer word, which plain containment
+       * accepts.
+       *
+       * A mutation found this on the day the module moved into protocol:
+       * shortening the clause `"and timestamps"` to `"and times"` passed,
+       * because one is a prefix of the other. The clause text is what maps
+       * promise-words to columns, so a clause claiming words the sentence does
+       * not actually end on is a mapping to a phrase nobody printed — the same
+       * "a mention is not a route" this file exists to prevent across two
+       * repositories, arriving inside the check that prevents it.
+       */
+      const after = HUB_FENCE.charAt(
+        HUB_FENCE.indexOf(clause.says) + clause.says.length,
+      );
+      expect(
+        /[A-Za-z]/u.test(after),
+        `"${clause.says}" is a truncation of a longer phrase in the fence, not a clause of it`,
+      ).toBe(false);
     }
   });
 

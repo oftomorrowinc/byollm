@@ -6,16 +6,22 @@
  *
  * ## The find this exists because of
  *
- * `@byollm/agreements` was added at 2026-09-17 23:44, three hours after
- * `v0.1.0-alpha.102` was tagged at 20:34. It carries a version in lockstep
- * with its six siblings, `publishConfig.access: "public"`, and no `private`
- * flag — and the release workflow's rule is explicit:
+ * **The case that produced it, now resolved:** `@byollm/agreements` was added
+ * at 2026-09-17 23:44, three hours after `v0.1.0-alpha.102` was tagged at
+ * 20:34, so it had never been through a release. It carried a version in
+ * lockstep with its six siblings, `publishConfig.access: "public"`, and no
+ * `private` flag — and the release workflow's rule is explicit:
  *
  * > Anything under packages/ that is not `private` ships. To keep a package
  * > out of a release, mark it private; there is no list to forget to update.
  *
- * So the next tag carries it into the release, and the next tag is the 0.1.0
- * flip. B039 sits BLOCKED on "the publish decision" for that exact package.
+ * So the next tag would have carried it into the release. **Todd ruled on
+ * 2026-09-19 that there is no seventh package**: `HUB_FENCE` moved into
+ * `@byollm/protocol` and `packages/agreements` was deleted rather than marked
+ * private, which unblocked B039 and B164 and left this script reporting zero.
+ *
+ * It stays anyway. It found that one, and it is what stops the next package
+ * created after a tag from reaching a release nobody decided to send it to.
  *
  * ## What actually happens — corrected 09-18 after READING the workflow
  *

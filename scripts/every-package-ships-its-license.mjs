@@ -38,9 +38,10 @@
  * `@byollm/relay`, `@byollm/conformance`, `@byollm/control-plane` — six of
  * six present, six of six byte-identical.
  *
- * `@byollm/agreements` is the seventh and has never been published, so there
- * is nothing to compare; it is exactly what `a-first-publish-is-announced.mjs`
- * is about.
+ * There was a seventh, `@byollm/agreements`, which had never been published so
+ * there was nothing to compare. Todd ruled it out of existence on 2026-09-19 —
+ * `HUB_FENCE` lives in `@byollm/protocol` now — so the set is six and the
+ * comparison is complete rather than complete-except-one.
  *
  * It compares CONTENT, not presence: a package that grows its own LICENSE file
  * saying something else would otherwise pass while shipping a different grant

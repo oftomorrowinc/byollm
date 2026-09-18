@@ -2,9 +2,6 @@
   "files": [],
   "references": [
     {
-      "path": "./packages/agreements"
-    },
-    {
       "path": "./packages/protocol"
     },
     {

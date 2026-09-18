@@ -157,9 +157,11 @@ const resolves = async (url) => {
  *
  * The registry answers the same question without the bot wall, and it answers
  * it better: `registry.npmjs.org/<name>` 404s for a package that does not
- * exist. That matters right now — six package READMEs link
- * `@byollm/agreements`, which has never been published, and the website's 403
- * hides it.
+ * exist. That is how it found a real one: six package READMEs linked
+ * `@byollm/agreements`, which had never been published, and the website's 403
+ * was hiding all six. That link resolved itself by disappearing — Todd ruled
+ * the package out of existence on 2026-09-19 — which is the cheapest way a
+ * dead link has ever been fixed here and no reason to trust the next one.
  *
  * Only the question moves. What is reported is still the link the reader
  * clicks, so nobody is sent to an address they did not write.

@@ -260,13 +260,12 @@ MIT
 
 ## The rest of byollm
 
-Seven packages, and they are only interesting together:
+Six packages, and they are only interesting together:
 
 - [`byollm`](https://www.npmjs.com/package/byollm) — the daemon — runs models on your own machine and answers for it
 - [`@byollm/protocol`](https://www.npmjs.com/package/@byollm/protocol) — the wire: envelopes, signatures and the closed vocabularies both ends validate against
 - [`@byollm/server`](https://www.npmjs.com/package/@byollm/server) — the SDK a site uses to ask a device for work
 - [`@byollm/control-plane`](https://www.npmjs.com/package/@byollm/control-plane) — who may ask whom, and the policy store behind it
 - [`@byollm/conformance`](https://www.npmjs.com/package/@byollm/conformance) — the kit that proves an implementation is one — including a posture audit that holds nothing but a URL
-- [`@byollm/agreements`](https://www.npmjs.com/package/@byollm/agreements) — the sentences and rules more than one byollm repository has to state identically
 
 <!-- family:end -->

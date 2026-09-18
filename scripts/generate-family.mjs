@@ -47,10 +47,6 @@ const FAMILY = [
     "@byollm/conformance",
     "the kit that proves an implementation is one — including a posture audit that holds nothing but a URL",
   ],
-  [
-    "@byollm/agreements",
-    "the sentences and rules more than one byollm repository has to state identically",
-  ],
 ];
 
 /**

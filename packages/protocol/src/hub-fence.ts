@@ -17,18 +17,28 @@
  * never having made the promise.
  *
  * `byollm_023` named the only two shapes — a copy per repository (they
- * diverge, silently) or one package both import (it goes stale, loudly, as a
+ * diverge, silently) or one source both import (it goes stale, loudly, as a
  * version pin). **Todd ruled shape 2 on 2026-09-17**, and the reason is the
  * one that decides it: staleness is a number somebody can compare, and B164's
  * cross-repository pin comparison is the thing that compares it. Divergence
  * has no such number.
+ *
+ * ## Why it lives in `@byollm/protocol` and not a package of its own
+ *
+ * It was one, for a day. **Todd ruled on 2026-09-19: no seventh package** —
+ * *"I do think just adding it to protocol and importing that makes a ton of
+ * sense"* — and `packages/agreements` was deleted rather than marked private.
+ * Both consuming repositories already pin `@byollm/protocol`, so the sentence
+ * arrives on a pin they carry instead of a name they would have to adopt, and
+ * the cut stops carrying a package that had never been published.
  *
  * ## Published, not internal
  *
  * It ships to npm rather than living in a private repository, and that is a
  * property rather than an accident: a promise about what a hosted service can
  * see is worth more when anybody can install the package, read the sentence,
- * and check it against what the service does.
+ * and check it against what the service does. Protocol is public, so that is
+ * unchanged by the move.
  */
 
 /**

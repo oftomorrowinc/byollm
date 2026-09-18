@@ -563,9 +563,8 @@ We're precise about the boundary: BYOLLM makes **breakout** impossible; **prompt
 | [`@byollm/relay`](packages/relay) | The broker that holds jobs between a site and a device, and can read neither. |
 | [`@byollm/control-plane`](packages/control-plane) | Who may ask whom, and the policy store behind it. |
 | [`@byollm/conformance`](packages/conformance) | The kit that proves an implementation is one — including a posture audit that holds nothing but a URL. |
-| [`@byollm/agreements`](packages/agreements) | The sentences and rules more than one byollm repository has to state identically. |
 
-Seven packages, versioned and released together. Ask for `@alpha` explicitly — see the warning at the top of this file.
+Six packages, versioned and released together. Ask for `@alpha` explicitly — see the warning at the top of this file.
 
 <!-- packages:end -->
 

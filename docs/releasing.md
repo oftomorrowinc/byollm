@@ -20,7 +20,7 @@ reviewable in a diff, and it does not depend on finding a page:
 
 ```bash
 for pkg in "@byollm/protocol" "@byollm/server" byollm "@byollm/conformance" \
-           "@byollm/relay" "@byollm/control-plane" "@byollm/agreements"; do
+           "@byollm/relay" "@byollm/control-plane"; do
   npm trust github "$pkg" \
     --file release.yml \
     --repo oftomorrowinc/byollm \
@@ -81,7 +81,7 @@ stripped, so re-check if manifests are ever edited.
 ## Cutting a release
 
 ```bash
-# 1. Bump. Seven packages publish, and every one of them moves in lockstep;
+# 1. Bump. Six packages publish, and every one of them moves in lockstep;
 #    the workflow refuses to publish if they disagree. Do not type the list —
 #    this script reads `packages/`, which is why it did not miss
 #    `@byollm/relay` when the list was hardcoded in four places and did.

@@ -59,9 +59,11 @@
  * the workflow's own guard.)
  *
  * And the release publishes anything under `packages/` that is not `private`,
- * so a package arrives in that list by DEFAULT: `@byollm/agreements` was added
- * three hours after `alpha.102` was tagged, while the decision to publish it
- * sits open in a note.
+ * so a package arrives in that list by DEFAULT. `@byollm/agreements` did: added
+ * three hours after `alpha.102` was tagged, carried toward a release nobody had
+ * decided to send it to. Todd ruled it out of existence on 2026-09-19 and this
+ * now reports nothing — which is the state to expect, not a sign the question
+ * stopped being worth asking.
  *
  * It is **reported, never fatal**, and it says "could not ask" rather than
  * guessing when the registry is unreachable — an offline run that announced

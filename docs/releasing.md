@@ -103,14 +103,38 @@ pnpm run verify
 
 # 4. Commit, push, and let CI go green.
 
-# 5. Tag it. `tag.sh` refuses to make one this repository cannot publish,
-#    one that disagrees with packages/, and one with no release note — see
-#    below.
+# 5. Move the hosted pins — BEFORE the tag, and this is new (B234).
+#    `byollm-cloud/hub/package.json` and `byollm-cloud-web`'s pnpm catalog
+#    both name a version of these packages, and for three releases running
+#    (.95, .96, .97) moving them was a step somebody remembered afterwards.
+#    On .97 nobody did. Bump the manifests in both repositories and COMMIT
+#    them; `tag.sh` now refuses a tag whose pins are missing, wrong, or
+#    sitting unsaved in a working tree.
+#
+#    Do NOT try to update their lockfiles yet. A lockfile records what the
+#    registry resolved, and the registry has nothing to resolve until step 7
+#    publishes. That half is checked in step 9.
+
+# 6. Tag it. `tag.sh` refuses to make one this repository cannot publish,
+#    one that disagrees with packages/, one with no release note, and one
+#    whose hosted pins do not name it — see below.
 ./scripts/tag.sh
 
-# 6. Push the tag. `tag.sh` prints the exact command; copy it from there
+# 7. Push the tag. `tag.sh` prints the exact command; copy it from there
 #    rather than typing a version, which is how this line came to name
 #    `alpha.4` long after `alpha.86` shipped.
+
+# 8. Once the packages are live, update the two lockfiles and commit them:
+#    `pnpm install --lockfile-only` in each. Their CI runs
+#    `pnpm install --frozen-lockfile`, so this is what keeps them green —
+#    which is also why steps 5 and 8 are two commits and why 8 is not
+#    optional.
+
+# 9. Confirm. This asks npm whether every package published, and then asks
+#    whether those pins — manifests and lockfiles — name this version. A
+#    green release and an honest repository are two claims, and until B234
+#    this command only ever made the first one.
+pnpm run release:check
 ```
 
 ### Why `tag.sh` rather than `git tag`

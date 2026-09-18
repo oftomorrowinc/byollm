@@ -1,4 +1,4 @@
-import { execFileSync } from "node:child_process";
+import { execFile } from "node:child_process";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -62,42 +62,60 @@ function registry(version, present) {
   return Object.fromEntries(NAMES.map((n) => [n, entry(present.includes(n))]));
 }
 
-function run(version, present, attempts = "1") {
+/**
+ * `BYOLLM_PINS` by default, because these cases are about npm — B234.
+ *
+ * The script also asks whether the repositories that pin these packages name
+ * the version, and that question needs two private checkouts this repository's
+ * CI does not have. Those pins are proven where they live, by
+ * `byollm-cloud/infra/test/pins-agree.test.ts`; what belongs here is that the
+ * question gets ASKED and its answer honoured, which is what the last two
+ * cases below are for.
+ *
+ * A default of `skip` would be exactly the omission B234 exists to stop if it
+ * were the default on release night. It is not: it is set by this harness, per
+ * run, and the control case asserts the banner the skip prints — so deleting
+ * the pin step from the script would take the banner with it and go red.
+ */
+function run(version, present, attempts = "1", env = {}) {
   dir = mkdtempSync(join(tmpdir(), "release-check-"));
   const path = join(dir, "registry.json");
   writeFileSync(path, JSON.stringify(registry(version, present)), "utf8");
-  const options = {
-    encoding: "utf8",
-    stdio: ["ignore", "pipe", "pipe"],
-    env: {
-      ...process.env,
-      RELEASE_CHECK_ATTEMPTS: attempts,
-      RELEASE_CHECK_FIXTURE: path,
-    },
-  };
-  try {
-    return {
-      status: 0,
-      stdout: execFileSync(process.execPath, [script, version], options),
-      stderr: "",
-    };
-  } catch (error) {
-    return {
-      status: error.status,
-      stdout: String(error.stdout ?? ""),
-      stderr: String(error.stderr ?? ""),
-    };
-  }
+  return new Promise((settle) => {
+    /* `execFile`, never a synchronous spelling — byollm_004 §2, and eslint
+       enforces it in this repository's tests too. */
+    execFile(
+      process.execPath,
+      [script, version],
+      {
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          RELEASE_CHECK_ATTEMPTS: attempts,
+          RELEASE_CHECK_FIXTURE: path,
+          BYOLLM_PINS: "skip",
+          ...env,
+        },
+      },
+      (error, stdout, stderr) => {
+        settle({
+          status: error === null ? 0 : (error.code ?? -1),
+          stdout: String(stdout),
+          stderr: String(stderr),
+        });
+      },
+    );
+  });
 }
 
 const V = "0.1.0-alpha.999";
 
 describe("the release read-back", () => {
-  it("fails a partial release, and names what did answer", () => {
+  it("fails a partial release, and names what did answer", async () => {
     /* The dangerous state: some packages at the version, others not, and
        every one of them resolvable by anyone who installs. This is the path
        that had no test at all — the branch the whole check exists for. */
-    const seen = run(
+    const seen = await run(
       V,
       NAMES.filter((n) => n !== "@byollm/control-plane"),
     );
@@ -112,12 +130,12 @@ describe("the release read-back", () => {
     expect(seen.stdout).toMatch(/UNREAD\s+@byollm\/control-plane/u);
   });
 
-  it("does not call a total silence a partial release", () => {
+  it("does not call a total silence a partial release", async () => {
     /* A publish that failed outright fails the step above, so nothing
        answering is a registry not serving reads. Same exit code — the release
        is unconfirmed either way — and a different first move: wait, rather
        than republish. */
-    const seen = run(V, []);
+    const seen = await run(V, []);
 
     expect(seen.status).toBe(1);
     expect(seen.stderr).toContain("No package answered");
@@ -125,13 +143,59 @@ describe("the release read-back", () => {
     expect(seen.stderr).toContain("re-run this check");
   });
 
-  it("exits 0 when every package is there", () => {
+  it("exits 0 when every package is there, having asked about the pins", async () => {
     /* The control. Everything above is satisfied by a script that never
        succeeds, and a release check that always complains is one nobody
-       keeps. */
-    const seen = run(V, NAMES);
+       keeps.
+
+       The banner is the second half of the control: it is printed by
+       `pins-checked.mjs` and by nothing else, so its presence is this test
+       watching the pin step run. Remove the step and a green release goes back
+       to meaning "npm answered", which is what it meant on `.97`. */
+    const seen = await run(V, NAMES);
 
     expect(seen.status).toBe(0);
     expect(seen.stdout).toContain("is live on every package");
+    expect(seen.stderr).toContain("THE HOSTED PINS ARE NOT CHECKED");
+  });
+});
+
+describe("the pins, which are the other half of a release — B234", () => {
+  it("does not call a release green when the pin question went unanswered", async () => {
+    /**
+     * Every package live on npm, and the answer about the pins is anything but
+     * zero — because they disagree, or because this machine has no checkouts
+     * to ask. Both are "the pin is not known to be right", and shipping either
+     * one as green is `.97`: a `.97` daemon on the fleet under a repository
+     * claiming `.96`, invisible from the outside, caught by a question rather
+     * than a check.
+     *
+     * Written to be true with or without those checkouts, so it is the same
+     * test on CI and on the machine that cuts the release.
+     */
+    const seen = await run(V, NAMES, "1", { BYOLLM_PINS: "" });
+
+    expect(seen.status).toBe(1);
+    /* The refusal says both halves in one breath: the release happened, and
+       the repositories that pin it have not caught up. Reading only the first
+       clause is how `.97` got to the edge of a rebake. */
+    expect(seen.stderr).toContain("is live on every package");
+    expect(seen.stderr).toContain("do not all say so");
+  });
+
+  it("asks only after the registry has answered", async () => {
+    /* A partial publish is the more urgent finding and republishing is what
+       fixes it; a stale pin is a commit in another repository. Reading the pin
+       failure first invites somebody to fix the cheap one and re-run. */
+    const seen = await run(
+      V,
+      NAMES.filter((n) => n !== "@byollm/control-plane"),
+      "1",
+      { BYOLLM_PINS: "" },
+    );
+
+    expect(seen.status).toBe(1);
+    expect(seen.stderr).toContain("Some packages answered and these did not");
+    expect(seen.stderr).not.toContain("do not all say so");
   });
 });

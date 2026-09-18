@@ -4,11 +4,12 @@
 #     ./scripts/tag.sh            # tag HEAD as v<the version in packages/>
 #     ./scripts/tag.sh v0.1.0-alpha.29
 #
-# Two refusals, and the first one is why this exists. `v0.1.0-alpha.28` was
-# created in `byollm-cloud` — a repository with no release workflow — where it
-# sat inertly while everybody waited for npm. Nothing was wrong with the tag;
-# it was in a repository that does not publish, and the only thing that would
-# have said so is something that looked.
+# It refuses for several reasons, and the first one is why it exists.
+# `v0.1.0-alpha.28` was created in `byollm-cloud` — a repository with no
+# release workflow — where it sat inertly while everybody waited for npm.
+# Nothing was wrong with the tag; it was in a repository that does not
+# publish, and the only thing that would have said so is something that
+# looked.
 #
 # The second refusal (tag must match the packages' version) already exists
 # server-side in `release.yml`. Having it here too costs a `node -p` and turns
@@ -85,6 +86,30 @@ if [ -n "$(git status --porcelain)" ]; then
   echo "  A tag names a commit, and this one would not be the tree you built." >&2
   exit 1
 fi
+
+# 5. The cut carries the pin — B234.
+#
+# `.95`, `.96` and `.97` were all cut correctly, and all three needed a second,
+# separate, human step afterwards: bumping the version this repository had just
+# published in the two repositories that pin it again. On `.97` that step was
+# not taken, and what caught it was Todd asking before a roll — which is not a
+# check, it is a near miss with good manners. The next box rebake would have
+# put a `.97` daemon on the fleet under a repository claiming `.96`.
+#
+# Last, because everything above is about this tree and this one is about two
+# others: a dirty tree should fail in a millisecond, not after reading two
+# sibling repositories.
+#
+# The lockfiles are NOT checked here and cannot be. A lockfile records what the
+# registry resolved; the registry has nothing to resolve until this tag is
+# pushed and published. Demanding the impossible is how a gate acquires an
+# escape hatch on its first night — so `release-check.mjs` asks for the
+# lockfiles afterwards, when the answer is allowed to exist.
+#
+# `--committed`, because a pin that is only an unsaved edit is not a pin: a tag
+# names a commit, and a `git checkout` an hour later takes the edit and leaves
+# the release.
+node scripts/pins-checked.mjs "$version" --manifests-only --committed || exit 1
 
 git tag -a "$wanted" -m "$version" HEAD
 echo "tagged $(git rev-parse --short HEAD) as $wanted"

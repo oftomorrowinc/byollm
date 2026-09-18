@@ -30,6 +30,22 @@
  * were live, which is a state no amount of watching the run would have
  * described. This names exactly which package is missing.
  *
+ * ## And it asks whether the pins moved — B234
+ *
+ * Todd's ruling, after the third cut in a row whose cross-repo pin was honored
+ * by somebody remembering: any release-check surface asserts the pinned
+ * version. Asking npm alone reports a green release while the repositories
+ * that pin these packages still name the previous one — a check passing for a
+ * reason unrelated to the property it claims, which is the failure this file's
+ * own header opens with.
+ *
+ * It runs here rather than at the tag because this is the first moment the
+ * whole question can be answered. A lockfile cannot resolve a version npm has
+ * not served, so `tag.sh` asks only about the manifests; by the time anybody
+ * runs this, the publish has happened and the lockfiles are allowed to agree.
+ * Both halves are asked for here, and a disagreement is this script's exit
+ * code — not a line in its output.
+ *
  * ## `latest` is reported, never asserted
  *
  * Moving `latest` needs a human with 2FA and is deliberately not automated
@@ -37,7 +53,7 @@
  * as a reminder rather than a failure — that is a decision somebody has not
  * made yet, not a broken release.
  */
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import { setTimeout as sleep } from "node:timers/promises";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -342,6 +358,43 @@ if (unread.length > 0) {
           `\nwindow. If nothing answers, wait for npm and re-run this check` +
           `\nrather than the release — the versions are either there or they` +
           `\nare not, and republishing cannot tell you which.`,
+  );
+  process.exit(1);
+}
+
+/**
+ * The pins, last — because "live on npm" and "pinned by the things that run
+ * it" are two different claims and only the first one was ever made here.
+ *
+ * Last rather than first: a partial publish is the more urgent finding and
+ * republishing is what fixes it, whereas a stale pin is a commit in another
+ * repository and nothing about the release needs redoing. Reading the pin
+ * failure before the publish failure would invite somebody to fix the cheap
+ * one and re-run.
+ */
+const pins = await new Promise((settle) => {
+  /* `spawn`, not `spawnSync` — byollm_004 §2 bans the shell-invoking
+     spellings and eslint enforces it. */
+  const child = spawn(
+    process.execPath,
+    [join("scripts", "pins-checked.mjs"), version],
+    { stdio: "inherit" },
+  );
+  child.on("error", () => {
+    settle(1);
+  });
+  child.on("close", (code) => {
+    /* A signal is not an exit code, and `null` would become 0 — the green
+       this step exists to withhold. */
+    settle(code ?? 1);
+  });
+});
+if (pins !== 0) {
+  console.error(
+    `\n${version} is live on every package, and the repositories that pin it` +
+      `\ndo not all say so. The release is fine; what the fleet runs and what` +
+      `\nthose repositories claim are not the same thing yet, which is exactly` +
+      `\nthe state nobody can see from the outside — B234.\n`,
   );
   process.exit(1);
 }

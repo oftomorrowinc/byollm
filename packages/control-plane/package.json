@@ -9,7 +9,7 @@
     "url": "git+https://github.com/oftomorrowinc/byollm.git",
     "directory": "packages/control-plane"
   },
-  "homepage": "https://github.com/oftomorrowinc/byollm/tree/main/packages/control-plane",
+  "homepage": "https://byo-llm.com",
   "bugs": {
     "url": "https://github.com/oftomorrowinc/byollm/issues"
   },
@@ -29,6 +29,9 @@
     "dist",
     "README.md"
   ],
+  "engines": {
+    "node": ">=22.14"
+  },
   "scripts": {
     "build": "tsup"
   },

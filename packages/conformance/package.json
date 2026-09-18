@@ -42,6 +42,7 @@
   "publishConfig": {
     "access": "public"
   },
+  "homepage": "https://byo-llm.com",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/oftomorrowinc/byollm.git",

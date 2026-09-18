@@ -42,6 +42,117 @@ const words = (text: string): string =>
     .replaceAll(/[`*]/g, "")
     .replaceAll(/\s+/g, " ");
 
+/**
+ * The lock's carve-out section, as this file reads it.
+ *
+ * A function rather than inline, because the reading is where the bugs are.
+ * Every rule below is a claim about markdown nobody has written yet — a
+ * bullet that lost its bold, a nested one, a fifth carve-out — and today's
+ * document exercises none of them. `the reader reads` covers those; this
+ * covers the document.
+ */
+export const readCarveOuts = (
+  lock: string,
+): {
+  section: string | undefined;
+  leads: string[];
+  bullets: number;
+  carveOuts: string[][];
+} => {
+  const section = /^## What is NOT locked\b.*?$(.*?)^## /msu.exec(lock)?.[1];
+  const body = section ?? "";
+  /* Top-level bullets only: an indented `-` is elaboration of the carve-out
+     above it, not a fifth one. */
+  const bullets = [...body.matchAll(/^- /gmu)].length;
+  const leads = [...body.matchAll(/^- \*\*(.+?)\*\*/gmsu)].map(
+    (match) => match[1] ?? "",
+  );
+  /* The tokens that cannot be paraphrased away: a lead's code spans, or its
+     shouted words when it has none. */
+  const carveOuts = leads.map((lead) => {
+    const code = [...lead.matchAll(/`([^`]+)`/gu)].map((m) => m[1] ?? "");
+    return code.length > 0
+      ? code
+      : [...lead.matchAll(/\b([A-Z]{3,})\b/gu)].map((m) => m[1] ?? "");
+  });
+  return { section, leads, bullets, carveOuts };
+};
+
+describe("the reader the carve-out check depends on", () => {
+  /**
+   * B246, and the reason it is here rather than only in a counterfactual.
+   *
+   * CW broke the first version by dropping the bold from ONE bullet: it fell
+   * out of `leads`, the other three cleared the vacuity floor, and a test
+   * named *"names every carve-out the lock document makes"* went green having
+   * checked three of four — the exact failure it exists to fix, reached
+   * through decoration rather than content.
+   *
+   * The lock document has four bold bullets and no nested ones, so nothing
+   * about today's document can exercise a reader that mishandles either. A
+   * check whose rules are only ever run against the one input that satisfies
+   * them is a check whose rules are an assertion.
+   */
+  const SECTION = (bullets: string): string =>
+    `# Lock\n\n## What is NOT locked, stated here rather than somewhere quieter\n\nCarve-outs belong in the same document as the promise.\n\n${bullets}\n\n## Something after\n\nmore\n`;
+
+  it("counts a bullet the author forgot to bold", () => {
+    const { bullets, leads } = readCarveOuts(
+      SECTION(
+        "- **`one` is not locked.**\n- `two` is not locked either.\n- **THREE is not locked.**",
+      ),
+    );
+    expect(bullets).toBe(3);
+    expect(leads).toHaveLength(2);
+  });
+
+  it("does not count an indented bullet as a carve-out", () => {
+    /* The rule the inline comment has always claimed and nothing has ever
+       run: elaboration under a carve-out is not a fifth one. Without this,
+       the bullets-equal-leads line would redden on a document that is
+       perfectly correct, and the fix for a false alarm is usually to delete
+       the alarm. */
+    const { bullets, leads } = readCarveOuts(
+      SECTION(
+        "- **`one` is not locked.**\n  - and here is why, at length\n- **`two` is not locked.**",
+      ),
+    );
+    expect(bullets).toBe(2);
+    expect(leads).toHaveLength(2);
+  });
+
+  it("finds a fifth carve-out without being told there is one", () => {
+    const { carveOuts } = readCarveOuts(
+      SECTION(
+        "- **`one`.**\n- **`two`.**\n- **`three`.**\n- **`four`.**\n- **`five`.**",
+      ),
+    );
+    expect(carveOuts).toEqual([
+      ["one"],
+      ["two"],
+      ["three"],
+      ["four"],
+      ["five"],
+    ]);
+  });
+
+  it("falls back to shouted words when a lead has no code span", () => {
+    const { carveOuts } = readCarveOuts(
+      SECTION("- **The console protocol is EXPERIMENTAL.**"),
+    );
+    expect(carveOuts).toEqual([["EXPERIMENTAL"]]);
+  });
+
+  it("reads nothing out of a document with no such section", () => {
+    const { section, bullets, leads } = readCarveOuts(
+      "# Lock\n\n## Other\n\n- **a**\n\n## End\n",
+    );
+    expect(section).toBeUndefined();
+    expect(bullets).toBe(0);
+    expect(leads).toEqual([]);
+  });
+});
+
 describe("the 0.1.0 release note", () => {
   it("exists, because `tag.sh` refuses a tag without one", () => {
     /* Not a formality: the tag step reads this file, and B079's approved copy
@@ -95,27 +206,37 @@ describe("the 0.1.0 release note", () => {
      * shouted words. `@byollm/server` survives rewording; "implementations,
      * not surfaces of their own" does not.
      */
-    const lock = readFileSync(LOCK, "utf8");
-    const section = /^## What is NOT locked\b.*?$(.*?)^## /msu.exec(lock)?.[1];
+    const { section, leads, bullets, carveOuts } = readCarveOuts(
+      readFileSync(LOCK, "utf8"),
+    );
     expect(
       section,
       "the lock has no carve-out section under that name",
     ).toBeDefined();
 
-    /* Top-level bullets only: a nested `-` is elaboration of the carve-out
-       above it, not a fifth one. */
-    const leads = [...(section ?? "").matchAll(/^- \*\*(.+?)\*\*/gmsu)].map(
-      (match) => match[1] ?? "",
-    );
-    const carveOuts = leads.map((lead) => {
-      const code = [...lead.matchAll(/`([^`]+)`/gu)].map((m) => m[1] ?? "");
-      return code.length > 0
-        ? code
-        : [...lead.matchAll(/\b([A-Z]{3,})\b/gu)].map((m) => m[1] ?? "");
-    });
+    /**
+     * Every bullet in the section is a carve-out this reader saw — B246.
+     *
+     * CW broke the first version in one line, the way prose actually decays:
+     * drop the bold from ONE bullet and it falls out of `leads`, the other
+     * three still clear the vacuity floor, and a test named *"names every
+     * carve-out the lock document makes"* goes green having checked three of
+     * four. The exact failure it was written to fix, reached through
+     * decoration rather than through content — the sixth instance of the law
+     * that a mention is not a route, inside the check that closed the fifth.
+     *
+     * Derived rather than counted: the reader has to account for every `- `
+     * it walked past. A fifth carve-out reddens through the existing path; a
+     * fourth that loses its bold reddens here; and nobody maintains a number.
+     */
+    expect(
+      leads.length,
+      "a bullet in the carve-out section is not in bold, so this reader skipped it",
+    ).toBe(bullets);
 
     /* A parse that found nothing satisfies "every carve-out is named", which
-       is the shape this whole rewrite exists to stop being. */
+       is the shape this whole rewrite exists to stop being. Kept beside the
+       equality above, which is satisfied by zero and zero. */
     expect(
       carveOuts.length,
       "parsed no carve-outs out of the lock — the section's shape moved",

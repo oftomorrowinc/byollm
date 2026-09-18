@@ -846,6 +846,76 @@ async function commandName(
  * and the sealed `hello` naming the same one) and writes every session to the
  * owner's feed, which is where the ruling puts the accountability.
  */
+/**
+ * Which shell a console lands in — the one thing this command will not guess.
+ *
+ * It used to read `BYOLLM_CONSOLE_SHELL` and fall back to `/bin/sh`. That
+ * variable was set NOWHERE: not in the box's Dockerfile, not in its first
+ * boot, not by the supervisor that starts this command. So every hosted
+ * console since the feature shipped landed in a bare `/bin/sh`, while the
+ * page's greeting told the operator it ran "a fixed list of commands" and
+ * `box/test/restricted-shell.test.ts` went green about a fence that nothing
+ * ever spawned. `ls` answered with the filesystem. B237.
+ *
+ * **A default reached by forgetting is not a default, it is the behaviour.**
+ * So there is no default. The shell is named, or no console opens. The
+ * unrestricted one is still reachable for local work, by asking for it in
+ * words that cannot be typed by accident — which is the whole difference
+ * between an escape hatch and a hole.
+ */
+/**
+ * The session description, if one was given — the first argument that is
+ * neither a flag nor a flag's value.
+ *
+ * `--shell` takes a path, and a naive `args[0]` would read that path as a
+ * session spec and try to join a console with it. Exported so it can be
+ * asserted directly: the listening form never returns, so a test that drove
+ * the command to find out would hang instead of failing.
+ */
+export function consoleSpecArg(args: readonly string[]): string | undefined {
+  const shellAt = args.indexOf("--shell");
+  return args.find(
+    (arg, at) =>
+      !arg.startsWith("--") && !(shellAt !== -1 && at === shellAt + 1),
+  );
+}
+
+type ConsoleShellChoice =
+  | { readonly ok: true; readonly command: string; readonly fenced: boolean }
+  | { readonly ok: false; readonly why: string };
+
+const UNRESTRICTED = "--unrestricted-shell";
+
+export function consoleShellChoice(
+  args: readonly string[],
+): ConsoleShellChoice {
+  const at = args.indexOf("--shell");
+  const named = at === -1 ? undefined : args[at + 1];
+  const escaped = args.includes(UNRESTRICTED);
+
+  if (at !== -1 && (named === undefined || named.startsWith("--"))) {
+    return { ok: false, why: "`--shell` needs a path to the shell to run." };
+  }
+  if (named !== undefined && escaped) {
+    return {
+      ok: false,
+      why: `\`--shell\` and \`${UNRESTRICTED}\` disagree about what to run.`,
+    };
+  }
+  if (named !== undefined) return { ok: true, command: named, fenced: true };
+  if (escaped) return { ok: true, command: "/bin/sh", fenced: false };
+  return {
+    ok: false,
+    /* Names the wiring that is missing, because the box is where this goes
+       wrong and a person reading this line is standing in front of one. */
+    why:
+      "no console shell configured.\n" +
+      "Pass `--shell <path>` — on a hosted box that is `/opt/byollm-box/shell`,\n" +
+      "the console fence. For an unfenced shell on your own machine, ask for\n" +
+      `it: \`byollm console-agent ${UNRESTRICTED}\`.`,
+  };
+}
+
 async function commandConsoleAgent(
   paths: DaemonPaths,
   args: readonly string[],
@@ -853,7 +923,7 @@ async function commandConsoleAgent(
 ): Promise<ExitCode> {
   const keys = await new DeviceIdentity(paths.keys).load(Date.now());
 
-  const spec = args[0];
+  const spec = consoleSpecArg(args);
   if (spec === undefined) {
     /**
      * No argument means LISTEN — B018c hole 2.
@@ -878,8 +948,22 @@ async function commandConsoleAgent(
       return 1;
     }
 
+    const shell = consoleShellChoice(args);
+    if (!shell.ok) {
+      io.err(`byollm console-agent will not open a console: ${shell.why}\n`);
+      return 1;
+    }
+
     const url = `${paired.origin.replace(/^http/, "ws")}${CONSOLE_DEVICE_ENDPOINT}`;
     io.out(`listening for consoles on ${paired.origin}\n`);
+    /* Said at startup, every time, because the failure this replaces was a
+       silent one: nothing anywhere named the shell a console would land in,
+       so nothing could disagree with it out loud. */
+    io.out(
+      shell.fenced
+        ? `console shell: ${shell.command}\n`
+        : `console shell: ${shell.command} — UNRESTRICTED, the console fence is off\n`,
+    );
 
     /* One writer for both halves — the listener's and the agent's. It was
        two identical lambdas, which is how the two ends of a console came to
@@ -912,7 +996,7 @@ async function commandConsoleAgent(
              handshake, which is what attempt six hit. */
           runnerId: paired.runnerId,
           browser: announcement.browser,
-          command: process.env["BYOLLM_CONSOLE_SHELL"] ?? "/bin/sh",
+          command: shell.command,
           args: [],
           cwd: process.env["HOME"] ?? "/",
           env: { ...process.env } as Record<string, string>,

@@ -1,7 +1,9 @@
 import { mkdir, mkdtemp, readFile, stat, writeFile } from "node:fs/promises";
+import { readFileSync } from "node:fs";
 import { createServer, type Server, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
+import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { generateKeys, publicIdentityOf, keyId } from "@byollm/protocol";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -13,7 +15,12 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
  * elsewhere, which proved the slowness was the runner's and not this file's.
  * One definition, because the next file to flake will not be this one.
  */
-import { runCli, type CliIo } from "./cli.js";
+import {
+  consoleShellChoice,
+  consoleSpecArg,
+  runCli,
+  type CliIo,
+} from "./cli.js";
 import { IngressLog } from "./ingress.js";
 import { daemonPaths, type DaemonPaths } from "./paths.js";
 import { Pairings } from "./pairings.js";
@@ -1528,5 +1535,115 @@ describe("what connect writes, status reads", () => {
       pairings: { origin: string }[];
     };
     expect(saved.pairings.map((p) => p.origin)).toEqual([origin]);
+  });
+});
+
+describe("byollm console-agent — which shell a console lands in", () => {
+  /**
+   * **B237.** This command read `BYOLLM_CONSOLE_SHELL` and fell back to
+   * `/bin/sh`. Nothing set that variable — not the box's Dockerfile, not its
+   * first boot, not the supervisor that starts this. So every hosted console
+   * since the feature shipped landed in a bare shell, while the page told the
+   * operator it ran "a fixed list of commands" and the fence's own suite went
+   * green about something nothing spawned. `ls` answered with the filesystem.
+   *
+   * These assert the ATTEMPT, not the outcome: what matters is that the
+   * unfenced shell cannot be reached by forgetting. See the box's smoke test
+   * for the other half — that the wiring is actually there — because a unit
+   * test here can only prove this command refuses, never that anyone passed
+   * it the right path.
+   */
+  const pair = async (): Promise<void> => {
+    const pairings = new Pairings(paths.pairings);
+    await pairings.load();
+    await pairings.put({
+      origin: "https://hub.test",
+      runnerId: "runner_1",
+      owner: "alice",
+      sites: { [keyId(SITE.identity)]: SITE },
+      pairedAt: Date.now(),
+    });
+  };
+
+  it("refuses to open a console when no shell was named", async () => {
+    await pair();
+    const code = await run("console-agent");
+
+    expect(code).toBe(1);
+    expect(err).toContain("no console shell configured");
+    /* It never got as far as listening, which is the point: a box that is
+       misconfigured must not serve consoles at all. */
+    expect(out).not.toContain("listening for consoles");
+  });
+
+  it("names `/bin/sh` in exactly one place, behind the word that asks for it", () => {
+    /**
+     * The fallback is gone from the SOURCE, not merely unused. A default
+     * reached by forgetting is not a default, it is the behaviour — so the
+     * check is that the whole command has one mention of `/bin/sh` in code,
+     * and it is the branch somebody reached by typing `--unrestricted-shell`.
+     *
+     * Whole-file, deliberately. The first version of this test sliced from
+     * `commandConsoleAgent` and a mutation that put the fallback back in the
+     * chooser above it sailed straight through.
+     */
+    const source = readFileSync(
+      fileURLToPath(new URL("./cli.ts", import.meta.url)),
+      "utf8",
+    );
+    const code = source
+      .replace(/\/\*[\s\S]*?\*\//g, "")
+      .replace(/^[ \t]*\/\/.*$/gm, "");
+
+    expect(code, "the env var nobody ever set").not.toContain(
+      "BYOLLM_CONSOLE_SHELL",
+    );
+    expect(code.match(/\/bin\/sh/g) ?? []).toHaveLength(1);
+    expect(code).toContain(
+      'if (escaped) return { ok: true, command: "/bin/sh"',
+    );
+  });
+
+  it("takes the fence's path and says which one it is", () => {
+    /* No pairing needed: this is the parse, and the listening form never
+       returns, so driving the command to find out would hang. */
+    const choice = consoleShellChoice(["--shell", "/opt/byollm-box/shell"]);
+    expect(choice).toEqual({
+      ok: true,
+      command: "/opt/byollm-box/shell",
+      fenced: true,
+    });
+  });
+
+  it("gives an unfenced shell only to somebody who asked for one in words", () => {
+    const asked = consoleShellChoice(["--unrestricted-shell"]);
+    expect(asked).toEqual({ ok: true, command: "/bin/sh", fenced: false });
+
+    /* And says so, every time, because the failure this replaces was silent:
+       nothing named the shell a console would land in, so nothing could
+       disagree with it out loud. */
+    expect(consoleShellChoice([]).ok).toBe(false);
+  });
+
+  it("refuses a `--shell` with no path, rather than reading the next flag", () => {
+    expect(consoleShellChoice(["--shell"]).ok).toBe(false);
+    expect(consoleShellChoice(["--shell", "--unrestricted-shell"]).ok).toBe(
+      false,
+    );
+  });
+
+  it("does not mistake the shell's path for a session spec", () => {
+    /* `--shell` takes a value, so a naive `args[0]` would read the path as a
+       session description and try to join a console with it. Asserted on the
+       parse rather than by running the command: the listening form never
+       returns, so a test that drove it would hang instead of failing. */
+    expect(
+      consoleSpecArg(["--shell", "/opt/byollm-box/shell"]),
+    ).toBeUndefined();
+    expect(consoleSpecArg(["--unrestricted-shell"])).toBeUndefined();
+    expect(consoleSpecArg(['{"sessionId":"s"}'])).toBe('{"sessionId":"s"}');
+    expect(
+      consoleSpecArg(["--shell", "/opt/byollm-box/shell", '{"a":1}']),
+    ).toBe('{"a":1}');
   });
 });

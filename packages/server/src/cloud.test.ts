@@ -706,3 +706,94 @@ describe("a relay declining to queue a job", () => {
     expect(failure).not.toBeInstanceOf(EnqueueRefused);
   });
 });
+
+describe("the stop reason on the cloud lane — B260", () => {
+  /**
+   * Kevin filed this as a cloud-lane defect, and it was both lanes — the
+   * shared `provenanceFor` took five fields and `stop` was not one. This is
+   * the lane he was on, and the one where `ran` travels furthest: sealed by
+   * the device, carried past a relay that reads none of it, opened here.
+   *
+   * Asked through `pump` and `app.result`, because the rebuild that dropped
+   * it is inside the pump — a store read would prove the store and miss the
+   * thing that broke.
+   */
+  it("carries stop and stopReported through the reseal", async () => {
+    const results: unknown[] = [];
+    const relay = fakeRelay({ results });
+    const { app, siteKeys } = appWith(relay.fetchImpl);
+
+    const job = await app.enqueue({
+      kind: "llm.generate",
+      owner: "someone",
+      payload: { prompt: "translate chapter one" },
+    });
+
+    results.push({
+      jobId: job.id,
+      envelope: await sealedResult({
+        jobId: job.id,
+        siteIdentity: publicIdentityOf(siteKeys),
+        siteEncryption: siteKeys.encryptionPublic,
+        outcome: {
+          outcome: { outcome: "ok", text: "half a chapter" },
+          ran: {
+            model: "qwen-14-4b",
+            backendClass: "process",
+            durationMs: 12,
+            stop: "length",
+            stopReported: true,
+          },
+        },
+      }),
+      disposition: "ok",
+      runnerId: "runner_1",
+      device,
+    });
+
+    await app.cloud?.pump();
+
+    const delivered = await app.result(job.id);
+    expect(
+      delivered?.provenance?.stop,
+      "the device sealed `length` and the relay carried it; the site dropped it",
+    ).toBe("length");
+    expect(delivered?.provenance?.stopReported).toBe(true);
+  });
+
+  it("leaves it absent when the device sealed none", async () => {
+    /* The control: absent must stay absent rather than becoming `end`, which
+       is the lie `stopReported` exists to prevent. */
+    const results: unknown[] = [];
+    const relay = fakeRelay({ results });
+    const { app, siteKeys } = appWith(relay.fetchImpl);
+
+    const job = await app.enqueue({
+      kind: "llm.generate",
+      owner: "someone",
+      payload: { prompt: "hi" },
+    });
+
+    results.push({
+      jobId: job.id,
+      envelope: await sealedResult({
+        jobId: job.id,
+        siteIdentity: publicIdentityOf(siteKeys),
+        siteEncryption: siteKeys.encryptionPublic,
+        outcome: {
+          outcome: { outcome: "ok", text: "done" },
+          ran: { model: "qwen-14-4b", backendClass: "process", durationMs: 12 },
+        },
+      }),
+      disposition: "ok",
+      runnerId: "runner_1",
+      device,
+    });
+
+    await app.cloud?.pump();
+
+    const delivered = await app.result(job.id);
+    expect(delivered?.provenance?.stop).toBeUndefined();
+    expect(delivered?.provenance?.model).toBe("qwen-14-4b");
+  });
+});

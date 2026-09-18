@@ -540,6 +540,15 @@ export class ByollmHandlers {
       // it came from a different model.
       backendClass: outcome.value.ran.backendClass,
       model: outcome.value.ran.model,
+      /* Why it stopped, and whether the adapter could tell — B260. Sealed by
+         the device and dropped here until Kevin's team found a `length`
+         result arriving indistinguishable from a complete one. */
+      ...(outcome.value.ran.stop === undefined
+        ? {}
+        : { stop: outcome.value.ran.stop }),
+      ...(outcome.value.ran.stopReported === undefined
+        ? {}
+        : { stopReported: outcome.value.ran.stopReported }),
     });
 
     const {

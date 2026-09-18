@@ -429,6 +429,15 @@ export class CloudLane {
           // on neither. Sealing them carries them past it untouched.
           backendClass: outcome.ran.backendClass,
           model: outcome.ran.model,
+          /* B260. `ran` arrives sealed through the relay untouched, and this
+             rebuild took two of its fields and left the rest — so a
+             cloud-lane site could not tell a truncated answer from a whole
+             one. The relay reads none of this; it travels inside the
+             envelope. */
+          ...(outcome.ran.stop === undefined ? {} : { stop: outcome.ran.stop }),
+          ...(outcome.ran.stopReported === undefined
+            ? {}
+            : { stopReported: outcome.ran.stopReported }),
         }),
         now: this.#now(),
       });

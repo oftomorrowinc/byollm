@@ -124,6 +124,9 @@ export interface Harness {
     outcome: JobOutcome;
     model?: string;
     backendClass?: "http" | "process";
+    /** Sealed into `ran` — B260. */
+    stop?: "end" | "length" | "stop-sequence" | "unknown";
+    stopReported?: boolean;
     /** The grant the result was produced under — cloud_008 §1.4a. */
     leaseId?: string;
   }): Promise<Record<string, unknown>>;
@@ -271,6 +274,9 @@ export function createHarness(
      * is the only way this default could hide anything.
      */
     leaseId?: string;
+    /** Sealed into `ran` — B260. Absent by default, as on most results. */
+    stop?: "end" | "length" | "stop-sequence" | "unknown";
+    stopReported?: boolean;
   }): Promise<Record<string, unknown>> {
     const envelope = await seal({
       // The sealed shape is `{ outcome, ran }` — cloud_008 §2.5. A daemon
@@ -281,6 +287,10 @@ export function createHarness(
           model: input.model ?? "test-model",
           backendClass: input.backendClass ?? "http",
           durationMs: 1,
+          ...(input.stop === undefined ? {} : { stop: input.stop }),
+          ...(input.stopReported === undefined
+            ? {}
+            : { stopReported: input.stopReported }),
         },
       }),
       senderKeys: input.runner.keys,

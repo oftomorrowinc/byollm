@@ -165,70 +165,6 @@ export const ClaimedJob = z
 export type ClaimedJob = z.infer<typeof ClaimedJob>;
 
 /**
- * The provenance that travels with every result to the delivery seam.
- *
- * byollm_003 Rev 1: a `team` result is attacker-controlled text.
- * The app must never render volunteer output as its own AI's answer without
- * knowing that is what it is ({@link MUSTS.PROVENANCE_NAMES_DEVICE}).
- */
-export const ResultProvenance = z
-  .object({
-    /** The audience the job ran under. */
-    audience: Audience,
-    /** The runner that produced it. */
-    runnerId: z.string().min(1),
-    /** The runner owner's id in this app's namespace. */
-    runnerOwner: z.string().min(1),
-    /** Which backend class produced it — an HTTP call or a sandboxed spawn. */
-    backendClass: BackendClass,
-    /** The model the runner reports having used. */
-    model: z.string().min(1),
-    /**
-     * False only for `self` jobs. When true the app MUST treat `text` as
-     * untrusted third-party content.
-     */
-    untrusted: z.boolean(),
-  })
-  .strict();
-export type ResultProvenance = z.infer<typeof ResultProvenance>;
-
-/**
- * Build provenance for a completed job. `untrusted` is derived, never
- * supplied, so no caller can mark volunteer output as first-party.
- */
-export function provenanceFor(input: {
-  audience: Audience;
-  runnerId: string;
-  runnerOwner: string;
-  backendClass: BackendClass;
-  model: string;
-}): ResultProvenance {
-  return {
-    audience: input.audience,
-    runnerId: input.runnerId,
-    runnerOwner: input.runnerOwner,
-    backendClass: input.backendClass,
-    model: input.model,
-    untrusted: input.audience !== "private",
-  };
-}
-
-/**
- * What the daemon did, sealed with the answer — cloud_008 §2.5.
- *
- * These travelled in the clear on `ResultRequest`, which meant two things at
- * once. On the direct plane the site believed unauthenticated fields beside
- * an authenticated envelope — a daemon could seal one answer and *declare* it
- * came from a different model, and only the field it did not sign would be
- * recorded. Through a relay they reached a third party that acts on none of
- * them, and `model` in particular is the kind of detail Amendment A's rule
- * keeps off the wire.
- *
- * Sealed, they are the daemon's signed statement about its own run: the site
- * opens them, nothing in between sees them, and the disposition check that
- * already compares clear-text against ciphertext extends to cover them.
- */
-/**
  * The closed set, as a schema — so the values exist once.
  *
  * A bare union would mean anything that has to VALIDATE a stop reason (the
@@ -274,6 +210,104 @@ type _StopReasonsAgree = [
   z.infer<typeof StopReasonSchema> extends StopReason ? true : never,
   StopReason extends z.infer<typeof StopReasonSchema> ? true : never,
 ];
+
+/**
+ * The provenance that travels with every result to the delivery seam.
+ *
+ * byollm_003 Rev 1: a `team` result is attacker-controlled text.
+ * The app must never render volunteer output as its own AI's answer without
+ * knowing that is what it is ({@link MUSTS.PROVENANCE_NAMES_DEVICE}).
+ */
+export const ResultProvenance = z
+  .object({
+    /** The audience the job ran under. */
+    audience: Audience,
+    /** The runner that produced it. */
+    runnerId: z.string().min(1),
+    /** The runner owner's id in this app's namespace. */
+    runnerOwner: z.string().min(1),
+    /** Which backend class produced it — an HTTP call or a sandboxed spawn. */
+    backendClass: BackendClass,
+    /** The model the runner reports having used. */
+    model: z.string().min(1),
+    /**
+     * False only for `self` jobs. When true the app MUST treat `text` as
+     * untrusted third-party content.
+     */
+    untrusted: z.boolean(),
+    /**
+     * Why generation stopped, carried from the sealed `ran` — B260.
+     *
+     * It was sealed by the device, opened at the site, used to build this
+     * object, and **dropped**: `provenanceFor` took five fields and `stop` was
+     * not one of them, on either lane. So no site could ever see it, and a
+     * `length` result — an answer cut off mid-thought — arrived
+     * indistinguishable from a complete one. Kevin's team found it on a
+     * book-translation pipeline, which is the difference between shipping a
+     * chapter and shipping half of one without knowing.
+     *
+     * Optional here because it is optional there, and for the same reason:
+     * absent exactly where it would be a fact about nothing.
+     */
+    stop: StopReasonSchema.optional(),
+    /**
+     * Whether the adapter could report a stop signal at all — carried for the
+     * reason {@link RunMetadata.stopReported} gives: `unknown` is two facts,
+     * and a site told only `unknown` says "we do not know why this stopped"
+     * for a `claude-cli` job forever, which is true, and for a
+     * `content_filter` result, which is not the same thing at all.
+     */
+    stopReported: z.boolean().optional(),
+  })
+  .strict();
+export type ResultProvenance = z.infer<typeof ResultProvenance>;
+
+/**
+ * Build provenance for a completed job. `untrusted` is derived, never
+ * supplied, so no caller can mark volunteer output as first-party.
+ */
+export function provenanceFor(input: {
+  audience: Audience;
+  runnerId: string;
+  runnerOwner: string;
+  backendClass: BackendClass;
+  model: string;
+  /** From the sealed `ran`; absent on a cancelled or errored job — B260. */
+  stop?: StopReason | undefined;
+  stopReported?: boolean | undefined;
+}): ResultProvenance {
+  return {
+    audience: input.audience,
+    runnerId: input.runnerId,
+    runnerOwner: input.runnerOwner,
+    backendClass: input.backendClass,
+    model: input.model,
+    untrusted: input.audience !== "private",
+    /* Spread rather than assigned: `exactOptionalPropertyTypes` makes an
+       explicit `undefined` a different thing from an absent key, and this
+       object is `.strict()`. */
+    ...(input.stop === undefined ? {} : { stop: input.stop }),
+    ...(input.stopReported === undefined
+      ? {}
+      : { stopReported: input.stopReported }),
+  };
+}
+
+/**
+ * What the daemon did, sealed with the answer — cloud_008 §2.5.
+ *
+ * These travelled in the clear on `ResultRequest`, which meant two things at
+ * once. On the direct plane the site believed unauthenticated fields beside
+ * an authenticated envelope — a daemon could seal one answer and *declare* it
+ * came from a different model, and only the field it did not sign would be
+ * recorded. Through a relay they reached a third party that acts on none of
+ * them, and `model` in particular is the kind of detail Amendment A's rule
+ * keeps off the wire.
+ *
+ * Sealed, they are the daemon's signed statement about its own run: the site
+ * opens them, nothing in between sees them, and the disposition check that
+ * already compares clear-text against ciphertext extends to cover them.
+ */
 
 export const RunMetadata = z
   .object({

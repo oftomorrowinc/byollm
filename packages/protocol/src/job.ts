@@ -231,7 +231,7 @@ export const ResultProvenance = z
     /** The model the runner reports having used. */
     model: z.string().min(1),
     /**
-     * False only for `self` jobs. When true the app MUST treat `text` as
+     * False only for `private` jobs. When true the app MUST treat `text` as
      * untrusted third-party content.
      */
     untrusted: z.boolean(),

@@ -313,7 +313,7 @@ function resolveUncached(
  * The process-class backend: the user's own `claude` CLI, on their own
  * subscription.
  *
- * Subscription-class, so its offer scope is locked to `self`
+ * Subscription-class, so its offer scope is locked to `private`
  * ({@link MUSTS.SUBSCRIPTION_SELF_LOCK}) — one account runs one person's work.
  *
  * Every requirement of byollm_004 §2 applies here and is implemented here:

@@ -201,7 +201,7 @@ function daemonConfig(options: {
  *
  * The kit needs this because "who pays" is visible on the wire: a daemon
  * advertises the *effective* offer scope, so a metered backend nobody
- * consented to share shows up to the server as `self` and the server is
+ * consented to share shows up to the server as `private` and the server is
  * obliged to act on that.
  */
 export interface MeteredOptions {

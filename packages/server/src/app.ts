@@ -250,7 +250,7 @@ export class ByollmApp {
   /**
    * Enqueue a job.
    *
-   * `audience` defaults to `self` — the safe direction. Widening it means the
+   * `audience` defaults to `private` — the safe direction. Widening it means the
    * result comes back marked untrusted (see {@link ByollmApp.result}), and
    * the app is obliged to disclose that to whoever reads it.
    */
@@ -439,7 +439,7 @@ export class ByollmApp {
    * A job's result with its provenance attached.
    *
    * Check `provenance.untrusted` before rendering. It is true for every
-   * `named`/`public` job, because that text came from someone else's machine
+   * `team` job, because that text came from someone else's machine
    * and the app must not present it as its own AI's answer
    * ({@link MUSTS.PROVENANCE_NAMES_DEVICE}).
    */

@@ -14,7 +14,7 @@ export interface DaemonPaths {
   readonly config: string;
   /** Paired servers: origin, runner id, token, owner. */
   readonly pairings: string;
-  /** The local `named` allowlist — one file, every app. */
+  /** The local `team` allowlist — one file, every app. */
   readonly allowlist: string;
   /** Append-only JSONL: every prompt that has run on this machine. */
   readonly ingressLog: string;

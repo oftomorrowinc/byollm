@@ -86,7 +86,7 @@ export interface ConformanceTarget {
    * Optional, defaulting to identity. It exists because owner ids are
    * **server-namespace-local** — protocol §1.1 — and a target backed by real
    * auth will use uuids, not names. A kit that assumed names round-tripped
-   * would be assuming away the very thing the `named` allowlist is about.
+   * would be assuming away the very thing the `team` allowlist is about.
    */
   ownerId?(name: string): Promise<string>;
 

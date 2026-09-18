@@ -28,4 +28,5 @@ pnpm run lint
 pnpm run typecheck
 pnpm run test:coverage
 pnpm run knip
+node scripts/alpha-claims-match-the-version.mjs
 node scripts/record-verified.mjs

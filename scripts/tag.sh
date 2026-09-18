@@ -111,6 +111,24 @@ fi
 # the release.
 node scripts/pins-checked.mjs "$version" --manifests-only --committed || exit 1
 
+# 6. The docs stop saying "alpha" when the version stops being one — B222.
+#
+# `bump-version.mjs` rewrites the version INSIDE the alpha banner and never
+# removes the banner, so the flip would have tagged a tree carrying
+# "Alpha (`0.1.0`) — under active development. Don't use this yet." on eight
+# READMEs and the site, in the commit that makes the repository public.
+#
+# The banner is the smaller half. The docs also carry live instructions pinned
+# to the `alpha` dist-tag — `npm install @byollm/protocol@alpha`,
+# `npx --package @byollm/server@alpha keygen` — and the flip moves `latest`,
+# not `alpha`. Each of those would go on resolving to the last prerelease, so
+# somebody following our own quickstart installs an OLDER package than the one
+# just locked, and the failure looks like theirs.
+#
+# Here rather than only in `verify` because this is the one moment it matters
+# and the one moment somebody is in a hurry.
+node scripts/alpha-claims-match-the-version.mjs || exit 1
+
 git tag -a "$wanted" -m "$version" HEAD
 echo "tagged $(git rev-parse --short HEAD) as $wanted"
 echo

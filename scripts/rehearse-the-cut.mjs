@@ -16,11 +16,22 @@
  * ## What it does
  *
  * Copies the tracked tree to a scratch directory, runs `bump-version.mjs` at
- * the target version there, and then asks every gate the cut will ask — in the
+ * the target version there, and then asks each of `tag.sh`'s refusals — in the
  * cut's order — reporting all of them rather than stopping at the first. The
  * real repository is never touched: no file is written outside the copy, no
- * tag is created, nothing is pushed, and it refuses to run against a version
- * that is not a clean release unless told otherwise.
+ * tag is created and nothing is pushed.
+ *
+ * **The first version of this file said it asked every gate the cut asks, and
+ * it asked three of six.** That is a false claim in the one file whose whole
+ * job is to tell the truth about the cut, so the list is now derived from
+ * `tag.sh`'s own numbered refusals and each one says which it is. The two it
+ * still cannot answer say so out loud rather than being absent:
+ *
+ *   - **refusal 4, a clean tree**, is a fact about the moment you cut, not
+ *     about a copy — so it is reported from the real repository as advice, and
+ *     it is the one thing here that can change between now and the tag.
+ *   - **`verify`** is not run: it needs the real tree, it takes minutes, and a
+ *     rehearsal that took minutes would be run once. It has its own gate.
  *
  * ## What it deliberately does NOT do
  *
@@ -29,9 +40,9 @@
  * that took four minutes would be run once. This answers the question a person
  * cannot answer by reading: **after the bump, what is still wrong?**
  *
- * It also cannot tell you the cut will succeed. It tells you which of the
- * known refusals would fire, which is a smaller and honest claim — the same
- * distinction the liveness probe's green makes about itself.
+ * It also cannot tell you the cut will succeed. It tells you which of
+ * `tag.sh`'s refusals would fire, which is a smaller and honest claim — the
+ * same distinction the liveness probe's green makes about itself.
  */
 
 import { cpSync, existsSync, mkdtempSync, readFileSync } from "node:fs";
@@ -93,7 +104,7 @@ const node = (script, args = [], cwd = scratch) =>
 /* The bump first, because every gate after it is asked of the bumped tree —
    which is the tree the cut tags, and is not the tree anybody has run a check
    against before. */
-ask("the version bump applies", () => node("bump-version.mjs", [target]));
+ask("0. the version bump applies", () => node("bump-version.mjs", [target]));
 
 const bumped = () => {
   const manifest = join(scratch, "packages", "protocol", "package.json");
@@ -101,26 +112,22 @@ const bumped = () => {
     ? JSON.parse(readFileSync(manifest, "utf8")).version
     : "unknown";
 };
-ask("the bump reached packages/protocol", () => {
+ask("0. the bump reached packages/protocol", () => {
   const at = bumped();
   if (at !== target) throw new Error(`protocol is ${at}, wanted ${target}`);
   return `packages/protocol is ${at}`;
 });
 
-ask("a release note exists for it", () => {
-  const note = join(scratch, "docs", "release-notes", `${target}.md`);
-  if (!existsSync(note) || readFileSync(note, "utf8").trim() === "")
+ask("1. this repository publishes at all", () => {
+  const workflow = join(scratch, ".github", "workflows", "release.yml");
+  if (!existsSync(workflow))
     throw new Error(
-      `docs/release-notes/${target}.md is missing or empty — tag.sh refusal 3.`,
+      "no .github/workflows/release.yml — a v* tag here publishes nothing.",
     );
-  return `docs/release-notes/${target}.md, ${String(readFileSync(note, "utf8").split("\n").length)} lines`;
+  return ".github/workflows/release.yml";
 });
 
-ask("the docs stop saying alpha", () =>
-  node("alpha-claims-match-the-version.mjs"),
-);
-
-ask("every package manifest agrees", () => {
+ask("2. every package manifest agrees", () => {
   const packages = join(scratch, "packages");
   const wrong = execFileSync(
     "node",
@@ -135,6 +142,56 @@ ask("every package manifest agrees", () => {
   );
   return wrong.trim();
 });
+
+ask("3. a release note exists for it", () => {
+  const note = join(scratch, "docs", "release-notes", `${target}.md`);
+  if (!existsSync(note) || readFileSync(note, "utf8").trim() === "")
+    throw new Error(
+      `docs/release-notes/${target}.md is missing or empty — tag.sh refusal 3.`,
+    );
+  return `docs/release-notes/${target}.md, ${String(readFileSync(note, "utf8").split("\n").length)} lines`;
+});
+
+/**
+ * Refusal 5: the cut carries the pin — B234.
+ *
+ * **The gate that makes this a THREE-REPOSITORY ceremony, and the one the
+ * first version of this rehearsal did not ask.** `.95`, `.96` and `.97` were
+ * each cut correctly and each needed a second human step afterwards — bumping
+ * the two repositories that pin this one — and on `.97` nobody took it.
+ *
+ * Asked against the REAL siblings, not the copy, because their pins are a real
+ * fact about the world and a scratch copy of them would be a rehearsal of a
+ * rehearsal. Nothing is written there.
+ *
+ * `--manifests-only` because a lockfile cannot name a version npm has not
+ * served yet; `--committed` because a pin that is only an unsaved edit is not
+ * a pin.
+ */
+ask("5. the two repositories that pin this one name the version", () =>
+  execFileSync(
+    process.execPath,
+    [
+      join(ROOT, "scripts", "pins-checked.mjs"),
+      target,
+      "--manifests-only",
+      "--committed",
+    ],
+    { cwd: ROOT, encoding: "utf8" },
+  ),
+);
+
+ask("6. the docs stop saying alpha", () =>
+  node("alpha-claims-match-the-version.mjs"),
+);
+
+/* Refusal 4 is about the tree you tag, which is the real one at the moment you
+   tag it — a copy cannot answer it and pretending otherwise would be the kind
+   of green this whole file exists to avoid. Reported, not asked. */
+const dirty = execFileSync("git", ["status", "--porcelain"], {
+  cwd: ROOT,
+  encoding: "utf8",
+}).trim();
 
 const width = Math.max(...asked.map((a) => a.what.length));
 let failed = 0;
@@ -154,13 +211,26 @@ for (const { what, ok, out } of asked) {
 }
 
 console.log(
+  dirty === ""
+    ? "\n  (4. the working tree is clean — tag.sh checks this at the moment you cut)"
+    : `\n  NO 4. the working tree is dirty, and tag.sh refuses that:\n${dirty
+        .split("\n")
+        .map((line) => `        ${line}`)
+        .join("\n")}`,
+);
+
+console.log(
   failed === 0
-    ? `\nEvery gate this rehearsal knows about would pass at ${target}.\n` +
+    ? `\nEvery refusal this rehearsal can ask would pass at ${target}.\n` +
         `It does NOT run verify and does not ask npm — those have their own\n` +
-        `gates and need the real tree. This says which known refusals fire,\n` +
-        `which is smaller than saying the cut will work.`
-    : `\n${String(failed)} gate(s) would refuse the cut at ${target}.\n` +
+        `gates and need the real tree. This says which of tag.sh's refusals\n` +
+        `fire, which is smaller than saying the cut will work.`
+    : `\n${String(failed)} of tag.sh's refusals would fire at ${target}.\n` +
         `Fix them in the commit that bumps the version — that is what "in the\n` +
-        `same cut" means — and run this again.`,
+        `same cut" means — and run this again.\n\n` +
+        `If refusal 5 is among them, the cut is a THREE-REPOSITORY sequence:\n` +
+        `bump here, bump the pins in byollm-cloud and byollm-cloud-web, commit\n` +
+        `all three, then tag. The lockfiles come after the publish, because a\n` +
+        `lockfile cannot name a version npm has not served.`,
 );
 process.exit(failed === 0 ? 0 : 1);

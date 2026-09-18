@@ -39,6 +39,25 @@ import { certify, formatReport } from "./index.js";
 const USAGE =
   "usage: byollm-certify <path-to-module-exporting-a-ConformanceTarget>\n";
 
+/**
+ * Node's message, with the part that is always us removed.
+ *
+ * `ERR_MODULE_NOT_FOUND` reads *"Cannot find module '<their path>' imported
+ * from <our dist/cli.js>"* — and that trailing clause was the last thing a
+ * reader saw. **The importer is always us**, because we are the one calling
+ * `import()`, so naming it tells them nothing and costs the whole framing
+ * above it: an error ending in a path inside `@byollm/conformance` reads as
+ * our package being broken, however carefully the lines above are worded.
+ *
+ * Cut rather than rewritten. Node's own words about *their* file are worth
+ * keeping — a syntax error in their module should say so.
+ */
+function nodesClause(message: string): string {
+  const first = message.split("\n")[0] ?? message;
+  const [said] = first.split(" imported from ");
+  return said ?? first;
+}
+
 /** What arrived, in a few words a person can compare against their file. */
 function describe(value: unknown): string {
   if (value === null) return "null";
@@ -93,7 +112,7 @@ try {
       `  from:       ${process.cwd()}\n\n` +
       "  The path is resolved against the directory you are in. It must be a\n" +
       "  module that exports a ConformanceTarget as its default export.\n\n" +
-      `  node said: ${why.split("\n")[0] ?? why}\n`,
+      `  node said: ${nodesClause(why)}\n`,
   );
   process.exit(2);
 }

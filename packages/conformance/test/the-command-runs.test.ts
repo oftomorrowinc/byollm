@@ -1,7 +1,7 @@
 import { execFileSync } from "node:child_process";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
@@ -162,6 +162,25 @@ describe("byollm-certify, as somebody actually types it", () => {
       "    at ",
     );
     expect(ran.err).not.toContain("node:internal");
+
+    /**
+     * **And not one mention of where we live.**
+     *
+     * Node's `ERR_MODULE_NOT_FOUND` ends *"imported from <our dist/cli.js>"*,
+     * and that was the last line a reader saw. The importer is always us —
+     * we are the one calling `import()` — so it tells them nothing and undoes
+     * the framing above it: an error ending inside `@byollm/conformance` reads
+     * as our package being broken however carefully the lines above are worded.
+     *
+     * Asserted against the CLI's own directory rather than a fixed string, so
+     * any future leak of our internals reddens, not just this one.
+     */
+    const ourDirectory = dirname(CLI);
+    expect(
+      ran.err,
+      "the error names a path inside our own package",
+    ).not.toContain(ourDirectory);
+    expect(ran.err).not.toContain("imported from");
   });
 });
 

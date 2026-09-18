@@ -1,5 +1,5 @@
 import { createServer, type Server } from "node:http";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -113,8 +113,57 @@ afterEach(async () => {
       resolve();
     });
   });
-  await rm(home, { recursive: true, force: true });
+  await removeHome();
 });
+
+/**
+ * Remove the temp home, and say what was in it if we cannot — B241(b).
+ *
+ * `rm(home, { recursive: true })` has failed twice with `ENOTEMPTY`, which
+ * `recursive` only produces when **something writes into the tree while it is
+ * being walked**. The daemon is awaited — `controller.abort()` then
+ * `await cli` — but awaiting the run does not await every diagnostic write it
+ * started: `writeHeartbeat` is deliberately fire-and-forget ("this is a
+ * diagnostic, not the work") and lands via `rename`, which is exactly the
+ * shape that recreates an entry mid-removal.
+ *
+ * ## Why a retry here is not a loosened assertion
+ *
+ * Nothing under test is being retried. The job ran, the result came back, and
+ * every assertion in the case above has already passed by the time this runs.
+ * What failed was **housekeeping**, and it failed reported as the test above
+ * it — a failure attributed to the wrong thing, which is the defect this
+ * repository has spent a week removing from its own error messages.
+ *
+ * ## And it produces the diagnosis rather than needing one
+ *
+ * Twice now the only evidence has been the word `ENOTEMPTY`. If the retries
+ * are exhausted, the message names what is still in the directory — which
+ * turns the next occurrence from a mystery into a writer with a filename.
+ */
+async function removeHome(): Promise<void> {
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    try {
+      await rm(home, { recursive: true, force: true });
+      return;
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code;
+      /* Only the race. Anything else is a real failure and is rethrown at
+         once, because a teardown that swallows every error is a teardown that
+         hides a leaked handle. */
+      if (code !== "ENOTEMPTY" && code !== "EBUSY") throw error;
+      await new Promise((wake) => setTimeout(wake, 50));
+    }
+  }
+
+  const left = await readdir(home, { recursive: true }).catch(() => []);
+  throw new Error(
+    `the test home would not go away: ${home}\n` +
+      `  still there: ${left.join(", ") || "(nothing — it emptied as we looked)"}\n` +
+      "  Something is writing into it after `run` returned. The names above\n" +
+      "  say which writer, which is the part two earlier sightings lacked.",
+  );
+}
 
 /** Serve the model endpoints alongside the protocol ones. */
 function withModelServer(): void {

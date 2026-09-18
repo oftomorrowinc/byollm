@@ -35,12 +35,12 @@ This package is what writes them.
 ## Two things it deliberately does not hold
 
 **Your data.** Accounts, consents, memberships and mappings live behind
-[`PolicyStore`](src/store.ts). This package reads; it never owns. That is the
+[`PolicyStore`](https://github.com/oftomorrowinc/byollm/blob/main/packages/control-plane/src/store.ts). This package reads; it never owns. That is the
 split that lets a hosted product keep its database while the *rule* over that
 database stays readable — because a rule nobody can read is a rule nobody can
 check.
 
-**Your key.** [`GrantSigner`](src/signer.ts) is a function, not a keypair, so
+**Your key.** [`GrantSigner`](https://github.com/oftomorrowinc/byollm/blob/main/packages/control-plane/src/signer.ts) is a function, not a keypair, so
 custody can sit behind a KMS and this code cannot tell.
 
 ## The contract

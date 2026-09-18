@@ -120,3 +120,87 @@ describe("byo-llm.com", () => {
     expect(site).toContain("https://www.npmjs.com/package/byollm");
   });
 });
+
+describe("a link a reader can follow from the package they installed — B295", () => {
+  /**
+   * The README ships **inside the tarball**, and a relative link in it points
+   * at the repository layout rather than at the package. Measured before this
+   * was written: all five relative links in the six published READMEs pointed
+   * at paths the tarball does not contain.
+   *
+   *     @byollm/control-plane  src/store.ts            src/ is not shipped, only dist/
+   *     byollm                 ../../docs/security.md  outside the package entirely
+   *     @byollm/protocol       ../../docs/protocol.md  outside the package entirely
+   *     @byollm/server         ../conformance          outside the package entirely
+   *
+   * So for anybody who installs the package and opens its README — the one
+   * file npm guarantees to ship beside the code — every one of them was dead.
+   * That is B272's finding again, from inside: *"an npm page is, for most
+   * readers, the first page of this project they ever see — and it was a dead
+   * end in every direction but sideways."*
+   *
+   * ## Why the rule is the form and not the target
+   *
+   * Whether npmjs.com rewrites relative links against the `repository` field
+   * is a fact about somebody else's renderer, and I could not observe it: the
+   * package page answers 403 to anything unbrowsery, which this repository
+   * already knows. **So the rule avoids needing to know.** An absolute URL is
+   * correct in the tarball, correct on GitHub and correct on npm however it
+   * renders; a relative one is correct in at most two of the three, and which
+   * two is unverifiable from here.
+   *
+   * Anchors and `mailto:` are excluded because neither resolves against a
+   * base — `#status` means the same thing on every surface.
+   */
+  const RELATIVE = /\[[^\]]*\]\((?!https?:|mailto:|#)([^)]+)\)/gu;
+
+  /**
+   * Package READMEs only, and the first run of this rule is why.
+   *
+   * It flagged the ROOT README's fourteen relative links, and they are
+   * **correct**. The root package is `private`, so that file never enters a
+   * tarball — it is read on GitHub, where a relative link follows the branch
+   * you are looking at and an absolute one pins `main` whether you meant it or
+   * not. The defect is not "relative links are bad"; it is "a file that ships
+   * inside a package must not point at the repository around it".
+   *
+   * So the rule follows the tarball, not the file name.
+   */
+  const PUBLISHED_READMES = SHIPPED.filter(
+    (path) => path.startsWith("packages/") && path.endsWith("README.md"),
+  );
+
+  it("is absolute in every published README", () => {
+    const offenders = PUBLISHED_READMES.flatMap((path) => {
+      const prose = read(path).replace(/```[\s\S]*?```/gu, "");
+      return [...prose.matchAll(RELATIVE)].map(
+        (m) => `${path}  ${m[0].slice(0, 60)}`,
+      );
+    });
+    expect(
+      offenders,
+      "a relative link in a README that ships inside the tarball points at " +
+        "the repository layout, not at the package a reader installed",
+    ).toEqual([]);
+  });
+
+  it("recognises a relative link when it sees one", () => {
+    /* The control. An empty offender list is also what a broken matcher
+       produces, and this rule's value is that the list is empty for the right
+       reason — the same trap the retired-vocabulary check fell into. */
+    const sample =
+      "see [the store](src/store.ts) and [security](../../docs/security.md)";
+    expect([...sample.matchAll(RELATIVE)].length).toBe(2);
+  });
+
+  it("leaves absolute links, anchors and mailto alone", () => {
+    const fine =
+      "[docs](https://docs.byollm.cloud) [status](#status) [us](mailto:a@b.c)";
+    expect([...fine.matchAll(RELATIVE)].length).toBe(0);
+  });
+
+  it("is reading READMEs at all", () => {
+    /* Zero offenders across zero files is a perfect pass about nothing. */
+    expect(PUBLISHED_READMES.length).toBeGreaterThan(5);
+  });
+});

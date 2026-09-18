@@ -183,7 +183,7 @@ to know which one happened.
 
 ## Normative spec
 
-[`docs/protocol.md`](../../docs/protocol.md). Every MUST there carries a
+[`docs/protocol.md`](https://github.com/oftomorrowinc/byollm/blob/main/docs/protocol.md). Every MUST there carries a
 conformance id that appears in this package's `MUSTS` registry.
 
 MIT

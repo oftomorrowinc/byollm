@@ -368,7 +368,7 @@ npx byollm-certify ./my-target.js
 ```
 
 A server is byollm-compatible when the kit passes. See
-[`@byollm/conformance`](../conformance).
+[`@byollm/conformance`](https://github.com/oftomorrowinc/byollm/tree/main/packages/conformance).
 
 MIT
 

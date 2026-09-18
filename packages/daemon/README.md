@@ -340,7 +340,7 @@ anything and we do not claim otherwise. It is bounded here because the model
 has no tools and the output is inert.
 
 Full threat model, including what the OS stops us dropping:
-[`docs/security.md`](../../docs/security.md).
+[`docs/security.md`](https://github.com/oftomorrowinc/byollm/blob/main/docs/security.md).
 
 MIT
 

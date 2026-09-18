@@ -40,7 +40,7 @@ export function siteKeysFromEnv(
   if (raw === undefined || raw === "") {
     throw new Error(
       `${variable} is not set. Generate a site identity once with ` +
-        `\`npx @byollm/server keygen\` and set it as ${variable}. ` +
+        `\`npx --package @byollm/server keygen\` and set it as ${variable}. ` +
         `Do not generate keys at startup: every instance would get a ` +
         `different identity and daemons would pin one and be refused by ` +
         `another.`,
@@ -53,7 +53,7 @@ export function siteKeysFromEnv(
   } catch {
     throw new Error(
       `${variable} is not base64-encoded JSON. It should be exactly what ` +
-        `\`npx @byollm/server keygen\` printed.`,
+        `\`npx --package @byollm/server keygen\` printed.`,
     );
   }
 
@@ -61,7 +61,7 @@ export function siteKeysFromEnv(
   if (!result.success) {
     throw new Error(
       `${variable} does not contain a valid site identity. Regenerate it ` +
-        `with \`npx @byollm/server keygen\` — and if this site has already ` +
+        `with \`npx --package @byollm/server keygen\` — and if this site has already ` +
         `paired daemons, they will need to pair again.`,
     );
   }

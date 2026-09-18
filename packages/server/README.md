@@ -88,7 +88,7 @@
 >
 > **`alpha.4` broke every integration.** Three things changed for you:
 >
-> 1. **`siteKeys` is required.** Run `npx @byollm/server@alpha keygen` once,
+> 1. **`siteKeys` is required.** Run `npx --package @byollm/server@alpha keygen` once,
 >    set `BYOLLM_SITE_KEYS`, and pass it to `ByollmApp` and `createHandler`.
 >    Once — not per deploy, never at startup.
 > 2. **`createHandler` takes a function.** `next build` imports route modules
@@ -207,7 +207,7 @@ export function getApp(): ByollmApp {
 Generate that identity once, and keep it:
 
 ```bash
-npx @byollm/server@alpha keygen   # prints BYOLLM_SITE_KEYS=...
+npx --package @byollm/server@alpha keygen   # prints BYOLLM_SITE_KEYS=...
 ```
 
 Once, not per deploy and never at startup — a daemon pins this identity when

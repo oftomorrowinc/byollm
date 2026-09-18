@@ -127,10 +127,14 @@ npx byollm-certify ./my-target.js
 ```
 
 **The install line is not optional, and the reason is worth a sentence.**
-`byollm-certify` is a bin inside this package, and there is no package called
-`byollm-certify` — so a bare `npx byollm-certify` asks npm for one and gets a
-404. Installing it first is what makes the second line work, and it is where
-you want the kit anyway: in `devDependencies`, running in CI.
+`byollm-certify` is a bin inside this package, and there is no package of that
+name — so invoking the bin through `npx` without installing first asks npm for
+a package called after the bin, and gets a 404. Installing it first is what
+makes the second line work, and it is where you want the kit anyway: in
+`devDependencies`, running in CI.
+
+*(The broken form is described rather than printed. A README that shows a
+command which does not work is a README somebody copies from.)*
 
 For a one-off without installing, name the package explicitly:
 

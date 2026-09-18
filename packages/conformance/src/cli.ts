@@ -11,6 +11,7 @@ import { certify, formatReport } from "./index.js";
  *
  * ```bash
  * npm install --save-dev @byollm/conformance
+ * npm install --save-dev @byollm/conformance
  * npx byollm-certify ./my-target.js
  * ```
  *

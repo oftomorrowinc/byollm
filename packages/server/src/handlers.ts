@@ -143,7 +143,7 @@ export class ByollmHandlers {
       throw new Error(
         "siteKeys are not internally consistent: the encryption key is not " +
           "signed by the identity key. Generate a fresh pair with " +
-          "`npx @byollm/server keygen`.",
+          "`npx --package @byollm/server keygen`.",
       );
     }
     this.#siteKeys = config.siteKeys;

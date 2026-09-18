@@ -101,10 +101,45 @@ describe("the npx lines we publish", () => {
         if (argv.some((token) => token === "--package" || token === "-p")) {
           return;
         }
-        const first = argv.find((token) => !token.startsWith("-"));
+        /**
+         * Tokens with their markup stripped.
+         *
+         * **Fifth time tonight that decoration has defeated a comparison.** In
+         * prose these lines are written `` `npx @byollm/server keygen` ``, so
+         * the second token arrives as ``keygen` `` — backtick attached — and
+         * matched no bin name. The mutation restoring the ambiguous form went
+         * straight through a check written ten minutes earlier to catch it.
+         *
+         * Backticks, commas and full stops are how a shell command is quoted
+         * inside a sentence; none of them is part of the command.
+         */
+        const words = argv
+          .map((token) => token.replaceAll(/^[`'"(]+|[`'".,;:)]+$/gu, ""))
+          .filter((token) => token !== "" && !token.startsWith("-"));
+        const first = words[0];
         if (first === undefined) return;
-        /* A package we publish resolves on its own. */
-        if (names.has(first.replace(/@[^@/]*$/u, ""))) return;
+        /* A package we publish resolves on its own — UNLESS a bin name
+           follows it. `npx @byollm/server keygen` is the ambiguous form: npx
+           takes the first word as the command and looks for a bin matching the
+           package's own last segment, which is `server`, and there is no such
+           bin. Whether it falls back to the package's only bin is a version
+           detail, and a published instruction should not rest on one.
+
+           **This is the hole that let five of these through an hour after I
+           wrote the check.** The rule said "a package we publish resolves",
+           and it does — as a package. It does not resolve as a route to a
+           particular bin. */
+        if (names.has(first.replace(/@[^@/]*$/u, ""))) {
+          const second = words[1];
+          if (second !== undefined && bins.has(second)) {
+            broken.push(
+              `${where}:${String(at + 1)} \`npx ${first} ${second}\` is the ` +
+                "ambiguous form — npx reads the first word as the command. " +
+                `Use \`npx --package ${first} ${second}\`.`,
+            );
+          }
+          return;
+        }
         const owner = bins.get(first);
         /* Not one of our bins: not ours to vouch for. */
         if (owner === undefined) return;

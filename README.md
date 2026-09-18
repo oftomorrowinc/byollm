@@ -324,7 +324,7 @@
 > What that costs you, concretely:
 >
 > - **A site now needs a keypair.** Generate one — once — with
->   `npx @byollm/server@alpha keygen`, and set `BYOLLM_SITE_KEYS`. Not at
+>   `npx --package @byollm/server@alpha keygen`, and set `BYOLLM_SITE_KEYS`. Not at
 >   startup: every instance would get a different identity and daemons would
 >   pin one and be refused by another.
 > - **Runner tokens are gone.** A daemon proves who it is by signing, so old
@@ -404,7 +404,7 @@ let shared: { store: MemoryStore; app: ByollmApp } | undefined;
 function get() {
   if (!shared) {
     const store = new MemoryStore();
-    // Generate once with `npx @byollm/server@alpha keygen` — never at startup,
+    // Generate once with `npx --package @byollm/server@alpha keygen` — never at startup,
     // or each instance gets a different identity and paired daemons break.
     const siteKeys = siteKeysFromEnv("BYOLLM_SITE_KEYS");
     shared = { store, app: new ByollmApp({ store, siteKeys }) };

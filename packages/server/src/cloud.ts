@@ -102,7 +102,7 @@ export class RelayUnavailable extends Error {
  * has nowhere to go. Catching "the relay is down" to handle "nobody has chosen
  * a model" would retry forever against a fact.
  *
- * Two codes, and they belong to two different people.
+ * Three codes, and they belong to different people.
  *
  * `purpose-not-declared` is the site's own manifest. It names the purpose and
  * the remedy, because a developer reading their own logs is entitled to both
@@ -113,9 +113,23 @@ export class RelayUnavailable extends Error {
  * and the sentence is the same for everybody. A site learns *that* a slot
  * cannot be satisfied, which is exactly what the README has always promised
  * and what this class finally delivers.
+ *
+ * `slot-waiting` is the one bit beyond that a site may learn, and it answers a
+ * different question: **does this need the person, or only time.**
+ * `slot-unsatisfiable` means somebody has to go and choose a model, and no
+ * amount of waiting helps. `slot-waiting` means the slot may recover with
+ * nobody acting — device asleep, service withdrawn, account blocked all
+ * arrive as one sentence, which is what makes the bit safe to give. It is
+ * about the slot's future, not the person's day.
+ *
+ * **This said "two codes" for the release that shipped the third.** The relay
+ * has answered `slot-waiting` since 019 §6.3 and nothing on this side named
+ * it, so a site reading the SDK's own contract would have branched on two of
+ * three — see `the-refusals-we-name.test.ts`, which compares this list against
+ * what the relay can actually send.
  */
 export class EnqueueRefused extends Error {
-  /** `purpose-not-declared` or `slot-unsatisfiable`. */
+  /** `purpose-not-declared`, `slot-unsatisfiable` or `slot-waiting`. */
   readonly code: string;
 
   constructor(message: string, code: string) {

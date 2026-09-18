@@ -3,7 +3,23 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 /**
- * Every `npx` line we publish can actually be run — B224.
+ * Every `npx` line we publish NAMES A PACKAGE npm can resolve — B224, renamed
+ * under B243.
+ *
+ * **It was called `every-npx-command-resolves`, and that name was a lie by one
+ * word.** It reads text; it has never run anything. CW found the difference the
+ * expensive way: the `npx byollm-certify` line this check certifies as correct
+ * **still failed**, because the command could not load a relative path — and
+ * this file was green through every measurement, including the `pnpm verify`
+ * that shipped the broken command.
+ *
+ * The law that came out of it: *a check whose name is a claim about what a
+ * command does must run the command; reading the command is checking our
+ * spelling.* This one checks our spelling, so it now says so. The execution
+ * claim lives in `packages/conformance/test/the-command-runs.test.ts`, which
+ * spawns the built bin from a directory that is not the package.
+ *
+ * What it still does, and it is worth having:
  *
  * ## The defect, on the page a stranger reaches first
  *

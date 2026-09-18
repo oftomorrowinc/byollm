@@ -36,6 +36,26 @@ const THREAT_MODEL = "docs/security.md";
 const read = (path) => readFileSync(path, "utf8");
 
 describe("how to report a vulnerability", () => {
+  it("is pointed at from CONTRIBUTING.md, not explained there", () => {
+    /**
+     * The third door, added with the file — B224.
+     *
+     * GitHub links `CONTRIBUTING.md` from the "new issue" and "new pull
+     * request" screens, which is exactly where somebody with a security
+     * finding might start. A contributing guide that explained reporting
+     * would be a fourth copy of the instructions, and the two that already
+     * existed had drifted apart.
+     */
+    const contributing = read("CONTRIBUTING.md");
+    expect(contributing).toContain("SECURITY.md");
+    expect(
+      contributing,
+      "CONTRIBUTING.md is explaining how to report — SECURITY.md is the one " +
+        "place, and a guide that repeats it is the next copy to drift",
+    ).not.toContain("security/advisories/new");
+    expect(contributing).not.toContain("support@byollm.cloud");
+  });
+
   it("has a SECURITY.md at the root, where GitHub looks", () => {
     /* GitHub links this file from the security tab and from the "report a
        vulnerability" affordance. A project whose disclosure instructions live

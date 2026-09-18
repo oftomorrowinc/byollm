@@ -131,3 +131,129 @@ describe("every bin we publish", () => {
     }
   });
 });
+
+/**
+ * …and is inside the tarball a stranger installs — B294.
+ *
+ * The cases above run each bin from a temp directory, *"because relative
+ * resolution against `dist/` happens to find things when you are standing next
+ * to `dist/`"*. That instinct is right and stops one step short: they run the
+ * **working tree's** copy. What npm hands a stranger is whatever `files`
+ * admits, and the two are different documents.
+ *
+ * The quietest failure this package has available is an entry point outside
+ * `files`: `npm install` succeeds, nothing warns, and the reader meets it only
+ * when they import or run the thing — B243's shape again, moved from argv into
+ * the packing list.
+ *
+ * **It is not symmetric, and measuring said so.** Dropping `dist` from
+ * `@byollm/protocol`'s `files` breaks its `types` and `exports` immediately.
+ * Dropping `bin` from `@byollm/server`'s changes nothing, because npm ships
+ * bin targets unconditionally — so the bin case below is a check on npm's
+ * guarantee rather than on our packing list, and says so where it sits.
+ *
+ * Derived from the manifests and from `npm pack` itself, so neither side is a
+ * list somebody maintains. ~1.8s for all six packages.
+ */
+const packed = (dir) => {
+  const out = execFileSync("npm", ["pack", "--dry-run", "--json"], {
+    cwd: dir,
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  return new Set(JSON.parse(out)[0].files.map((f) => f.path));
+};
+
+/** Every publishable package directory, with its manifest. */
+const publishable = () =>
+  readdirSync(PACKAGES)
+    .map((dir) => ({
+      dir: join(PACKAGES, dir),
+      file: join(PACKAGES, dir, "package.json"),
+    }))
+    .filter(({ file }) => existsSync(file))
+    .map(({ dir, file }) => ({
+      dir,
+      pkg: JSON.parse(readFileSync(file, "utf8")),
+    }))
+    .filter(({ pkg }) => pkg.private !== true);
+
+describe("what npm actually hands a stranger", () => {
+  it("has packages to look at, or every loop below runs over nothing", () => {
+    /**
+     * A mutation made `publishable()` return `[]` and all three cases passed —
+     * vacuously, because each is a loop. I had guarded the pack listing being
+     * empty and not the package set being empty, which is the same fail-open
+     * one level out, in the file whose docstring warns about it.
+     */
+    expect(publishable().length).toBeGreaterThan(4);
+  });
+
+  it("is a listing with files in it, or this compares nothing", () => {
+    /* `npm pack` answering an empty set would make every assertion below pass
+       about a package that ships nothing — the fail-open this repository keeps
+       finding in its own checks. */
+    for (const { dir, pkg } of publishable())
+      expect(packed(dir).size, pkg.name).toBeGreaterThan(2);
+  });
+
+  it("contains every bin, because npm ships them whatever `files` says", () => {
+    /**
+     * **This is a check on somebody else's control, and it says so** — CW's
+     * law of 2026-09-19: a justification pointing at a system we do not own
+     * must name the control and verify it once, by looking.
+     *
+     * I wrote it as a check on OUR `files` field and a mutation showed it
+     * could not fail that way. Measured 2026-09-18: with `bin` removed from
+     * `@byollm/server`'s `files`, `bin/keygen.mjs` is **still in the
+     * tarball** — npm includes bin targets unconditionally.
+     *
+     * So a mutation dropping a bin directory from `files` survives this, by
+     * design, and that is not a gap to be closed. What this asserts is the
+     * guarantee itself: if npm ever stops doing it, the quietest failure this
+     * package has available — install succeeds, `.bin` symlink dangles, the
+     * reader meets it only on running — arrives here instead of there.
+     *
+     * It still catches one thing of ours: a `bin` pointing at a file that is
+     * not on disk ships nothing, whatever the guarantee says.
+     */
+    for (const { dir, pkg } of publishable()) {
+      const files = packed(dir);
+      for (const [bin, target] of Object.entries(pkg.bin ?? {}))
+        expect(
+          files.has(target.replace(/^\.\//u, "")),
+          `${pkg.name}'s \`${bin}\` (${target}) is not in the tarball — ` +
+            "either the file is not on disk, or npm has stopped including " +
+            "bin targets unconditionally, which this package relies on",
+        ).toBe(true);
+    }
+  });
+
+  it("contains every entry point the manifest points at", () => {
+    /**
+     * `main`, `types`, `module` and every leaf of `exports`. A missing
+     * `types` is quieter still than a missing bin: the package imports fine
+     * and the consumer simply gets `any`, which looks like our types being
+     * poor rather than absent.
+     */
+    const leaves = (node, path, into) => {
+      if (typeof node === "string") into.push([`exports${path}`, node]);
+      else if (node !== null && typeof node === "object")
+        for (const [k, v] of Object.entries(node))
+          leaves(v, `${path}.${k}`, into);
+    };
+    for (const { dir, pkg } of publishable()) {
+      const files = packed(dir);
+      const targets = [];
+      for (const field of ["main", "types", "module"])
+        if (typeof pkg[field] === "string") targets.push([field, pkg[field]]);
+      leaves(pkg.exports, "", targets);
+      for (const [field, target] of targets)
+        expect(
+          files.has(target.replace(/^\.\//u, "")),
+          `${pkg.name}'s \`${field}\` points at ${target}, which \`files\` ` +
+            "does not admit",
+        ).toBe(true);
+    }
+  });
+});

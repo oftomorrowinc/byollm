@@ -2,6 +2,7 @@ import { execFileSync } from "node:child_process";
 import {
   cpSync,
   mkdirSync,
+  readFileSync,
   mkdtempSync,
   symlinkSync,
   writeFileSync,
@@ -545,5 +546,231 @@ describe("the hand-edit list shows why each line is in it", () => {
         .out.split("\n")
         .find((l) => l.includes("README.md:")) ?? "";
     expect(line).not.toContain("…");
+  });
+});
+
+describe("the warning body the bump leaves standing", () => {
+  /**
+   * B269, and it is the gate's own failure shape one paragraph over.
+   *
+   * `bump-version.mjs` retires ONE line — `/^\s*>\s*\*\*Alpha \(/` — and every
+   * README's banner is a multi-line `> [!WARNING]` block. Bumping to `0.1.0`
+   * left, on the front of the npm page for four packages and the top of the
+   * root README, on the day the release note says the wire is locked:
+   *
+   *     > [!WARNING]
+   *     >
+   *     > The protocol is v0 and **will** change without a deprecation path,
+   *     > this has never run outside its own test suite, and nothing here has
+   *     > production miles. Read it, take the ideas, tell us what's wrong —
+   *     > but don't put it in front of your users.
+   *
+   * The gate said nothing. `CLAIM` is `@alpha|status-alpha`, so after
+   * `dropAlphaTag` it pointed a human at line 13 of that block — *"Ask for
+   * `@alpha` explicitly"* — and named none of the eight above it. Fixing the
+   * clause it named and not the one beside it is precisely what
+   * `POINTS_AT_THE_BANNER` exists to stop, arriving in the rule that stops it.
+   *
+   * ## These fixtures are the real block, run through the real bump
+   *
+   * Not a hand-written approximation of what survives. `bump-version.mjs` is
+   * executed over the fixture and the gate reads what it produced, because the
+   * question is what those two scripts do to each other and a fixture I
+   * trimmed myself would be asserting my own belief about the first one.
+   */
+
+  /** The real README banner, as the four package READMEs carry it. */
+  const banner = (pkg) =>
+    "> [!WARNING]\n" +
+    "> **Alpha (`0.1.0-alpha.102`) — under active development. Don't use this yet.**\n" +
+    ">\n" +
+    `> Install it deliberately: \`npm install ${pkg}@alpha\`.\n` +
+    ">\n" +
+    "> The protocol is v0 and **will** change without a deprecation path, this has\n" +
+    "> never run outside its own test suite, and nothing here has production miles.\n" +
+    "> Read it, take the ideas, tell us what's wrong — but don't put it in front of\n" +
+    "> your users.\n" +
+    ">\n" +
+    "> **`alpha.15` is a breaking wire change** — daemons and relays, not app\n" +
+    "> authors. Every package moves together. It is the release that first said\n" +
+    "> don't use this yet, and it has no production miles either.\n" +
+    "\n" +
+    `# ${pkg}\n`;
+
+  /** The fixture, bumped by the real bumper, then read by the real gate. */
+  const afterTheBump = (files) => {
+    const root = tree("0.1.0-alpha.102", files);
+    /* Pretty-printed, because `bump-version.mjs` rewrites the version line and
+       finds it with `/^\s*"version"\s*:/` — a manifest on one line has no such
+       line and the bump silently leaves the version alone, which is how the
+       first draft of these cases ran the gate against an unbumped tree and
+       asserted about a prerelease. No real package.json is one line. */
+    writeFileSync(
+      join(root, "packages", "protocol", "package.json"),
+      `${JSON.stringify(
+        { name: "@byollm/protocol", version: "0.1.0-alpha.102" },
+        null,
+        2,
+      )}\n`,
+      "utf8",
+    );
+    execFileSync(
+      process.execPath,
+      [fileURLToPath(new URL("./bump-version.mjs", import.meta.url)), "0.1.0"],
+      { cwd: root, encoding: "utf8" },
+    );
+    return { root, ...run(root) };
+  };
+
+  it("leaves the body standing — the fixture is the real defect", () => {
+    /* The control on every case below. If the bumper ever grew a rule that
+       removed the whole block, these would be asserting about a defect that no
+       longer exists, and they would all still pass. */
+    const { root } = afterTheBump({
+      "packages/protocol/README.md": banner("@byollm/protocol"),
+    });
+    const after = readFileSync(
+      join(root, "packages", "protocol", "README.md"),
+      "utf8",
+    );
+    expect(after).not.toMatch(/Don't use this yet/u);
+    expect(after).toContain("without a deprecation path");
+    /* Not "in front of your users" — the real READMEs wrap that phrase across
+       two lines, and asserting it here would be asserting my own idea of the
+       fixture rather than the shape the packages carry. */
+    expect(after).toContain("production miles");
+  });
+
+  it("is named, line by line", () => {
+    const { code, out } = afterTheBump({
+      "packages/protocol/README.md": banner("@byollm/protocol"),
+    });
+    expect(code).toBe(1);
+    /**
+     * Matched as a FINDING ROW — `file:line  [rule]` — and not as the words
+     * anywhere in the output.
+     *
+     * The gate's own explanation names its rules in prose, so a mutation
+     * deleting the rule left the phrase standing in the paragraph below the
+     * list and this passed. Fifth time in one afternoon that an assertion
+     * matched the sentence explaining a thing rather than the thing.
+     */
+    expect(out).toMatch(/README\.md:1\s+\[warning with no warning\]/u);
+    expect(out).toMatch(
+      /README\.md:\d+\s+\[pre-release claim\].*deprecation path/u,
+    );
+    expect(out).toMatch(
+      /README\.md:\d+\s+\[pre-release claim\].*production miles/u,
+    );
+  });
+
+  it("names a header whose body somebody reworded", () => {
+    /**
+     * The second wall. The structural rule is *"a `> [!WARNING]` whose next
+     * line is a bare `>`"* — a warning with its warning removed — and it holds
+     * whatever the sentences say, which is why relay's *"has never run
+     * anywhere but a test"* is caught without anybody having thought of that
+     * sentence in advance.
+     */
+    const { code, out } = afterTheBump({
+      /* The manifest is not decoration: `bump-version.mjs` walks
+         `packages/<d>/README.md` only where `packages/<d>/package.json`
+         exists, so a fixture without one is a README the bump never touches —
+         and this case would then be asserting about an unbumped file. */
+      "packages/relay/package.json":
+        '{\n  "name": "@byollm/relay",\n  "version": "0.1.0-alpha.102"\n}\n',
+      "packages/relay/README.md":
+        "> [!WARNING]\n" +
+        "> **Alpha (`0.1.0-alpha.102`) — under active development. Don't use this yet.**\n" +
+        ">\n" +
+        "> This is a walking skeleton. It keeps its state in memory and has\n" +
+        "> never run anywhere but a test.\n" +
+        "\n# @byollm/relay\n",
+    });
+    expect(code).toBe(1);
+    expect(out).toMatch(/relay\/README\.md:1\s+\[warning with no warning\]/u);
+    expect(out).toMatch(
+      /relay\/README\.md:\d+\s+\[pre-release claim\].*walking skeleton/u,
+    );
+  });
+
+  it("says nothing about the release history under the same blockquote", () => {
+    /**
+     * The constraint that makes this hard, and the reason every `>` line used
+     * to be history. The warning and the changelog are **one** blockquote —
+     * no blank line between them, so markdown joins them and the root
+     * README's runs past line 300. A rule that treated the whole blockquote as
+     * live would report every past release's *"breaking wire change"* as a
+     * claim about this one, on every cut forever.
+     */
+    const { out } = afterTheBump({
+      "packages/protocol/README.md": banner("@byollm/protocol"),
+    });
+    /* The history line in `banner` deliberately carries two phrases the live
+       rules match — "don't use this yet" and "production miles" — so this case
+       fails if the region's end moves. Without them a mutation removing
+       `RELEASE_ENTRY` from the boundary passed: the history was swallowed and
+       nothing in it happened to match, which is a case asserting about its own
+       fixture rather than about the boundary. */
+    expect(out).not.toMatch(/breaking wire change/u);
+    expect(out).not.toMatch(/it has no production miles either/u);
+  });
+
+  it("says nothing about prose that is still true after the cut", () => {
+    /**
+     * `README.md:577` says *"it will change without a deprecation path"* about
+     * what v0 means, outside any warning block, and that stays true at 0.1.0 —
+     * 0.x is v0. Reporting it would be reporting a true sentence in the list
+     * somebody works from during a ceremony that cannot be undone, and that is
+     * how a gate gets switched off.
+     */
+    const { out } = afterTheBump({
+      "packages/protocol/README.md": "# @byollm/protocol\n",
+      "README.md":
+        "# byollm\n\nThe protocol is at v0, and v0 means what it says: it\n" +
+        "will change without a deprecation path.\n",
+    });
+    expect(out).not.toMatch(/deprecation path/u);
+  });
+
+  it("leaves a warning that is not about the release alone", () => {
+    /**
+     * The false-alarm direction, and a mutation found it missing: reporting
+     * every `> [!WARNING]` header rather than one whose body was removed
+     * passed every case above.
+     *
+     * A README may warn about something permanent — this command deletes your
+     * data, this store is not durable — and that warning is still true at
+     * `0.1.0`. Naming it would tell whoever runs the cut to delete a true
+     * warning, in the list they work from during a ceremony that cannot be
+     * undone. The signal is a header standing over NOTHING, which is what the
+     * bump leaves behind; a header with a body is a warning somebody meant.
+     */
+    const { code, out } = afterTheBump({
+      "packages/protocol/package.json":
+        '{\n  "name": "@byollm/protocol",\n  "version": "0.1.0-alpha.102"\n}\n',
+      "packages/protocol/README.md":
+        "> [!WARNING]\n" +
+        "> `MemoryStore` keeps everything in memory. Restarting loses every job\n" +
+        "> that has not been collected.\n" +
+        "\n# @byollm/protocol\n",
+    });
+    expect(code).toBe(0);
+    expect(out).not.toMatch(/warning with no warning/u);
+  });
+
+  it("no longer claims the list is everything", () => {
+    /**
+     * The sentence this gate printed while six warning bodies stood behind it:
+     * *"These are the HAND EDITS, and they are all that is left."* A gate that
+     * overstates its coverage is worse than none, because the person who
+     * trusts it stops looking — the same finding `rehearse-the-cut` was
+     * written for, in the file that gate reports to.
+     */
+    const { out } = afterTheBump({
+      "packages/protocol/README.md": banner("@byollm/protocol"),
+    });
+    expect(out).not.toMatch(/they are all that is left/u);
+    expect(out).toMatch(/not the same as\s*\n?everything/u);
   });
 });

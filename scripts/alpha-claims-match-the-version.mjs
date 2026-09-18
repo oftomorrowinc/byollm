@@ -147,6 +147,61 @@ const META = /content="[^"]*\bAlpha\b[^"]*"/;
 const POINTS_AT_THE_BANNER =
   /\b(?:the )?(?:warning|banner)\s+at\s+the\s+top\b|\bsee the warning\b/i;
 
+/**
+ * The bump takes the banner LINE and leaves the warning BODY — B269.
+ *
+ * `RETIRED_AT_RELEASE` is one shape, `/^\s*>\s*\*\*Alpha \(/`, and every
+ * README's banner is a multi-line `> [!WARNING]` block. Bumping to `0.1.0`
+ * deletes line 2 and leaves lines 3-13 exactly where they were, so the front
+ * of the npm page for protocol, server, daemon and conformance would have
+ * read *"will change without a deprecation path … don't put it in front of
+ * your users"* on the day the release note says the wire is locked.
+ *
+ * **Nothing named it.** `CLAIM` is `@alpha|status-alpha`, and after
+ * `dropAlphaTag` the only `@alpha` left in those blocks is the line telling
+ * you to ask for the tag — so this gate pointed a human at one line of the
+ * block and said nothing about the eight above it. That is the failure
+ * `POINTS_AT_THE_BANNER`'s own docstring describes, one paragraph over: *"I
+ * fixed the clause it named and not the one beside it."*
+ *
+ * ## Why this is structural rather than a phrase list
+ *
+ * Every one of the six surviving blocks has the same shape after the bump: a
+ * `> [!WARNING]` header whose next line is a bare `>`. **A warning with its
+ * warning removed** — which is both the evidence and the whole finding, needs
+ * no vocabulary to stay current, and catches relay's *"has never run anywhere
+ * but a test"* without anybody having thought of that sentence in advance.
+ *
+ * The phrases below are the second wall, for a block whose header somebody
+ * reworks while leaving the body. Narrow on purpose, and scoped to the
+ * warning region: `README.md:577` says *"it will change without a deprecation
+ * path"* in ordinary prose about what v0 means, which stays true after the
+ * cut. Reporting it would be reporting a true sentence, and that is how a
+ * gate gets switched off.
+ */
+const PRERELEASE_CLAIM =
+  /\bdon't use this yet\b|\bwithout a deprecation path\b|\bin front of your users\b|\bproduction miles\b|\bnever run (?:outside|anywhere)\b|\bwalking skeleton\b/i;
+
+/** A GitHub alert header: `> [!WARNING]`, `[!CAUTION]`, `[!IMPORTANT]`. */
+const WARNING_OPENS = /^\s*>\s*\[!(?:WARNING|CAUTION|IMPORTANT)\]\s*$/i;
+
+/**
+ * A release entry, which ends the live region and begins the history.
+ *
+ * The warning and the changelog are **one blockquote** — there is no blank
+ * line between them, so markdown joins them and the root README's runs to line
+ * 340. "Where the blockquote ends" therefore cannot delimit the warning, which
+ * is exactly why every `>` line was treated as history in the first place.
+ *
+ * Every entry opens `> **`alpha.15` is …` — bold, then a code span. Verified
+ * against all six documents before being relied on: the first such line is 23,
+ * 8, 15, 15, 15 and 15, and in each the warning is entirely above it.
+ */
+const RELEASE_ENTRY = /^\s*>\s*\*\*`/;
+
+/** A blockquote line with nothing in it — `>` and no more. */
+const BLANK_QUOTE = /^\s*>\s*$/;
+
 /** Every document a reader meets, not counting what is not published. */
 const documents = (root) => {
   const found = [];
@@ -175,16 +230,49 @@ const documents = (root) => {
  */
 const liveClaims = (text) => {
   const hits = [];
-  text.split("\n").forEach((line, at) => {
+  const lines = text.split("\n");
+
+  /**
+   * Which blockquote lines are a LIVE warning rather than quoted history.
+   *
+   * Every `>` line was history before B269, and that is why the surviving
+   * warning body was invisible: it is blockquote from end to end. The region
+   * runs from a `> [!WARNING]` header to the first release entry or the first
+   * line that leaves the blockquote — see `RELEASE_ENTRY` for why the
+   * blockquote's own end cannot be the boundary.
+   */
+  const live = new Set();
+  for (let i = 0; i < lines.length; i += 1) {
+    if (!WARNING_OPENS.test(lines[i] ?? "")) continue;
+    for (let j = i; j < lines.length; j += 1) {
+      const line = lines[j] ?? "";
+      if (j > i && (RELEASE_ENTRY.test(line) || !/^\s*>/.test(line))) break;
+      live.add(j);
+    }
+  }
+
+  lines.forEach((line, at) => {
     const isBanner = BANNER.test(line);
-    const isHistory = /^\s*>/.test(line) && !isBanner;
+    const isHistory = /^\s*>/.test(line) && !isBanner && !live.has(at);
     if (isHistory) return;
+
+    /* A warning whose warning was removed: the header, then a bare `>`. The
+       header carries no claim of its own, so it is reported on the evidence
+       of what follows it. */
+    const emptyWarning =
+      WARNING_OPENS.test(line) && BLANK_QUOTE.test(lines[at + 1] ?? "");
     /* Which rule fired, and WHERE. Both are for the reader: the list is what
        somebody works from during a cut, and "README.md:351" plus the first 96
        characters of a badge row does not say why that row is in it. None of
        these are global regexes, so `.exec` is stateless here. */
     const why =
       (isBanner && { rule: "banner", at: BANNER.exec(line)?.index ?? 0 }) ||
+      (emptyWarning && { rule: "warning with no warning", at: 0 }) ||
+      (live.has(at) &&
+        PRERELEASE_CLAIM.exec(line) && {
+          rule: "pre-release claim",
+          at: PRERELEASE_CLAIM.exec(line).index,
+        }) ||
       (CLAIM.exec(line) && { rule: "@alpha", at: CLAIM.exec(line).index }) ||
       (META.exec(line) && { rule: "meta", at: META.exec(line).index }) ||
       (POINTS_AT_THE_BANNER.exec(line) && {
@@ -313,13 +401,19 @@ const main = () => {
     console.error(
       `alpha-claims: the version is ${version} — not a prerelease — and ${String(found.length)} document line(s) still say alpha.\n` +
         `${found.map(show).join("\n")}\n\n` +
-        `These are the HAND EDITS, and they are all that is left — B252.\n` +
-        `\`bump-version.mjs\` already removed the markdown banners and dropped\n` +
-        `every \`@alpha\` dist-tag suffix on this bump, because those are\n` +
-        `mechanical. What remains is prose that argues rather than instructs,\n` +
-        `plus the site's banner, whose block also carries a feature\n` +
-        `announcement — a script choosing which of those sentences survives\n` +
-        `would be worse than this list.\n\n` +
+        `These are the HAND EDITS — B252, B269.\n` +
+        `\`bump-version.mjs\` removed the banner LINE and dropped every\n` +
+        `\`@alpha\` dist-tag suffix, because those are mechanical. It does not\n` +
+        `touch the rest of a \`> [!WARNING]\` block, so a header left standing\n` +
+        `over its own body is listed as "warning with no warning" and the\n` +
+        `sentences under it as "pre-release claim". Cut the block; do not cut\n` +
+        `the blockquote it sits in, which continues into the release history.\n` +
+        `The site's banner carries a feature announcement in the same block —\n` +
+        `a script choosing which of those sentences survives would be worse\n` +
+        `than this list.\n\n` +
+        `This list is what these rules can see, and that is not the same as\n` +
+        `everything. It claimed completeness for one release while six warning\n` +
+        `bodies stood behind it, unnamed — B269.\n\n` +
         `Why they matter: \`@alpha\` is a dist-tag and the flip moves \`latest\`,\n` +
         `not \`alpha\`. Every line above that still points at it sends a reader\n` +
         `to the last prerelease instead of the version just locked, and the\n` +

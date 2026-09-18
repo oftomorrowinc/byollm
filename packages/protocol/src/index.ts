@@ -150,10 +150,13 @@ export {
 } from "./keys.js";
 
 export {
+  DEFAULT_ROUTING,
   Manifest,
-  Purpose,
   MAX_PURPOSES,
+  Purpose,
+  PurposeRouting,
   RESERVED_PURPOSE,
+  routingOf,
   singlePurposeManifest,
 } from "./manifest.js";
 

@@ -1,4 +1,4 @@
-import { readFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import {
   BackendIdSchema,
   JobKind,
@@ -10,6 +10,7 @@ import {
   type BackendId,
 } from "@byollm/protocol";
 import { z } from "zod";
+import { dirname } from "node:path";
 import { DEFAULT_FLOOR_BYTES } from "./memory-gate.js";
 import { checkBaseUrl } from "./ssrf.js";
 
@@ -142,6 +143,96 @@ export const Limits = z
   .strict();
 export type Limits = z.infer<typeof Limits>;
 
+/**
+ * The version of `~/.byollm/config.json`'s shape — B236.
+ *
+ * ## Why a file with one version needs a version
+ *
+ * This file is precious and it is the owner's. It holds the services they
+ * configured, the defaults they chose, the spend caps they acknowledged — and
+ * until now it carried nothing that said which shape it was. That is fine
+ * exactly once. The first time the shape has to change, every file on every
+ * machine is of indeterminate age, and the only way to read one is to guess
+ * from its contents, which is how a migration comes to be a heuristic.
+ *
+ * Trivial now, painful later, and the later is not hypothetical: B229's setup
+ * wizard and B230's installer both WRITE this file, and they have to write it
+ * versioned from their first line or the field arrives after the files it was
+ * meant to date.
+ *
+ * ## Absent means 1, permanently
+ *
+ * Every config written before this field exists is a version-1 config — that
+ * is not a convention, it is what those files are. So the rule is permanent
+ * rather than transitional, and it is the one migration this chain actually
+ * performs today. A mechanism whose only entry is unreachable is a mechanism
+ * nobody has run; this one runs on every config on every machine that has one.
+ *
+ * ## A newer file is refused, in words
+ *
+ * A config written by a future byollm is not a malformed config, and saying
+ * "unrecognized key" about it sends its owner to delete a field they were
+ * told to add. {@link loadConfig} reads the version BEFORE the schema, so a
+ * version this build does not know is refused by number rather than by
+ * whatever the shape happened to do.
+ */
+export const CONFIG_VERSION = 1;
+
+/**
+ * Bring a config of any known vintage up to {@link CONFIG_VERSION}.
+ *
+ * Reads the raw parsed JSON, before the schema, because a migration's whole
+ * job is to turn a shape this build does not accept into one it does.
+ *
+ * Returns the object to hand to the schema. Throws {@link ConfigTooNew} when
+ * the file is from ahead of this build, which is not a migration's business —
+ * you cannot migrate downwards without knowing what was added.
+ */
+export function migrateConfig(raw: unknown, path: string): unknown {
+  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
+    /* Not an object at all: let the schema say so in its own words, which are
+       better than anything this function could invent about a file holding a
+       number or a list. */
+    return raw;
+  }
+  const declared = (raw as { version?: unknown }).version;
+
+  if (declared === undefined) {
+    /* The unversioned era. These files ARE version 1 — the shape they hold is
+       the shape this build reads — so the migration is to say so. */
+    return { ...raw, version: CONFIG_VERSION };
+  }
+
+  if (declared === CONFIG_VERSION) return raw;
+
+  throw new ConfigTooNew(path, declared);
+}
+
+/**
+ * A config from a byollm newer than this one.
+ *
+ * Its own error type because the caller's options differ from every other
+ * config failure: nothing about the file is wrong, and editing it is the one
+ * thing not to do.
+ */
+export class ConfigTooNew extends Error {
+  constructor(
+    readonly path: string,
+    readonly declared: unknown,
+  ) {
+    super(
+      `${path} was written by a newer byollm (config version ` +
+        `${JSON.stringify(declared)}); this one reads version ` +
+        `${String(CONFIG_VERSION)}.\n` +
+        `  Nothing is wrong with the file — this daemon is behind it.\n` +
+        `  Upgrade byollm rather than editing the config: a field you delete ` +
+        `to make this\n  message go away is a setting the newer byollm is ` +
+        `still going to look for.`,
+    );
+    this.name = "ConfigTooNew";
+  }
+}
+
 export const DaemonConfig = z
   .object({
     /**
@@ -150,6 +241,16 @@ export const DaemonConfig = z
      * A name is the owner's word — `qwen`, `gwen-voice`, `claude` — and it is
      * what a job may later select. It is never a model id and never a vendor.
      */
+    /**
+     * Which shape this file is — B236. See {@link CONFIG_VERSION}.
+     *
+     * Defaulted rather than required, because {@link migrateConfig} has
+     * already put it there by the time the schema sees a real config and a
+     * config assembled in code should not have to restate it. The literal is
+     * the point: a file declaring any other version never reaches the schema,
+     * because `loadConfig` reads the number first and refuses by number.
+     */
+    version: z.literal(CONFIG_VERSION).default(CONFIG_VERSION),
     services: z.record(z.string().min(1), ServiceConfig),
     /**
      * Which service serves a kind when a job does not say.
@@ -361,7 +462,13 @@ export async function loadConfig(path: string): Promise<LoadedConfig> {
     );
   }
 
-  const result = DaemonConfig.safeParse(parsed);
+  /* The version first, and before the schema — B236. A file from a newer
+     byollm is not a malformed file, and the schema can only ever say
+     "unrecognized key" about it, which sends its owner to delete a field they
+     were told to add. */
+  const migrated = migrateConfig(parsed, path);
+
+  const result = DaemonConfig.safeParse(migrated);
   if (!result.success) {
     const issues = result.error.issues
       .map((issue) => `  ${issue.path.join(".") || "(root)"}: ${issue.message}`)
@@ -369,6 +476,49 @@ export async function loadConfig(path: string): Promise<LoadedConfig> {
     throw new Error(`${path} is not a valid byollm config:\n${issues}`);
   }
   return resolveConfig(result.data);
+}
+
+/**
+ * The one writer of `~/.byollm/config.json` — B236.
+ *
+ * ## Why there is exactly one
+ *
+ * There were three, and they disagreed about what they wrote. `byollm model`
+ * and `byollm offer` wrote the PARSED config, so every schema default was
+ * baked into the owner's file; `byollm services` wrote a merged raw object,
+ * so none of them were. Neither is wrong on its own and the pair is: the same
+ * file means two different things depending on which command last touched it.
+ *
+ * That was survivable while the file carried no facts about itself. It stops
+ * being survivable the moment it carries its own version, because a version
+ * written by two of three doors is a version you cannot trust to be there —
+ * and the one thing a version is for is being trusted to be there.
+ *
+ * So: one writer, it stamps the version, and
+ * `the-config-has-one-writer.test.ts` asserts there is no second. B229's
+ * wizard and B230's installer inherit the stamp by calling this instead of
+ * remembering a field.
+ *
+ * ## It stamps the version and nothing else
+ *
+ * Deliberately not `DaemonConfig.parse(config)`. Baking every default into
+ * somebody's file turns their two-line config into forty lines of things they
+ * never chose, and freezes today's defaults into a file that would otherwise
+ * follow them. The version is the one field that must be present because it
+ * describes the file rather than configures the daemon.
+ */
+export async function writeConfig(path: string, config: object): Promise<void> {
+  /* The caller's version is dropped rather than merged, and the stamp goes
+     first so the field a reader needs is the field a reader sees. Spreading
+     the caller last would let a config object carrying `version: 2` write a
+     file this build cannot read back — a writer that can emit what its own
+     loader refuses is not a writer, it is a second format. */
+  const { version: _stated, ...rest } = config as Record<string, unknown>;
+  await mkdir(dirname(path), { recursive: true });
+  await writeFile(
+    path,
+    `${JSON.stringify({ version: CONFIG_VERSION, ...rest }, null, 2)}\n`,
+  );
 }
 
 /**

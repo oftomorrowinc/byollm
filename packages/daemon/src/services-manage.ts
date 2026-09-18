@@ -3,10 +3,9 @@ import { backendName, classifyCost } from "@byollm/protocol";
 import { createBackend } from "./backends/index.js";
 import { modelSuggestions, type ModelSuggestion } from "./cli-models.js";
 import { probeLocalServers, type LocalServer } from "./probe-local.js";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { dirname } from "node:path";
+import { readFile } from "node:fs/promises";
 import { tellSupervisor } from "./supervised.js";
-import { DaemonConfig, ServiceConfig } from "./config.js";
+import { DaemonConfig, ServiceConfig, writeConfig } from "./config.js";
 import { isLoopback } from "./local-server.js";
 import { dollars } from "./spend.js";
 import {
@@ -1723,8 +1722,7 @@ export async function writeManaged(
     return false;
   }
 
-  await mkdir(dirname(path), { recursive: true });
-  await writeFile(path, `${JSON.stringify(config, null, 2)}\n`);
+  await writeConfig(path, config);
 
   /**
    * And whoever supervises this daemon is told — B207, duty three.

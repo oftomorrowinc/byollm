@@ -1,5 +1,6 @@
-import { readFile, writeFile } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import type { BackendId } from "@byollm/protocol";
+import { writeConfig } from "./config.js";
 import { knownModelsFor } from "./known-models.js";
 
 /**
@@ -265,7 +266,7 @@ export async function setModel(
   }
 
   entry.model = input.model;
-  await writeFile(input.configPath, `${JSON.stringify(config, null, 2)}\n`);
+  await writeConfig(input.configPath, config);
   io.out(
     `\n  ${input.service} is now on ${input.model}.\n` +
       "  Restart the daemon to pick it up: `byollm start` if it runs in " +

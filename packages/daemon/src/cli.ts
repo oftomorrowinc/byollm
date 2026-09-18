@@ -38,7 +38,7 @@ import {
 } from "./revoked.js";
 import { TEST_YOUR_DEVICE } from "./test-your-device.js";
 import { diagnoseRoute } from "./diagnose.js";
-import { DaemonConfig, loadConfig } from "./config.js";
+import { DaemonConfig, loadConfig, writeConfig } from "./config.js";
 import { connect } from "./connect.js";
 import { IngressLog, stripControlChars } from "./ingress.js";
 import { readHostMemory } from "./memory.js";
@@ -3702,8 +3702,7 @@ async function commandOffer(
     };
   }
 
-  await mkdir(dirname(paths.config), { recursive: true });
-  await writeFile(paths.config, `${JSON.stringify(result.data, null, 2)}\n`);
+  await writeConfig(paths.config, result.data);
 
   const written = result.data.services[serviceKey].spend?.dailyCapCents;
   io.out(

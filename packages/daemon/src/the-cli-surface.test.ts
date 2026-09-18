@@ -1,6 +1,8 @@
 import { mkdtemp } from "node:fs/promises";
+import { readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { runCli, type CliIo } from "./cli.js";
 import { daemonPaths, type DaemonPaths } from "./paths.js";
@@ -133,3 +135,62 @@ function quietService() {
     wait: () => Promise.resolve(),
   };
 }
+
+/**
+ * The lock document names these verbs as locked — B236, and this is what
+ * makes that a check rather than a sentence.
+ *
+ * `docs/schema-lock.md` promises that `setup run start stop status services
+ * model log` do not move inside 0.1.x. A promise about the CLI, written in a
+ * document, with nothing comparing it to the CLI, is the shape of claim this
+ * repository has learned to distrust — and the drift is not exotic: the audit
+ * this file exists for RENAMED commands, deliberately and correctly. The next
+ * such rename must be a decision about the lock, not a tidy-up that happens to
+ * cross it.
+ *
+ * The list is read out of the document rather than repeated here. Two copies
+ * of a promise is how one of them comes to be wrong.
+ */
+describe("the verbs docs/schema-lock.md locks", () => {
+  const LOCK = fileURLToPath(
+    new URL("../../../docs/schema-lock.md", import.meta.url),
+  );
+
+  function lockedVerbs(): string[] {
+    const doc = readFileSync(LOCK, "utf8");
+    const line = doc
+      .split("\n")
+      .find((text) => text.includes("the CLI verbs:"));
+    if (line === undefined) {
+      throw new Error(
+        `${LOCK} no longer has a line naming the locked CLI verbs — either ` +
+          "the promise moved or it was dropped, and both need a person",
+      );
+    }
+    /* The verbs are the backticked words on that line and the one after it,
+       which is where the sentence wraps. */
+    const doc_lines = doc.split("\n");
+    const at = doc_lines.indexOf(line);
+    const region = `${line}\n${doc_lines[at + 1] ?? ""}`;
+    return [...region.matchAll(/`([a-z]+)`/g)].map((match) => match[1] ?? "");
+  }
+
+  it("finds them in the document, or this compares nothing", () => {
+    const verbs = lockedVerbs();
+    expect(verbs.length, `read no verbs out of ${LOCK}`).toBeGreaterThan(5);
+    expect(verbs).toContain("setup");
+    expect(verbs).toContain("log");
+  });
+
+  it("are every one of them offered by the CLI it promises about", async () => {
+    await runCli(["--help"], { paths, io: io() });
+    for (const verb of lockedVerbs()) {
+      expect(
+        out,
+        `docs/schema-lock.md locks \`byollm ${verb}\` and --help does not ` +
+          "offer it — the lock document is making a promise about a command " +
+          "that is not there",
+      ).toContain(`byollm ${verb}`);
+    }
+  });
+});

@@ -583,6 +583,15 @@ describe("what the wizard is allowed to write", () => {
     // relied on the default would then share what nobody agreed to share. So
     // the rule holds for settings and does not hold for consent.
     //
+    // **`version` is the other exception, and it is not a default at all** —
+    // B236. Every rule above is about SETTINGS: values nobody was asked for,
+    // frozen at today's number into a file that outlives them. A version is
+    // not a setting. It says which shape the file is, it is true of the file
+    // rather than chosen for the daemon, and it is the one field whose whole
+    // job is being there when something later has to read an old file. The
+    // wizard writes it from its first line because a version that arrives
+    // after the files it was meant to date has dated nothing.
+    //
     // Asserted on the raw JSON rather than the parsed shape, because parsing
     // is exactly what would hide it.
     const p = await paths();
@@ -594,7 +603,7 @@ describe("what the wizard is allowed to write", () => {
       answersFine,
     );
     const raw: unknown = JSON.parse(await readFile(p.config, "utf8"));
-    expect(Object.keys(raw as object)).toEqual(["services"]);
+    expect(Object.keys(raw as object)).toEqual(["version", "services"]);
 
     const service = (raw as { services: Record<string, object> }).services[
       "claude"

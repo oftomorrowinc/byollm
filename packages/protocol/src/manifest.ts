@@ -116,6 +116,79 @@ const PurposeKey = z
   )
   .max(64);
 
+/**
+ * How a purpose's work is routed — RESERVED at 0.1.0, not yet acted on (B236).
+ *
+ * ## Why a key nothing reads is the highest-leverage thing in this file
+ *
+ * {@link Purpose} is `.strict()`, and that is right: a manifest is written by
+ * hand by a third party, and a typo'd key that is silently ignored is a site
+ * whose consent screen quietly says something other than what its author
+ * wrote. The cost of `.strict()` is that **there is no such thing as an
+ * additive change to it.** A key added in 1.4 is rejected by every validator
+ * built before 1.4, and the OSS repository ships the server — so those
+ * validators will exist, on machines nobody can upgrade, run by people who
+ * have no idea a key was added.
+ *
+ * The window in which this field can be introduced is therefore now: before
+ * the wire is declared stable, while every validator in existence is ours.
+ * After that the shape is load-bearing whether or not anything reads it.
+ *
+ * So the values are the ruled ones (B232 house lanes, B233 fallback lanes),
+ * the schema refuses anything else, and no code branches on it. A site may
+ * write `routing` today and get exactly the behaviour it gets without it,
+ * which is the point: the manifest it writes today is still valid the day
+ * the lanes land.
+ *
+ * ## What each value will mean, when something reads it
+ *
+ * - `user-choice` — the person maps this purpose to one of their own
+ *   services, and that mapping is the consent. Today's only behaviour, and
+ *   the default for a manifest that says nothing.
+ * - `site-fixed` — the site pays for and pins the service (B232's house
+ *   lane). The person is told, and consents to that rather than to a mapping.
+ * - `user-first-with-fallback` — the person's service if they have one, the
+ *   site's if they do not (B233).
+ *
+ * **The commitment attached to those last two** is written in the lock
+ * document rather than here, because it binds behaviour this file cannot
+ * enforce: a hub that does not implement a lane treats the purpose as
+ * `user-choice` and SAYS SO in a field rather than silently downgrading it,
+ * and a lane added later carries its own disclosure and never weakens an
+ * existing lane's promise.
+ */
+export const PurposeRouting = z.enum([
+  "user-choice",
+  "site-fixed",
+  "user-first-with-fallback",
+]);
+export type PurposeRouting = z.infer<typeof PurposeRouting>;
+
+/**
+ * What a purpose that does not say means.
+ *
+ * Named once, here, rather than written into the schema as `.default()`. A
+ * zod default is applied at PARSE, which would mean every manifest read by
+ * anything becomes a manifest with a `routing` key — and a hub that parses a
+ * site's manifest, stores it and serves it back would be handing a key to
+ * readers that predate it. The thing this field exists to avoid, performed by
+ * the field itself.
+ *
+ * Parsing stays shape-preserving; the default is applied where the value is
+ * USED, by {@link routingOf}.
+ */
+export const DEFAULT_ROUTING: PurposeRouting = "user-choice";
+
+/**
+ * The routing a purpose asks for, defaulted.
+ *
+ * The one place the absent case is answered, so that when B232 and B233 do
+ * act on this there is no second opinion about what "not stated" meant.
+ */
+export function routingOf(purpose: Purpose): PurposeRouting {
+  return purpose.routing ?? DEFAULT_ROUTING;
+}
+
 export const Purpose = z
   .object({
     /**
@@ -154,6 +227,15 @@ export const Purpose = z
       .refine((kinds) => new Set(kinds).size === kinds.length, {
         message: "a purpose lists each kind once",
       }),
+    /**
+     * How this purpose is routed — RESERVED, validated, not acted on (B236).
+     *
+     * Optional rather than defaulted, so that a manifest without it parses to
+     * a manifest without it. See {@link PurposeRouting} for why a key nothing
+     * reads is worth adding before launch, and {@link routingOf} for the one
+     * place "not stated" is answered.
+     */
+    routing: PurposeRouting.optional(),
   })
   .strict();
 export type Purpose = z.infer<typeof Purpose>;

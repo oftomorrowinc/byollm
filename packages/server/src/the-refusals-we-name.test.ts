@@ -35,17 +35,53 @@ const read = (path: string): string =>
   readFileSync(fileURLToPath(new URL(path, import.meta.url)), "utf8");
 
 const cloud = read("./cloud.ts");
+/**
+ * The same source with comment furniture removed, for the absence checks.
+ *
+ * A sentence in a block comment wraps across ` * ` continuations, so a literal
+ * match sees `nothing\n * to await` and not the sentence. A mutation putting
+ * the contradicting claim back one word further along survived the first
+ * version of this for exactly that reason — the check could not fail in the
+ * way it existed to fail.
+ */
+const prose = cloud.replaceAll(/\s*\n\s*\*\s*/gu, " ").replaceAll(/\s+/gu, " ");
 const sitePlane = read("../../relay/src/site-plane.ts");
 
 /**
- * Every code the relay answers 409 with.
+ * Every code the relay answers 409 with **on the enqueue path**.
  *
  * Parsed from the `fail(409, "code", …)` calls rather than listed here: a list
  * would be a third copy, and the drift this catches is a fourth one appearing.
+ *
+ * ## Scoped to the enqueue handler, and it was not
+ *
+ * The first version read the whole file and collected `too-late` — a 409 on a
+ * *different* endpoint, about a job that already exists, which `cloud.ts`'s own
+ * docstring says cannot reach enqueue as a refusal. The cases passed anyway,
+ * because they only asked whether each code was named *somewhere* in
+ * `cloud.ts`, and `too-late` is named there in the paragraph explaining why it
+ * is irrelevant.
+ *
+ * So the reader was over-collecting and green by luck, which a stricter case
+ * found the moment one was written. The region runs from the satisfiability
+ * verdicts to the `state.enqueue` call — the span in which a refusal means the
+ * job was never queued.
  */
+const enqueueRegion = (): string => {
+  const from = sitePlane.indexOf('answer?.verdict === "not-declared"');
+  const to = sitePlane.indexOf("state.enqueue", from);
+  expect(from, "the satisfiability branch moved").toBeGreaterThan(0);
+  expect(to, "the enqueue call moved").toBeGreaterThan(from);
+  return sitePlane.slice(from, to);
+};
+
 const refusals = (): string[] => [
   ...new Set(
-    [...sitePlane.matchAll(/fail\(\s*409,\s*(?:\/\/[^\n]*\n\s*)?"([a-z-]+)"/gu)]
+    [
+      ...enqueueRegion().matchAll(
+        /fail\(\s*409,\s*(?:\/\/[^\n]*\n\s*)?"([a-z-]+)"/gu,
+      ),
+    ]
       .map((match) => match[1] ?? "")
       .filter((code) => code !== ""),
   ),
@@ -95,5 +131,60 @@ describe("every 409 the enqueue path can answer", () => {
      * the other it sends somebody to a settings page to fix a sleeping laptop.
      */
     expect(cloud).toMatch(/does this need the person, or only time/iu);
+  });
+});
+
+describe("what the class says is worth retrying", () => {
+  /**
+   * Ruled 09-18, option 3: `slot-waiting` stays an `EnqueueRefused` and the
+   * class stops contradicting itself in prose.
+   *
+   * It said *"there is nothing to await and nothing to retry — whatever the
+   * code turns out to be"*, for a set containing a code whose whole meaning is
+   * *try again later*. Nothing to await is true; nothing to retry is not. The
+   * `.d.ts` is what a site reads, so that is where the contradiction mattered.
+   *
+   * The behaviour is deliberately unchanged, and the reason is worth keeping
+   * near the words: `RelayUnavailable` would be a false sentence — the relay
+   * is fine — and it carries a defer path built for `not-ready`, which clears
+   * in seconds. A slot can wait hours. Routing hours through a seconds-scale
+   * retry hammers somebody's closed laptop.
+   */
+  it("no longer says there is nothing to retry", () => {
+    /* Asserted by absence, against the claim rather than one phrasing: it is
+       the kind of confident sentence that reads well and comes back in a
+       tidy-up. */
+    expect(prose).not.toMatch(/nothing to await and nothing to retry/u);
+  });
+
+  it("names which refusal is worth trying again later", () => {
+    expect(cloud).toMatch(/worth trying again later/iu);
+  });
+
+  it("says it of the one that clears on its own, and only that one", () => {
+    /**
+     * Pinned to the SET, which is what makes this more than a wording check:
+     * every 409 the relay can answer is accounted for in the same paragraph,
+     * so a fourth code cannot arrive and quietly inherit whichever sentence it
+     * lands nearest.
+     */
+    const at = cloud.indexOf("worth trying again later");
+    expect(at).toBeGreaterThan(0);
+    const paragraph = cloud.slice(Math.max(0, at - 600), at + 400);
+    for (const code of refusals())
+      expect(paragraph, `${code} is not accounted for beside it`).toContain(
+        code,
+      );
+    /* And the two that are NOT worth retrying say so where they are named. */
+    expect(paragraph).toMatch(/retrying changes nothing/u);
+    expect(paragraph).toMatch(/no amount of waiting helps/u);
+  });
+
+  it("keeps the behaviour it is describing", () => {
+    /* The ruling was about the words. A reading that "fixed" the
+       contradiction by moving `slot-waiting` into the retryable set would
+       change what a deployed site's catch sees, on a code it may already
+       branch on — which is the option that was explicitly not taken. */
+    expect(cloud).toMatch(/RETRYABLE_AT_ENQUEUE = new Set\(\["not-ready"\]\)/u);
   });
 });

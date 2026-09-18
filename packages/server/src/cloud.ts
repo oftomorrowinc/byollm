@@ -150,8 +150,26 @@ export class EnqueueRefused extends Error {
  * silently stopped matching and a permanent refusal was retried forever.
  *
  * The status class is the key; a list of codes is a description of it. A 409
- * on enqueue means the relay declined to queue the job, and there is nothing
- * to await and nothing to retry — whatever the code turns out to be.
+ * on enqueue means the relay declined to queue the job, so there is nothing to
+ * await — whatever the code turns out to be.
+ *
+ * **Nothing to await is not nothing to retry, and this said both — B261.**
+ * `slot-waiting` means the slot may recover with nobody acting, so retrying it
+ * later is the right answer; the class it arrives as says the job was not
+ * queued, which is also true. Both stand, and the schedule is the site's:
+ *
+ *   - `purpose-not-declared` — your manifest. Fix it; retrying changes nothing.
+ *   - `slot-unsatisfiable` — nobody has chosen what answers this. It needs the
+ *     person, and no amount of waiting helps.
+ *   - `slot-waiting` — **worth trying again later.** Mapped, and nothing can
+ *     answer right now: a device asleep, a service withdrawn, an account over
+ *     its cap. It clears on its own.
+ *
+ * Ruled rather than assumed, 09-18: `slot-waiting` stays an `EnqueueRefused`
+ * because nothing was queued, and because `RelayUnavailable` would be a false
+ * sentence — the relay is fine — carrying it into a defer path built for
+ * `not-ready`, which clears in seconds. A slot can wait hours, and routing
+ * hours through a seconds-scale retry hammers somebody's closed laptop.
  *
  * `409` alone is not the key, which is why this is not simply deleted: the
  * protocol overloads it. `not-ready` is a draining pod saying come back, and
@@ -576,7 +594,9 @@ export class CloudLane {
       response.status === 409 &&
       !RETRYABLE_AT_ENQUEUE.has(code)
     ) {
-      // No job exists, so there is nothing to await and nothing to retry.
+      // No job exists, so there is nothing to await. Whether it is worth
+      // trying again later depends on the code, and the class's docstring
+      // says which one is — `slot-waiting` clears on its own.
       // The code travels unread: a site branching on one it does not know
       // still learns that its job was refused, which is the fact it needs.
       throw new EnqueueRefused(message, code);

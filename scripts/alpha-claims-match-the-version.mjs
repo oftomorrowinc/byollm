@@ -61,8 +61,21 @@ import { fileURLToPath } from "node:url";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 
-/** The banner `bump-version.mjs` rewrites, matched the way it matches it. */
-const BANNER = /^\s*>\s*\*\*Alpha \(/i;
+/**
+ * The banners `bump-version.mjs` rewrites, matched the way it matches them.
+ *
+ * TWO shapes, and the second was missing from the first version of this file —
+ * found by B252, four hours later, reading the very document this gate was
+ * written to protect. The markdown banner is what eight READMEs carry; the
+ * HTML one is the orange bar across the top of `byollm.dev`, which is the
+ * alpha warning the most people actually see. `bump-version.mjs` has always
+ * known about both; this reader knew about one, because markdown READMEs were
+ * the only input it was ever run against.
+ *
+ * Standing instruction 0's second companion, arriving in the check that the
+ * companion was written beside.
+ */
+const BANNER = /^\s*>\s*\*\*Alpha \(|<b>Alpha \(/i;
 
 /**
  * A live claim that this is alpha software, or an instruction pinned to the
@@ -72,7 +85,19 @@ const BANNER = /^\s*>\s*\*\*Alpha \(/i;
  * badge. `Alpha software` is the site's own words in its meta description —
  * the one place a claim reaches somebody who never opens the page.
  */
-const CLAIM = /@alpha\b|status-alpha|Alpha software/i;
+const CLAIM = /@alpha\b|status-alpha/i;
+
+/**
+ * A claim in an HTML attribute a reader never opens the page to see.
+ *
+ * `og:description` and `twitter:description` are what a link preview shows, so
+ * they reach people who never arrive. Matched inside `content="…"` only —
+ * **not** anywhere the word appears — because `site/index.html` also contains
+ * `.alpha{…}` and `class="alpha"`, which are a CSS selector and a hook. A
+ * class name is not a claim, and a reader that flagged them would be reporting
+ * styling as a promise and would be switched off for it.
+ */
+const META = /content="[^"]*\bAlpha\b[^"]*"/;
 
 /** Every document a reader meets, not counting what is not published. */
 const documents = (root) => {
@@ -106,7 +131,7 @@ const liveClaims = (text) => {
     const isBanner = BANNER.test(line);
     const isHistory = /^\s*>/.test(line) && !isBanner;
     if (isHistory) return;
-    if (isBanner || CLAIM.test(line))
+    if (isBanner || CLAIM.test(line) || META.test(line))
       hits.push({ line: at + 1, text: line.trim() });
   });
   return hits;
@@ -165,10 +190,17 @@ const main = () => {
     console.error(
       `alpha-claims: the version is ${version} — not a prerelease — and ${String(found.length)} document line(s) still say alpha.\n` +
         `${found.map(show).join("\n")}\n\n` +
-        `The banner is the easy half. The rest are INSTRUCTIONS pinned to the\n` +
-        `\`alpha\` dist-tag, and the flip moves \`latest\` and not \`alpha\` — so\n` +
-        `each one tells a reader to install the last prerelease instead of the\n` +
-        `version just locked, and the failure looks like their mistake.\n` +
+        `These are the HAND EDITS, and they are all that is left — B252.\n` +
+        `\`bump-version.mjs\` already removed the markdown banners and dropped\n` +
+        `every \`@alpha\` dist-tag suffix on this bump, because those are\n` +
+        `mechanical. What remains is prose that argues rather than instructs,\n` +
+        `plus the site's banner, whose block also carries a feature\n` +
+        `announcement — a script choosing which of those sentences survives\n` +
+        `would be worse than this list.\n\n` +
+        `Why they matter: \`@alpha\` is a dist-tag and the flip moves \`latest\`,\n` +
+        `not \`alpha\`. Every line above that still points at it sends a reader\n` +
+        `to the last prerelease instead of the version just locked, and the\n` +
+        `failure looks like their mistake.\n` +
         `B222: the warning comes out in the same cut.`,
     );
     return 1;

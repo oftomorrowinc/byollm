@@ -117,6 +117,42 @@ describe("at a clean version", () => {
     expect(out).toContain("site/index.html");
   });
 
+  it("sees the site's own banner, which is HTML and not markdown", () => {
+    /**
+     * The hole this reader shipped with, found by B252 four hours later.
+     *
+     * Eight READMEs carry a markdown blockquote banner; `byollm.dev` carries
+     * an orange bar with `<b>Alpha (…)`. `bump-version.mjs` has always known
+     * about both. This reader knew about one, because markdown READMEs were
+     * the only input it was ever run against — and the banner it could not see
+     * is the alpha warning the most people actually look at.
+     *
+     * Standing instruction 0's second companion, arriving in the check the
+     * companion was written beside.
+     */
+    const root = tree("0.1.0", {
+      "site/index.html":
+        '<div class="alpha"><div class="wrap">\n' +
+        "  <b>Alpha (0.1.0) — under active development.</b>\n" +
+        "</div></div>\n",
+    });
+    const { code, out } = run(root);
+    expect(code).toBe(1);
+    expect(out).toContain("site/index.html:2");
+  });
+
+  it("does not read a CSS class named alpha as a claim", () => {
+    /* The control, and the direction that would get this switched off. The
+       same file has `.alpha{…}` and `class="alpha"`; a selector is a hook,
+       not a promise, and flagging styling as a claim is noise. */
+    const root = tree("0.1.0", {
+      "site/index.html":
+        "<style>.alpha{background:#f5a524} .alpha b{color:#ffc75c}</style>\n" +
+        '<div class="alpha"><div class="wrap">Nothing is claimed here.</div></div>\n',
+    });
+    expect(run(root).code).toBe(0);
+  });
+
   it("leaves release-note history alone", () => {
     /**
      * `alpha.58` was an alpha permanently, and a README that stopped saying so

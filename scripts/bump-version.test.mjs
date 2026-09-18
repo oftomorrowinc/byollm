@@ -74,3 +74,117 @@ describe("the version bump preserves README history", () => {
     ).toContain('DAEMON_VERSION = "0.1.0-alpha.22"');
   });
 });
+
+describe("a bump to a RELEASE retires the alpha, and only mechanically", () => {
+  /**
+   * B252, CW's ruling: *"on a non-prerelease target the bumper removes the
+   * banner and rewrites the mechanical `@alpha` suffixes; the gate stays as
+   * the backstop, not the instrument."*
+   *
+   * Before this, `bump-version.mjs 0.1.0` rewrote the number INSIDE the alpha
+   * banner and left the banner, producing *"Alpha (`0.1.0`) — don't use this
+   * yet"* on eight READMEs — and the cut then met a fourteen-item refusal from
+   * `alpha-claims-match-the-version.mjs` in the middle of a release.
+   *
+   * The bumper is the right owner because it already holds the rule for which
+   * lines are live, and the gate took that rule from here so the two cannot
+   * drift.
+   */
+  let root;
+
+  afterEach(() => {
+    if (root) rmSync(root, { recursive: true, force: true });
+  });
+
+  const tree = () => {
+    root = mkdtempSync(join(tmpdir(), "byollm-bump-release-"));
+    mkdirSync(join(root, "packages/protocol"), { recursive: true });
+    mkdirSync(join(root, "site"), { recursive: true });
+    writeFileSync(
+      join(root, "packages/protocol/package.json"),
+      '{\n  "version": "0.1.0-alpha.21"\n}\n',
+    );
+    return root;
+  };
+
+  it("deletes the markdown banner instead of renumbering it", () => {
+    const at = tree();
+    writeFileSync(
+      join(at, "packages/protocol/README.md"),
+      "> **Alpha (`0.1.0-alpha.21`) — under active development.**\n\n# Package\n\nBody.\n",
+    );
+    execFileSync(process.execPath, [script, "0.1.0"], { cwd: at });
+
+    const after = readFileSync(join(at, "packages/protocol/README.md"), "utf8");
+    expect(after).not.toContain("Alpha (");
+    /* And it does not leave the hole behind: the banner is followed by a blank
+       line in every README, and removing one without the other starts the
+       document with two. */
+    expect(after.startsWith("# Package")).toBe(true);
+  });
+
+  it("drops the `@alpha` dist-tag from install and npx lines", () => {
+    /* The half that is worse than a stale adjective: the flip moves `latest`
+       and nothing moves `alpha`, so these keep resolving to the last
+       prerelease and a reader installs an OLDER package than the one just
+       locked. */
+    const at = tree();
+    writeFileSync(
+      join(at, "README.md"),
+      "Run `npm install @byollm/protocol@alpha`.\n" +
+        "Then `npx --package @byollm/server@alpha keygen`.\n",
+    );
+    execFileSync(process.execPath, [script, "0.1.0"], { cwd: at });
+
+    const after = readFileSync(join(at, "README.md"), "utf8");
+    expect(after).toContain("npm install @byollm/protocol`");
+    expect(after).toContain("npx --package @byollm/server keygen");
+    expect(after).not.toContain("@alpha");
+  });
+
+  it("leaves the site's banner alone, because that block is not mechanical", () => {
+    /**
+     * I wrote the HTML rules first and they broke the page. The orange bar is
+     * one `<div>` carrying the alpha warning AND a feature announcement, so a
+     * line filter either orphans that text in `<body>` or deletes a paragraph
+     * that has nothing to do with being an alpha.
+     *
+     * Which sentences survive is a judgement, and a script making it silently
+     * on the marketing site during a flip is worse than a line on a list. The
+     * gate names it as a hand edit instead.
+     */
+    const at = tree();
+    writeFileSync(
+      join(at, "site/index.html"),
+      '<div class="alpha"><div class="wrap">\n' +
+        "  <b>Alpha (0.1.0-alpha.21) — active</b>\n" +
+        "  <b>Team routing:</b> share a model with people you name.\n" +
+        "</div></div>\n",
+    );
+    execFileSync(process.execPath, [script, "0.1.0"], { cwd: at });
+
+    const after = readFileSync(join(at, "site/index.html"), "utf8");
+    expect(after).toContain("Team routing:");
+    expect(after).toContain('<div class="alpha">');
+    expect(after).toContain("</div></div>");
+    /* Renumbered, as it always was — the banner is still live version state. */
+    expect(after).toContain("<b>Alpha (0.1.0) — active</b>");
+  });
+
+  it("does none of it on an alpha-to-alpha bump", () => {
+    /* The control. Every bump until now was one of these, and retiring the
+       banner on one would delete the warning while the thing is still an
+       alpha — the same defect mirrored. */
+    const at = tree();
+    writeFileSync(
+      join(at, "README.md"),
+      "> **Alpha (`0.1.0-alpha.21`) — under active development.**\n\n" +
+        "Run `npm install @byollm/protocol@alpha`.\n",
+    );
+    execFileSync(process.execPath, [script, "0.1.0-alpha.22"], { cwd: at });
+
+    const after = readFileSync(join(at, "README.md"), "utf8");
+    expect(after).toContain("**Alpha (`0.1.0-alpha.22`) ");
+    expect(after).toContain("@byollm/protocol@alpha");
+  });
+});

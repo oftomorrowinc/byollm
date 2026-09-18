@@ -43,6 +43,52 @@ const targets = [
   "packages/daemon/src/index.ts",
 ].filter((p) => existsSync(p));
 
+/**
+ * Is this a release rather than a prerelease? `0.1.0`, not `0.1.0-alpha.102`.
+ *
+ * The one question that changes what a bump MEANS — B252. Up to here every
+ * bump was alpha-to-alpha and the only live version state was the number
+ * itself. A bump to a clean version also retires every sentence that says this
+ * is an alpha, and `tag.sh` refuses the cut until they are gone.
+ */
+const isRelease = (version) => !version.includes("-");
+
+/**
+ * Lines the bump DELETES at a clean version — B252, CW's ruling.
+ *
+ * The alpha banner, in both shapes: the markdown blockquote eight READMEs
+ * carry, and the orange bar across the top of the site. Rewritten to the new
+ * number by the rule below at every alpha bump, and at a release there is no
+ * new number to rewrite it to — *"Alpha (`0.1.0`) — don't use this yet"* is a
+ * sentence contradicting itself, on the most-read files in the repository, in
+ * the commit that makes them public.
+ *
+ * **Markdown only, and the site's banner is deliberately NOT here.** I wrote
+ * the HTML rules first and they broke the page: `site/index.html`'s orange bar
+ * is one `<div>` containing the alpha warning AND a feature announcement
+ * ("Team routing: share a model on your device..."), so a line filter either
+ * orphans that text in `<body>` or deletes a paragraph that has nothing to do
+ * with being an alpha. Which sentences survive is a judgement, and a script
+ * making it silently on the marketing site at the flip is worse than a line on
+ * a list. The gate names it as a hand edit.
+ */
+const RETIRED_AT_RELEASE = [/^\s*>\s*\*\*Alpha \(/i];
+
+/**
+ * `@alpha` is a DIST-TAG, and the flip does not move it — B252.
+ *
+ * `npm install @byollm/protocol@alpha` and `npx --package @byollm/server@alpha
+ * keygen` keep resolving to the last prerelease after 0.1.0 publishes, because
+ * the workflow moves `latest` and nothing moves `alpha`. A reader following
+ * our own quickstart would install an OLDER package than the one just locked
+ * and conclude they did it wrong.
+ *
+ * Dropping the suffix is the whole fix: a bare name resolves to `latest`,
+ * which is where the release is and where every later one will be.
+ */
+const dropAlphaTag = (line) =>
+  line.replaceAll(/(@byollm\/[a-z-]+)@alpha\b/gu, "$1");
+
 /** Replace the one live version declaration in a release target. */
 function replaceLiveVersion(path, text) {
   return text
@@ -68,6 +114,43 @@ function replaceLiveVersion(path, text) {
     .join("\n");
 }
 
+/**
+ * What a bump to a RELEASE does on top of renumbering — B252.
+ *
+ * CW's ruling: *"on a non-prerelease target the bumper removes the banner and
+ * rewrites the mechanical `@alpha` suffixes; the gate stays as the backstop,
+ * not the instrument."* A refusal that fires in the middle of a cut, four days
+ * before a flip, is where mistakes live — the gate is correct and making a
+ * person satisfy it by hand at that exact moment is not.
+ *
+ * The bumper is the right owner because it already holds the classification of
+ * which lines are live, and `alpha-claims-match-the-version.mjs` took its rule
+ * from here so the two cannot drift. **The edit belongs with the
+ * classification.**
+ *
+ * What it deliberately does NOT touch: prose that argues rather than
+ * instructs — *"Ask for `@alpha` explicitly"*, the `status-alpha` badge, the
+ * site's meta descriptions. Those are judgement, they genuinely change at the
+ * cut, and a script rewriting somebody's sentences is worse than a short list.
+ * The gate names them, and only them, which is the difference between a
+ * fourteen-item refusal and a three-item one.
+ */
+function retireAlpha(path, text) {
+  const lines = text.split("\n");
+  const kept = lines
+    .filter((line) => !RETIRED_AT_RELEASE.some((shape) => shape.test(line)))
+    .map(dropAlphaTag);
+  /* The banner is the first line of every README and is followed by a blank.
+     Removing one without the other leaves the document opening on an empty
+     line, which renders as a gap above the title on npm and on GitHub — the
+     kind of thing nobody notices until it is the front page of a launch.
+     Only when something was actually removed: a file that legitimately opens
+     with a blank line is not this script's business. */
+  if (kept.length !== lines.length)
+    while (kept.length > 0 && kept[0]?.trim() === "") kept.shift();
+  return kept.join("\n");
+}
+
 let touched = 0;
 for (const path of targets) {
   const before = readFileSync(path, "utf8");
@@ -78,7 +161,8 @@ for (const path of targets) {
   //
   // Keep the path-aware rewrite in a pure helper so the history case stays
   // executable in CI rather than depending on another real release to recur.
-  const after = replaceLiveVersion(path, before);
+  const renumbered = replaceLiveVersion(path, before);
+  const after = isRelease(next) ? retireAlpha(path, renumbered) : renumbered;
   if (after !== before) {
     writeFileSync(path, after);
     console.log(`  ${path}`);

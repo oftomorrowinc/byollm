@@ -866,3 +866,91 @@ describe("the hand edits this gate cannot reach — B284", () => {
     ).toBeGreaterThanOrEqual(2);
   });
 });
+
+describe("the npm page's own headline — B293", () => {
+  /**
+   * npm renders `description` at the top of a package's page, above the
+   * README and in larger type, and every rule in this file read a DOCUMENT.
+   * So `byollm` and `@byollm/protocol` would have reached `0.1.0` still
+   * saying *"ALPHA: under active development"* on two public pages, refused
+   * by nothing.
+   *
+   * Third appearance of one blind spot: the link checker read no manifests
+   * (B281), the alpha rules could not see the docs site (B283), and the alpha
+   * rules could not see the manifests either.
+   */
+  const manifest = (description) =>
+    JSON.stringify({ name: "@x/a", version: "0.1.0", description }, null, 2);
+
+  it("lists a description that still says alpha", () => {
+    const root = tree("0.1.0", {
+      "README.md": "# byollm\n\nnothing to see\n",
+      "packages/a/package.json": manifest(
+        "Bring Your Own LLM. ALPHA: under active development.",
+      ),
+    });
+    const { code, out } = run(root);
+    expect(code).toBe(1);
+    expect(out).toContain("packages/a/package.json");
+    expect(out).toContain("npm description");
+  });
+
+  it("leaves a description that does not", () => {
+    /* The control: a manifest is read, and reading one is not the same as
+       reporting it. Without this the rule could be "every manifest is a
+       finding" and the case above would not notice. */
+    const root = tree("0.1.0", {
+      "README.md": "# byollm\n\nnothing to see\n",
+      "packages/a/package.json": manifest(
+        "Framework-agnostic protocol handlers and a reference store.",
+      ),
+    });
+    expect(run(root).code).toBe(0);
+  });
+
+  it("does not read a dependency version as a claim", () => {
+    /**
+     * The false-alarm direction, and the reason this reads the description
+     * rather than the file. Every manifest in a real tree carries
+     * `0.1.0-alpha.102` in `dependencies`, so a whole-file rule would report
+     * six findings on a correct tree and be switched off within a day.
+     */
+    const root = tree("0.1.0", {
+      "README.md": "# byollm\n\nnothing to see\n",
+      "packages/a/package.json": JSON.stringify(
+        {
+          name: "@x/a",
+          version: "0.1.0",
+          description: "A reference store.",
+          dependencies: { "@byollm/protocol": "0.1.0-alpha.102" },
+        },
+        null,
+        2,
+      ),
+    });
+    expect(run(root).code).toBe(0);
+  });
+
+  it("leaves a private manifest alone, because npm renders nothing", () => {
+    const root = tree("0.1.0", {
+      "README.md": "# byollm\n\nnothing to see\n",
+      "packages/a/package.json": JSON.stringify(
+        { name: "@x/a", private: true, description: "ALPHA: do not use." },
+        null,
+        2,
+      ),
+    });
+    expect(run(root).code).toBe(0);
+  });
+
+  it("points at the line a person will open", () => {
+    /* The list is what somebody works from during the cut. A finding naming
+       the file and not the line sends them scrolling through JSON. */
+    const root = tree("0.1.0", {
+      "README.md": "# byollm\n\nnothing to see\n",
+      "packages/a/package.json": manifest("ALPHA: under active development."),
+    });
+    const { out } = run(root);
+    expect(out).toMatch(/packages\/a\/package\.json:\d+/u);
+  });
+});

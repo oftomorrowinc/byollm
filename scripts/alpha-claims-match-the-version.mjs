@@ -202,6 +202,56 @@ const RELEASE_ENTRY = /^\s*>\s*\*\*`/;
 /** A blockquote line with nothing in it — `>` and no more. */
 const BLANK_QUOTE = /^\s*>\s*$/;
 
+/**
+ * An alpha claim in the one string npm renders above the README — B293.
+ *
+ * Every rule above reads a DOCUMENT. npm puts `description` at the top of a
+ * package's page, in larger type than anything in the README, and this gate
+ * never looked at it — so `byollm` and `@byollm/protocol` would have gone to
+ * `0.1.0` still saying *"ALPHA: under active development"* on two public
+ * pages, refused by nothing.
+ *
+ * Third time this blind spot has appeared: the link checker read no manifests
+ * (B281), the alpha rules could not see the docs site (B283), and now the
+ * alpha rules cannot see the manifests either. The surface is wider than the
+ * documents in all three.
+ *
+ * **Scoped to the description and to nothing else in the file.** A manifest
+ * scanned as text matches `0.1.0-alpha.102` in every `dependencies` block, so
+ * a whole-file rule would report six false hits on a correct tree and be
+ * switched off within a day. Measured: on this tree the rule fires on exactly
+ * two descriptions, which are the two that say it.
+ */
+const DESCRIPTION_CLAIM =
+  /\balpha\b|\bunder active development\b|\bnot for production\b/i;
+
+/** Publishable manifests, whose `description` npm renders. */
+const manifestClaims = (root) => {
+  const packages = join(root, "packages");
+  if (!existsSync(packages)) return [];
+  const found = [];
+  for (const name of readdirSync(packages).sort()) {
+    const file = join(packages, name, "package.json");
+    if (!existsSync(file)) continue;
+    const raw = readFileSync(file, "utf8");
+    /* A manifest that cannot be parsed is not a manifest with no claims. */
+    const json = JSON.parse(raw);
+    if (json.private === true) continue;
+    if (typeof json.description !== "string") continue;
+    const hit = DESCRIPTION_CLAIM.exec(json.description);
+    if (hit === null) continue;
+    found.push({
+      file,
+      line:
+        raw.split("\n").findIndex((row) => row.includes('"description"')) + 1,
+      rule: "npm description",
+      text: json.description,
+      at: hit.index,
+    });
+  }
+  return found;
+};
+
 /** Every document a reader meets, not counting what is not published. */
 const documents = (root) => {
   const found = [];
@@ -406,12 +456,20 @@ const main = () => {
     return 2;
   }
 
-  const found = files.flatMap((path) =>
-    renumber(path, liveClaims(readFileSync(path, "utf8"))).map((hit) => ({
+  const found = [
+    ...files.flatMap((path) =>
+      renumber(path, liveClaims(readFileSync(path, "utf8"))).map((hit) => ({
+        ...hit,
+        file: repoPath(root, path),
+      })),
+    ),
+    /* The npm page's own headline — B293. Collected separately because the
+       rules above read markdown regions and a manifest has none. */
+    ...manifestClaims(root).map((hit) => ({
       ...hit,
-      file: repoPath(root, path),
+      file: repoPath(root, hit.file),
     })),
-  );
+  ];
   const prerelease = version.includes("-");
   /**
    * One row of the hand-edit list, showing WHAT MATCHED rather than the first

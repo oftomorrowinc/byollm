@@ -1,7 +1,7 @@
 {
   "name": "@byollm/conformance",
   "version": "0.1.0-alpha.102",
-  "description": "The BYOLLM compatibility contract \u2014 drive a real daemon against any server and assert every protocol MUST.",
+  "description": "The BYOLLM compatibility contract \u2014 drive a real daemon against any server, assert every protocol MUST a kit can reach, and report the ones it cannot.",
   "license": "MIT",
   "type": "module",
   "bin": {

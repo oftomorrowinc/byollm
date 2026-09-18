@@ -44,6 +44,18 @@ jobs:
       - run: pnpm run dupes
       # docs/standards.md: every example executes in CI so docs cannot rot.
       - run: pnpm --filter @byollm/example-demo run check
+      # The five `verify` steps that were local-only until 09-18, and the
+      # repository is PUBLIC: a contributor's pull request runs this job and
+      # never the pre-push hook, so CI is the only place these fire on
+      # anybody else's commit. `the-verify-chain-runs-in-ci.test.mjs` fails
+      # when this list and `scripts/verify.sh` drift apart.
+      - run: node scripts/generate-about.mjs --check
+      - run: pnpm run check:releasing
+      - run: node scripts/alpha-claims-match-the-version.mjs
+      - run: node scripts/every-package-ships-its-license.mjs
+      # A leaked key in a public repository is not deletable: it is cloned
+      # within minutes and rewriting history does not recall what was fetched.
+      - run: node scripts/no-secrets-in-the-tree.mjs
 
   # ---------------------------------------------------------------------------
   # byollm_010: a platform CI does not run is a platform we do not support.

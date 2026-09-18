@@ -4,6 +4,7 @@ import {
   type Capability,
 } from "@byollm/protocol";
 import { generateLeaseId } from "./ids.js";
+import { deadlineFor } from "./records.js";
 import type {
   StoredJobInput,
   JobRecord,
@@ -451,9 +452,33 @@ export class MemoryStore implements ByollmStore {
     const changed: JobRecord[] = [];
 
     for (const job of this.#jobs.values()) {
+      /**
+       * An ADOPTED lease is not this site's to expire — B258.
+       *
+       * `adopt` sets `runnerId: ""` and says why: *"this site never paired
+       * with the machine holding it."* On the cloud lane the RELAY issues and
+       * renews the lease; what this store holds is a **cache of a number
+       * somebody else owns**, and the device heartbeats the relay, not us.
+       * `renewLeases` is called from exactly one place in this package — the
+       * direct lane's heartbeat handler — so a cloud-lane site never hears a
+       * renewal and this loop expired a lease that had not lapsed.
+       *
+       * The cost was every cloud-lane job slower than `LEASE_MS`, 60s by
+       * default: the row was requeued, the device finished anyway, and
+       * `complete` refused its result for want of a matching lease id. Found
+       * by Kevin's team on a book-translation pipeline, where it is the
+       * difference between shipping a chapter and shipping half of one
+       * without knowing.
+       *
+       * Expiring a cache entry is not the same event as a lease lapsing, so
+       * this stops doing it. What still bounds the job is `deadlineAt`,
+       * immediately below — absolute, and the relay honours the same one.
+       */
+      const adopted = job.lease !== null && job.lease.runnerId === "";
       if (
         (job.state === "claimed" || job.state === "running") &&
         job.lease !== null &&
+        !adopted &&
         job.lease.expiresAt <= now
       ) {
         const requeued: JobRecord = {
@@ -473,6 +498,42 @@ export class MemoryStore implements ByollmStore {
         this.#write(job.id, requeued);
         changed.push(requeued);
       }
+    }
+
+    /**
+     * An adopted job still stops at its deadline — the other half of B258.
+     *
+     * Declining to expire a relay-owned lease would otherwise leave a
+     * cloud-lane job `claimed` forever if the relay never spoke again: the
+     * loop below only considers `queued` rows, so nothing else would ever end
+     * it. `deadlineAt` is absolute, the relay honours the same one, and a job
+     * past it is pointless on either side — so it is the bound that replaces
+     * the lease clock rather than merely coexisting with it.
+     *
+     * Scoped to adopted leases on purpose. Direct-lane expiry is unchanged:
+     * there the lease clock is this store's own and already correct, and
+     * widening this to every claimed job would be a second behaviour change
+     * riding a fix for the first.
+     */
+    for (const job of this.#jobs.values()) {
+      if (job.state !== "claimed" && job.state !== "running") continue;
+      if (job.lease?.runnerId !== "") continue;
+      /* `deadlineFor`, not `job.deadlineAt` — a job enqueued without an
+         explicit deadline has `null`, and reading that as "no bound" would
+         leave exactly the rows this branch exists to bound sitting `claimed`
+         forever. The fallback is the one every other caller uses, which is
+         why it is a function: the direct plane and the cloud lane once
+         computed it separately and disagreed on precisely this arm. */
+      if (deadlineFor(job, now) > now) continue;
+      const expired: JobRecord = {
+        ...job,
+        state: "expired",
+        lease: null,
+        completedByLeaseId: null,
+        updatedAt: now,
+      };
+      this.#write(job.id, expired);
+      changed.push(expired);
     }
 
     for (const job of this.#jobs.values()) {

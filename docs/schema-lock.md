@@ -63,8 +63,9 @@ wider than it is.
 - **The console protocol is EXPERIMENTAL.** `ConsoleFrame`, `consoleEnvelope`,
   `consoleOrder` and everything under `/console/*` on the hub may change shape
   in any 0.1.x. It is published so the pieces that consume it can pin a
-  version, not because it has settled — nobody has run a console end to end
-  yet, and a shape nobody has used is not a shape anybody should depend on.
+  version, not because it has settled: one person has driven one console end
+  to end, on a hosted box we own (2026-09-17), and one session on both-ends-ours
+  is not the evidence a shape needs before anybody depends on it.
 - **`known-models` lists are fluid, by design.** The model namespace moves
   faster than our releases; that is B211's whole lesson. A list of model names
   shipping in a release is a snapshot, never a contract, and free text is

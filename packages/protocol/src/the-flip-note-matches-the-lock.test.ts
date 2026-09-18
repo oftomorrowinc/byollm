@@ -69,15 +69,70 @@ describe("the 0.1.0 release note", () => {
   });
 
   it("names every carve-out the lock document makes", () => {
-    /* A note that listed the promises and not the exclusions would read wider
-       than the lock, which is the direction that costs trust. */
-    const note = words(readFileSync(NOTE, "utf8"));
-    for (const excluded of ["console", "known-models", "Refusal MESSAGES"]) {
+    /**
+     * A note that listed the promises and not the exclusions would read wider
+     * than the lock, which is the direction that costs trust.
+     *
+     * **Derived, because the hand-written version of this test was green
+     * about an omission that existed while it ran — B245.** It iterated
+     * `["console", "known-models", "Refusal MESSAGES"]` under a title that
+     * claims *every*, and the lock had four carve-outs. The missing one was
+     * the packages' own APIs, which is the carve-out a library consumer needs
+     * most: the note ends by inviting you to build against three surfaces, so
+     * a reader who installs `@byollm/server` and reads only the announcement
+     * concludes its exports are inside the 0.1.x promise. They are not.
+     *
+     * A universal name over a literal list is B084's family. The set now
+     * comes from the lock's own section, so a fifth carve-out arrives here
+     * without anyone remembering to add it.
+     *
+     * ## What counts as "the note names it"
+     *
+     * Overlap, not identity — the note is prose and the lock is a
+     * specification, and they are meant to say the same thing differently.
+     * So each carve-out is reduced to the tokens that cannot be paraphrased
+     * away: the code spans in its bolded lead, or, when it has none, the
+     * shouted words. `@byollm/server` survives rewording; "implementations,
+     * not surfaces of their own" does not.
+     */
+    const lock = readFileSync(LOCK, "utf8");
+    const section = /^## What is NOT locked\b.*?$(.*?)^## /msu.exec(lock)?.[1];
+    expect(
+      section,
+      "the lock has no carve-out section under that name",
+    ).toBeDefined();
+
+    /* Top-level bullets only: a nested `-` is elaboration of the carve-out
+       above it, not a fifth one. */
+    const leads = [...(section ?? "").matchAll(/^- \*\*(.+?)\*\*/gmsu)].map(
+      (match) => match[1] ?? "",
+    );
+    const carveOuts = leads.map((lead) => {
+      const code = [...lead.matchAll(/`([^`]+)`/gu)].map((m) => m[1] ?? "");
+      return code.length > 0
+        ? code
+        : [...lead.matchAll(/\b([A-Z]{3,})\b/gu)].map((m) => m[1] ?? "");
+    });
+
+    /* A parse that found nothing satisfies "every carve-out is named", which
+       is the shape this whole rewrite exists to stop being. */
+    expect(
+      carveOuts.length,
+      "parsed no carve-outs out of the lock — the section's shape moved",
+    ).toBeGreaterThanOrEqual(3);
+    for (const [index, tokens] of carveOuts.entries())
       expect(
-        note,
-        `the note does not say ${excluded} is outside the lock`,
-      ).toContain(excluded);
-    }
+        tokens.length,
+        `carve-out ${String(index + 1)} reduced to nothing to check for`,
+      ).toBeGreaterThan(0);
+
+    const note = words(readFileSync(NOTE, "utf8"));
+    for (const [index, tokens] of carveOuts.entries())
+      for (const token of tokens)
+        expect(
+          note,
+          `the note never says ${token} is outside the lock (carve-out ${String(index + 1)}: ${leads[index] ?? ""})`,
+        ).toContain(token);
   });
 
   it("promises the reserved shapes the code actually reserved", () => {

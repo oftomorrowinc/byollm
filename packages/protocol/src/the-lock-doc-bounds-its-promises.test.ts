@@ -102,3 +102,48 @@ describe("what the lock document says about `audience`", () => {
     expect(said).toContain("an honest control plane's bug");
   });
 });
+
+describe("what the lock document says about the console", () => {
+  /**
+   * A claim about how much a thing has been used has to carry a date — B245.
+   *
+   * The carve-out used to justify itself with *"nobody has run a console end
+   * to end yet"*. It was true when it was written and false a week later: the
+   * console shipped on `.102` and one was driven, on a hosted box, before the
+   * flip. Nothing about running a console makes you think of a paragraph in
+   * `docs/schema-lock.md`, so the sentence simply aged in place — in the
+   * document whose claims the rest of the launch copies from.
+   *
+   * There is no source of truth a test can read for "how many consoles have
+   * been driven", and inventing one would be worse than this. What IS
+   * checkable is the property that makes such a sentence survivable: **an
+   * evidence claim with a date on it ages visibly, and one without it does
+   * not.** A reader who meets "one person has driven one console end to end
+   * (2026-09-17)" can weigh it. A reader who meets "nobody has yet" cannot
+   * tell whether it was written yesterday or in August.
+   *
+   * So this does not check that the sentence is true. It checks that the
+   * sentence is the kind that can be caught being false.
+   */
+  const carveOut = /The console protocol is EXPERIMENTAL\.(.*?)(?=\n- \*\*)/su
+    .exec(doc)?.[1]
+    ?.replaceAll(/\s+/g, " ");
+
+  it("still carves the console out, or the rest of this checks nothing", () => {
+    expect(carveOut, `${LOCK} no longer carves the console out`).toBeDefined();
+  });
+
+  it("dates the evidence it offers for the carve-out", () => {
+    expect(
+      carveOut ?? "",
+      "the console carve-out claims something about use with no date to age it",
+    ).toMatch(/\b20\d\d-\d\d-\d\d\b/u);
+  });
+
+  it("no longer says nobody has run one", () => {
+    /* The cheap half, and it only catches a literal revert or a copy of the
+       old line — worth one assertion because the note copies this document
+       and a copy is how the claim would come back. */
+    expect(carveOut ?? "").not.toMatch(/nobody has run|no one has run/iu);
+  });
+});

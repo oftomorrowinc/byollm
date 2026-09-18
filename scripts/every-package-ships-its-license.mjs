@@ -26,11 +26,21 @@
  * ## What it actually asks, and what that is a proxy for
  *
  * `pnpm pack` each publishable package and read the tarball. Pack is a proxy
- * for publish, and the proxy was checked rather than assumed: for
- * `@byollm/protocol` the real registry tarball (`npm pack @byollm/protocol`)
- * and the local pack BOTH carry `package/LICENSE`, byte-identical to the
- * root's. The proxy is sound on this question because the copying happens in
- * the same pnpm step.
+ * for publish, and the proxy was checked rather than assumed.
+ *
+ * **Checked for ALL SIX published packages, not extrapolated from one.** The
+ * first version compared `@byollm/protocol`'s registry tarball against its
+ * local pack and asserted the rest by mechanism — which is a claim about six
+ * things verified for one, and this week has cost enough for exactly that
+ * shape. So on 2026-09-18 every published tarball was pulled from the registry
+ * (`npm pack <name>@alpha`) and its `package/LICENSE` diffed against the
+ * repository's: `byollm`, `@byollm/protocol`, `@byollm/server`,
+ * `@byollm/relay`, `@byollm/conformance`, `@byollm/control-plane` — six of
+ * six present, six of six byte-identical.
+ *
+ * `@byollm/agreements` is the seventh and has never been published, so there
+ * is nothing to compare; it is exactly what `a-first-publish-is-announced.mjs`
+ * is about.
  *
  * It compares CONTENT, not presence: a package that grows its own LICENSE file
  * saying something else would otherwise pass while shipping a different grant

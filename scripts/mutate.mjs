@@ -25,7 +25,7 @@
  * Usage:
  *   node scripts/mutate.mjs <file> <find> <replace> -- <vitest args...>
  */
-import { readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { execFileSync, spawn } from "node:child_process";
 
 /**
@@ -48,7 +48,63 @@ const treeState = () => {
 
 const before = treeState();
 
+/**
+ * The mutation that outlives the process that made it — B253b's residual.
+ *
+ * The `finally` below restores the file, and CW's tree-set guard compares
+ * before against after. Both of those need the process to REACH them. A run
+ * killed by a signal reaches neither, and today one did: `pkill -f mutate.mjs`
+ * left the target patched with its guard replaced by `if (false)`, in a file
+ * that was minutes from being committed. Nothing downstream would have said
+ * so — the mutation was syntactically valid, and a mutation's whole purpose is
+ * to be a plausible edit.
+ *
+ * So the restore stops depending on this process surviving:
+ *
+ *   - **SIGINT and SIGTERM are handled** and restore before exiting. That is
+ *     Ctrl-C and an ordinary `pkill`, which is how a slow run actually ends.
+ *   - **SIGKILL cannot be caught by anything**, so the original bytes are
+ *     written to a breadcrumb BEFORE the file is patched. A later run refuses
+ *     while it exists, and `--recover` puts the file back from it.
+ *
+ * The breadcrumb is the load-bearing half. A handler that covers the signals
+ * it can catch, with nothing behind it for the one it cannot, is the shape of
+ * guard that reads as complete and is not.
+ */
+const CRUMB = ".mutation-in-progress.json";
+
 const argv = process.argv.slice(2);
+
+if (existsSync(CRUMB)) {
+  const held = JSON.parse(readFileSync(CRUMB, "utf8"));
+  if (argv[0] === "--recover") {
+    writeFileSync(held.file, held.original);
+    rmSync(CRUMB);
+    console.log(
+      `recovered ${held.file} from a run that was killed at ${held.at}.\n` +
+        "Check `git diff` before trusting it: anything you edited in that file\n" +
+        "since the kill has just been overwritten with the pre-mutation bytes.",
+    );
+    process.exit(0);
+  }
+  console.error(
+    `refusing to run: a previous mutation of ${held.file} never restored it.\n\n` +
+      `  started ${held.at}, and that run did not reach its own cleanup —\n` +
+      "  a signal, a crash, or a kill. THE FILE IS STILL MUTATED.\n\n" +
+      "  node scripts/mutate.mjs --recover   puts it back from these bytes\n" +
+      `  rm ${CRUMB}       if you have already fixed it by hand\n\n` +
+      "  Do not commit until one of those has happened. A mutation is a\n" +
+      "  plausible edit by construction, which is why nothing else will\n" +
+      "  notice it for you.",
+  );
+  process.exit(2);
+}
+
+if (argv[0] === "--recover") {
+  console.log("nothing to recover: no mutation is outstanding.");
+  process.exit(0);
+}
+
 const split = argv.indexOf("--");
 if (split < 3) {
   console.error(
@@ -77,6 +133,28 @@ if (mutated === original) {
   process.exit(2);
 }
 
+/* Written BEFORE the patch, so the window in which a file is mutated and
+   nothing records it is empty rather than small. */
+writeFileSync(
+  CRUMB,
+  JSON.stringify({ file, original, at: new Date().toISOString() }),
+);
+
+const restore = () => {
+  writeFileSync(file, original);
+  if (existsSync(CRUMB)) rmSync(CRUMB);
+};
+
+/* The signals that can be caught. `pkill` sends TERM by default, which is how
+   a run that is taking too long actually ends. */
+for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"]) {
+  process.on(signal, () => {
+    restore();
+    console.error(`\n${signal} — restored ${file} before exiting.`);
+    process.exit(130);
+  });
+}
+
 try {
   writeFileSync(file, mutated);
   console.log(`mutated ${file}: ${find.trim().slice(0, 60)}...`);
@@ -99,7 +177,7 @@ try {
     child.on("error", resolve);
   });
 } finally {
-  writeFileSync(file, original);
+  restore();
   console.log(`restored ${file}`);
 }
 

@@ -25,7 +25,36 @@
  * it is still believed.
  */
 import { execFileSync } from "node:child_process";
-import { readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
+
+/**
+ * A tree with a mutation still in it does not get a stamp.
+ *
+ * `mutate.mjs` leaves `.mutation-in-progress.json` from the moment it patches
+ * a file until it restores one, so the breadcrumb outliving its run means the
+ * run was killed and the file is **still mutated**. That happened on 09-18: a
+ * `pkill` left a guard replaced by `if (false)` in a file minutes from being
+ * committed, and nothing downstream would have said so — a mutation is a
+ * plausible edit by construction.
+ *
+ * This is the last line of `verify`, which makes it the right place to refuse:
+ * the stamp is the artifact that says *this tree passed*, and a tree carrying
+ * a deliberate sabotage has not passed anything. The harness refuses its own
+ * next run too, but that only helps somebody who runs it again — and the
+ * failure mode is precisely that nobody does.
+ */
+const CRUMB = ".mutation-in-progress.json";
+if (existsSync(CRUMB)) {
+  const held = JSON.parse(readFileSync(CRUMB, "utf8"));
+  console.error(
+    `refusing to record a verification: ${held.file} is still mutated.\n\n` +
+      `  A mutation run started ${held.at} and never restored it.\n` +
+      "  Whatever just passed, passed against a file somebody sabotaged on\n" +
+      "  purpose — so the result is not a result.\n\n" +
+      "  node scripts/mutate.mjs --recover   puts it back, then re-run verify",
+  );
+  process.exit(1);
+}
 
 writeFileSync(
   ".verified",

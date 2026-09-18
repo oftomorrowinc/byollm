@@ -54,7 +54,18 @@ import type { ByollmStore } from "./store.js";
  */
 
 export interface CloudLaneOptions {
-  /** Where the relay lives, e.g. `https://relay.byollm.cloud`. */
+  /**
+   * Where the relay lives, e.g. `https://hub.byollm.cloud`.
+   *
+   * This said `relay.byollm.cloud`, and that name **has no DNS record**.
+   * The comment ships in the published `.d.ts`, so it is among the first
+   * examples a site author reads: Kevin's team copied the dead host into
+   * every app's `.env.example` and then worked out why nothing connected.
+   *
+   * The old name is written here without a scheme on purpose, so that
+   * `the-links-we-ship-resolve.mjs` does not report this explanation as one
+   * more dead host.
+   */
   readonly relayOrigin: string;
   /** This site's id at the relay. */
   readonly siteId: string;

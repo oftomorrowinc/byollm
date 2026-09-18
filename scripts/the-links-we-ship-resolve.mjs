@@ -40,6 +40,14 @@
  *
  * Advisory, and deliberately NOT in `verify`: it needs the network, and a gate
  * that fails on a train is a gate somebody removes from the chain.
+ *
+ * **And nothing runs it on a schedule either**, which is a larger limit than
+ * the paragraph above and was not stated until now: no workflow invokes this
+ * file, so it reports only when somebody types it. The reason it is out of
+ * `verify` is an argument for a cron, not against one — a weekly run costs
+ * nobody a push — but a scheduled workflow spends Actions minutes, and that
+ * budget is Todd's to commit. Raised in the note for this landing rather than
+ * decided here. Until it is decided, a link can die and this will not say so.
  */
 
 import { resolve4, resolve6, resolveCname } from "node:dns/promises";
@@ -49,6 +57,49 @@ import { fileURLToPath } from "node:url";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(process.env["LINK_CHECK_ROOT"] ?? join(HERE, ".."));
+
+/**
+ * Our own hostnames in shipped SOURCE, which is a different surface.
+ *
+ * **Kevin's team put `https://relay.byollm.cloud` in every app's
+ * `.env.example` and then worked out why nothing connected.** It came from
+ * `CloudLaneOptions.relayOrigin`'s doc comment, which ships in the published
+ * `.d.ts` — so it is among the first things a site author reads, and the host
+ * has no DNS record. The markdown scan above could never have found it,
+ * because a `.d.ts` is not markdown.
+ *
+ * Narrowed to hosts under our OWN domains on purpose. Source is full of
+ * example URLs that must not resolve — `https://your-app.com`,
+ * `http://127.0.0.1:11434/v1`, `https://your-relay.example` — and the
+ * code-fence discriminator that separates them in markdown has no equivalent
+ * here. A hostname under a domain we operate is never a placeholder, so this
+ * is the one rule that can be applied to source without inventing alarms.
+ */
+const OURS = /^https:\/\/[a-z0-9.-]*(byollm\.cloud|byo-llm\.com)/u;
+
+const shippedSource = (root) => {
+  const dir = join(root, "packages");
+  if (!existsSync(dir)) return [];
+  const out = [];
+  const walk = (at) => {
+    for (const entry of readdirSync(at, { withFileTypes: true })) {
+      const path = join(at, entry.name);
+      if (entry.isDirectory()) {
+        /* Built output and dependencies are copies of what is already read. */
+        if (/^(node_modules|dist|\.tsbuild|coverage)$/u.test(entry.name))
+          continue;
+        walk(path);
+      } else if (
+        /\.ts$/u.test(entry.name) &&
+        !/\.test\.ts$/u.test(entry.name)
+      ) {
+        out.push(path);
+      }
+    }
+  };
+  walk(dir);
+  return out;
+};
 
 /** The markdown a stranger reads: the root, every package README, the rest. */
 const shipped = (root) => {
@@ -182,6 +233,15 @@ const askFor = (url) => {
     : `https://registry.npmjs.org/${name.replace(/\/$/u, "")}`;
 };
 
+/** Does the name exist? The whole question for a host you configure. */
+const nameExists = async (url) => {
+  const named = await resolves(url);
+  if (named === null) return { state: "unjudged", why: "no resolver here" };
+  return named
+    ? { state: "ok", why: "resolves" }
+    : { state: "dead", why: "the name does not resolve" };
+};
+
 const judge = async (url) => {
   const named = await resolves(url);
   if (named === null) return { state: "unjudged", why: "no resolver here" };
@@ -229,8 +289,49 @@ const main = async () => {
   }
 
   const where = new Map();
+  /**
+   * Hosts found in SOURCE are judged by DNS alone, not by status.
+   *
+   * The first version asked them for a page and called `hub.byollm.cloud`
+   * dead on its `404` — which is an API host with no index, answering
+   * correctly at `/readyz` and every endpoint a daemon calls. That is the
+   * false-alarm direction, in the checker whose own docstring says an alarm
+   * nobody believes gets deleted.
+   *
+   * And it is not the defect either: what Kevin hit was a host with **no DNS
+   * record at all**. A hostname in a type's example is something you
+   * configure, not a page you visit, so "does this name exist" is the whole
+   * question.
+   */
+  const fromSource = new Set();
+
+  /* Our own hostnames in shipped source — see `OURS`. Added to the same map,
+     so a dead host is reported once with every file that carries it however
+     it got there. */
+  for (const file of shippedSource(ROOT))
+    for (const match of readFileSync(file, "utf8").matchAll(
+      /https:\/\/[A-Za-z0-9.-]+/gu,
+    )) {
+      const url = match[0];
+      if (!OURS.test(url)) continue;
+      const at = where.get(url) ?? [];
+      at.push(
+        file
+          .slice(ROOT.length + 1)
+          .split(sep)
+          .join("/"),
+      );
+      where.set(url, at);
+      fromSource.add(url);
+    }
+
+  /* What the MARKDOWN reader found, kept apart from the source scan because
+     the emptiness guard below is a claim about that reader specifically. */
+  const fromMarkdown = new Set();
+
   for (const file of files)
     for (const url of claimedLinks(readFileSync(file, "utf8"))) {
+      fromMarkdown.add(url);
       const at = where.get(url) ?? [];
       /* Forward slashes, on every platform. `join` gives `packages\\a\\README.md`
          on Windows, and every other path this project prints — git's output,
@@ -247,7 +348,12 @@ const main = async () => {
       where.set(url, at);
     }
 
-  if (where.size === 0) {
+  if (fromMarkdown.size === 0) {
+    /* Asked of the markdown reader ALONE, which is what the sentence says.
+       Counting the combined map would make this pass on a tree whose prose
+       extractor had broken, so long as some source file mentioned a host of
+       ours — an unreadable answer promoted to a positive one by an unrelated
+       scan standing next to it. */
     console.error(
       "no prose links found in any shipped markdown — the reader found nothing, which is not the same as nothing being wrong",
     );
@@ -257,7 +363,9 @@ const main = async () => {
   const dead = [];
   const unjudged = [];
   for (const [url, files_] of where) {
-    const { state, why } = await judge(url);
+    const { state, why } = fromSource.has(url)
+      ? await nameExists(url)
+      : await judge(url);
     if (state === "dead") dead.push({ url, why, files: files_ });
     else if (state === "unjudged") unjudged.push({ url, why });
   }

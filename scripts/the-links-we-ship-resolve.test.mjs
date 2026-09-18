@@ -313,3 +313,124 @@ describe("the refusals to pass nothing", () => {
     expect(out).toContain("found nothing");
   });
 });
+
+describe("our own hostnames in shipped source", () => {
+  /**
+   * A different surface from the markdown above, and the one Kevin was bitten
+   * by: `CloudLaneOptions.relayOrigin`'s doc comment named
+   * `relay.byollm.cloud`, which has no DNS record, and that comment ships in
+   * the published `.d.ts`. His team put it in every app's `.env.example`.
+   *
+   * These cases stage a `packages/` tree, because every case above stages a
+   * workspace WITHOUT one — so two mutations on this scan survived until this
+   * describe existed, which is the seam hiding the live path yet again.
+   */
+  const withSource = (files, world) => {
+    /* The markdown half needs a link of its own: the emptiness guard is a
+       claim about the prose reader, and a workspace with no prose links at
+       all is the "the reader found nothing" third state, not a pass. */
+    const { root, fixture } = stage(
+      {
+        "README.md": "see [the site](https://byo-llm.com)\n",
+        "CONTRIBUTING.md": "nothing here\n",
+      },
+      { "https://byo-llm.com": { status: 200 }, ...world },
+    );
+    for (const [path, body] of Object.entries(files)) {
+      const full = join(root, "packages", path);
+      mkdirSync(join(full, ".."), { recursive: true });
+      writeFileSync(full, body, "utf8");
+    }
+    return { root, fixture };
+  };
+
+  it("reports one of ours that does not resolve", () => {
+    const { code, out } = run(
+      withSource(
+        {
+          "server/src/cloud.ts": "/** e.g. `https://relay.byollm.cloud`. */\n",
+        },
+        { "https://relay.byollm.cloud": { dns: false } },
+      ),
+    );
+    expect(code).toBe(1);
+    expect(out).toContain("https://relay.byollm.cloud");
+    expect(out).toContain("server/src/cloud.ts");
+  });
+
+  it("does not call an API host dead for answering 404 at its root", () => {
+    /**
+     * The false alarm this nearly shipped with. `hub.byollm.cloud` has no
+     * index page — it answers `/readyz` and the endpoints a daemon calls, and
+     * `404` at `/` is correct. Judging source hosts by STATUS reported it
+     * dead in five files at once.
+     *
+     * A hostname in a type's example is something you configure, not a page
+     * you visit, so "does this name exist" is the whole question.
+     */
+    const { code, out } = run(
+      withSource(
+        { "server/src/cloud.ts": "// https://hub.byollm.cloud\n" },
+        { "https://hub.byollm.cloud": { status: 404 } },
+      ),
+    );
+    expect(code).toBe(0);
+    expect(out).not.toContain("DEAD");
+  });
+
+  it("ignores example hosts that are not ours", () => {
+    /* Source is full of URLs that must not resolve. The code-fence rule that
+       separates them in markdown has no equivalent here, so the narrowing to
+       our own domains is what makes this safe to run on source at all. */
+    const { code } = run(
+      withSource(
+        {
+          "server/src/x.ts":
+            "// https://your-app.com and https://your-relay.example\n",
+        },
+        {
+          "https://your-app.com": { dns: false },
+          "https://your-relay.example": { dns: false },
+        },
+      ),
+    );
+    expect(code).toBe(0);
+  });
+
+  it("does not let the source scan stand in for a broken prose reader", () => {
+    /**
+     * The emptiness guard says "the reader found nothing", and until this case
+     * existed it counted the source scan too — so a mutation restoring that
+     * spelling survived. A tree whose markdown extractor had broken would
+     * report a clean run on the strength of an unrelated scan finding hosts in
+     * `.ts` files. An unreadable answer is not a positive answer.
+     */
+    const { code, out } = run(
+      (() => {
+        const { root, fixture } = stage(
+          { "README.md": "no links at all\n", "CONTRIBUTING.md": "nor here\n" },
+          { "https://hub.byollm.cloud": { status: 200 } },
+        );
+        const full = join(root, "packages", "server", "src", "cloud.ts");
+        mkdirSync(join(full, ".."), { recursive: true });
+        writeFileSync(full, "// https://hub.byollm.cloud\n", "utf8");
+        return { root, fixture };
+      })(),
+    );
+    expect(code).toBe(2);
+    expect(out).toContain("the reader found nothing");
+  });
+
+  it("does not read built output or tests, which are copies", () => {
+    const { code } = run(
+      withSource(
+        {
+          "server/dist/index.d.ts": "// https://gone.byollm.cloud\n",
+          "server/src/a.test.ts": "// https://gone.byollm.cloud\n",
+        },
+        { "https://gone.byollm.cloud": { dns: false } },
+      ),
+    );
+    expect(code).toBe(0);
+  });
+});

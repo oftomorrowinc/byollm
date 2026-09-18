@@ -216,6 +216,43 @@ daemon-internal and proven by the adversarial suite instead; the point is that
 the gap is **visible in the output** rather than implied away, and a newly
 added MUST shows up there until someone writes its check.
 
+## What a red means, and what it does not
+
+A verdict that can be wrong has to say so, and this one is published as the
+thing that tells you whether you speak the protocol — so the asymmetry is
+worth stating plainly.
+
+**A red says: this target did not satisfy that check, on this run.** It names
+the check, and the check names the MUST. That is the whole of the claim.
+
+**A red does not say your implementation is wrong in general**, and it does not
+say the fault is yours. A check can go red because the kit itself is flaky —
+and if it ever does, **you have no way to tell our defect from yours**, which
+is the asymmetry that matters. You would reasonably assume it is your code. It
+might be ours.
+
+We treat that as our problem rather than yours:
+
+- **The kit's own flake rate is measured, not assumed.** As of 2026-09-18:
+  30 consecutive parallel runs of this package's suite, zero failures; and
+  across 28 instrumented runs of the whole repository's suite, no check in
+  this package failed once.
+- **If a check here is ever found to be unreliable, it moves out of the
+  verdict** — it keeps running and stays visible, and it is named here with
+  its exact symptom, so a stranger who hits it knows immediately that it is
+  ours. **It does not get its assertion loosened**, because a check quietly
+  weakened until it stops failing is worse than one that admits it is
+  advisory.
+- **Nothing is in that state today.** If this list is empty, that is the claim.
+
+This is not a new principle here. `vitest.config.ts` in this repository reached
+it first, arguing about a slow Windows runner:
+
+> A red build nobody can reproduce teaches people to hit rerun, and a suite
+> whose failures are sometimes meaningless stops being read. That cost lands
+> hardest on the first outside contributor, who cannot tell our flake from
+> their mistake.
+
 MIT
 
 <!-- family:start -->

@@ -5,7 +5,7 @@ import { spawn } from "node:child_process";
 import { afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { runCli, type CliIo } from "./cli.js";
 import { writeHealth } from "./health.js";
-import { writeHeartbeat } from "./heartbeat.js";
+import { beatWriterIsGone, writeHeartbeat } from "./heartbeat.js";
 import { Pairings } from "./pairings.js";
 import { daemonPaths, type DaemonPaths } from "./paths.js";
 import { noSupervisor, removeTemp } from "./test-support.js";
@@ -113,6 +113,12 @@ beforeAll(async () => {
  * used a pid nothing held — which is to say every "still running" case was
  * describing a dead daemon and asserting it read as alive.
  */
+/** A beat as a value, for the cases that ask the RULE rather than the surface. */
+const beat = (agoMs: number, pid: number = deadPid) => ({
+  at: Date.now() - agoMs,
+  pid,
+});
+
 const beatWritten = (agoMs: number, pid: number = deadPid) =>
   writeHeartbeat(paths.heartbeat, {
     at: Date.now() - agoMs,
@@ -309,19 +315,81 @@ describe("a daemon that has stopped writing", () => {
     expect(out).toContain("20 minutes old");
   });
 
-  it("does not demote on a pid that is merely unreachable", async () => {
+  it("does not demote on a pid that is merely unreachable", () => {
     /**
      * `kill(pid, 0)` throws `EPERM` for a process owned by somebody else — it
      * EXISTS. Reading that as death would call a healthy daemon dead whenever
      * `status` was run by a different user than the one running it, which is
      * the more expensive error.
      *
-     * pid 1 is the case everywhere this runs: it exists, and it is not ours.
+     * **The probe is handed in; the OS is not the fixture.** This case used to
+     * borrow **pid 1** — which exists and is unsignalable on POSIX and does
+     * not exist on Windows at all, so `windows-latest` got `ESRCH`, read it as
+     * death, and failed for a reason that had nothing to do with what is being
+     * asserted. The comment even said *"pid 1 is the case everywhere this
+     * runs"*, which was a platform claim nobody had checked on every platform.
+     *
+     * What this is about is the mapping from errno to verdict, so that is what
+     * it asks: `EPERM` means the process is there.
      */
-    await beatWritten(5_000, 1);
-    await status();
+    const unreachable = (): never => {
+      const error: NodeJS.ErrnoException = new Error("operation not permitted");
+      error.code = "EPERM";
+      throw error;
+    };
+    expect(
+      beatWriterIsGone(beat(5_000, 1), unreachable),
+      "EPERM says the process exists; only ESRCH is death",
+    ).toBe(false);
+  });
 
-    expect(out).not.toContain("state: NOT RUNNING");
+  it("does demote when the probe says there is no such process", () => {
+    /**
+     * The control on the case above, and the half that makes it mean
+     * anything: a rule that never returns `true` would satisfy "does not
+     * demote" perfectly.
+     */
+    const gone = (): never => {
+      const error: NodeJS.ErrnoException = new Error("no such process");
+      error.code = "ESRCH";
+      throw error;
+    };
+    expect(beatWriterIsGone(beat(5_000, 1), gone)).toBe(true);
+  });
+
+  it.runIf(process.platform !== "win32")(
+    "reads a REAL unreachable process as alive, end to end",
+    async () => {
+      /**
+       * The fidelity case, and it measures something the injected ones cannot:
+       * that a real `EPERM` from the real kernel reaches this code AS `EPERM`,
+       * through `status`, rather than being swallowed or renamed on the way.
+       *
+       * Gated to POSIX and saying so, the way the valkey suites gate on a live
+       * store. pid 1 exists and is unsignalable here; Windows has no
+       * equivalent that can be named without guessing, and the RULE is proven
+       * for every platform by the injected cases above. This is the extra, not
+       * the proof.
+       */
+      await beatWritten(5_000, 1);
+      await status();
+
+      expect(out).not.toContain("state: NOT RUNNING");
+    },
+  );
+
+  it("does not demote on an errno it does not recognise", () => {
+    /**
+     * Only `ESRCH` is death. An unfamiliar errno — a sandbox refusing the
+     * call, a platform inventing its own — must not be read as one, because
+     * the expensive direction is calling a live daemon dead.
+     */
+    const odd = (): never => {
+      const error: NodeJS.ErrnoException = new Error("something else");
+      error.code = "EINVAL";
+      throw error;
+    };
+    expect(beatWriterIsGone(beat(5_000, 1), odd)).toBe(false);
   });
 
   it("treats a pid that is not a process id as no evidence at all", async () => {

@@ -130,14 +130,38 @@ export async function readHeartbeat(
  * caller prints its evidence so a reader meeting that case can see the
  * reasoning rather than just the verdict.
  */
-export function beatWriterIsGone(beat: DaemonHeartbeat): boolean {
+export function beatWriterIsGone(
+  beat: DaemonHeartbeat,
+  /**
+   * The liveness probe, injected — B228, and the seam `tellSupervisor` already
+   * uses two files over.
+   *
+   * What this function decides is a mapping from **errno to verdict**:
+   * `ESRCH` is death, `EPERM` is a process that exists and is not ours. The
+   * process table is merely the cheapest way to produce those errnos, and it
+   * is a fixture that differs by platform — the test borrowed **pid 1**, which
+   * exists and is unsignalable on POSIX and does not exist on Windows, so
+   * `windows-latest` read the verdict as "gone" and the case failed for a
+   * reason that had nothing to do with the mapping.
+   *
+   * Handing the probe in takes the OS out of the assertion. A branch that can
+   * only be exercised by the platform it describes is a branch nobody checks.
+   *
+   * Wrapped rather than passed as `process.kill` directly: detaching a method
+   * from its object is the shape lint objects to, and a caller wants its own
+   * anyway.
+   */
+  kill: (pid: number, signal: number) => void = (pid, signal) => {
+    process.kill(pid, signal);
+  },
+): boolean {
   /* `process.kill(0, ...)` signals the whole process group and a negative pid
      signals a group too. Neither is a question about this daemon, and one of
      them is dangerous even with signal 0, so a pid that is not a plain process
      id is simply not evidence. */
   if (!Number.isInteger(beat.pid) || beat.pid <= 0) return false;
   try {
-    process.kill(beat.pid, 0);
+    kill(beat.pid, 0);
     return false;
   } catch (error) {
     return (error as NodeJS.ErrnoException).code === "ESRCH";

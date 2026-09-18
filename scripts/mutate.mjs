@@ -26,7 +26,27 @@
  *   node scripts/mutate.mjs <file> <find> <replace> -- <vitest args...>
  */
 import { readFileSync, writeFileSync } from "node:fs";
-import { spawn } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
+
+/**
+ * What git thinks of the tree, as a string to compare — B253b.
+ *
+ * Not a boolean: the tree is legitimately dirty while somebody is working, and
+ * refusing to mutate an unsaved feature would make this unusable. What must
+ * not change is the SET of dirty files between before and after.
+ */
+const treeState = () => {
+  try {
+    return execFileSync("git", ["status", "--porcelain"], { encoding: "utf8" });
+  } catch {
+    /* Not a checkout, or git is unavailable. Say so rather than silently
+       dropping the guarantee — a check that cannot check must not report the
+       same thing as one that did. */
+    return null;
+  }
+};
+
+const before = treeState();
 
 const argv = process.argv.slice(2);
 const split = argv.indexOf("--");
@@ -81,6 +101,39 @@ try {
 } finally {
   writeFileSync(file, original);
   console.log(`restored ${file}`);
+}
+
+/**
+ * The tree is as it was, or this result is not a result — B253b, CW's ruling.
+ *
+ * My own harness left a mutation in a tree this morning: it patched three
+ * files and restored two, and the only reason it was caught is that the next
+ * run failed. **Had that mutation passed, it would have shipped.** Worse, the
+ * run that leaves a mutation behind also reports on a tree nobody chose — so
+ * the number it prints is about neither the code nor the mutation.
+ *
+ * Compared as a set of paths rather than as clean-or-dirty, because working
+ * on a dirty tree is the normal case and refusing it would make this
+ * unusable — which is how a guard gets removed.
+ */
+const after = treeState();
+if (before !== null && after !== null && before !== after) {
+  const changed = after
+    .split("\n")
+    .filter((line) => line !== "" && !before.includes(line));
+  console.error(
+    "refusing to report: the working tree changed across this run.\n" +
+      changed.map((line) => `  ${line}`).join("\n") +
+      "\n\n  A mutation result produced against a tree that still carries a\n" +
+      "  mutation is not a result. Restore those files and run it again.",
+  );
+  process.exit(1);
+}
+if (before === null || after === null) {
+  console.error(
+    "warning: could not read `git status`, so this run cannot promise it left\n" +
+      "the tree as it found it. The result below is about the mutation only.",
+  );
 }
 
 /** The count, not the verdict — "nothing failed" and "nothing ran" agree. */

@@ -95,10 +95,11 @@ const ask = (what, run) => {
   }
 };
 
-const node = (script, args = [], cwd = scratch) =>
+const node = (script, args = [], cwd = scratch, env = {}) =>
   execFileSync(process.execPath, [join(scratch, "scripts", script), ...args], {
     cwd,
     encoding: "utf8",
+    env: { ...process.env, ...env },
   });
 
 /* The bump first, because every gate after it is asked of the bumped tree —
@@ -182,7 +183,14 @@ ask("5. the two repositories that pin this one name the version", () =>
 );
 
 ask("6. the docs stop saying alpha", () =>
-  node("alpha-claims-match-the-version.mjs"),
+  /* Numbered against the REAL tree — B253a. The gate runs on the bumped copy,
+     where eight banner lines are gone, so every number below one was off by
+     one against the file Todd actually opens and all three README targets
+     landed on a blank line. A list that says "go and edit exactly these" has
+     to address the file the reader has open. */
+  node("alpha-claims-match-the-version.mjs", [], scratch, {
+    ALPHA_CLAIMS_NUMBER_FROM: ROOT,
+  }),
 );
 
 /* Refusal 4 is about the tree you tag, which is the real one at the moment you

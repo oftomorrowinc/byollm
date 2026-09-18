@@ -197,6 +197,85 @@ describe("at a clean version", () => {
   });
 });
 
+describe("the line numbers a reader will open — B253a", () => {
+  /**
+   * The rehearsal runs this gate against a BUMPED copy, and the bump deletes
+   * eight banner lines. So every number below one was off by one against the
+   * file a person actually has open, and all three README targets landed on a
+   * blank line. The offset is one today and grows with every banner removed
+   * above a survivor.
+   *
+   * `ALPHA_CLAIMS_NUMBER_FROM` names the tree whose numbers a reader will see.
+   * Matched by line CONTENT rather than by arithmetic: an offset would have to
+   * model what the bump does, and the two would drift the first time the bump
+   * learned a new rule.
+   */
+  const withReference = (root, reference) => {
+    const options = {
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        ALPHA_CLAIMS_ROOT: root,
+        ALPHA_CLAIMS_NUMBER_FROM: reference,
+      },
+    };
+    try {
+      return {
+        code: 0,
+        out: execFileSync(process.execPath, [SCRIPT], options),
+      };
+    } catch (error) {
+      return {
+        code: error.status ?? -1,
+        out: `${error.stdout ?? ""}${error.stderr ?? ""}`,
+      };
+    }
+  };
+
+  it("reports the number in the reference, not in the tree it read", () => {
+    /* The bumped copy has the banner removed; the reference still has it, so
+       the claim sits one line lower there. */
+    const bumped = tree("0.1.0", {
+      "README.md": "# byollm\n\nRun `npm install @byollm/protocol@alpha`.\n",
+    });
+    const reference = tree("0.1.0-alpha.102", {
+      "README.md":
+        "> **Alpha (`0.1.0-alpha.102`) — under active development.**\n\n" +
+        "# byollm\n\nRun `npm install @byollm/protocol@alpha`.\n",
+    });
+    const { code, out } = withReference(bumped, reference);
+    expect(code).toBe(1);
+    expect(out).toContain("README.md:5");
+    expect(out).not.toContain("README.md:3 ");
+  });
+
+  it("says so when the line cannot be found in the reference", () => {
+    /* The bump rewrites the site's banner rather than deleting it, so its text
+       differs between the trees. Marking it beats guessing: a number presented
+       without a caveat is a number somebody trusts. */
+    const bumped = tree("0.1.0", {
+      "site/index.html": "<b>Alpha (0.1.0) — active</b>\n",
+    });
+    const reference = tree("0.1.0-alpha.102", {
+      "site/index.html": "<b>Alpha (0.1.0-alpha.102) — active</b>\n",
+    });
+    const { code, out } = withReference(bumped, reference);
+    expect(code).toBe(1);
+    expect(out).toContain("(post-bump)");
+  });
+
+  it("is unchanged when no reference is given", () => {
+    /* The gate is run directly by `verify` and by `tag.sh`, where the tree it
+       reads IS the tree a reader opens. */
+    const root = tree("0.1.0", {
+      "README.md": "# byollm\n\nRun `npm install @byollm/protocol@alpha`.\n",
+    });
+    const { out } = run(root);
+    expect(out).toContain("README.md:3");
+    expect(out).not.toContain("post-bump");
+  });
+});
+
 describe("at a prerelease", () => {
   it("passes the real repository as it stands", () => {
     const { code, out } = run(REPO);

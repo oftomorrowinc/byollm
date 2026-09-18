@@ -53,6 +53,19 @@
  * `ALPHA_CLAIMS_ROOT` moves where it reads, for the fixtures in
  * `alpha-claims-match-the-version.test.mjs`. It changes where it looks, never
  * what it asks.
+ *
+ * `ALPHA_CLAIMS_NUMBER_FROM` names a second tree whose files supply the LINE
+ * NUMBERS — B253a. `rehearse-the-cut.mjs` runs this against a bumped copy, and
+ * the bump deletes eight banner lines, so every number below them was off by
+ * one against the file a person actually has open. All three README targets
+ * landed on a blank line, and the offset grows with every banner removed above
+ * a survivor.
+ *
+ * A list whose whole purpose is *go and edit exactly these* has to address the
+ * file the reader opens. Matched by line CONTENT rather than by arithmetic: an
+ * offset would have to model what the bump does, and the two would drift the
+ * first time the bump learned a new rule. A line that cannot be found in the
+ * reference says so instead of guessing.
  */
 
 import { readFileSync, readdirSync, existsSync, realpathSync } from "node:fs";
@@ -153,6 +166,24 @@ const main = () => {
     return 2;
   }
 
+  /* The tree whose line numbers a reader will see — B253a. */
+  const numberFrom = process.env["ALPHA_CLAIMS_NUMBER_FROM"];
+  const renumber = (path, hits) => {
+    if (numberFrom === undefined) return hits;
+    const reference = join(resolve(numberFrom), relative(root, path));
+    if (!existsSync(reference)) return hits;
+    const lines = readFileSync(reference, "utf8").split("\n");
+    return hits.map((hit) => {
+      const at = lines.findIndex((line) => line.trim() === hit.text);
+      /* Not found: the bump changed this very line, or the reference is not
+         the tree this came from. Either way the honest answer is the number
+         we have and a mark saying it is not the reader's. */
+      return at === -1
+        ? { ...hit, line: hit.line, post: true }
+        : { ...hit, line: at + 1 };
+    });
+  };
+
   const files = documents(root);
   /* A walk that matched nothing satisfies "no document claims alpha", which is
      the shape this repository has shipped before. */
@@ -162,14 +193,14 @@ const main = () => {
   }
 
   const found = files.flatMap((path) =>
-    liveClaims(readFileSync(path, "utf8")).map((hit) => ({
+    renumber(path, liveClaims(readFileSync(path, "utf8"))).map((hit) => ({
       ...hit,
       file: relative(root, path),
     })),
   );
   const prerelease = version.includes("-");
   const show = (hit) =>
-    `  ${hit.file}:${String(hit.line)}  ${hit.text.slice(0, 96)}`;
+    `  ${hit.file}:${String(hit.line)}${hit.post === true ? " (post-bump)" : ""}  ${hit.text.slice(0, 96)}`;
 
   if (prerelease) {
     if (found.length === 0) {

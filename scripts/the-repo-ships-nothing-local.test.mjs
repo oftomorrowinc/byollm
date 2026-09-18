@@ -120,26 +120,44 @@ describe("local tooling state", () => {
      * commits of history — was run by hand on 2026-09-18 and found nothing but
      * deliberate fixtures (`sk-ant-nope`, `sk-should-not-appear`).
      *
-     * **This used to say GitHub's own secret scanning and push protection were
-     * the durable answer once the repository is public. They are not on.**
-     * Asked rather than assumed, with an admin token so the fields are really
-     * visible:
+     * ## The dependency this used to rest on, and what verifying it found
      *
-     *     repos/oftomorrowinc/byollm → visibility: "public"
-     *       secret_scanning:                 disabled
-     *       secret_scanning_push_protection: disabled
+     * This said GitHub's own secret scanning and push protection were the
+     * durable answer once the repository is public — a justification pointing
+     * at **somebody else's control**, which CW's law of 2026-09-19 says is a
+     * claim about a system we do not own: it must name the control, and the
+     * control must be verified once, by looking rather than by assuming it is
+     * the default.
+     *
+     * Verified **2026-09-18, by `gh api repos/oftomorrowinc/byollm --jq
+     * .security_and_analysis`, with a token holding `permissions.admin: true`**
+     * — deliberately admin, because that block is *absent* from a non-admin
+     * response and "your scanning is off" when one merely cannot see it would
+     * be the worst kind of false alarm. CW re-read it unauthenticated and got
+     * exactly that absence, which corroborates the method without confirming
+     * the values.
+     *
+     *     visibility: "public"
+     *       secret_scanning:                       disabled
+     *       secret_scanning_push_protection:       disabled
      *       secret_scanning_non_provider_patterns: disabled
      *
-     * So the repository is public with none of it enabled, and the sentence
-     * described a control nobody had turned on — a plan, not a protection.
-     * Turning it on is Todd's (it changes what happens to a contributor's
-     * push, which is his call, not ours); reported in inbox 2026-09-18-1455.
+     * **Public, with none of it enabled.** The sentence was never true — not
+     * decayed, never true — and it is the file that made the decision. Turning
+     * it on is Todd's, because push protection changes what happens to a
+     * contributor's push; reported inbox 2026-09-18-1455, CW concurring 0700.
      *
-     * Until then `scripts/no-secrets-in-the-tree.mjs` is **the only
-     * content-level check there is**, which is also why it is not redundant
-     * with this one: that reads CONTENT across the tracked tree, this reads
-     * NAMES. If push protection is enabled later, this paragraph is what tells
-     * the next reader the overlap was deliberate rather than accidental.
+     * ## The two halves, so neither is tidied away
+     *
+     * This reads tracked **names**. `scripts/no-secrets-in-the-tree.mjs` reads
+     * tracked **content**. Neither subsumes the other.
+     *
+     * **If the GitHub controls are switched on, the content check becomes the
+     * LOCAL half rather than a redundant one** — it runs in `verify` and in CI
+     * before a push exists, where push protection runs at the push and only
+     * for provider patterns. Until then it is the only content-level check in
+     * front of a public repository, which was a lucky consequence of a sound
+     * judgement rather than a plan.
      *
      * What belongs here is the cheap, fast half: a file whose NAME says it
      * holds a key should never be tracked, because that one is an accident

@@ -59,6 +59,23 @@ const run = ({ root, fixture }) => {
   }
 };
 
+/**
+ * These cases shadow a real binary by writing a shell script onto `PATH`, and
+ * that is a Unix-shaped trick.
+ *
+ * On Windows an extensionless shell script is not executable, and the obvious
+ * fix — a `.cmd` launcher — cannot be spawned by `execFileSync` without
+ * `shell: true`, which `byollm_004 §2` bans outright and which this script
+ * therefore does not use.
+ *
+ * So the HARNESS is platform-bound, not the property. It runs on Linux and
+ * macOS, which is two of the three platforms CI runs, and the alternative was
+ * a shim fighting Node's own restriction in the file whose subject is a
+ * release. Named rather than silently skipped: a suite that quietly asserts
+ * less on one platform is how `byollm_010 §2` gets broken.
+ */
+const shadowable = process.platform !== "win32";
+
 const four = { "@x/a": {}, "@x/b": {}, "@x/c": {}, "@x/d": {} };
 const allPublished = {
   "@x/a": { versions: ["1.0.0"] },
@@ -172,71 +189,74 @@ describe("the refusal to pass nothing", () => {
   });
 });
 
-describe("the live registry path, which the fixture seam skips entirely", () => {
-  /**
-   * A mutation found this untested: deleting the `E404` branch — the line
-   * that turns npm's "no such package" into the answer *never published* —
-   * failed nothing, because every case above replaces the npm calls.
-   *
-   * That branch is what makes the real run correct, so it is exercised
-   * against a fake `npm` on `PATH` rather than against the network. The fake
-   * is deliberately dumb: it answers one name the way npm answers a name it
-   * has never served, and the others with a version list.
-   */
-  const withFakeNpm = (root, script) => {
-    const bin = join(root, "bin");
-    mkdirSync(bin, { recursive: true });
-    writeFileSync(join(bin, "npm"), script, "utf8");
-    chmodSync(join(bin, "npm"), 0o755);
-    try {
-      return {
-        code: 0,
-        out: execFileSync(process.execPath, [SCRIPT], {
-          encoding: "utf8",
-          env: {
-            ...process.env,
-            FIRST_PUBLISH_ROOT: root,
-            PATH: `${bin}:${process.env["PATH"] ?? ""}`,
-          },
-          timeout: 60_000,
-        }),
-      };
-    } catch (error) {
-      return {
-        code: error.status ?? -1,
-        out: `${error.stdout ?? ""}${error.stderr ?? ""}`,
-      };
-    }
-  };
+describe.runIf(shadowable)(
+  "the live registry path, which the fixture seam skips entirely",
+  () => {
+    /**
+     * A mutation found this untested: deleting the `E404` branch — the line
+     * that turns npm's "no such package" into the answer *never published* —
+     * failed nothing, because every case above replaces the npm calls.
+     *
+     * That branch is what makes the real run correct, so it is exercised
+     * against a fake `npm` on `PATH` rather than against the network. The fake
+     * is deliberately dumb: it answers one name the way npm answers a name it
+     * has never served, and the others with a version list.
+     */
+    const withFakeNpm = (root, script) => {
+      const bin = join(root, "bin");
+      mkdirSync(bin, { recursive: true });
+      writeFileSync(join(bin, "npm"), script, "utf8");
+      chmodSync(join(bin, "npm"), 0o755);
+      try {
+        return {
+          code: 0,
+          out: execFileSync(process.execPath, [SCRIPT], {
+            encoding: "utf8",
+            env: {
+              ...process.env,
+              FIRST_PUBLISH_ROOT: root,
+              PATH: `${bin}:${process.env["PATH"] ?? ""}`,
+            },
+            timeout: 60_000,
+          }),
+        };
+      } catch (error) {
+        return {
+          code: error.status ?? -1,
+          out: `${error.stdout ?? ""}${error.stderr ?? ""}`,
+        };
+      }
+    };
 
-  it("reads npm's E404 as an answer: the name has never been served", () => {
-    const { root } = stage(four, {});
-    const { code, out } = withFakeNpm(
-      root,
-      `#!/usr/bin/env bash\n` +
-        `for a in "$@"; do if [ "$a" = "@x/d" ]; then\n` +
-        `  echo "npm error code E404" >&2\n` +
-        `  echo "npm error 404 Not Found - GET https://registry.npmjs.org/@x%2fd" >&2\n` +
-        `  exit 1\n` +
-        `fi; done\n` +
-        `echo '["1.0.0"]'\n`,
-    );
-    expect(code).toBe(1);
-    expect(out).toContain("FIRST time");
-    expect(out).toContain("@x/d");
-  });
+    it("reads npm's E404 as an answer: the name has never been served", () => {
+      const { root } = stage(four, {});
+      const { code, out } = withFakeNpm(
+        root,
+        `#!/usr/bin/env bash\n` +
+          `for a in "$@"; do if [ "$a" = "@x/d" ]; then\n` +
+          `  echo "npm error code E404" >&2\n` +
+          `  echo "npm error 404 Not Found - GET https://registry.npmjs.org/@x%2fd" >&2\n` +
+          `  exit 1\n` +
+          `fi; done\n` +
+          `echo '["1.0.0"]'\n`,
+      );
+      expect(code).toBe(1);
+      expect(out).toContain("FIRST time");
+      expect(out).toContain("@x/d");
+    });
 
-  it("does not read any other npm failure as an answer", () => {
-    /* A timeout, a proxy, an auth failure. Same non-zero exit, and the
+    it("does not read any other npm failure as an answer", () => {
+      /* A timeout, a proxy, an auth failure. Same non-zero exit, and the
        opposite meaning — this is the distinction the E404 branch exists to
        make, and reading it the other way announces a first publish that is
        not happening. */
-    const { root } = stage(four, {});
-    const { code, out } = withFakeNpm(
-      root,
-      `#!/usr/bin/env bash\necho "npm error network request to https://registry.npmjs.org failed" >&2\nexit 1\n`,
-    );
-    expect(code).toBe(2);
-    expect(out).toContain("could not ask");
-  });
-});
+      const { root } = stage(four, {});
+      const { code, out } = withFakeNpm(
+        root,
+        `#!/usr/bin/env bash\necho "npm error network request to https://registry.npmjs.org failed" >&2\nexit 1\n`,
+      );
+      expect(code).toBe(2);
+      expect(out).toContain("could not ask");
+    });
+  },
+);

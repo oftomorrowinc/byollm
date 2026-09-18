@@ -44,7 +44,7 @@
 
 import { resolve4, resolve6, resolveCname } from "node:dns/promises";
 import { existsSync, readFileSync, readdirSync, realpathSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { dirname, join, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -230,7 +230,18 @@ const main = async () => {
   for (const file of files)
     for (const url of claimedLinks(readFileSync(file, "utf8"))) {
       const at = where.get(url) ?? [];
-      at.push(file.slice(ROOT.length + 1));
+      /* Forward slashes, on every platform. `join` gives `packages\\a\\README.md`
+         on Windows, and every other path this project prints — git's output,
+         a GitHub link, the READMEs themselves — uses `/`. A report somebody
+         pastes into a search box should match what they will find. Caught by
+         CI on windows-latest, which is the whole argument for the commit
+         before this one. */
+      at.push(
+        file
+          .slice(ROOT.length + 1)
+          .split(sep)
+          .join("/"),
+      );
       where.set(url, at);
     }
 

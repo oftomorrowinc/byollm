@@ -108,6 +108,23 @@ const run = ({ root, bin }) => {
   }
 };
 
+/**
+ * These cases shadow a real binary by writing a shell script onto `PATH`, and
+ * that is a Unix-shaped trick.
+ *
+ * On Windows an extensionless shell script is not executable, and the obvious
+ * fix — a `.cmd` launcher — cannot be spawned by `execFileSync` without
+ * `shell: true`, which `byollm_004 §2` bans outright and which this script
+ * therefore does not use.
+ *
+ * So the HARNESS is platform-bound, not the property. It runs on Linux and
+ * macOS, which is two of the three platforms CI runs, and the alternative was
+ * a shim fighting Node's own restriction in the file whose subject is a
+ * release. Named rather than silently skipped: a suite that quietly asserts
+ * less on one platform is how `byollm_010 §2` gets broken.
+ */
+const shadowable = process.platform !== "win32";
+
 const three = (extra = {}) => ({
   "@x/one": { LICENSE: MIT, "README.md": "one" },
   "@x/two": { LICENSE: MIT, "README.md": "two" },
@@ -115,26 +132,31 @@ const three = (extra = {}) => ({
   ...extra,
 });
 
-describe("a package that would publish a claim with no grant", () => {
-  it("is named, and the check fails", () => {
-    const { code, out } = run(
-      workspace(three({ "@x/four": { "README.md": "no licence here" } })),
-    );
-    expect(code).toBe(1);
-    expect(out).toContain("NO LICENSE");
-    expect(out).toContain("@x/four");
-  });
+describe.runIf(shadowable)(
+  "a package that would publish a claim with no grant",
+  () => {
+    it("is named, and the check fails", () => {
+      const { code, out } = run(
+        workspace(three({ "@x/four": { "README.md": "no licence here" } })),
+      );
+      expect(code).toBe(1);
+      expect(out).toContain("NO LICENSE");
+      expect(out).toContain("@x/four");
+    });
 
-  it("is caught even when every other package is fine", () => {
-    /* The direction that matters: one silent package among six correct ones
+    it("is caught even when every other package is fine", () => {
+      /* The direction that matters: one silent package among six correct ones
        is exactly how this would really happen. */
-    const { out } = run(workspace(three({ "@x/four": { "README.md": "x" } })));
-    expect(out).toContain("ships MIT   @x/one");
-    expect(out).toContain("NO LICENSE  @x/four");
-  });
-});
+      const { out } = run(
+        workspace(three({ "@x/four": { "README.md": "x" } })),
+      );
+      expect(out).toContain("ships MIT   @x/one");
+      expect(out).toContain("NO LICENSE  @x/four");
+    });
+  },
+);
 
-describe("a package that ships a DIFFERENT licence", () => {
+describe.runIf(shadowable)("a package that ships a DIFFERENT licence", () => {
   it("is refused, because presence is not agreement", () => {
     /**
      * The half a "does the file exist" check cannot make. A package that grew
@@ -154,7 +176,7 @@ describe("a package that ships a DIFFERENT licence", () => {
   });
 });
 
-describe("the refusals to pass nothing", () => {
+describe.runIf(shadowable)("the refusals to pass nothing", () => {
   it("refuses a workspace with no root LICENSE", () => {
     const { code, out } = run(workspace(three(), { license: null }));
     expect(code).toBe(1);
@@ -170,7 +192,7 @@ describe("the refusals to pass nothing", () => {
   });
 });
 
-describe("what it correctly lets through", () => {
+describe.runIf(shadowable)("what it correctly lets through", () => {
   it("passes when every package carries the root licence", () => {
     const { code, out } = run(workspace(three()));
     expect(code).toBe(0);
@@ -213,5 +235,40 @@ describe("what it correctly lets through", () => {
     const { code, out } = run(w);
     expect(code).toBe(0);
     expect(out).not.toContain("@x/secret");
+  });
+});
+
+describe("the real workspace, on every platform", () => {
+  /**
+   * Every case above shadows `pnpm` on `PATH`, which cannot be done on
+   * Windows — so without this the file would contribute **zero assertions**
+   * on one of the three platforms CI runs, silently. A suite that quietly
+   * asserts less somewhere is the shape `byollm_010 §2` exists to prevent.
+   *
+   * So one case runs the real script against the real repository with the
+   * real `pnpm`, everywhere. It proves less than the staged ones — it cannot
+   * make a package fail — but it is the half that is true on the platform the
+   * others cannot reach, and it would catch `pnpm pack` changing its LICENSE
+   * behaviour under us, which is the whole reason the gate exists.
+   */
+  it("passes, and packs every publishable package to say so", () => {
+    const { code, out } = (() => {
+      try {
+        return {
+          code: 0,
+          out: execFileSync(process.execPath, [SCRIPT], {
+            encoding: "utf8",
+            timeout: 120_000,
+          }),
+        };
+      } catch (error) {
+        return {
+          code: error.status ?? -1,
+          out: `${error.stdout ?? ""}${error.stderr ?? ""}`,
+        };
+      }
+    })();
+    expect(code, out).toBe(0);
+    expect(out).toMatch(/All \d+ publishable packages carry the root LICENSE/u);
   });
 });

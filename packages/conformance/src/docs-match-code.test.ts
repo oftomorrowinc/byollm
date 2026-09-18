@@ -109,3 +109,71 @@ describe("the conformance README counts what ships", () => {
     expect(Number(quoted)).toBe(CHECKS.length);
   });
 });
+
+describe("the schema lock counts what ships too — B297", () => {
+  /**
+   * The check above pins the conformance README's `N checks passed`, on the
+   * stated reasoning that *"a number in a README is a promise about scope"*.
+   *
+   * **`docs/schema-lock.md` makes the same promise and nothing was watching
+   * it** — twice over, as a count and as an id range:
+   *
+   * > The proof is the 32 checks in `@byollm/conformance` (`C001`–`C032`). An
+   * > implementation that passes them speaks this protocol; one that does not,
+   * > does not.
+   *
+   * That sentence is load-bearing rather than decorative: the paragraph it
+   * opens says a change to a locked surface must break at least one of those
+   * checks. It is also the document the protocol README links to, so it is on
+   * the path a stranger walks from an npm page.
+   *
+   * Both claims are true today — 32 checks, numeric ids 1 to 32 with no gaps —
+   * which is why this is a guard rather than a fix. It is the third surface of
+   * one subject: the same defect the README count was pinned against, one
+   * document over, found by asking which shipped documents carry a number that
+   * the code decides.
+   */
+  const lock = read("../../../docs/schema-lock.md");
+
+  it("quotes the number of checks the kit actually has", () => {
+    const quoted = /(\d+) checks in `@byollm\/conformance`/u.exec(lock)?.[1];
+    expect(
+      quoted,
+      "no `N checks in @byollm/conformance` in the lock",
+    ).toBeDefined();
+    expect(Number(quoted)).toBe(CHECKS.length);
+  });
+
+  it("quotes an id range that spans the checks that exist", () => {
+    /**
+     * Derived from the ids rather than from the count, because the two can
+     * disagree: a kit of 32 checks numbered to C034 with two retired would
+     * satisfy the count and mislead anybody looking for `C033`.
+     */
+    const range = /`C(\d+)`[–-]`C(\d+)`/u.exec(lock);
+    expect(range, "no `C001`–`CNNN` range in the lock").not.toBeNull();
+    const numbers = CHECKS.map((check) =>
+      Number(/^C(\d+)/u.exec(check.id)?.[1]),
+    ).filter((n) => Number.isFinite(n));
+    expect(numbers.length, "check ids stopped being C-numbered").toBe(
+      CHECKS.length,
+    );
+    expect(Number(range?.[1])).toBe(Math.min(...numbers));
+    expect(Number(range?.[2])).toBe(Math.max(...numbers));
+  });
+
+  it("is reading the lock and not a stand-in for it", () => {
+    /**
+     * A mutation replaced the file read with a string carrying the two
+     * numbers and four hundred characters of padding, and every case above
+     * passed — a differ pointed at a copy of its own expectations.
+     *
+     * Length alone was the weak floor. The document is asked for the sentence
+     * the numbers are FOR, so a stand-in has to carry the claim it is standing
+     * in for, at which point it is the document.
+     */
+    expect(lock.length).toBeGreaterThan(400);
+    expect(lock).toContain("locked surface");
+    expect(lock).toContain("# What 0.1.0 locks, and what it does not");
+  });
+});

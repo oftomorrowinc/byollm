@@ -104,11 +104,39 @@ const main = () => {
   let bad = 0;
   try {
     for (const { manifest } of packages) {
-      execFileSync(
-        "pnpm",
-        ["--filter", manifest.name, "pack", "--pack-destination", out],
-        { cwd: ROOT, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] },
-      );
+      try {
+        execFileSync(
+          "pnpm",
+          ["--filter", manifest.name, "pack", "--pack-destination", out],
+          { cwd: ROOT, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] },
+        );
+      } catch (error) {
+        /**
+         * Could not pack — which is not an answer about the licence.
+         *
+         * On Windows `pnpm` is `pnpm.cmd`, and Node refuses to spawn a `.cmd`
+         * from `execFileSync` without `shell: true` — which `byollm_004 §2`
+         * bans outright. So this gate cannot run there at all, and before
+         * this branch it did not say so: it threw `spawnSync pnpm ENOENT` and
+         * a stack trace, which is a gate crashing rather than reporting.
+         *
+         * Exit 2 is "I could not ask", the same third state the registry
+         * checks use. An unreachable tool is not a package shipping no
+         * licence, and reporting it as one would be the false alarm that gets
+         * a gate deleted.
+         */
+        if (String(/** @type {{code?: string}} */ (error).code) === "ENOENT") {
+          console.error(
+            "cannot pack: `pnpm` could not be spawned here.\n" +
+              "  On Windows it is `pnpm.cmd`, which execFileSync will not run " +
+              "without a shell,\n  and byollm_004 §2 bans shell-invoking APIs. " +
+              "This gate runs on POSIX; CI\n  asks it on ubuntu.\n\n" +
+              "  Not an answer about any package's licence.",
+          );
+          return 2;
+        }
+        throw error;
+      }
       const tarball = readdirSync(out)
         .filter((name) => name.endsWith(".tgz"))
         .map((name) => join(out, name))

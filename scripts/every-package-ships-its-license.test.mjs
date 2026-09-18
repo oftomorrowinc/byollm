@@ -268,7 +268,60 @@ describe("the real workspace, on every platform", () => {
         };
       }
     })();
+    /**
+     * Two correct outcomes, and a crash is neither.
+     *
+     * On POSIX it packs and passes. On Windows `pnpm` is `pnpm.cmd`, which
+     * `execFileSync` will not spawn without a shell that `byollm_004 §2`
+     * bans — so the honest answer there is "I could not ask", exit 2. Before
+     * this case existed the script threw `spawnSync pnpm ENOENT` and a stack
+     * trace instead, which is a gate crashing rather than reporting, and
+     * nothing would ever have said so.
+     */
+    if (code === 2) {
+      expect(out, "exit 2 must SAY it could not ask").toMatch(/cannot pack/u);
+      expect(out).toMatch(/[Nn]ot an answer/u);
+      return;
+    }
     expect(code, out).toBe(0);
     expect(out).toMatch(/All \d+ publishable packages carry the root LICENSE/u);
+  });
+});
+
+describe("when the packer is not there at all", () => {
+  /**
+   * A mutation found this unreachable locally: the `ENOENT` branch only runs
+   * where `pnpm` cannot be spawned, and on this machine it can. So the branch
+   * that makes the gate honest on Windows had no case at all — the same
+   * seam-hides-the-live-path gap that the registry scripts had, arriving
+   * through the platform instead of through a fixture.
+   *
+   * Reproduced by taking `pnpm` away rather than by pretending to be Windows:
+   * an empty `PATH` is the same condition the `.cmd` restriction produces,
+   * and it is the condition the branch actually tests for.
+   */
+  it.runIf(shadowable)("says it could not ask, rather than crashing", () => {
+    const { code, out } = (() => {
+      try {
+        return {
+          code: 0,
+          out: execFileSync(process.execPath, [SCRIPT], {
+            encoding: "utf8",
+            env: { ...process.env, PATH: "/nonexistent-for-this-case" },
+            timeout: 60_000,
+          }),
+        };
+      } catch (error) {
+        return {
+          code: error.status ?? -1,
+          out: `${error.stdout ?? ""}${error.stderr ?? ""}`,
+        };
+      }
+    })();
+    expect(code, out).toBe(2);
+    expect(out).toMatch(/cannot pack/u);
+    /* And it must not read as a verdict on anybody's licence. */
+    expect(out).toMatch(/[Nn]ot an answer/u);
+    expect(out).not.toMatch(/NO LICENSE|DIFFERENT/u);
   });
 });

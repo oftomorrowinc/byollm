@@ -440,3 +440,40 @@ describe("the live-versus-history rule, on text the repository does not contain"
     expect(run(root).code).toBe(0);
   });
 });
+
+describe("the paths it hands a person during a cut", () => {
+  /**
+   * Forward slashes, on every platform.
+   *
+   * This list is the one somebody opens files from **while cutting a
+   * release**, and on windows-latest it read `packages\server\README.md` —
+   * which is not what git prints, not what a GitHub link uses, and not what
+   * the READMEs themselves contain. CI caught it: three cases in this file
+   * were asserting `packages/server/README.md` and failing on one platform
+   * only.
+   *
+   * **Locally this case cannot fail**, because `sep` is already `/` here — a
+   * mutation removing the normalisation survives on macOS and dies on
+   * Windows. It is written anyway, as an invariant about the OUTPUT rather
+   * than about the platform, so the requirement has a name instead of living
+   * in whichever CI job happens to notice.
+   */
+  it("never reports a backslash-separated path", () => {
+    const root = tree("0.1.0", {
+      "packages/server/README.md": "# server\n\n`@byollm/server@alpha`\n",
+      "site/index.html": '<meta content="Alpha software">\n',
+    });
+    const { out } = run(root);
+    const paths = [...out.matchAll(/^\s{2}(\S+):\d+/gmu)].map(
+      (match) => match[1] ?? "",
+    );
+    expect(
+      paths.length,
+      "no file:line rows were read — the report's shape moved",
+    ).toBeGreaterThan(0);
+    expect(
+      paths.filter((path) => path.includes("\\")),
+      "a path in the hand-edit list uses the platform separator; the reader's git, GitHub and READMEs all use /",
+    ).toEqual([]);
+  });
+});

@@ -69,7 +69,7 @@
  */
 
 import { readFileSync, readdirSync, existsSync, realpathSync } from "node:fs";
-import { dirname, join, relative, resolve } from "node:path";
+import { dirname, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -221,7 +221,13 @@ const main = () => {
   const found = files.flatMap((path) =>
     renumber(path, liveClaims(readFileSync(path, "utf8"))).map((hit) => ({
       ...hit,
-      file: relative(root, path),
+      /* Forward slashes on every platform. `relative` gives
+         `packages\\server\\README.md` on Windows, and this list is the one a
+         person opens files from during a cut — every other path they will
+         see, in git and on GitHub, uses `/`. Same fix as
+         `the-links-we-ship-resolve.mjs` needed an hour earlier; the principle
+         was swept rather than the instance. */
+      file: relative(root, path).split(sep).join("/"),
     })),
   );
   const prerelease = version.includes("-");

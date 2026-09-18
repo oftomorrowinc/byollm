@@ -76,6 +76,38 @@ describe("how to report a vulnerability", () => {
     expect(contributing).not.toContain("support@byollm.cloud");
   });
 
+  it("is pointed at from CODE_OF_CONDUCT.md, not explained there", () => {
+    /**
+     * The fourth door — B270.
+     *
+     * GitHub surfaces a code of conduct from the community profile and from
+     * the new-issue screen, and this one carries a reporting address of its
+     * own. Two addresses in one paragraph is where somebody with a
+     * vulnerability decides that the conduct inbox will do — so the file has
+     * to send them somewhere else, by a route rather than a mention.
+     *
+     * The same law CW caught me breaking eight lines above: `toContain
+     * ("SECURITY.md")` is satisfied by prose about the file, and prose is not
+     * a route.
+     */
+    const conduct = read("CODE_OF_CONDUCT.md");
+    expect(
+      conduct,
+      "CODE_OF_CONDUCT.md mentions SECURITY.md but does not link to it — and " +
+        "it is the file GitHub puts in front of somebody opening an issue",
+    ).toContain("](SECURITY.md)");
+    expect(
+      conduct,
+      "CODE_OF_CONDUCT.md is explaining how to report a vulnerability — " +
+        "SECURITY.md is the one place, and this is the next copy to drift",
+    ).not.toContain("security/advisories");
+    /* It DOES carry `support@byollm.cloud`, for conduct, and that is not a
+       second disclosure door: the law is about instructions, not addresses.
+       What it must not do is tell a researcher that this is where to send a
+       vulnerability. */
+    expect(conduct).toMatch(/different door/iu);
+  });
+
   it("has a SECURITY.md at the root, where GitHub looks", () => {
     /* GitHub links this file from the security tab and from the "report a
        vulnerability" affordance. A project whose disclosure instructions live

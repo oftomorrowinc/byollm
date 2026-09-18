@@ -608,4 +608,4 @@ finding the ones we're gladdest didn't reach you. This list grows.
 
 MIT.
 
-<div align="center"><sub>Built by <a href="https://oftomorrow.dev">Of Tomorrow</a> — the pattern behind our own apps, opened up.</sub></div>
+<div align="center"><sub>Built by <a href="https://oftomorrow.net">Of Tomorrow</a> — the pattern behind our own apps, opened up.</sub></div>

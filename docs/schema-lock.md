@@ -150,6 +150,44 @@ not implement a lane treats the purpose as `user-choice` and says so in a
 field** — it does not silently downgrade. A promise quietly unmet is worse than
 one refused, because nobody learns.
 
+## What a locked promise does not promise — B239
+
+The consent principle above forbids claiming more than is enforced, and one
+promise in this document is easy to read wider than it is. It is named here
+rather than left to be discovered, because a promise nobody has bounded is a
+promise somebody will rely on at its widest.
+
+**A site declares an `audience` on every job** — `private` means the owner's
+own devices, `team` means a device whose owner admits this person. A device
+refuses a job whose audience contradicts the grant it arrived with: a `private`
+job routed to somebody else's device is turned away even when the grant
+verifies, is fresh, and names this device correctly.
+
+**That check is real, and it is narrower than it looks.** `audience` travels on
+the stub, and the stub is **not signed**. A party that routes jobs can rewrite
+`private` to `team` before the device ever sees it, and the refusal will not
+fire.
+
+So, precisely:
+
+> The device's audience check is a **consistency check between two things the
+> control plane said** — the stub it routed and the grant it signed. It catches
+> a control plane that contradicts itself. It is **not** a guarantee against a
+> routing party that chooses to rewrite the field.
+
+Both halves matter. Deleting the check because it is not a guarantee would
+remove the only thing that notices an honest control plane's bug — measured on
+2026-09-18, when removing it left twelve grant checks green and two audience
+cases red. Describing it as a guarantee would claim an enforcement that an
+unsigned field cannot carry.
+
+**The hardening that would close the gap is additive and is not in 0.1.0:**
+sign the site's declared audience into the grant. The signature then covers the
+claim, disagreement becomes unforgeable rather than merely inconsistent, and
+the consistency check becomes the guarantee it currently resembles. That is a
+new field on a locked shape, so by this document's own rule it is a version
+change and both ends move together.
+
 ## How the lock is enforced
 
 Two mechanisms, and neither is optional.

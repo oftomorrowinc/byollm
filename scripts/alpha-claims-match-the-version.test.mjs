@@ -153,6 +153,55 @@ describe("at a clean version", () => {
     expect(run(root).code).toBe(0);
   });
 
+  it("flags a sentence pointing at a banner the bump removes", () => {
+    /**
+     * Found by walking the whole cut instead of its pieces.
+     *
+     * I made the six prose edits myself and left *"the warning at the top of
+     * this file is the guard"* in a file whose warning I had just deleted.
+     * The gate named that line — it also says `@alpha` — and I repaired the
+     * clause it named and not the one beside it. The six hand edits are not
+     * six independent substitutions.
+     */
+    const root = tree("0.1.0", {
+      "README.md":
+        "# byollm\n\nA bare install resolves here; the warning at the top of\n" +
+        "this file is the guard.\n",
+    });
+    const { code, out } = run(root);
+    expect(code).toBe(1);
+    expect(out).toContain("README.md:3");
+  });
+
+  it("does not flag the word `warning` used about anything else", () => {
+    /**
+     * The false-alarm direction, and the one that gets a check deleted.
+     *
+     * A mutation broadening the rule to any line containing "warning" or
+     * "banner" passed every other case here — and a repository whose docs
+     * mention warnings at all would then be unable to cut a release. The rule
+     * matches a POINTER at the top of the file, not the word.
+     */
+    const root = tree("0.1.0", {
+      "README.md":
+        "# byollm\n\nThe daemon prints a warning when no model is configured,\n" +
+        "and the banner on the devices page says the same thing.\n",
+    });
+    const { code, out } = run(root);
+    expect(code, out).toBe(0);
+  });
+
+  it("leaves that sentence alone while the banner is still there", () => {
+    /* At a prerelease the reference is TRUE, and a gate that flagged it would
+       be demanding the removal of an accurate sentence. */
+    const root = tree("0.1.0-alpha.103", {
+      "README.md":
+        "> **Alpha (`0.1.0-alpha.103`) — under active development.**\n\n" +
+        "See the warning at the top of this file.\n",
+    });
+    expect(run(root).code).toBe(0);
+  });
+
   it("leaves release-note history alone", () => {
     /**
      * `alpha.58` was an alpha permanently, and a README that stopped saying so

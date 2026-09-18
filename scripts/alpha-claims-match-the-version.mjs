@@ -112,6 +112,27 @@ const CLAIM = /@alpha\b|status-alpha/i;
  */
 const META = /content="[^"]*\bAlpha\b[^"]*"/;
 
+/**
+ * A sentence that points at the banner — and the bump deletes the banner.
+ *
+ * Found by walking the whole cut rather than its pieces: I made the six prose
+ * edits myself, and left *"the warning at the top of this file is the guard"*
+ * standing in a file whose warning I had just removed. The gate had pointed me
+ * at that very line — it also says `@alpha` — and I fixed the clause it named
+ * and not the one beside it.
+ *
+ * So the six hand edits are not six independent substitutions: two of them
+ * carry a second dependency the gate did not name. It names it now.
+ *
+ * Phrase-matched, and that is the limit: a reference worded some other way
+ * escapes. The two that exist are worded these ways, and a rule that catches
+ * what people actually wrote beats one that catches nothing while claiming
+ * everything — the argument `one-way-to-say-a-gigabyte` makes about its own
+ * narrowness.
+ */
+const POINTS_AT_THE_BANNER =
+  /\b(?:the )?(?:warning|banner)\s+at\s+the\s+top\b|\bsee the warning\b/i;
+
 /** Every document a reader meets, not counting what is not published. */
 const documents = (root) => {
   const found = [];
@@ -144,7 +165,12 @@ const liveClaims = (text) => {
     const isBanner = BANNER.test(line);
     const isHistory = /^\s*>/.test(line) && !isBanner;
     if (isHistory) return;
-    if (isBanner || CLAIM.test(line) || META.test(line))
+    if (
+      isBanner ||
+      CLAIM.test(line) ||
+      META.test(line) ||
+      POINTS_AT_THE_BANNER.test(line)
+    )
       hits.push({ line: at + 1, text: line.trim() });
   });
   return hits;

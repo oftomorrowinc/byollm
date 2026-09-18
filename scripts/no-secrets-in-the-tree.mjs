@@ -25,12 +25,13 @@
  * CONTENT. Neither subsumes the other and the split is deliberate, said here
  * because two checks about secrets look like duplication to somebody tidying.
  *
- * That file used to argue the content half belonged to GitHub's secret
- * scanning once the repository went public. **It is public and that is
- * disabled** — asked with an admin token on 2026-09-18, along with push
- * protection and non-provider patterns. So this is currently the only
- * content-level check in front of a public repository, and if Todd turns
- * GitHub's on, this becomes the faster local half rather than the only half.
+ * That file argues the content half belongs to GitHub's secret scanning once
+ * the repository is public. That was **false when written** — both controls
+ * were off, asked with an admin token on 2026-09-18 — and Todd enabled them
+ * the same day. So this is the **local, pre-push half**: it runs in `verify`
+ * and in CI before a push exists, where push protection runs at the push and
+ * only for provider patterns. For one day it was the only content-level check
+ * there was.
  *
  * ## Why prefixes and not entropy
  *

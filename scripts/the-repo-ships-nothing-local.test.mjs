@@ -120,44 +120,44 @@ describe("local tooling state", () => {
      * commits of history — was run by hand on 2026-09-18 and found nothing but
      * deliberate fixtures (`sk-ant-nope`, `sk-should-not-appear`).
      *
-     * ## The dependency this used to rest on, and what verifying it found
+     * ## The dependency this rests on, named and verified
      *
-     * This said GitHub's own secret scanning and push protection were the
-     * durable answer once the repository is public — a justification pointing
-     * at **somebody else's control**, which CW's law of 2026-09-19 says is a
-     * claim about a system we do not own: it must name the control, and the
-     * control must be verified once, by looking rather than by assuming it is
-     * the default.
+     * This checks filenames and not contents because GitHub's own secret
+     * scanning and push protection are the durable answer on a public
+     * repository — a justification pointing at **somebody else's control**,
+     * which CW's law of 2026-09-19 says is a claim about a system we do not
+     * own: it must name the control, and the control must be verified once,
+     * by looking rather than by assuming it is the default.
      *
-     * Verified **2026-09-18, by `gh api repos/oftomorrowinc/byollm --jq
-     * .security_and_analysis`, with a token holding `permissions.admin: true`**
-     * — deliberately admin, because that block is *absent* from a non-admin
-     * response and "your scanning is off" when one merely cannot see it would
-     * be the worst kind of false alarm. CW re-read it unauthenticated and got
-     * exactly that absence, which corroborates the method without confirming
-     * the values.
+     * **It was false when written and it is true now.** Asked 2026-09-18 with
+     * a token holding `permissions.admin: true` — deliberately admin, because
+     * `security_and_analysis` is *absent* from a non-admin response and "your
+     * scanning is off" when one merely cannot see it is the worst kind of
+     * false alarm:
      *
-     *     visibility: "public"
-     *       secret_scanning:                       disabled
-     *       secret_scanning_push_protection:       disabled
-     *       secret_scanning_non_provider_patterns: disabled
+     *     14:09  secret_scanning: disabled   push_protection: disabled
+     *     14:55  Todd enabled both
+     *     15:10  secret_scanning: enabled    push_protection: enabled
      *
-     * **Public, with none of it enabled.** The sentence was never true — not
-     * decayed, never true — and it is the file that made the decision. Turning
-     * it on is Todd's, because push protection changes what happens to a
-     * contributor's push; reported inbox 2026-09-18-1455, CW concurring 0700.
+     * The last line is this file's own read, not a relay of Todd's — the same
+     * admin query, run again, because a control this decision rests on is
+     * worth one call rather than one sentence of trust.
+     *
+     * Still disabled and not asked for: validity checks, non-provider
+     * patterns, AI detection, dependabot security updates. None of them is
+     * needed for the claim above, and naming them stops the next reader
+     * wondering whether their absence was an oversight.
      *
      * ## The two halves, so neither is tidied away
      *
      * This reads tracked **names**. `scripts/no-secrets-in-the-tree.mjs` reads
      * tracked **content**. Neither subsumes the other.
      *
-     * **If the GitHub controls are switched on, the content check becomes the
-     * LOCAL half rather than a redundant one** — it runs in `verify` and in CI
-     * before a push exists, where push protection runs at the push and only
-     * for provider patterns. Until then it is the only content-level check in
-     * front of a public repository, which was a lucky consequence of a sound
-     * judgement rather than a plan.
+     * **The content check is now the LOCAL half rather than the only one** — it
+     * runs in `verify` and in CI before a push exists, where push protection
+     * runs at the push and only for provider patterns. For one day it was the
+     * only content-level check in front of a public repository, which was a
+     * lucky consequence of a sound judgement rather than a plan.
      *
      * What belongs here is the cheap, fast half: a file whose NAME says it
      * holds a key should never be tracked, because that one is an accident

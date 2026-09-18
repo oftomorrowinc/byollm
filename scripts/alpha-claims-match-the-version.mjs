@@ -55,7 +55,7 @@
  * what it asks.
  */
 
-import { readFileSync, readdirSync, existsSync } from "node:fs";
+import { readFileSync, readdirSync, existsSync, realpathSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -180,4 +180,20 @@ const main = () => {
   return 0;
 };
 
-if (process.argv[1] === fileURLToPath(import.meta.url)) process.exit(main());
+/**
+ * Run as a command, not when imported — and via `realpathSync`, which is not
+ * decoration.
+ *
+ * `import.meta.url` RESOLVES SYMLINKS and `process.argv[1]` does not. On macOS
+ * `/var` is a symlink to `/private/var`, so this script invoked from anywhere
+ * under `/tmp` compared `/var/...` with `/private/var/...`, decided it was
+ * being imported, ran nothing and **exited 0**. A gate that silently checks
+ * nothing and reports success is the exact fail-open every refusal in this
+ * file is written against.
+ *
+ * Found by `rehearse-the-cut.mjs`, which copies the tree to a temp directory
+ * and runs the gates there — the first thing it did was report this one green
+ * while it had read no files at all.
+ */
+if (realpathSync(process.argv[1] ?? "") === fileURLToPath(import.meta.url))
+  process.exit(main());

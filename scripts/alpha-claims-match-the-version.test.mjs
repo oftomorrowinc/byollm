@@ -1,5 +1,11 @@
 import { execFileSync } from "node:child_process";
-import { cpSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import {
+  cpSync,
+  mkdirSync,
+  mkdtempSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -173,6 +179,46 @@ describe("at a prerelease", () => {
     const { code, out } = run(root);
     expect(code).toBe(1);
     expect(out).toContain("NO document says so");
+  });
+});
+
+describe("invoked through a symlinked path", () => {
+  it("still runs, instead of exiting 0 having read nothing", () => {
+    /**
+     * The fail-open `rehearse-the-cut.mjs` found on its first run.
+     *
+     * `import.meta.url` RESOLVES symlinks; `process.argv[1]` does not. On
+     * macOS `/var` is a symlink to `/private/var`, so this script invoked from
+     * anywhere under `/tmp` compared two spellings of the same file, concluded
+     * it was being imported, ran nothing and **exited 0** — a gate reporting
+     * success having checked nothing, which is the shape every refusal in it
+     * is written against.
+     *
+     * The case builds the same trap deliberately: a symlink to the scripts
+     * directory, and the script invoked through it. Exit 0 alone would pass
+     * this; the output is what proves it ran.
+     */
+    const dir = mkdtempSync(join(tmpdir(), "alpha-claims-link-"));
+    const link = join(dir, "scripts");
+    symlinkSync(dirname(SCRIPT), link, "dir");
+    const viaLink = join(link, "alpha-claims-match-the-version.mjs");
+
+    const root = tree("0.1.0", {
+      "README.md": "# byollm\n\nRun `npm install @byollm/protocol@alpha`.\n",
+    });
+    let out;
+    let code = 0;
+    try {
+      out = execFileSync(process.execPath, [viaLink], {
+        encoding: "utf8",
+        env: { ...process.env, ALPHA_CLAIMS_ROOT: root },
+      });
+    } catch (error) {
+      code = error.status ?? -1;
+      out = `${error.stdout ?? ""}${error.stderr ?? ""}`;
+    }
+    expect(code, "the gate ran nothing and called it success").toBe(1);
+    expect(out).toContain("still say alpha");
   });
 });
 

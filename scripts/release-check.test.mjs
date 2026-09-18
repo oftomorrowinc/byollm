@@ -1,5 +1,12 @@
 import { execFile } from "node:child_process";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -37,14 +44,26 @@ import { afterEach, describe, expect, it } from "vitest";
  */
 const script = fileURLToPath(new URL("./release-check.mjs", import.meta.url));
 
-const NAMES = [
-  "byollm",
-  "@byollm/protocol",
-  "@byollm/relay",
-  "@byollm/server",
-  "@byollm/control-plane",
-  "@byollm/conformance",
-];
+/**
+ * The packages, DERIVED — the same rule the script and the release workflow
+ * apply, for the same reason.
+ *
+ * This was six names written out, and it broke the moment a seventh package
+ * joined: the fixture answered for six, the script asked about seven, and the
+ * missing one read as an unpublished package — a test failing for a reason
+ * that has nothing to do with what it asserts.
+ *
+ * Which is the bug the script's own header is about (`@byollm/relay` absent
+ * from four hardcoded lists at once), arriving in the test that proves the
+ * script does not have it.
+ */
+const NAMES = readdirSync("packages")
+  .map((dir) => join("packages", dir, "package.json"))
+  .filter((manifest) => existsSync(manifest))
+  .map((manifest) => JSON.parse(readFileSync(manifest, "utf8")))
+  .filter((pkg) => pkg.private !== true)
+  .map((pkg) => pkg.name)
+  .sort();
 
 let dir;
 

@@ -1,0 +1,12 @@
+{
+  // tsup's declaration build cannot use a `composite` project (TS6307), so
+  // the published build gets its own non-composite view of the same sources.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "composite": false,
+    "declarationMap": false,
+    "incremental": false
+  },
+  "include": ["src/**/*.ts"],
+  "exclude": ["src/**/*.test.ts"]
+}

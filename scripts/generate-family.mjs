@@ -17,7 +17,7 @@
  * The blurbs are deliberately one line each. A README section that grows into
  * a second description of every package is a second thing to keep true.
  */
-import { readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 const ROOT = new URL("..", import.meta.url).pathname;
@@ -45,7 +45,64 @@ const FAMILY = [
     "@byollm/conformance",
     "the kit that proves an implementation is one — including a posture audit that holds nothing but a URL",
   ],
+  [
+    "@byollm/agreements",
+    "the sentences and rules more than one byollm repository has to state identically",
+  ],
 ];
+
+/**
+ * The list above is hand-written, and a hand-written list of packages is this
+ * repository's most-repeated bug — `@byollm/relay` was once absent from four
+ * of them at once and a tagged release published four packages instead of
+ * five.
+ *
+ * The blurbs cannot be derived (they are prose about what a package is FOR),
+ * so the list stays hand-written and the COVERAGE is checked instead: every
+ * publishable directory under `packages/` must appear here. A package added
+ * tomorrow fails this rather than going quietly missing from six READMEs.
+ */
+function publishable() {
+  const found = [];
+  for (const entry of readdirSync(join(ROOT, "packages"))) {
+    const manifest = join(ROOT, "packages", entry, "package.json");
+    if (!existsSync(manifest)) continue;
+    const pkg = JSON.parse(readFileSync(manifest, "utf8"));
+    if (pkg.private === true) continue;
+    found.push(pkg.name);
+  }
+  return found.sort();
+}
+
+{
+  const listed = new Set(FAMILY.map(([name]) => name));
+  const missing = publishable().filter((name) => !listed.has(name));
+  if (missing.length > 0) {
+    process.stderr.write(
+      `\nFAMILY does not name ${missing.join(", ")}.\n` +
+        "  Every publishable package belongs in the family section, or a\n" +
+        "  reader arriving at one of them cannot learn the others exist —\n" +
+        "  which is the whole reason this file generates rather than trusts.\n",
+    );
+    process.exit(1);
+  }
+}
+
+/** Small numbers as words, so the generated line reads like the prose it is. */
+const NUMBER_WORDS = [
+  "Zero",
+  "One",
+  "Two",
+  "Three",
+  "Four",
+  "Five",
+  "Six",
+  "Seven",
+  "Eight",
+  "Nine",
+  "Ten",
+];
+const spelled = (n) => NUMBER_WORDS[n] ?? String(n);
 
 const dir = (name) =>
   name === "byollm" ? "daemon" : name.replace("@byollm/", "");
@@ -62,7 +119,11 @@ function section(self) {
     "",
     "## The rest of byollm",
     "",
-    "Six packages, and they are only interesting together:",
+    /* Derived, because the count and the list are one fact. It said "Six"
+       while the list held seven for exactly as long as it took to notice.
+       Spelled, because the sentence is prose and "7 packages" reads like a
+       field rather than a sentence. */
+    `${spelled(FAMILY.length)} packages, and they are only interesting together:`,
     "",
     rows,
     "",

@@ -20,7 +20,7 @@ reviewable in a diff, and it does not depend on finding a page:
 
 ```bash
 for pkg in "@byollm/protocol" "@byollm/server" byollm "@byollm/conformance" \
-           "@byollm/relay" "@byollm/control-plane"; do
+           "@byollm/relay" "@byollm/control-plane" "@byollm/agreements"; do
   npm trust github "$pkg" \
     --file release.yml \
     --repo oftomorrowinc/byollm \
@@ -81,10 +81,13 @@ stripped, so re-check if manifests are ever edited.
 ## Cutting a release
 
 ```bash
-# 1. Bump. Every publishable package moves in lockstep; the workflow
-#    refuses to publish if they disagree. Do not type the list — this
-#    script reads `packages/`, which is why it did not miss `@byollm/relay`
-#    when the list was hardcoded in four places and did.
+# 1. Bump. Seven packages publish, and every one of them moves in lockstep;
+#    the workflow refuses to publish if they disagree. Do not type the list —
+#    this script reads `packages/`, which is why it did not miss
+#    `@byollm/relay` when the list was hardcoded in four places and did.
+#    (The count is here because `check-releasing.mjs` compares it to the
+#    directory; it is the one number in this file that has to move when a
+#    package joins.)
 node scripts/bump-version.mjs <version>
 
 #    It covers the manifests, packages/daemon/src/index.ts (DAEMON_VERSION),
@@ -197,7 +200,15 @@ Each guard is a mistake that would otherwise happen silently:
 - **A tag that disagrees with the version.** `v0.1.0-alpha.4` pointing at a
   commit where the manifests say `.3`.
 - **A version already on npm.** npm versions are immutable, so this would fail
-  anyway — but partway through, with two of six packages already public.
+  anyway — but partway through, with some of the set already public and the
+  rest not. That is the state `alpha.6` was actually left in, and it is the
+  one worth fearing: every published package resolvable, pointing at siblings
+  that are not there.
+
+  The count used to be written here, and it was wrong in two directions at
+  once — stale against the directory and disagreeing with
+  `check-releasing.mjs`'s own note about the same release. A number in a
+  sentence about a hazard is not what makes the hazard clear.
 - **A prerelease reaching `latest` by accident.** The dist-tag is derived from
   the version string: `-alpha.` → `alpha`, `-beta.` → `beta`, any other
   prerelease → `next`, and only a clean version → `latest`.
@@ -272,7 +283,7 @@ You should not need to. If the workflow is broken and a release cannot wait:
 
 ```bash
 pnpm run verify
-for pkg in protocol server daemon conformance relay control-plane; do
+for pkg in protocol server daemon conformance relay control-plane agreements; do
   ( cd "packages/$pkg" && pnpm publish --tag alpha --access public --no-git-checks )
 done
 ```

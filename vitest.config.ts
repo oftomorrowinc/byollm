@@ -78,6 +78,10 @@ const sourceAliases = {
  */
 export default defineConfig({
   test: {
+    /* Refuses a run that rewrote the repository — B333's twin. A probe run
+       from the wrong directory renumbered fifteen tracked files here, and a
+       test that forgets `cwd` does the same and passes. */
+    globalSetup: ["scripts/the-suite-leaves-the-tree-as-it-found-it.mjs"],
     projects: [
       {
         resolve: { alias: sourceAliases },

@@ -273,3 +273,66 @@ describe("the pins, which are the other half of a release — B234", () => {
     expect(seen.stderr).not.toContain("do not all say so");
   });
 });
+
+describe("what the Release workflow can actually ask — B318", () => {
+  /**
+   * `alpha.103` published all six packages and the run went **red**, on the
+   * step after the publish:
+   *
+   *     Verify the registry actually has it
+   *     refusing: the hosted pin check is not on this machine.
+   *
+   * `release-check` asks two questions, and the second — do the two sibling
+   * repositories pin this version — is `pins-checked.mjs`, which looks for
+   * `../byollm-cloud` and refuses when it is absent. That refusal is right:
+   * *"a check that cannot answer must not answer fine."*
+   *
+   * **A GitHub runner checks out one repository.** It will never have the
+   * siblings, so this step asked an unanswerable question on every release and
+   * reported a successful publish as a failed one. A red Release for a release
+   * that worked is how somebody learns to skim the Actions tab, and the next
+   * red one will be real — the same family as everything the third state
+   * exists for, arriving in the workflow rather than in a script.
+   *
+   * The question is not dropped. It is asked where it can be answered: before
+   * the tag by `tag.sh` refusal 5, and after the publish by CCB running this
+   * script locally — which is the run that catches the lockfiles, and did.
+   */
+  const workflow = readFileSync(
+    fileURLToPath(new URL("../.github/workflows/release.yml", import.meta.url)),
+    "utf8",
+  );
+
+  const step = () => {
+    const at = workflow.indexOf("Verify the registry actually has it");
+    expect(at, "the post-publish step has moved or gone").toBeGreaterThan(-1);
+    return workflow.slice(at, at + 400);
+  };
+
+  it("does not ask the sibling repositories about themselves", () => {
+    /* Without this the step is red on every successful release, which is the
+       state alpha.103 shipped in. */
+    expect(step()).toMatch(/BYOLLM_PINS:\s*skip/u);
+  });
+
+  it("still asks the registry, which is the half a runner can answer", () => {
+    /* The skip is narrow: npm is reachable from CI and the publish is exactly
+       what this step exists to confirm. Dropping the whole step would trade a
+       false red for a real blind spot. */
+    expect(step()).toContain("release-check.mjs");
+  });
+
+  it("leaves the opt-out loud, so the gap is in the log", () => {
+    /**
+     * `pins-checked` prints "THE HOSTED PINS ARE NOT CHECKED FOR THIS STEP"
+     * when skipped. If that ever became silent, a green Release would imply
+     * three repositories agree when one machine looked at one of them.
+     */
+    const pins = readFileSync(
+      fileURLToPath(new URL("./pins-checked.mjs", import.meta.url)),
+      "utf8",
+    );
+    expect(pins).toContain("THE HOSTED PINS ARE NOT CHECKED FOR THIS STEP");
+    expect(pins).toMatch(/BYOLLM_PINS"\]\s*===\s*"skip"/u);
+  });
+});

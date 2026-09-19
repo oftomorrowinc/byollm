@@ -407,8 +407,35 @@ jobs:
       # release pass. What actually fixed the crying wolf was widening the
       # propagation window from two minutes to five — the three cuts that
       # went red were one package taking about two.
+      # The pin half cannot be asked here, and saying so beats going red — B318.
+      #
+      # `release-check` asks two questions: is the version live on npm, and do
+      # the two sibling repositories pin it. The second is `pins-checked.mjs`,
+      # which looks for `../byollm-cloud` and refuses when it is not there —
+      # correctly, because *"a check that cannot answer must not answer
+      # fine"*.
+      #
+      # A GitHub runner checks out one repository. It will NEVER have the
+      # siblings, so this step asked a question it could not answer on every
+      # release, and reported a successful publish as a failed one: alpha.103
+      # published all six packages and the run went red on this line. A red
+      # Release for a release that worked is how somebody learns to skim the
+      # Actions tab, and the next red one will be real.
+      #
+      # `BYOLLM_PINS=skip` is the opt-out that already exists for exactly this,
+      # and it is loud: `pins-checked` prints THE HOSTED PINS ARE NOT CHECKED
+      # FOR THIS STEP into the log, so the gap is in the record rather than
+      # implied by a green tick.
+      #
+      # The question is not dropped, it moves to where it can be answered: the
+      # pins are checked before the tag by `tag.sh` refusal 5, on a machine
+      # that has the siblings, and again by CCB running `release-check.mjs`
+      # locally after the publish — which is the step that catches the
+      # lockfiles, and did.
       - name: Verify the registry actually has it
         if: ${{ !inputs.dry_run }}
+        env:
+          BYOLLM_PINS: skip
         run: node scripts/release-check.mjs "${{ steps.version.outputs.version }}"
 
       # ---------------------------------------------------------------------

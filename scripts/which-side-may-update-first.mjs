@@ -27,12 +27,21 @@
  * than discovered, because the set is the daemon's side of the protocol and a
  * discovered set would silently shrink if an export were renamed.
  *
- * **That is the opposite choice from `wire-shapes.ts`, deliberately.** There,
- * breadth is the point: the outage was a key on a shape nobody had listed. Here
- * narrowness is the point: the answer is about one direction, and including a
- * shape that does not cross it produces exactly the over-claim B322 fixed. A
- * case asserts the list is non-empty and that each name is a real export, so a
- * rename fails loudly rather than shrinking the question.
+ * **This is not the opposite of `wire-shapes.ts`; it is the same rule from the
+ * other side** — CW, 2026-09-19:
+ *
+ * > A check enumerates the side it cannot see and walks the side it can.
+ *
+ * The hub cannot know which shapes a future daemon will send, so it walks
+ * everything the protocol exports and refuses on any of them: breadth, because
+ * the unknown is on the sender's side. This question is about what *this* code
+ * sends, which is knowable from this code — so the list is a **claim about the
+ * sender**, and a claim is written down and pinned rather than discovered.
+ *
+ * The pin is the case asserting every name is still an exported schema, so a
+ * rename fails loudly instead of shrinking the question. A discovered list here
+ * would drag in shapes that cross no such wire, which is precisely the
+ * over-claim B322 had to fix in the other check.
  */
 
 import { execFileSync } from "node:child_process";

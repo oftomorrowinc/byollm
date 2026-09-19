@@ -153,6 +153,8 @@ const problems = [];
  * **The prover is not the proven.** Unproven is a third state, and it gets its
  * own exit code and its own word.
  */
+/** Packages npm said nothing about at all — B314. */
+const silent = [];
 const unread = [];
 /** Packages this run did confirm, so the message can name the asymmetry. */
 const readable = [];
@@ -273,6 +275,19 @@ for (const name of names) {
    * So exhausting the window says so, and says what to do about it — which is
    * to look, not to republish.
    */
+  /**
+   * Did npm answer about this package AT ALL — B314.
+   *
+   * `tags` is `{}` and `versions` is `[]` only when the read itself failed.
+   * A registry that answers `alpha=0.1.0-alpha.102` has told us something
+   * true: it is serving, and it does not have the version we asked for.
+   *
+   * That evidence was already on screen — every UNREAD line prints the
+   * package's dist-tags — and the verdict below threw it away.
+   */
+  if (Object.keys(tags).length === 0 && versions.length === 0) {
+    silent.push(name);
+  }
   if (!published) {
     unread.push(
       `${name} — ${version} was still unreadable after ` +
@@ -334,6 +349,23 @@ if (unread.length > 0) {
    * could not confirm the release, and opposite first moves for whoever looks.
    */
   const asymmetric = readable.length > 0;
+  /**
+   * **The third state this check did not have — B314.**
+   *
+   * The two below assume a publish was ATTEMPTED: *"nothing published at all
+   * is a different animal and would have failed the publish step loudly"*.
+   * That is true of a release that ran. It is false of a tag that was never
+   * pushed, a workflow that never started, and of somebody running this before
+   * the release — and in every one of those npm answers perfectly.
+   *
+   * Told to look at the registry, whoever reads it goes and finds npm working,
+   * which is the most expensive kind of wrong diagnosis: correct-looking,
+   * unfalsifiable from where they are standing, and pointing away from the tag.
+   *
+   * Found by running the giving-up path on purpose before using it in a
+   * release, which is what the override above exists for.
+   */
+  const registryAnswered = silent.length === 0;
   console.error(
     `\n${String(unread.length)} package(s) could not be confirmed:`,
   );
@@ -350,7 +382,17 @@ if (unread.length > 0) {
           `\nwindow and nothing is wrong. If they do not, re-run the Release` +
           `\nworkflow for this tag — cloud_008 §37. Publishing is idempotent per` +
           `\npackage, so a re-run publishes only what is missing and converges.`
-      : `\nNo package answered, which is not the shape of a partial release —` +
+      : registryAnswered
+        ? `\nnpm answered for every package and none of them has ${version}.` +
+          `\nThe registry is serving reads — the dist-tags above came from it` +
+          `\n— so this is not slow propagation and not a partial release.` +
+          `\n**This version was never published.**` +
+          `\n\n  Look:  git ls-remote --tags origin | grep ${version}` +
+          `\n         gh run list --workflow Release --limit 5` +
+          `\n\nIf the tag is not there, the tag was never pushed. If it is` +
+          `\nthere and no run exists, the workflow did not start. Neither is` +
+          `\nfixed by waiting, and both are fixed before touching npm.`
+        : `\nNo package answered, which is not the shape of a partial release —` +
           `\na publish that failed outright fails the step above. It is the` +
           `\nshape of a registry that is not serving reads.` +
           `\n\n  Look:  npm view ${names[0] ?? "<pkg>"}@${version} version` +

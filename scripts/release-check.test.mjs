@@ -96,10 +96,35 @@ function registry(version, present) {
  * run, and the control case asserts the banner the skip prints — so deleting
  * the pin step from the script would take the banner with it and go red.
  */
-function run(version, present, attempts = "1", env = {}) {
+/**
+ * A registry that is SERVING, and does not hold `version` — B314.
+ *
+ * `registry(v, [])` answered nothing at all: empty `versions`, empty
+ * `dist-tags`. That is a read path that is down, and it was the only "not
+ * there" this harness could express — so the check's verdict for it was the
+ * only verdict "nothing is published" could ever get.
+ *
+ * This is the other one, and it is the state a release is in before it
+ * happens: every package resolvable, every dist-tag answered, and none of them
+ * naming the version asked about.
+ */
+function servingOther(other = "0.0.1") {
+  return Object.fromEntries(
+    NAMES.map((n) => [
+      n,
+      { versions: [other], "dist-tags": { alpha: other, latest: other } },
+    ]),
+  );
+}
+
+function run(version, present, attempts = "1", env = {}, fixture = undefined) {
   dir = mkdtempSync(join(tmpdir(), "release-check-"));
   const path = join(dir, "registry.json");
-  writeFileSync(path, JSON.stringify(registry(version, present)), "utf8");
+  writeFileSync(
+    path,
+    JSON.stringify(fixture ?? registry(version, present)),
+    "utf8",
+  );
   return new Promise((settle) => {
     /* `execFile`, never a synchronous spelling — byollm_004 §2, and eslint
        enforces it in this repository's tests too. */
@@ -160,6 +185,36 @@ describe("the release read-back", () => {
     expect(seen.stderr).toContain("No package answered");
     expect(seen.stderr).not.toContain("Confirmed live:");
     expect(seen.stderr).toContain("re-run this check");
+  });
+
+  it("says the version was never published, when npm answers and lacks it", async () => {
+    /**
+     * **The state this check had no verdict for — B314.**
+     *
+     * Its two failure sentences both assume a publish was ATTEMPTED: a mix is
+     * a partial release, and silence is a registry not serving. Neither covers
+     * a tag that was never pushed, a workflow that never started, or somebody
+     * running the check early — and in all three npm answers perfectly.
+     *
+     * It reported *"the shape of a registry that is not serving reads"* while
+     * printing that registry's dist-tags one screen up. Whoever read that
+     * would go and find npm working: the most expensive kind of wrong
+     * diagnosis — correct-looking, unfalsifiable from where they stand, and
+     * pointing away from the tag.
+     *
+     * Found by running the giving-up path on purpose before using it in a
+     * release, which is what `RELEASE_CHECK_ATTEMPTS` exists for.
+     */
+    const seen = await run(V, [], "1", {}, servingOther());
+
+    expect(seen.status).toBe(1);
+    expect(seen.stderr).toContain("never published");
+    /* The remedy points at the tag and the workflow, not at npm. */
+    expect(seen.stderr).toContain("git ls-remote");
+    expect(seen.stderr).toContain("gh run list");
+    /* And explicitly not the sentence it used to give. */
+    expect(seen.stderr).not.toContain("not serving reads");
+    expect(seen.stderr).not.toContain("Confirmed live:");
   });
 
   it("exits 0 when every package is there, having asked about the pins", async () => {

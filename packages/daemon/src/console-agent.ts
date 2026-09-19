@@ -153,7 +153,22 @@ export function consoleSession(deps: ConsoleSessionDeps): ConsoleSession {
 
   const sealTo = async (frame: ConsoleFrame): Promise<void> => {
     const envelope = await seal({
-      plaintext: JSON.stringify(frame),
+      /**
+       * Parsed before it is sealed — B304's law, applied to the other end.
+       *
+       * Both call sites below pass fresh object literals, so TypeScript's
+       * excess-property check covers them and this is safe **today**. That is
+       * exactly the property `runner.ts` had until somebody spread a variable
+       * into the object one refactor later: `ran` arrived from a method with
+       * an inferred return type, the `satisfies` annotation stopped meaning
+       * anything, and two extra keys travelled for months.
+       *
+       * A sealed payload is the one kind nothing in between can check. The
+       * browser opens this, fails `.strict()`, and has nowhere to put the
+       * complaint — the console would simply stop, the way every claude-cli
+       * result simply stopped.
+       */
+      plaintext: JSON.stringify(ConsoleFrame.parse(frame)),
       senderKeys: deps.keys,
       recipientEncryptionPublic: deps.browser.encryption,
       context: consoleEnvelope({

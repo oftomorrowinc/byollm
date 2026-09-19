@@ -54,9 +54,41 @@ const SPEAKERS = ["daemon", "server", "relay"];
  * explanation to get a green.
  */
 function code(text) {
-  return text
-    .replaceAll(/\/\*[\s\S]*?\*\//gu, "")
-    .replaceAll(/^[ \t]*\/\/.*$/gmu, "");
+  return (
+    text
+      /**
+       * Blanked, not deleted — B321.
+       *
+       * Removing a block comment shortens the file, so every line after it
+       * reports a number that is too small. Run as a census across the three
+       * repositories, this sent me to line 673 for something on line 899 — and
+       * a linter whose line numbers are wrong is one somebody stops trusting
+       * after the first goose chase, which is how a real finding gets skimmed.
+       *
+       * Same length, same newlines, no content.
+       */
+      .replaceAll(/\/\*[\s\S]*?\*\//gu, (m) => m.replaceAll(/[^\n]/gu, " "))
+      .replaceAll(/^([ \t]*)\/\/.*$/gmu, "$1")
+      /**
+       * And string literals, for the same reason comments are blanked: a
+       * MENTION is not a use. The census's only non-fixture hit was
+       * `runner.includes("{ outcome, ran } satisfies SealedOutcome")` — B304's
+       * own case asserting that the seal no longer says it. Counting that as a
+       * violation would make the rule fire on the test that proves the rule
+       * holds, and the cheapest way to green would be deleting the assertion.
+       *
+       * Fifth time this project has read a mention as a route; the first time
+       * the reader was mine twice over.
+       */
+      .replaceAll(
+        /"(?:[^"\\\n]|\\.)*"/gu,
+        (m) => `"${" ".repeat(Math.max(0, m.length - 2))}"`,
+      )
+      .replaceAll(
+        /'(?:[^'\\\n]|\\.)*'/gu,
+        (m) => `'${" ".repeat(Math.max(0, m.length - 2))}'`,
+      )
+  );
 }
 
 function sources() {
@@ -107,6 +139,32 @@ describe("the rule, on source the repository does not contain", () => {
        outright would be asking people to parse their local objects, and would
        be switched off for the ones that matter. */
     expect(offences("} satisfies ServiceBlock);")).toEqual([]);
+  });
+
+  it("reports the line the offence is on, not the line it shifted to", () => {
+    /**
+     * Found by running this as a census, which is the use CW asked for: it
+     * sent me to line 673 for a hit on line 899, because deleting a block
+     * comment shortens the file. A linter whose line numbers are wrong is one
+     * somebody stops trusting after the first goose chase.
+     */
+    const text = ["/*", " * padding", " */", "ok satisfies FetchResponse"].join(
+      "\n",
+    );
+    expect(offences(text)).toEqual([{ line: 4, name: "FetchResponse" }]);
+  });
+
+  it("does not flag a mention inside a string", () => {
+    /**
+     * The census's only non-fixture hit was B304's own case asserting that the
+     * seal no longer says `satisfies SealedOutcome` — the words, inside a
+     * string, in the test that proves the rule holds. Counting that would make
+     * the rule fire on its own proof, and the cheapest way to green would be
+     * deleting the assertion.
+     */
+    expect(
+      offences('expect(src).toContain("x satisfies ClaimRequest");'),
+    ).toEqual([]);
   });
 
   it("does not flag a mention of the defect it exists for", () => {

@@ -5,7 +5,7 @@ import {
   keyId,
   open,
   publicIdentityOf,
-  type FetchResponse,
+  FetchResponse,
   RequestSignature,
   verifyRequest,
   verifyPublicIdentity,
@@ -25,7 +25,7 @@ import {
   type ClaimResponse,
   type Endpoint,
   type HeartbeatResponse,
-  type PairPollResponse,
+  PairPollResponse,
   type PairStartResponse,
   type ReleaseResponse,
   type ResultResponse,
@@ -293,7 +293,12 @@ export class ByollmHandlers {
     if (!resealed.ok) {
       return fail("server-error", "this job's payload could not be opened");
     }
-    return ok({ envelope: resealed.envelope } satisfies FetchResponse);
+    /* Parsed where it is built — B304's law, ruled into standing orders by
+       CW on 2026-09-19. `satisfies` excess-checks a fresh literal and checks
+       NOTHING on a variable, and the line looks identical either way; a seal
+       travelled for months under one. The only spelling for a wire shape is
+       its own schema. */
+    return ok(FetchResponse.parse({ envelope: resealed.envelope }));
   }
 
   // -- 1. pair --------------------------------------------------------------
@@ -356,12 +361,12 @@ export class ByollmHandlers {
       return fail("not-found", "unknown device code");
     }
     if (pairing.state === "denied") {
-      return ok({ status: "denied" } satisfies PairPollResponse);
+      return ok(PairPollResponse.parse({ status: "denied" }));
     }
     // Expiry is checked before approval state so a code approved after it
     // lapsed is still dead ({@link MUSTS.PAIR_CODE_EXPIRES}).
     if (pairing.expiresAt <= now && pairing.state === "pending") {
-      return ok({ status: "expired" } satisfies PairPollResponse);
+      return ok(PairPollResponse.parse({ status: "expired" }));
     }
     if (
       pairing.state === "approved" &&
@@ -369,7 +374,17 @@ export class ByollmHandlers {
       pairing.runnerId !== null &&
       pairing.owner !== null
     ) {
-      const response: PairPollResponse = {
+      /**
+       * Parsed, and it did not say `satisfies` — which is the gap in a lint
+       * that bans the word.
+       *
+       * An annotated `const` excess-checks its literal exactly as `satisfies`
+       * does, and stops checking for exactly the same reason the moment a
+       * spread from a variable arrives. Same risk, different spelling, and
+       * only one of the two is greppable. Converted here rather than left for
+       * the rule to miss.
+       */
+      const response = PairPollResponse.parse({
         status: "approved",
         runnerId: pairing.runnerId,
         owner: pairing.owner,
@@ -381,7 +396,7 @@ export class ByollmHandlers {
         // daemon's lookup is one map read on every lane, which is what keeps
         // the two lanes one protocol.
         sites: { [this.#siteKeyId]: publicIdentityOf(this.#siteKeys) },
-      };
+      });
       // Delivered exactly once — a replayed device code gets nothing.
       await this.#store.consumePairingToken(pairing.deviceCodeHash);
       return ok(response);
@@ -389,7 +404,7 @@ export class ByollmHandlers {
     if (pairing.state === "approved") {
       return fail("not-found", "this pairing has already been collected");
     }
-    return ok({ status: "pending" } satisfies PairPollResponse);
+    return ok(PairPollResponse.parse({ status: "pending" }));
   }
 
   // -- 2. claim -------------------------------------------------------------

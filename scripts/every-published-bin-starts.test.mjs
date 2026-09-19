@@ -209,7 +209,41 @@ const packed = (dir) => {
     if (/** @type {{code?: string}} */ (error).code !== "ENOENT") throw error;
     return undefined;
   }
-  return new Set(JSON.parse(out)[0].files.map((f) => f.path));
+  /**
+   * A listing we cannot read is also "could not ask" — B315, third pass.
+   *
+   * This was `JSON.parse(out)[0].files`, and in the Release workflow's
+   * verification gate `[0]` was undefined: `TypeError: Cannot read properties
+   * of undefined (reading 'files')`, on the same commit whose CI was green.
+   * Same tree, different job, different npm environment.
+   *
+   * **An absent listing is not an empty one, and the difference is the whole
+   * check.** `files: []` is npm answering "this package ships nothing", which
+   * is a real and alarming answer the cases below must fail on — it was one of
+   * the vacuous passes closed when this file was written. No entry at all is
+   * npm not answering, and pretending that is a verdict about a package is the
+   * false alarm that gets a gate deleted.
+   *
+   * It says what npm actually printed, because the next person to meet this
+   * needs the output and not a TypeError — which is what I left them the first
+   * three times.
+   */
+  let parsed;
+  try {
+    parsed = JSON.parse(out);
+  } catch {
+    parsed = undefined;
+  }
+  const entry = Array.isArray(parsed) ? parsed[0] : undefined;
+  if (entry === undefined || !Array.isArray(entry.files)) {
+    console.warn(
+      `every-published-bin-starts: \`npm pack --dry-run --json\` gave no ` +
+        `listing for ${dir}. NOT an answer about that package's files. npm ` +
+        `said: ${out.slice(0, 300)}`,
+    );
+    return undefined;
+  }
+  return new Set(entry.files.map((f) => f.path));
 };
 
 /**

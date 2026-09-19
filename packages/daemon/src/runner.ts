@@ -27,7 +27,11 @@ import {
   type Capability,
   type ClaimedJob,
   type RunMetadata,
-  type SealedOutcome,
+  /* A VALUE, not only a type — B304. `satisfies SealedOutcome` at the seal
+     read like a guarantee and checked nothing: TypeScript excess-property-
+     checks a fresh literal, and `ran` arrives as a variable from another
+     method whose return type is inferred. */
+  SealedOutcome,
   type JobOutcome,
   CLOCK_ATTRIBUTION_MS,
   CLOCK_SKEW_WARN_MS,
@@ -2326,9 +2330,26 @@ export class Runner {
           /* The measured one. This was the literal `0` at the seal — see
              `runJob`'s note. */
           durationMs: result.durationMs,
-          /* The split, carried with the total — B195. Spread so a result with
-           neither writes neither, rather than two zeroes nobody measured. */
-          ...(result.timing ?? {}),
+          /**
+           * **`result.timing` is NOT sealed — B304, and it was for months.**
+           *
+           * B195 added `...(result.timing ?? {})` here beside the same spread
+           * on the two local events, and `RunMetadata` is `.strict()` with
+           * five keys, none of them `spawnMs` or `firstOutputMs`. So every
+           * result from a PROCESS backend sealed an object the protocol
+           * refuses: `openSealedOutcome` at the site returns null, the caller
+           * drops it, and the page says "still going" until the person gives
+           * up. Todd's claude-cli jobs completed in 4–9 seconds on two devices
+           * and never displayed; qwen over `openai-http` did, because only
+           * `process-backend.ts` attaches a timing split.
+           *
+           * The two events keep it, and that is the point: the split is an
+           * OWNER's fact. `spawnMs` and `firstOutputMs` say where the time
+           * went on somebody's own machine — what `byollm status` exists to
+           * answer, and what a site is neither owed nor able to use. The same
+           * argument `stopReported` makes below about this same seal: same
+           * project, opposite requirements.
+           */
           /**
            * Only on `ok`, because a failed call has no generation to have
            * ended, and both facts because `unknown` is two of them — an
@@ -3174,7 +3195,19 @@ export class Runner {
       // cloud_008 §2.5. Sealing only the outcome would leave the site
       // trusting the envelope for the answer and an unsigned request body for
       // everything about it.
-      plaintext: JSON.stringify({ outcome, ran } satisfies SealedOutcome),
+      /**
+       * Parsed, not merely `satisfies` — B304.
+       *
+       * Two extra keys travelled for months under an annotation that reads
+       * like a guarantee, and the only thing that noticed was every site
+       * dropping the result in silence.
+       *
+       * `.parse` throws, deliberately. It can only fire when we have already
+       * broken the wire contract, and a job that fails loudly on this machine
+       * is better than one that succeeds here and hangs forever on somebody
+       * else's page — which is exactly the trade B304 turned out to be.
+       */
+      plaintext: JSON.stringify(SealedOutcome.parse({ outcome, ran })),
       senderKeys: keys,
       // Back to the site that sent it, which is not necessarily the only
       // site this machine serves. Sealing to `sitePinned` would send site B's

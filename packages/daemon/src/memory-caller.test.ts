@@ -1,7 +1,9 @@
+import { readFileSync } from "node:fs";
 import { mkdtemp, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+  SealedOutcome,
   generateKeys,
   keyId,
   open,
@@ -94,6 +96,48 @@ class CountingBackend implements Backend {
   }
 }
 
+/**
+ * A backend that reports where its time went — the process class, B304.
+ *
+ * `process-backend.ts` attaches `timing: { spawnMs, firstOutputMs }` to every
+ * result it resolves, and nothing else does. That single difference is why
+ * Todd's claude-cli jobs completed on two devices in 4–9 seconds and never
+ * appeared on the page while qwen over `openai-http` did: the timing keys rode
+ * into the sealed `ran`, `RunMetadata` is `.strict()` and has never had them,
+ * so the site's `openSealedOutcome` returned null and the caller dropped the
+ * result without a word.
+ *
+ * A double rather than a real spawn, because what is under test is the SEAL,
+ * not a child process — and this double's job is to produce the one field
+ * shape the real one produces.
+ */
+class TimingBackend implements Backend {
+  calls = 0;
+  answering = true;
+  readonly stopReasons = {
+    kind: "unavailable" as const,
+    why: "a test double reads no vendor signal",
+  };
+  /* The id stays the one the harness's config names; what matters here is the
+     CLASS and the timing, which is what `process-backend.ts` contributes. */
+  id: "openai-http" | "ollama" = "openai-http";
+  readonly class = "process" as const;
+  health(): Promise<{ healthy: boolean; models: string[] }> {
+    return Promise.resolve({ healthy: this.answering, models: ["m"] });
+  }
+  execute(_request: BackendRequest): Promise<BackendResult> {
+    this.calls += 1;
+    return Promise.resolve({
+      ok: true,
+      text: "answered",
+      durationMs: 1,
+      stop: "end",
+      /* The one line that reproduces B304. */
+      timing: { spawnMs: 12, firstOutputMs: 340 },
+    });
+  }
+}
+
 const GB = 1024 ** 3;
 const reading = (availableGb: number): MemoryReading => ({
   kind: "read",
@@ -139,6 +183,11 @@ async function runOneJob(options: {
   reported: BackendResult | undefined;
   /* What the daemon sealed, opened as the site would — B064 step 4. */
   sealed: { ran?: Record<string, unknown> } | undefined;
+  /* The same bytes, unparsed, so a case can ask the PROTOCOL rather than ask
+     for the fields it already expects — B304. */
+  sealedRaw: unknown;
+  /* Every event the owner's daemon emitted. */
+  events: { type: string }[];
 }> {
   const loaded = resolveConfig(
     DaemonConfig.parse({
@@ -168,6 +217,10 @@ async function runOneJob(options: {
 
   let reported: BackendResult | undefined;
   let sealedBody: { envelope?: unknown } | undefined;
+  /* What the OWNER was told, as distinct from what travelled — B304. The two
+     carry deliberately different things and the whole finding is that one of
+     them had been carrying the other's. */
+  const events: { type: string }[] = [];
   /* The job finishes after `tick` returns, so every assertion below has to
      wait for it. A fixed sleep would encode a guess about how many round
      trips the protocol takes; this waits for the job to actually end. */
@@ -237,6 +290,7 @@ async function runOneJob(options: {
     onPath: () => Promise.resolve(true),
     backendFactory: () => options.backend,
     onEvent: (event) => {
+      events.push(event);
       if (
         event.type === "finished" ||
         event.type === "refused" ||
@@ -266,10 +320,19 @@ async function runOneJob(options: {
    * device, so this is the same operation `handlers.ts` performs, with the
    * same keys. Anything less is a test of the daemon's local variables.
    */
-  /* Typed structurally rather than as `SealedOutcome`: this is a test
-     reading a decrypted blob, and the assertions below name the fields they
-     care about. */
+  /**
+   * Typed structurally, and **also handed back unparsed** — B304.
+   *
+   * The original note said this is *"a test reading a decrypted blob, and the
+   * assertions below name the fields they care about"*, which was true and was
+   * the hole: this harness opens the exact bytes the site parses, declined to
+   * parse them as `SealedOutcome`, and so watched a payload the protocol
+   * refuses go past for months. Naming the fields you care about cannot catch
+   * a field you do not know is there — that is what `.strict()` is for, and it
+   * was never asked.
+   */
   let sealed: { ran?: Record<string, unknown> } | undefined;
+  let sealedRaw: unknown;
   if (sealedBody?.envelope !== undefined) {
     const opened = await open({
       envelope: sealedBody.envelope as never,
@@ -283,13 +346,14 @@ async function runOneJob(options: {
       },
     });
     if (opened.ok) {
-      sealed = JSON.parse(opened.plaintext) as {
+      sealedRaw = JSON.parse(opened.plaintext);
+      sealed = sealedRaw as {
         ran?: Record<string, unknown>;
       };
     }
   }
 
-  return { ingress: entries, reported, sealed };
+  return { ingress: entries, reported, sealed, sealedRaw, events };
 }
 
 describe("the memory guard, from a job's point of view", () => {
@@ -741,5 +805,109 @@ describe("what the site is told about how a job ran — B064 step 4", () => {
      */
     const ran = await sealedRan({ stop: "end" });
     expect(ran["durationMs"], "the sealed duration is still hardcoded").toBe(1);
+  });
+});
+
+describe("what the daemon seals is what the protocol accepts — B304", () => {
+  /**
+   * A claude-cli result completed on two of Todd's devices in 4–9 seconds and
+   * never appeared on the test site; a qwen result over `openai-http` did.
+   * Not the lease (these are seconds), not the hub (both images), not the
+   * device (both finished).
+   *
+   * `process-backend.ts` attaches `timing: { spawnMs, firstOutputMs }` to
+   * every result it resolves, and nothing else does. B195 spread
+   * `result.timing` into the sealed `ran` beside the two local events.
+   * `RunMetadata` is `.strict()` and has never had those keys — so the site's
+   * `openSealedOutcome` returned null, the caller dropped the result, and the
+   * page said "still going" until the person gave up. Silent on both sides.
+   *
+   * The harness above has opened these exact bytes since B064 and never
+   * parsed them, because its assertions *"name the fields they care about"*.
+   * A field nobody knows is there is the one case naming fields cannot cover.
+   */
+  it("parses, for a backend that reports where its time went", async () => {
+    const { sealedRaw } = await runOneJob({ backend: new TimingBackend() });
+    const parsed = SealedOutcome.safeParse(sealedRaw);
+    expect(
+      parsed.success,
+      parsed.success
+        ? ""
+        : "the site refuses this and says nothing: " +
+            JSON.stringify(parsed.error.issues.map((i) => i.path.join("."))),
+    ).toBe(true);
+  });
+
+  it("sealed something at all, or the case above passes on nothing", async () => {
+    /* `safeParse(undefined)` fails, so this direction is safe — but a harness
+       that stopped sealing would turn the case above into a permanent red for
+       the wrong reason, and a reader would chase the protocol. */
+    const { sealedRaw } = await runOneJob({ backend: new TimingBackend() });
+    expect(sealedRaw).toBeTypeOf("object");
+  });
+
+  it("keeps the timing for the owner, who is the one it is about", async () => {
+    /**
+     * Removed from the seal, not from the daemon. `spawnMs` and
+     * `firstOutputMs` say where the time went on somebody's own machine —
+     * which is what `byollm status` answers and what a site is neither owed
+     * nor able to use. A fix that deleted the measurement would have traded
+     * one defect for the loss of B195.
+     */
+    const { events } = await runOneJob({ backend: new TimingBackend() });
+    const finished = events.find((e) => e.type === "finished");
+    expect(finished, "the job never reported finishing").toBeDefined();
+    expect(finished).toMatchObject({ spawnMs: 12, firstOutputMs: 340 });
+  });
+
+  it("keeps the split in the owner's own log too", async () => {
+    /**
+     * Two local homes, and both are the owner's: the `finished` event and the
+     * ingress record. A fix that removed the seal's copy by deleting the
+     * measurement would have passed the case above while quietly undoing
+     * B195 — the first mutation run against this file did exactly that, and
+     * removed the ingress spread, which nothing was watching.
+     */
+    const { ingress } = await runOneJob({ backend: new TimingBackend() });
+    const outcome = ingress.find((entry) => "outputChars" in entry);
+    expect(outcome, "no outcome was recorded").toBeDefined();
+    expect(outcome).toMatchObject({ spawnMs: 12, firstOutputMs: 340 });
+  });
+
+  it("asks the protocol before sealing, rather than asserting a type", () => {
+    /**
+     * **A source assertion, and it is the honest shape here.** With the timing
+     * gone from `ran`, the runtime cannot produce an invalid seal any more, so
+     * removing this belt breaks no behaviour and survives every mutation of
+     * the running code. What it guards is the NEXT field somebody spreads in.
+     *
+     * `satisfies SealedOutcome` was what stood here, and it is why B304 lasted
+     * months: TypeScript excess-property-checks a fresh literal, and `ran`
+     * arrives as a variable from another method whose return type is inferred.
+     * The annotation read like a guarantee and the compiler never looked.
+     *
+     * `.parse` throws, and that is the trade: a job that fails loudly on the
+     * owner's machine beats one that succeeds there and hangs forever on
+     * somebody else's page.
+     */
+    const runner = readFileSync(
+      new URL("./runner.ts", import.meta.url),
+      "utf8",
+    );
+    expect(runner).toContain("SealedOutcome.parse({ outcome, ran })");
+    expect(
+      runner.includes("{ outcome, ran } satisfies SealedOutcome"),
+      "the seal is back to a type assertion that cannot see a variable's " +
+        "extra keys",
+    ).toBe(false);
+  });
+
+  it("does not carry the owner's split on the wire", async () => {
+    /* The other direction, asserted by absence: `.strict()` would catch it,
+       and this says which keys and why, so the next reader of a red knows it
+       is about audience rather than about typos. */
+    const { sealed } = await runOneJob({ backend: new TimingBackend() });
+    expect(Object.keys(sealed?.ran ?? {})).not.toContain("spawnMs");
+    expect(Object.keys(sealed?.ran ?? {})).not.toContain("firstOutputMs");
   });
 });

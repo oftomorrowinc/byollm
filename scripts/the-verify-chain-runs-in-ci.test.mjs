@@ -143,3 +143,92 @@ describe("the verify chain", () => {
     expect(inCi.has("run lint")).toBe(false);
   });
 });
+
+describe("what CI runs, and what it costs — B315", () => {
+  /**
+   * 09-18 cost **$32.82 in a day** against a target near 3,000 minutes a
+   * month: 420 pushes across three repositories, and this one runs three
+   * matrix jobs across three operating systems on every push. macOS bills at
+   * 10x and Windows at 2x, so those two legs are almost the whole invoice.
+   *
+   * The ruling narrows them off ordinary pushes. What makes that safe is not
+   * the narrowing, it is the two things that had to be true first — and one of
+   * them was not.
+   */
+  const ci = readFileSync(
+    fileURLToPath(new URL("../.github/workflows/ci.yml", import.meta.url)),
+    "utf8",
+  );
+  const release = readFileSync(
+    fileURLToPath(new URL("../.github/workflows/release.yml", import.meta.url)),
+    "utf8",
+  );
+
+  it("runs on tags, which is what makes a release prove three platforms", () => {
+    /**
+     * **The ruling said a release "still proves all three OSes on the commit
+     * it publishes", and that was not true as the workflows stood.**
+     *
+     * `release.yml`'s `Wait for CI` asks `gh run list --commit <sha> --workflow
+     * CI`, so it proves whatever CI ran for that commit — and nothing here
+     * triggered on a tag. Narrowing the legs off pushes without adding this
+     * would have left a release publishing something never run on macOS or
+     * Windows, which `byollm_010 §2` forbids in that file, directly under the
+     * step that waits.
+     *
+     * Worse than a failure: `Wait for CI` reports "missing" for a commit with
+     * no run and keeps waiting, so the gap would have presented as a release
+     * that paused and then passed.
+     */
+    expect(ci).toMatch(/tags:\s*\["v\*"\]/u);
+    expect(release).toContain("--workflow CI");
+  });
+
+  it("has a nightly, which is what catches a one-platform break", () => {
+    /* B313 was red on Windows only, for nine pushes and three and a half
+       hours, on a tree whose author runs macOS. Without a nightly, narrowing
+       the legs would move that discovery from "the next push" to "the next
+       release". */
+    expect(ci).toMatch(/schedule:/u);
+    expect(ci).toMatch(/cron:/u);
+  });
+
+  it("keeps ubuntu on every push", () => {
+    /* The saving is the 10x and 2x legs. Dropping the cheap one too would
+       trade the whole signal for nothing. */
+    expect(ci).toContain("|| '[\"ubuntu-latest\"]'");
+  });
+
+  it("decides the platforms in the matrix, not in a job-level `if`", () => {
+    /**
+     * My first version put `matrix.os == 'ubuntu-latest' || …` in a job-level
+     * `if`. The `matrix` context is **not available** there — it is not in the
+     * availability table — so the expression would have evaluated against an
+     * empty value and skipped the job outright, ubuntu included.
+     *
+     * A saving that removes the thing it was meant to keep is worse than the
+     * bill. Asserted by absence, because the shape is what matters and not the
+     * spelling that replaced it.
+     */
+    expect(
+      /if:[^\n]*matrix\.os/u.test(ci),
+      "a job-level `if` reads `matrix`, which is not available there",
+    ).toBe(false);
+    expect(ci).toMatch(/os: \$\{\{ fromJSON\(\(/u);
+  });
+
+  it("parenthesises the condition, because `&&` binds tighter than `||`", () => {
+    /* `A || B || C && x || y` is `A || B || (C && x) || y`, which yields the
+       boolean `true` rather than a JSON array — and `fromJSON(true)` is not a
+       matrix. The parentheses are the whole expression working. */
+    /* The first line MENTIONING fromJSON is the comment explaining it — the
+       mention-is-not-the-thing trap, again. Anchored to the line that is the
+       expression. */
+    const line =
+      ci.split("\n").find((l) => l.trim().startsWith("os: ${{")) ?? "";
+    expect(line, "the matrix expression has moved or gone").toContain(
+      "fromJSON((",
+    );
+    expect(line).toMatch(/\)\s*&&\s*'\["ubuntu-latest","macos-latest"/u);
+  });
+});

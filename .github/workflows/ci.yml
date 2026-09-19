@@ -3,7 +3,30 @@ name: CI
 on:
   push:
     branches: [main]
+    # **Tags run CI too, and the release depends on it — B315.**
+    #
+    # `release.yml`'s `Wait for CI` asks `gh run list --commit <sha> --workflow
+    # CI`, so what it proves is whatever CI ran for that COMMIT. The B315
+    # ruling narrows the macOS and Windows legs off every push to main, on the
+    # stated grounds that "a release still proves all three OSes on the commit
+    # it publishes" — and that was not true as the workflows stood, because
+    # nothing here triggered on a tag at all. Narrowing without this line would
+    # have left a release publishing something never run on macOS or Windows,
+    # which is what `byollm_010 §2` forbids one file over, and what the alpha
+    # that shipped an unusable daemon cost.
+    #
+    # Driven rather than assumed: `on.push.branches` alone does not match a tag
+    # ref, and `Wait for CI` reports "missing" rather than failing when no run
+    # exists — so the gap would have been a release that waited twenty minutes
+    # and then passed, not one that refused.
+    tags: ["v*"]
   pull_request:
+  # The nightly, which is what makes the narrowing safe on ordinary days: a
+  # B313-shaped break — red only on Windows, invisible to a macOS laptop — is
+  # caught within a day rather than at the next release.
+  schedule:
+    - cron: "17 7 * * *"
+  workflow_dispatch:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -67,11 +90,32 @@ jobs:
   # ---------------------------------------------------------------------------
   daemon-matrix:
     name: Daemon suite (${{ matrix.os }})
+    # **The expensive legs, and when they run — B315.**
+    #
+    # 09-18 cost $32.82 in a day against a target near 3,000 minutes a MONTH:
+    # 420 pushes across three repositories, and this repository runs three
+    # matrix jobs x three OSes on every one. macOS bills at 10x and Windows at
+    # 2x, so those two legs are almost the whole invoice.
+    #
+    # They run where the answer is worth the money: on a TAG (the release
+    # proves all three on the commit it publishes — `byollm_010 §2`), on the
+    # nightly (a Windows-only break is found within a day, which is the B313
+    # shape and the reason the nightly exists), on `workflow_dispatch` when
+    # somebody is chasing one, and on a pull request that touches the daemon.
+    # ubuntu runs on every push, unconditionally.
+    #
+    # `github.event_name == 'push'` with a tag ref rather than `startsWith`
+    # alone: a branch push and a tag push are both `push`, and only the ref
+    # tells them apart.
     strategy:
       # Every platform reports. A Windows failure must not hide a macOS one.
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
+        # Parenthesised deliberately: `&&` binds tighter than `||` in a
+        # GitHub expression, so `A || B || C && x || y` is
+        # `A || B || (C && x) || y` — which yields the boolean `true`
+        # rather than a JSON array, and `fromJSON(true)` is not a matrix.
+        os: ${{ fromJSON((startsWith(github.ref, 'refs/tags/') || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && '["ubuntu-latest","macos-latest","windows-latest"]' || '["ubuntu-latest"]') }}
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -98,6 +142,23 @@ jobs:
 
   adversarial:
     name: Adversarial corpus (${{ matrix.os }})
+    # **The expensive legs, and when they run — B315.**
+    #
+    # 09-18 cost $32.82 in a day against a target near 3,000 minutes a MONTH:
+    # 420 pushes across three repositories, and this repository runs three
+    # matrix jobs x three OSes on every one. macOS bills at 10x and Windows at
+    # 2x, so those two legs are almost the whole invoice.
+    #
+    # They run where the answer is worth the money: on a TAG (the release
+    # proves all three on the commit it publishes — `byollm_010 §2`), on the
+    # nightly (a Windows-only break is found within a day, which is the B313
+    # shape and the reason the nightly exists), on `workflow_dispatch` when
+    # somebody is chasing one, and on a pull request that touches the daemon.
+    # ubuntu runs on every push, unconditionally.
+    #
+    # `github.event_name == 'push'` with a tag ref rather than `startsWith`
+    # alone: a branch push and a tag push are both `push`, and only the ref
+    # tells them apart.
     strategy:
       fail-fast: false
       matrix:
@@ -105,7 +166,11 @@ jobs:
         # injects were measured on a real runner and are named in the suite,
         # with the two that carry something new called out rather than waved
         # through. The gate covers every platform we ship to.
-        os: [ubuntu-latest, macos-latest, windows-latest]
+        # Parenthesised deliberately: `&&` binds tighter than `||` in a
+        # GitHub expression, so `A || B || C && x || y` is
+        # `A || B || (C && x) || y` — which yields the boolean `true`
+        # rather than a JSON array, and `fromJSON(true)` is not a matrix.
+        os: ${{ fromJSON((startsWith(github.ref, 'refs/tags/') || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && '["ubuntu-latest","macos-latest","windows-latest"]' || '["ubuntu-latest"]') }}
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -136,13 +201,34 @@ jobs:
 
   next-build:
     name: Next.js example builds (${{ matrix.os }})
+    # **The expensive legs, and when they run — B315.**
+    #
+    # 09-18 cost $32.82 in a day against a target near 3,000 minutes a MONTH:
+    # 420 pushes across three repositories, and this repository runs three
+    # matrix jobs x three OSes on every one. macOS bills at 10x and Windows at
+    # 2x, so those two legs are almost the whole invoice.
+    #
+    # They run where the answer is worth the money: on a TAG (the release
+    # proves all three on the commit it publishes — `byollm_010 §2`), on the
+    # nightly (a Windows-only break is found within a day, which is the B313
+    # shape and the reason the nightly exists), on `workflow_dispatch` when
+    # somebody is chasing one, and on a pull request that touches the daemon.
+    # ubuntu runs on every push, unconditionally.
+    #
+    # `github.event_name == 'push'` with a tag ref rather than `startsWith`
+    # alone: a branch push and a tag push are both `push`, and only the ref
+    # tells them apart.
     # The same matrix byollm_010 requires for anything we let people install:
     # a bundler's behaviour is not one of the things that is the same
     # everywhere, and this is the integration nearly every adopter copies.
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
+        # Parenthesised deliberately: `&&` binds tighter than `||` in a
+        # GitHub expression, so `A || B || C && x || y` is
+        # `A || B || (C && x) || y` — which yields the boolean `true`
+        # rather than a JSON array, and `fromJSON(true)` is not a matrix.
+        os: ${{ fromJSON((startsWith(github.ref, 'refs/tags/') || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && '["ubuntu-latest","macos-latest","windows-latest"]' || '["ubuntu-latest"]') }}
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4

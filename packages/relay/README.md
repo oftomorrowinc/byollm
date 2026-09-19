@@ -188,8 +188,14 @@ internet is an open enqueue endpoint into consenting users' devices and an
 open read of who is online. It was blind the whole time — nothing could open a
 payload — and blind is not the same as safe.
 
-If you are running this: the site plane is authenticated but this is still a
-single-tenant relay with in-memory state. One site, one replica.
+If you are running this: the site plane is authenticated. The package ships an
+in-memory store, and that is what holds it to one replica — give it a shared
+`RoutingStore` and the limit goes with it.
+
+It is **not** single-tenant. `RelayOptions` has no site field; the relay routes
+for every site its projection holds, and refuses a caller that names a site the
+projection does not (cloud_009 §3). Job state is keyed by the pair, so two sites
+may use the same job id without either seeing the other.
 
 ## Breaking in `0.1.0-alpha.12`: `RelayState` is async
 

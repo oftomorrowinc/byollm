@@ -291,7 +291,7 @@ export class SitePlane {
     if (siteIdOf(parsed.data) !== siteId) {
       return fail(403, "forbidden", "that is not your site");
     }
-    // This relay routes for exactly one site, and now says so.
+    // A caller may only name the site it signed as, and now says so.
     //
     // The daemon plane has always been single-tenant — `DaemonPlaneDeps.siteId`
     // is the field multi-tenancy replaces — but the site plane accepted any

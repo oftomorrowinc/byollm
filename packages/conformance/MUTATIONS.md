@@ -336,11 +336,30 @@ instead a unit test of the property: same key, same endpoint name, same body,
 same second, and the two signatures must differ. It fails the moment the
 prefix goes, which the scenario version never would.
 
-**The guard deliberately not written.** `enqueue` returning an existing job
-needs a collision check for the day two sites share a job id. This relay
-serves one site, so that branch cannot be reached and its test could not
-fail. It is a comment naming the condition, not code — the multi-tenant
-router adds both together.
+**The guard deliberately not written, and the day it was waiting for.**
+`enqueue` returning an existing job needed a collision check for the day two
+sites share a job id. It was left as a comment naming the condition, on the
+grounds that this relay served one site so the branch could not be reached and
+its test could not fail.
+
+**That day came — cloud_009 §3 — and the answer was not the guard.** The relay
+routes for every site its projection holds. `RelayState.#jobs` is keyed by the
+pair, `enqueue` is idempotent by `(site, id)`, and `store-contract.ts` carries
+the case — _"gives two sites the same id without either seeing the other"_ —
+which both implementations run, the in-memory one and the Valkey one behind
+`REQUIRE_VALKEY=1`. `enqueue`'s own comment records the move: _"The refusal
+that used to live here went with the collision it refused."_ There is no
+unreachable branch left here and nothing to add.
+
+Kept rather than deleted, because the reasoning was wrong in a way worth
+seeing. It deferred a test on the grounds that a branch could not be reached,
+and what made the branch safe in the end was **a key, not a check**. Worse is
+how it reads once the premise moves: a note saying a guard is deliberately
+absent is read as _collisions are impossible_, and it gives the reason —
+one site. Had the multi-tenant router landed without pair-keying, this
+paragraph would have said exactly the same thing and been the opposite of
+true. A deferral has to name the condition that revives it in a form somebody
+trips over, not in prose nobody re-reads.
 
 **The shape to remember:** a test harness that reaches the system under test
 by calling it directly cannot see anything about how the system is _reached_.

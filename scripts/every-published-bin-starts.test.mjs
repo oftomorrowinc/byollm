@@ -2,6 +2,7 @@ import { execFileSync } from "node:child_process";
 import { existsSync, mkdtempSync, readFileSync, readdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
 /**
@@ -155,13 +156,58 @@ describe("every bin we publish", () => {
  * Derived from the manifests and from `npm pack` itself, so neither side is a
  * list somebody maintains. ~1.8s for all six packages.
  */
+/**
+ * **`undefined` when npm cannot be spawned at all — B315.**
+ *
+ * On Windows `npm` is `npm.cmd`, and Node refuses to spawn a `.cmd` from
+ * `execFileSync` without `shell: true`, which `byollm_004 §2` bans outright.
+ * So this threw `spawnSync npm ENOENT` and a stack trace: a check crashing
+ * rather than reporting, on the one platform its author cannot run.
+ *
+ * It was red on `windows-latest` for nine consecutive pushes to main — three
+ * and a half hours — and took the Release run for `v0.1.0-alpha.103` down with
+ * it at the CI gate. Nothing published; the gate did its job. My local
+ * `pnpm verify` is macOS and was green throughout, which is exactly why the
+ * other two OSes exist in CI and exactly why a push is not done until they are
+ * read.
+ *
+ * `every-package-ships-its-license.mjs` met this first and settled it: an
+ * unreachable tool is *"I could not ask"*, not an answer about the subject,
+ * and reporting it as one is the false alarm that gets a gate deleted. This is
+ * the same third state, in a file that has cases instead of an exit code.
+ *
+ * Narrow on purpose — ENOENT only. A packing failure that npm actually
+ * produced is a real answer and still throws.
+ */
 const packed = (dir) => {
-  const out = execFileSync("npm", ["pack", "--dry-run", "--json"], {
-    cwd: dir,
-    encoding: "utf8",
-    stdio: ["ignore", "pipe", "pipe"],
-  });
+  let out;
+  try {
+    out = execFileSync("npm", ["pack", "--dry-run", "--json"], {
+      cwd: dir,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+  } catch (error) {
+    if (/** @type {{code?: string}} */ (error).code !== "ENOENT") throw error;
+    return undefined;
+  }
   return new Set(JSON.parse(out)[0].files.map((f) => f.path));
+};
+
+/**
+ * Said once, where somebody reading a green run will see it.
+ *
+ * A skip that prints nothing is how a platform quietly stops being tested —
+ * and this file's whole subject is what a stranger receives, so a silent gap
+ * on one OS is the wrong kind of quiet.
+ */
+const cannotPack = () => {
+  console.warn(
+    "every-published-bin-starts: `npm` could not be spawned here, so the " +
+      "packing cases did not run. On Windows it is `npm.cmd`, which " +
+      "execFileSync will not run without a shell, and byollm_004 §2 bans " +
+      "shell-invoking APIs. NOT an answer about any package's files.",
+  );
 };
 
 /** Every publishable package directory, with its manifest. */
@@ -193,8 +239,11 @@ describe("what npm actually hands a stranger", () => {
     /* `npm pack` answering an empty set would make every assertion below pass
        about a package that ships nothing — the fail-open this repository keeps
        finding in its own checks. */
-    for (const { dir, pkg } of publishable())
-      expect(packed(dir).size, pkg.name).toBeGreaterThan(2);
+    for (const { dir, pkg } of publishable()) {
+      const files = packed(dir);
+      if (files === undefined) return cannotPack();
+      expect(files.size, pkg.name).toBeGreaterThan(2);
+    }
   });
 
   it("contains every bin, because npm ships them whatever `files` says", () => {
@@ -219,6 +268,7 @@ describe("what npm actually hands a stranger", () => {
      */
     for (const { dir, pkg } of publishable()) {
       const files = packed(dir);
+      if (files === undefined) return cannotPack();
       for (const [bin, target] of Object.entries(pkg.bin ?? {}))
         expect(
           files.has(target.replace(/^\.\//u, "")),
@@ -244,6 +294,7 @@ describe("what npm actually hands a stranger", () => {
     };
     for (const { dir, pkg } of publishable()) {
       const files = packed(dir);
+      if (files === undefined) return cannotPack();
       const targets = [];
       for (const field of ["main", "types", "module"])
         if (typeof pkg[field] === "string") targets.push([field, pkg[field]]);
@@ -255,5 +306,110 @@ describe("what npm actually hands a stranger", () => {
             "does not admit",
         ).toBe(true);
     }
+  });
+});
+
+describe("what this file does where npm cannot be spawned — B315", () => {
+  /**
+   * It threw `spawnSync npm ENOENT` and a stack trace on `windows-latest` for
+   * **nine consecutive pushes to main**, and took the Release run for
+   * `v0.1.0-alpha.103` down with it at the CI gate. Nothing published; the
+   * gate did its job.
+   *
+   * On Windows `npm` is `npm.cmd`, and Node refuses to spawn a `.cmd` from
+   * `execFileSync` without `shell: true`, which `byollm_004 §2` bans.
+   * `every-package-ships-its-license.mjs` met this first and settled it: an
+   * unreachable tool is "I could not ask", not an answer about the subject.
+   *
+   * ## Why these are source assertions
+   *
+   * The condition cannot be produced here. Stripping `npm` from `PATH` gives
+   * the identical `ENOENT` to a bare `execFileSync` — checked — but vitest
+   * hands its workers a `PATH` that finds npm again, so the file cannot be run
+   * against its own failure locally. The end-to-end proof is the Windows job,
+   * which is the thing that was not being read.
+   *
+   * So what is pinned here is the shape: the guard is narrow, and every case
+   * that packs handles not being able to.
+   */
+  const source = readFileSync(
+    fileURLToPath(
+      new URL("./every-published-bin-starts.test.mjs", import.meta.url),
+    ),
+    "utf8",
+  );
+
+  it("treats an unspawnable npm as unasked, not as an answer", () => {
+    expect(source).toContain('.code !== "ENOENT") throw error;');
+    expect(source).toMatch(/return undefined;/u);
+  });
+
+  it("does not swallow a failure npm actually produced", () => {
+    /* Narrow on purpose. A packing error npm reported is a real answer about
+       a real package, and hiding it here would be the false all-clear this
+       file exists to prevent.
+
+       Asserted as ORDER inside the catch, not as the absence of a pattern —
+       my first version forbade `return undefined` near a `catch` and failed on
+       the correct code, which is a rule written from the defect's silhouette
+       rather than from the property. */
+    /* Anchored to `packed`, because this file has another `catch (error)`
+       that builds a result object — the unanchored version found that one and
+       reported the guard missing. */
+    const fn = source.slice(
+      source.indexOf("const packed = (dir) => {"),
+      source.indexOf("const cannotPack"),
+    );
+    const body = /catch \(error\) \{([\s\S]*?)\n {2}\}/u.exec(fn)?.[1] ?? "";
+    /* `"pack", "--dry-run"` — the argv, which is what is actually written.
+       I first asserted `"npm pack"`, a phrase that appears nowhere: the
+       command and its first argument are separate strings. Third rule in this
+       one case written from what I pictured rather than from the file. */
+    expect(fn, "packed() has moved or gone").toContain('"pack", "--dry-run"');
+    expect(body, "packed()'s catch has moved or gone").toContain(
+      "throw error;",
+    );
+    expect(
+      body.indexOf("throw error;") < body.indexOf("return undefined;"),
+      "the catch returns before it rethrows, so a real npm failure is hidden",
+    ).toBe(true);
+  });
+
+  it("handles it at every case that packs, not at some of them", () => {
+    /**
+     * The structural one, and the reason it is here: a fourth case that calls
+     * `packed()` and forgets the guard puts Windows back to a stack trace, and
+     * nothing else would notice until CI — which is exactly how the nine runs
+     * happened.
+     */
+    const calls = source.match(/const files = packed\(dir\);/gu) ?? [];
+    const guards =
+      source.match(/if \(files === undefined\) return cannotPack\(\);/gu) ?? [];
+    expect(calls.length).toBeGreaterThanOrEqual(2);
+    expect(
+      guards.length,
+      "a case packs without handling not being able to",
+    ).toBe(calls.length);
+  });
+
+  it("says so rather than skipping in silence", () => {
+    /**
+     * A platform that quietly stops being tested is worse than one that fails,
+     * and this file's subject is what a stranger receives.
+     *
+     * **Scoped to `cannotPack`'s body, because the whole source contains this
+     * assertion.** The first version read `source` for the sentence and passed
+     * a mutation that deleted the sentence — the phrase was still there, in
+     * the expectation looking for it. A file that reads itself will find
+     * whatever its own test says, which is the one-source comparison this
+     * project keeps catching in other people's checks and has now caught in
+     * mine.
+     */
+    const fn = source.slice(
+      source.indexOf("const cannotPack"),
+      source.indexOf("/** Every publishable package"),
+    );
+    expect(fn, "cannotPack has moved or gone").toContain("console.warn");
+    expect(fn).toContain("NOT an answer");
   });
 });

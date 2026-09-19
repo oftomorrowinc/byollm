@@ -114,7 +114,12 @@ export default tseslint.config(
       "packages/daemon/test/adversarial/*.mjs",
       "packages/daemon/scripts/*.mjs",
       "packages/server/bin/*.mjs",
-      "scripts/*.mjs",
+      /* `**` rather than `*`: the first shared module under `scripts/lib/`
+         was invisible to this block and eslint refused it as a file outside
+         every tsconfig — an error naming the project service rather than the
+         glob. A subdirectory is what somebody adds the moment two scripts
+         want the same function, so the pattern covers it. */
+      "scripts/**/*.mjs",
     ],
     ...tseslint.configs.disableTypeChecked,
     languageOptions: {
@@ -134,6 +139,18 @@ export default tseslint.config(
         fetch: "readonly",
         AbortSignal: "readonly",
       },
+    },
+    rules: {
+      /* MERGED, not replaced — the same trap the comment above describes for
+         `languageOptions`, one key over: a bare `rules` object here would
+         discard everything `disableTypeChecked` turns off and re-enable
+         type-aware rules on files that have no project to type them from. */
+      ...tseslint.configs.disableTypeChecked.rules,
+      /* Unsatisfiable in these files rather than unwanted. `.mjs` has nowhere
+         to put a return type, so an exported helper in a standalone script
+         cannot comply — and the rule only fires on EXPORTS, which is why it
+         stayed quiet until two scripts first wanted the same function. */
+      "@typescript-eslint/explicit-module-boundary-types": "off",
     },
   },
   {

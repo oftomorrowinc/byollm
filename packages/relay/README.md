@@ -1,10 +1,3 @@
-> [!WARNING]
-> **Alpha (`0.1.0-alpha.103`) — under active development. Don't use this yet.**
->
-> This is a walking skeleton. It routes real jobs between real daemons and real
-> sites, and it is the fixture byollm_009 freezes against — but it keeps its
-> state in memory, serves one site, and has never run anywhere but a test.
->
 > **`alpha.15` is a breaking wire change, and it breaks daemons and relays —
 > not app authors.** If you call `app.enqueue(...)` and read results, nothing
 > in your code changes. If you run a daemon or an upstream, every package must

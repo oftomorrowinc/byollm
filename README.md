@@ -1,14 +1,9 @@
 > [!WARNING]
-> **Alpha (`0.1.0-alpha.103`) — under active development. Don't use this yet.**
->
-> Install it as `byollm@latest`, deliberately. npm forces a `latest` tag onto a
-> package's first publish and will not let it be removed, so a bare install
-> resolves here too — this notice is the only guard, and that is on purpose:
-> an npm deprecation would read as *abandoned* rather than *early*. The
-> protocol is v0 and **will** change without a deprecation path,
-> the packages have never run outside their own test suite, and nothing here
-> has production miles. Read it, take the ideas, tell us what's wrong — but
-> don't put it in front of your users.
+> **`0.1.0` — early.** The protocol is v0 and **will** change without a
+> deprecation path. These packages run one hosted service — byollm.cloud —
+> and a small number of integrations; beyond that they have little mileage,
+> and most of what we know about the failure modes we learned from the first
+> people to try.
 >
 > **Formats change, and a change may require re-pairing.** On-disk shapes
 > (the pairings file), wire fields and the routing store's keyspace are still
@@ -324,7 +319,7 @@
 > What that costs you, concretely:
 >
 > - **A site now needs a keypair.** Generate one — once — with
->   `npx --package @byollm/server@alpha keygen`, and set `BYOLLM_SITE_KEYS`. Not at
+>   `npx --package @byollm/server keygen`, and set `BYOLLM_SITE_KEYS`. Not at
 >   startup: every instance would get a different identity and daemons would
 >   pin one and be refused by another.
 > - **Runner tokens are gone.** A daemon proves who it is by signing, so old
@@ -348,7 +343,7 @@
 
 `npx byollm@latest connect https://your-app.com`
 
-[![npm](https://img.shields.io/badge/npm-%40byollm-cb3837)](https://www.npmjs.com/org/byollm) · [![license](https://img.shields.io/badge/license-MIT-blue)](#license) · [![status](https://img.shields.io/badge/status-alpha-orange)](#status)
+[![npm](https://img.shields.io/badge/npm-%40byollm-cb3837)](https://www.npmjs.com/org/byollm) · [![license](https://img.shields.io/badge/license-MIT-blue)](#license) · [![status](https://img.shields.io/badge/status-early-orange)](#status)
 
 </div>
 
@@ -404,7 +399,7 @@ let shared: { store: MemoryStore; app: ByollmApp } | undefined;
 function get() {
   if (!shared) {
     const store = new MemoryStore();
-    // Generate once with `npx --package @byollm/server@alpha keygen` — never at startup,
+    // Generate once with `npx --package @byollm/server keygen` — never at startup,
     // or each instance gets a different identity and paired daemons break.
     const siteKeys = siteKeysFromEnv("BYOLLM_SITE_KEYS");
     shared = { store, app: new ByollmApp({ store, siteKeys }) };
@@ -564,7 +559,7 @@ We're precise about the boundary: BYOLLM makes **breakout** impossible; **prompt
 | [`@byollm/control-plane`](packages/control-plane) | Who may ask whom, and the policy store behind it. |
 | [`@byollm/conformance`](packages/conformance) | The kit that proves an implementation is one — including a posture audit that holds nothing but a URL. |
 
-Six packages, versioned and released together. Ask for `@alpha` explicitly — see the warning at the top of this file.
+Six packages, versioned and released together.
 
 ### Where the rest lives
 
@@ -579,7 +574,7 @@ A server is **byollm-compatible** when the conformance kit passes against it. Th
 
 ## Status
 
-**Alpha, built in the open.** The packages are listed above; ask for `@alpha` explicitly. npm assigns `latest` on a first publish and refuses to let it be removed, so a bare `npm install byollm` resolves here too; the warning at the top of this file is the guard, deliberately rather than an npm deprecation, which would say *abandoned* when the truth is *early*.
+**Early, built in the open.** The packages are listed above, and `npm install byollm` resolves to this release.
 
 The protocol is at v0 and the audience model is settled, but v0 means what it says: it will change without a deprecation path. A device serves its owner alone until it is paired with a relay and its owner shares a service deliberately. Backends at v1: `openai-http` for any OpenAI-compatible server (Ollama, MLX, llama.cpp, vLLM, LM Studio and the rest), the CLI backends `claude-cli` and `codex-cli`, and named ids for the hosted vendors — the full set is `BACKEND_IDS` in `@byollm/protocol`.
 

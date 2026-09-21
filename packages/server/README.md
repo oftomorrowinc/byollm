@@ -1,17 +1,3 @@
-> [!WARNING]
-> **Alpha (`0.1.0-alpha.103`) — under active development. Don't use this yet.**
->
-> Install it deliberately: `npm install @byollm/server@alpha`.
->
-> The protocol is v0 and **will** change without a deprecation path, this has
-> never run outside its own test suite, and nothing here has production miles.
-> Read it, take the ideas, tell us what's wrong — but don't put it in front of
-> your users.
->
-> npm assigns `latest` on a first publish and won't let it be removed, so a
-> bare install resolves here too. This notice is the only guard — deliberately
-> not an npm deprecation, which would read as *abandoned* rather than *early*.
-> Ask for `@alpha` explicitly so your lockfile records that you meant to.>
 > **`alpha.15` is a breaking wire change, and it breaks daemons and relays —
 > not app authors.** If you call `app.enqueue(...)` and read results, nothing
 > in your code changes. If you run a daemon or an upstream, every package must
@@ -88,7 +74,7 @@
 >
 > **`alpha.4` broke every integration.** Three things changed for you:
 >
-> 1. **`siteKeys` is required.** Run `npx --package @byollm/server@alpha keygen` once,
+> 1. **`siteKeys` is required.** Run `npx --package @byollm/server keygen` once,
 >    set `BYOLLM_SITE_KEYS`, and pass it to `ByollmApp` and `createHandler`.
 >    Once — not per deploy, never at startup.
 > 2. **`createHandler` takes a function.** `next build` imports route modules
@@ -207,7 +193,7 @@ export function getApp(): ByollmApp {
 Generate that identity once, and keep it:
 
 ```bash
-npx --package @byollm/server@alpha keygen   # prints BYOLLM_SITE_KEYS=...
+npx --package @byollm/server keygen   # prints BYOLLM_SITE_KEYS=...
 ```
 
 Once, not per deploy and never at startup — a daemon pins this identity when

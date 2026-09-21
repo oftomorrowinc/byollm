@@ -99,7 +99,8 @@ function replaceLiveVersion(path, text) {
       const isReadmeBanner =
         path.endsWith("README.md") && /^\s*>\s*\*\*Alpha \(`/i.test(line);
       const isSiteBanner =
-        path === "site/index.html" && /<b>Alpha \(/i.test(line);
+        path === "site/index.html" &&
+        /<b>(?:Alpha \(|\d+\.\d+\.\d)/i.test(line);
       const isDaemonVersion =
         path.endsWith("packages/daemon/src/index.ts") &&
         /^\s*export const DAEMON_VERSION\s*=/.test(line);
@@ -115,6 +116,14 @@ function replaceLiveVersion(path, text) {
 }
 
 /**
+ * **The banner's shape changed at the 0.1.0 cut, so this pattern had to.** It
+ * read `<b>Alpha (` only; the flip's banner is `<b>0.1.0 — early.</b>`, and a
+ * rule that no longer matches it would leave the marketing page naming 0.1.0
+ * for ever. `check-site.mjs` requires the version to be there, which is what
+ * makes the staleness loud rather than silent — but loud at the next cut is
+ * still worse than maintained. Only the NUMBER is touched here; which
+ * sentences survive a flip stays a hand edit, for the reason below.
+ *
  * What a bump to a RELEASE does on top of renumbering — B252.
  *
  * CW's ruling: *"on a non-prerelease target the bumper removes the banner and

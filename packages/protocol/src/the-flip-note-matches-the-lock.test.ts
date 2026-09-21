@@ -271,14 +271,31 @@ describe("the 0.1.0 release note", () => {
     expect(note).toContain("version: 1");
   });
 
-  it("does not claim production miles it does not have", () => {
+  it("does not oversell the mileage, and does not undersell it either", () => {
     /**
      * The one thing a version number tempts a note into. `0.1.0` is a promise
-     * about the wire; the READMEs have said "not a single production mile"
-     * through every alpha, and the number changing does not change that fact.
+     * about the wire, not about mileage — and this case used to pin the phrase
+     * "not about production miles", on the reasoning that *"the READMEs have
+     * said 'not a single production mile' through every alpha"*.
+     *
+     * **That premise is what B279 corrected and Todd overruled on 2026-09-21.**
+     * The packages run byollm.cloud and a small number of integrations, and
+     * B258 exists because a customer hit it in production. "No production
+     * miles" was false, so a case requiring the note to say it was requiring a
+     * falsehood.
+     *
+     * Both directions now. Overselling was the original worry; underselling is
+     * the one that actually shipped, and had to be taken back out of three
+     * READMEs, a marketing page and this note.
      */
     const note = words(readFileSync(NOTE, "utf8"));
-    expect(note).toContain("not about production miles");
+    expect(note).toContain("not about mileage");
     expect(note).not.toMatch(/battle.tested|production.ready|stable release/iu);
+    expect(
+      note,
+      "the note is back to claiming no mileage at all, which B279 found false",
+    ).not.toMatch(
+      /no production miles|not a single production mile|never run anywhere but/iu,
+    );
   });
 });

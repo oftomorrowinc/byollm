@@ -142,6 +142,34 @@ describe("a bump to a RELEASE retires the alpha, and only mechanically", () => {
     expect(after).not.toContain("@alpha");
   });
 
+  it("maintains the banner's version after the 0.1.0 cut changed its shape", () => {
+    /**
+     * **The rule read `<b>Alpha (` only.** At the cut the banner became
+     * `<b>0.1.0 — early.</b>`, and a number-maintainer that no longer matches
+     * its line leaves the marketing page naming 0.1.0 for ever.
+     *
+     * `check-site.mjs` requires the version to be in that file, so the
+     * staleness would be loud — at the NEXT cut, which is still worse than
+     * maintained. Only the number moves here; which sentences survive a flip
+     * stays a hand edit, which is what the case below is about.
+     */
+    root = mkdtempSync(join(tmpdir(), "bump-shape-"));
+    mkdirSync(join(root, "site"), { recursive: true });
+    mkdirSync(join(root, "packages/protocol"), { recursive: true });
+    writeFileSync(
+      join(root, "packages/protocol/package.json"),
+      '{\n  "version": "0.1.0"\n}\n',
+    );
+    writeFileSync(
+      join(root, "site/index.html"),
+      '<div class="alpha"><div class="wrap">\n  <b>0.1.0 — early.</b>\n</div></div>\n',
+    );
+    execFileSync(process.execPath, [script, "0.1.1"], { cwd: root });
+    expect(readFileSync(join(root, "site/index.html"), "utf8")).toContain(
+      "<b>0.1.1 — early.</b>",
+    );
+  });
+
   it("leaves the site's banner alone, because that block is not mechanical", () => {
     /**
      * I wrote the HTML rules first and they broke the page. The orange bar is

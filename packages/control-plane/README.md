@@ -1,5 +1,6 @@
 # @byollm/control-plane
 
+`0.1.0`
 
 The reference control plane: it resolves a person's mapping and authors one
 signed grant per job, against a policy store it does not own and with a key it

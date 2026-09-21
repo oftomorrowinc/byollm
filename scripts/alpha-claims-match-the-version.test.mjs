@@ -225,11 +225,19 @@ describe("at a clean version", () => {
     expect(out).toContain("claims otherwise");
   });
 
-  it("is what the real repository would fail on today", () => {
+  it("is what the real repository looks like now the cut has landed", () => {
     /**
      * The case that makes this more than fixtures: the actual tree, with one
-     * value changed to what the cut will set. Fourteen lines across nine
-     * documents, and they are the lines a reader follows.
+     * value changed to what the cut set.
+     *
+     * **It used to assert the opposite, and that was right until 2026-09-21.**
+     * It read "is what the real repository would FAIL on today" and named
+     * fourteen lines across nine documents — the work the flip had to do. The
+     * cut did it, so the same case now asserts the tree is clean at a clean
+     * version, and from here it is the regression guard: re-add an alpha claim
+     * and this fires.
+     *
+     * A case pinned to "today" is only ever right until the day it describes.
      */
     const root = mkdtempSync(join(tmpdir(), "alpha-claims-real-"));
     for (const path of ["README.md", "site", "packages"])
@@ -243,11 +251,8 @@ describe("at a clean version", () => {
       JSON.stringify({ name: "@byollm/protocol", version: "0.1.0" }),
     );
     const { code, out } = run(root);
-    expect(code).toBe(1);
-    /* Named, not counted: these are the instructions, and a count would be
-       satisfied by any fourteen lines. */
-    expect(out).toContain("README.md");
-    expect(out).toMatch(/@alpha/u);
+    expect(code, out).toBe(0);
+    expect(out).toContain("no document IN THIS REPOSITORY claims otherwise");
   });
 });
 
@@ -331,10 +336,36 @@ describe("the line numbers a reader will open — B253a", () => {
 });
 
 describe("at a prerelease", () => {
-  it("passes the real repository as it stands", () => {
-    const { code, out } = run(REPO);
-    expect(code).toBe(0);
-    expect(out).toContain("is a prerelease");
+  it("now REFUSES the real repository if it is bumped back to a prerelease", () => {
+    /**
+     * This read "passes the real repository as it stands", because the tree
+     * was an alpha and its documents warned. Both halves of that changed on
+     * 2026-09-21: the version is clean and the warnings are gone.
+     *
+     * So the real tree at a prerelease version is refused now — and that is
+     * the biconditional working, not a regression. A repository shipping
+     * alphas with no warning is the same defect wearing the other face, which
+     * is what the case below says with a fixture. Said here against the REAL
+     * tree, because that is the one somebody would bump.
+     */
+    const root = mkdtempSync(join(tmpdir(), "alpha-claims-back-"));
+    for (const path of ["README.md", "site", "packages"])
+      cpSync(join(REPO, path), join(root, path), {
+        recursive: true,
+        filter: (src) =>
+          !src.includes("node_modules") && !src.includes("/dist"),
+      });
+    writeFileSync(
+      join(root, "packages", "protocol", "package.json"),
+      JSON.stringify({ name: "@byollm/protocol", version: "0.1.0-alpha.104" }),
+    );
+    const { code, out } = run(root);
+    expect(code, out).toBe(1);
+    /* The gate's own words for this direction, which name the defect rather
+       than the version: "a prerelease whose docs have quietly stopped warning
+       is the same defect as a release whose docs still do, pointing the other
+       way." */
+    expect(out).toContain("NO document says so");
   });
 
   it("refuses a prerelease whose documents have stopped warning", () => {

@@ -25,9 +25,12 @@ import { DAEMON_VERSION } from "./index.js";
  */
 function above(steps: number): string {
   const core = /^(\d+)\.(\d+)\.(\d+)/u.exec(DAEMON_VERSION);
-  if (core === null)
+  const major = core?.[1];
+  const minor = core?.[2];
+  const patch = core?.[3];
+  if (major === undefined || minor === undefined || patch === undefined)
     throw new Error(`unparseable DAEMON_VERSION: ${DAEMON_VERSION}`);
-  return `${core[1]}.${core[2]}.${String(Number(core[3]) + steps)}`;
+  return `${major}.${minor}.${String(Number(patch) + steps)}`;
 }
 
 const NEWER_OFFER = above(1);

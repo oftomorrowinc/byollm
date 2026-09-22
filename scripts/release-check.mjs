@@ -23,7 +23,10 @@
  * release. It queries npm for each package and asserts two things:
  *
  *   1. the version exists, and
- *   2. the `alpha` dist-tag points at it.
+ *   2. the dist-tag for the version's own CHANNEL points at it — `alpha`,
+ *      `beta`, `next` or `latest`, by the rule `release.yml` §4 publishes
+ *      with. See `channelOf`, and B339 for what asking `alpha` unconditionally
+ *      cost the first stable release.
  *
  * A partial publish is the failure it is really for. `alpha.6` published four
  * packages and then failed on the fifth — the job did go red, and by then four
@@ -46,12 +49,26 @@
  * Both halves are asked for here, and a disagreement is this script's exit
  * code — not a line in its output.
  *
- * ## `latest` is reported, never asserted
+ * ## `latest` is asserted on a stable release, and only reported otherwise
  *
- * Moving `latest` needs a human with 2FA and is deliberately not automated
- * (see the release workflow's note). So a `latest` behind `alpha` is printed
- * as a reminder rather than a failure — that is a decision somebody has not
- * made yet, not a broken release.
+ * **This section said "`latest` is reported, never asserted" and was the
+ * decayed justification a day after B336 — CW caught it, and it is the same
+ * law one file over: the prose moved out from under the constant.**
+ *
+ * It was true while every release was a prerelease. `release.yml` §4 sends a
+ * prerelease to its own tag and never to `latest`, so `latest` lagging was a
+ * decision nobody had made yet, printed as a reminder.
+ *
+ * On a **stable** release the channel IS `latest`, so the assertion above is
+ * an assertion about `latest`, and a stable version whose `latest` still names
+ * the previous one is a BAD TAG and an exit 1. Moving it is still a human's
+ * 2FA act; what changed is that not having moved it is now a failure rather
+ * than a note, because nothing else will.
+ *
+ * The reminder survives for prereleases only, and it carries no command: since
+ * 0.1.0, `latest` is AHEAD of a prerelease rather than behind, and the command
+ * this section used to justify would point every `npm install byollm` at a
+ * prerelease.
  */
 import { execFileSync, spawn } from "node:child_process";
 import { setTimeout as sleep } from "node:timers/promises";

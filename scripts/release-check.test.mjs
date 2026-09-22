@@ -482,6 +482,52 @@ describe("the channel a version belongs to — B339", () => {
     expect(stdout).toContain("never moves `latest` for a prerelease");
   });
 
+  it("does not promise a named dist-tag in its own header", () => {
+    /**
+     * **The decay that followed B336 by one day, and CW caught it.**
+     *
+     * The channel change landed in the code and the file's opening docstring
+     * kept saying the check asserts "the `alpha` dist-tag points at it", with
+     * a section headed "`latest` is reported, never asserted". Both were true
+     * of the alpha era and false of the code beneath them — the prose moved
+     * out from under the constant, which is exactly what B336 was about, one
+     * file over.
+     *
+     * Reading prose is the only way to catch this, so the assertion is narrow
+     * on purpose: the header's numbered claim must name the RULE, and must not
+     * name a tag as the thing asserted. The file mentions `alpha` elsewhere
+     * for honest reasons — the history of this very bug — so a blanket ban on
+     * the word would forbid the paragraph explaining why the word went.
+     */
+    const script = readFileSync(join("scripts", "release-check.mjs"), "utf8");
+    const header = script.slice(0, script.indexOf("*/"));
+    expect(header, "the opening docstring has moved").toContain(
+      "It queries npm for each package and asserts two things",
+    );
+
+    expect(
+      header,
+      "the header promises a named dist-tag again; it asserts the version's " +
+        "own channel, and hardcoding one is what cost the first stable release",
+    ).not.toMatch(/the `(?:alpha|beta|next|latest)` dist-tag points at it/u);
+    /**
+     * Asked of the section HEADING, not of the words.
+     *
+     * The first version of this rule matched the bare phrase and failed on the
+     * paragraph that QUOTES it while explaining why it went — a rule that
+     * cannot tell a citation from a claim, which is the same defect
+     * `rehearse-the-cut.test.mjs` found in itself. A revert restores the
+     * heading; the history keeps the quotation.
+     */
+    expect(header).not.toMatch(
+      /^\s*\*\s*##\s*`latest` is reported, never asserted/mu,
+    );
+
+    /* And that it names the rule it actually follows, rather than going
+       silent — a header that says nothing cannot decay, and cannot inform. */
+    expect(header).toMatch(/channelOf|CHANNEL/u);
+  });
+
   it("spells the rule the way `release.yml` spells it", () => {
     /**
      * **Two sources.** CW allowed the four lines to be copied with a comment

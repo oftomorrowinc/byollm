@@ -9,8 +9,28 @@ import { DAEMON_VERSION } from "./index.js";
  * spelled it as a literal — which stops being true the day the product ships
  * that number. It did: `0.1.0-alpha.98` broke two of these tests on the .98
  * cut, for reasons unrelated to anything they assert.
+ *
+ * **The dynamic form broke too, at the 0.1.0 cut, and worse.** It was
+ * `${DAEMON_VERSION}.1`, which is valid semver only while the version is a
+ * prerelease: `0.1.0-alpha.103.1` parses, `0.1.0.1` does not. An offer that
+ * does not parse is never newer, so `watchForUpdate` never took it and never
+ * returned — `for (;;)` with nothing to end it. **The whole file hung rather
+ * than failed**, which took a full CI run to see and read on a laptop as the
+ * machine dying.
+ *
+ * So this bumps the numeric core and drops any prerelease, which is above
+ * both shapes: `0.1.0-alpha.103` and `0.1.0` both yield `0.1.1`. A fixture
+ * whose validity depends on the SHAPE of the version is a fixture that breaks
+ * at a cut, which is the one moment nobody wants to be reading this file.
  */
-const NEWER_OFFER = `${DAEMON_VERSION}.1`;
+function above(steps: number): string {
+  const core = /^(\d+)\.(\d+)\.(\d+)/u.exec(DAEMON_VERSION);
+  if (core === null)
+    throw new Error(`unparseable DAEMON_VERSION: ${DAEMON_VERSION}`);
+  return `${core[1]}.${core[2]}.${String(Number(core[3]) + steps)}`;
+}
+
+const NEWER_OFFER = above(1);
 import type { Runner } from "./runner.js";
 
 /**
@@ -144,8 +164,11 @@ describe("taking an offered update", () => {
      * that has nothing to do with what it tests, on the day somebody is
      * shipping. Two of them did exactly that here.
      */
-    const NEWER = `${DAEMON_VERSION}.1`;
-    const NEWER_STILL = `${DAEMON_VERSION}.2`;
+    /* Through `above`, for the reason on NEWER_OFFER: these two spelled the
+       same `${DAEMON_VERSION}.N` trick locally, and they are what actually
+       hung the file at the cut. */
+    const NEWER = above(1);
+    const NEWER_STILL = above(2);
     let offering = NEWER;
     const took = await watchForUpdate({
       runners: [r.runner],

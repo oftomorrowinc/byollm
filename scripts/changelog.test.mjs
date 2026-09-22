@@ -8,7 +8,6 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
 import { versions, render } from "./changelog.mjs";
 
@@ -114,10 +113,20 @@ describe("importing this module", () => {
      */
     const cwd = mkdtempSync(join(tmpdir(), "changelog-import-"));
     try {
-      const module = fileURLToPath(new URL("./changelog.mjs", import.meta.url));
+      /**
+       * A `file://` URL, not a path — and Windows is the only place that
+       * cares, which is why this failed there and nowhere else.
+       *
+       * `import()` takes a URL. On POSIX an absolute path happens to parse as
+       * a relative specifier that resolves; on Windows `C:\\…` parses as the
+       * scheme `c:` and Node refuses with ERR_UNSUPPORTED_ESM_URL_SCHEME. The
+       * second Windows-only defect in this file in one release, both from
+       * writing a path where a URL was wanted.
+       */
+      const moduleUrl = new URL("./changelog.mjs", import.meta.url).href;
       execFileSync(
         process.execPath,
-        ["-e", `import(${JSON.stringify(module)}).then(() => {})`],
+        ["-e", `import(${JSON.stringify(moduleUrl)}).then(() => {})`],
         { cwd, encoding: "utf8" },
       );
       expect(

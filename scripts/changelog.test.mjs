@@ -1,6 +1,14 @@
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import {
+  existsSync,
+  mkdtempSync,
+  mkdirSync,
+  writeFileSync,
+  rmSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
 import { versions, render } from "./changelog.mjs";
 
@@ -81,5 +89,44 @@ describe("newest first, which is what the file says it is", () => {
     const out = render(notes(["0.1.0", "0.1.1"]));
     expect(out).toContain("newest first");
     expect(out.indexOf("[`0.1.1`]")).toBeLessThan(out.indexOf("[`0.1.0`]"));
+  });
+});
+
+describe("importing this module", () => {
+  it("does not run it", () => {
+    /**
+     * **This is what stopped the 0.1.1 release — B340, caught by B333.**
+     *
+     * The write sat at the top level, so the `import` at the head of this very
+     * file executed it and rewrote `CHANGELOG.md` in the real tree.
+     * `the-suite-leaves-the-tree-as-it-found-it` refused the run, and with it
+     * the tag's CI and the Release workflow: 0.1.1 published nothing.
+     *
+     * It passed here and failed on `windows-latest` because the rewrite was
+     * byte-identical under LF and not under CRLF — **the defect existed on
+     * every platform and only one could see it.** That is the part worth a
+     * case of its own: B333 catches this only where the bytes differ, so it is
+     * a backstop, not the rule.
+     *
+     * Run in a temp cwd, because `OUT` is relative: a broken guard writes its
+     * CHANGELOG.md THERE, where it is harmless and visible, instead of into
+     * the repository this suite is forbidden to touch.
+     */
+    const cwd = mkdtempSync(join(tmpdir(), "changelog-import-"));
+    try {
+      const module = fileURLToPath(new URL("./changelog.mjs", import.meta.url));
+      execFileSync(
+        process.execPath,
+        ["-e", `import(${JSON.stringify(module)}).then(() => {})`],
+        { cwd, encoding: "utf8" },
+      );
+      expect(
+        existsSync(join(cwd, "CHANGELOG.md")),
+        "importing the module wrote a CHANGELOG.md — the top-level write is " +
+          "running again, and a test that imports this is running the program",
+      ).toBe(false);
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
+    }
   });
 });

@@ -21,8 +21,14 @@
  *     node scripts/changelog.mjs           # write it
  *     node scripts/changelog.mjs --check   # refuse a stale one
  */
-import { readdirSync, readFileSync, writeFileSync } from "node:fs";
+import {
+  readdirSync,
+  readFileSync,
+  realpathSync,
+  writeFileSync,
+} from "node:fs";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 
 const DIR = "docs/release-notes";
 const OUT = "CHANGELOG.md";
@@ -117,8 +123,34 @@ export function render(dir = DIR) {
   ].join("\n");
 }
 
-const want = render();
-if (process.argv.includes("--check")) {
+/**
+ * **Importing this module must not run it — B340, caught by B333 on Windows.**
+ *
+ * The write below sat at the top level, so `import { versions } from
+ * "./changelog.mjs"` in a test EXECUTED it and rewrote `CHANGELOG.md` in the
+ * real tree. `the-suite-leaves-the-tree-as-it-found-it` refused the run, which
+ * is exactly its job, and it refused the release: both the tag's CI and the
+ * Release workflow stopped here, so 0.1.1 published nothing.
+ *
+ * It passed on this machine and failed on `windows-latest` because the rewrite
+ * was byte-identical under LF and not under CRLF — **the defect was there on
+ * every platform and only one of them could see it.** A module with a
+ * top-level side effect has no safe import, and a test that imports it is
+ * running the program.
+ *
+ * Spelled the way `the-entry-guard-is-spelled-correctly` requires:
+ * `realpathSync` on the argv side, because `import.meta.url` is already real
+ * and a symlinked checkout makes a `resolve` comparison false — and a guard
+ * that is falsely false leaves the script exiting 0 having done nothing, which
+ * is the same silence this one was added to stop.
+ */
+const invokedDirectly =
+  realpathSync(process.argv[1] ?? "") === fileURLToPath(import.meta.url);
+
+const want = invokedDirectly ? render() : "";
+if (!invokedDirectly) {
+  /* Imported: expose the functions and touch nothing. */
+} else if (process.argv.includes("--check")) {
   /* Missing counts as different — a deleted index must be rebuilt, not
      silently accepted. */
   let have;

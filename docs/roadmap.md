@@ -8,9 +8,10 @@ excuses — the security posture depends on naming these out loud.
 - Libraries publish scoped: `@byollm/protocol`, `@byollm/server`,
   `@byollm/conformance`.
 - The **daemon publishes UNSCOPED as `byollm`** with a `bin` so
-  `npx byollm connect …` works. Claimed by publishing a real
-  pre-release (`0.1.0-alpha.N`, `--tag alpha` so it's off `latest`),
-  not a placeholder. Org team added as maintainers of the unscoped
+  `npx byollm connect …` works. The name was claimed in 2026-08 by
+  publishing a real pre-release (`0.1.0-alpha.N`, `--tag alpha` so it
+  stayed off `latest`), not a placeholder. Since `0.1.0` the release
+  goes to `latest` and `npx byollm connect` is the install line. Org team added as maintainers of the unscoped
   package. npm has no package-to-package redirect; the unscoped
   package *is* the CLI.
 

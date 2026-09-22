@@ -14,7 +14,7 @@ body:
     attributes:
       label: Version
       description: Output of `byollm --version`, or the package version you installed.
-      placeholder: "0.1.0-alpha.3"
+      placeholder: "0.1.0"
     validations:
       required: true
 

@@ -280,7 +280,7 @@ The bar is CI-enforced, not review-vigilance: strict TypeScript, ≥90% coverage
 
 ## Thanks
 
-An alpha only gets bulletproof when people lend it their machines, their
+Software only gets bulletproof when people lend it their machines, their
 subscriptions, and their patience. Ours got that from Eric Marcoullier,
 David Sturgeon, Robertson Price, Kevin Samsoe, and Elisabeth Sampson —
 walking the rough edges, filing the bugs, and in more than one case

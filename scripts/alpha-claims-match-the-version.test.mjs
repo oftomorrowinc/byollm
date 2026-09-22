@@ -10,6 +10,7 @@ import {
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { CROSS_REPO } from "./alpha-claims-match-the-version.mjs";
 import { describe, expect, it } from "vitest";
 
 /**
@@ -825,9 +826,18 @@ describe("the hand edits this gate cannot reach — B284", () => {
     const root = tree("0.1.0", { "README.md": `# byollm\n\n${BANNER}` });
     const { code, out } = run(root);
     expect(code).toBe(1);
-    expect(out).toContain("HAND EDITS THIS GATE CANNOT SEE");
-    expect(out).toContain("terms/page.tsx");
-    expect(out).toContain("B284");
+    /**
+     * B341: this named `B284` and `terms/page.tsx` literally, and both were
+     * true in September and done by 09-22. What the case is FOR is that a
+     * refusal does not swallow the list, so that is what it asks — of
+     * whatever the list holds, including nothing.
+     */
+    if (CROSS_REPO.length > 0) {
+      expect(out).toContain("HAND EDITS THIS GATE CANNOT SEE");
+      for (const row of CROSS_REPO) expect(out).toContain(row.row);
+    } else {
+      expect(out).toContain("No hand edits outstanding");
+    }
   });
 
   it("names them when it PASSES, which is the path that would hide them", () => {
@@ -847,8 +857,15 @@ describe("the hand edits this gate cannot reach — B284", () => {
     });
     const { code, out } = run(root);
     expect(code).toBe(0);
-    expect(out).toContain("HAND EDITS THIS GATE CANNOT SEE");
-    expect(out).toContain("terms/page.tsx");
+    /* The path that would hide them, which is the whole point of this case:
+       a green run must still say what it could not check. With entries that
+       is the heading; with none it is the sentence saying there are none. */
+    if (CROSS_REPO.length > 0) {
+      expect(out).toContain("HAND EDITS THIS GATE CANNOT SEE");
+      for (const row of CROSS_REPO) expect(out).toContain(row.row);
+    } else {
+      expect(out).toContain("No hand edits outstanding");
+    }
   });
 
   it("stops claiming that NO document says otherwise", () => {
@@ -878,23 +895,54 @@ describe("the hand edits this gate cannot reach — B284", () => {
       "README.md": "# byollm\n\nNothing to see.\n",
     });
     const { out } = run(root);
-    expect(out).toContain("These are not findings");
-    expect(out).toContain("survive a green run");
+    if (CROSS_REPO.length > 0) {
+      expect(out).toContain("These are not findings");
+      expect(out).toContain("survive a green run");
+    } else {
+      /* The same honesty with nothing to list: it still says it reads this
+         repository only, and hands over the command for the other half
+         rather than a date that ages silently. */
+      expect(out).toContain("reads this repository only");
+      expect(out).toMatch(/git -C \.\.\/byollm-cloud-web grep/u);
+    }
   });
 
-  it("is carrying entries at all", () => {
-    /* An empty list prints a heading and nothing under it, which reads as
-       "there is nothing we cannot see" — the fail-open this file is written
-       against, in the section about what it cannot do. */
+  it("never prints a heading with nothing under it", () => {
+    /**
+     * **This asked for at least two entries until 2026-09-22 (B341), and the
+     * number was the wrong expression of a right idea.**
+     *
+     * Its reason was the fail-open: an empty list printing a heading and
+     * nothing beneath it reads as *"there is nothing we cannot see"*. True,
+     * and it made the list unable to SHRINK — so when B284's Terms rewrite
+     * landed in `byollm-cloud-web b44e02c` and B279's sentence came out of
+     * this repository, both rows stayed, and a passing gate handed the
+     * operator two jobs for shipped work on every release. A list with stale
+     * rows is a list people stop reading.
+     *
+     * So the invariant is stated directly instead of proxied through a count:
+     * either rows are listed, or the emptiness is a sentence. Never a heading
+     * over nothing.
+     */
     const root = tree("0.1.0", {
       "README.md": "# byollm\n\nNothing to see.\n",
     });
     const { out } = run(root);
-    const body = out.slice(out.indexOf("HAND EDITS THIS GATE CANNOT SEE"));
+    const heading = out.indexOf("HAND EDITS THIS GATE CANNOT SEE");
+    if (heading === -1) {
+      expect(
+        out,
+        "no list and no sentence — a reader cannot tell whether there is " +
+          "nothing outstanding or the gate forgot to print it",
+      ).toContain("No hand edits outstanding");
+      return;
+    }
+    const rows = [...out.slice(heading).matchAll(/^ {2}B\d+ {2}/gmu)].length;
     expect(
-      [...body.matchAll(/^ {2}B\d+ {2}/gmu)].length,
-      "the cross-repo list has no entries",
-    ).toBeGreaterThanOrEqual(2);
+      rows,
+      "the heading is printed with no rows under it, which reads as " +
+        "'there is nothing we cannot see'",
+    ).toBeGreaterThan(0);
   });
 });
 
@@ -983,5 +1031,68 @@ describe("the npm page's own headline — B293", () => {
     });
     const { out } = run(root);
     expect(out).toMatch(/packages\/a\/package\.json:\d+/u);
+  });
+});
+
+describe("the hand-edit list does not outlive its jobs — B341", () => {
+  /**
+   * Both entries were still being printed after both were done: B284's Terms
+   * rewrite had landed in `byollm-cloud-web b44e02c` and B279's sentence had
+   * come out of this repository's READMEs, in the same cut. So a PASSING gate
+   * handed the operator two jobs for shipped work, every release.
+   *
+   * That is worse than printing nothing. A list with stale rows is a list
+   * people stop reading, and then the row that matters arrives in a list
+   * nobody reads.
+   *
+   * A cross-repo row genuinely cannot be checked here — the file's own
+   * reasoning, which stands: a checker that reads a sibling working tree
+   * reports on whatever happens to be checked out there. A row about THIS
+   * repository has no such excuse.
+   */
+  it("holds an in-repo row to text that is still there", async () => {
+    const { CROSS_REPO } = await import("./alpha-claims-match-the-version.mjs");
+    const root = fileURLToPath(new URL("..", import.meta.url));
+
+    const mine = CROSS_REPO.filter(
+      (row) =>
+        row.where.startsWith("byollm ") || row.where.startsWith("byollm\t"),
+    );
+
+    for (const row of mine) {
+      expect(
+        row.find,
+        `${row.row} names this repository, so it must carry a \`find\` — the ` +
+          "text that proves the edit has NOT been made. Without one the row " +
+          "cannot be retired except by somebody remembering, which is how " +
+          "B279 and B284 were still being printed after both were done",
+      ).toBeTruthy();
+
+      const hits = execFileSync(
+        "git",
+        ["grep", "-l", "--fixed-strings", row.find],
+        { cwd: root, encoding: "utf8" },
+      ).trim();
+      expect(
+        hits,
+        `${row.row} says the edit is outstanding, but its own text is gone ` +
+          "from this repository — the job is done and the row should be " +
+          "deleted",
+      ).not.toBe("");
+    }
+  });
+
+  it("says so out loud when there is nothing outstanding", () => {
+    /* "No list" and "a list I forgot to print" look identical on a terminal,
+       so the empty case is a sentence rather than an absence — and it carries
+       the command for the half this gate cannot reach, instead of a date. */
+    const source = readFileSync(
+      fileURLToPath(
+        new URL("./alpha-claims-match-the-version.mjs", import.meta.url),
+      ),
+      "utf8",
+    );
+    expect(source).toContain("No hand edits outstanding");
+    expect(source).toMatch(/git -C \.\.\/byollm-cloud-web grep/u);
   });
 });

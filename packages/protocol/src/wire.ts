@@ -170,11 +170,17 @@ export function checkProtocolVersion(body: unknown): VersionRefusal | null {
  * starts meaning "the unstable one", and every user who followed this message
  * is pinned to prereleases with nothing to tell them.
  *
- * Note this is deliberately *not* the rule `scripts/check-site.mjs` enforces
- * on the docs, which requires `npx byollm@alpha`. That rule is about somebody
- * choosing to install a prerelease knowingly, with the warning in front of
- * them. This is an upgrade instruction handed to somebody who already has the
- * daemon and needs a newer one — a different question with a different answer.
+ * This once said `scripts/check-site.mjs` deliberately enforces the OPPOSITE
+ * on the docs — *"which requires `npx byollm@alpha`"* — and drew a careful
+ * distinction between choosing a prerelease knowingly and being handed an
+ * upgrade command. **That rule inverted at the flip and this paragraph did
+ * not.** check-site now refuses any pin but `@latest`, for the reason written
+ * beside it: *"the tag that moves first is reviewed last, so asking for it
+ * explicitly is asking for the build nobody has looked at yet."* Which is what
+ * this constant already said, so the distinction it drew no longer exists.
+ *
+ * Found sweeping B341 — the same decay as B336 and B339, a third time, and
+ * every one was prose left standing over a constant that moved beneath it.
  */
 export const UPGRADE_COMMAND = "npm i -g byollm@latest" as const;
 

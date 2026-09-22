@@ -264,8 +264,44 @@ const documents = (root) => {
   for (const path of [
     join(root, "README.md"),
     join(root, "site", "index.html"),
+    join(root, "CONTRIBUTING.md"),
   ])
     if (existsSync(path)) found.push(path);
+
+  /**
+   * **The examples, which is where this check was NOT looking — B341.**
+   *
+   * `examples/demo` told every reader `npx byollm@alpha connect` in four
+   * places and asserted it in a fifth. At 0.1.0 that resolves to
+   * `0.1.0-alpha.103`, which speaks protocol 1, and the hub serves only
+   * protocol 2 — so the demo's own instruction is REFUSED by the service it
+   * demonstrates, with a version-mismatch error that reads like the reader's
+   * fault.
+   *
+   * This is the hazard the file's header already describes — *"a reader
+   * following our own quickstart would install an older package than the one
+   * we just locked"* — arriving through a directory the walk did not visit.
+   * The rule was right; its coverage was three hardcoded paths.
+   *
+   * So the walk is a walk. `.tsbuild` is skipped because it is generated
+   * output of the files beside it, and reporting a hit twice trains people to
+   * skim the list.
+   */
+  const examples = join(root, "examples");
+  if (existsSync(examples)) {
+    const walk = (dir) => {
+      for (const entry of readdirSync(dir, { withFileTypes: true }).sort(
+        (a, b) => a.name.localeCompare(b.name),
+      )) {
+        if (entry.name === "node_modules" || entry.name.startsWith("."))
+          continue;
+        const full = join(dir, entry.name);
+        if (entry.isDirectory()) walk(full);
+        else if (/\.(md|html|ts|tsx|mjs)$/u.test(entry.name)) found.push(full);
+      }
+    };
+    walk(examples);
+  }
   return found;
 };
 
@@ -374,45 +410,53 @@ const liveClaims = (text) => {
  * Line numbers were read on 2026-09-18 and will drift. They are here so the
  * reader lands near the sentence, not so a script can trust them.
  */
-const CROSS_REPO = Object.freeze([
-  {
-    row: "B284",
-    where: "byollm-cloud-web  apps/www/src/app/terms/page.tsx",
-    lines: [52, 107, 177],
-    what: 'the Terms say "It is in alpha", "During alpha…", "It is alpha software"',
-    note:
-      "NOT a delete — the middle one is B262's truth about manual provisioning " +
-      "and the last is a liability disclaimer. It is a rewrite of what " +
-      '"alpha" stands in for, and the Terms are versioned approved copy: ' +
-      "CW ruled the version moves to 1.1 and `EFFECTIVE` " +
-      '(apps/www/src/app/legal/ui.tsx, "September 16, 2026") moves with it.',
-  },
-  {
-    row: "B279",
-    where: "byollm  README.md + five package READMEs",
-    lines: [],
-    what: "the warning claims the packages have never run outside their own test suite",
-    note:
-      "Already listed above by the pre-release-claim rule, and repeated here " +
-      "because the TRUE sentence is not the one the rule implies: it is false " +
-      "today, not merely alpha-flavoured. @byollm/conformance is the one " +
-      "package where it holds and is deliberately left alone.",
-  },
+export const CROSS_REPO = Object.freeze([
+  /**
+   * **Empty since 2026-09-22, and empty is a state this prints — B341.**
+   *
+   * Both entries were still here after both were done. B284's Terms rewrite
+   * landed in `byollm-cloud-web b44e02c` (the pages carry no "alpha" and are
+   * "Version 1.1 · September 22, 2026"); B279's sentence came out of this
+   * repository's READMEs in the same cut.
+   *
+   * So a gate that passes was printing two jobs at the operator, on every
+   * release, for work already shipped. That is worse than saying nothing: a
+   * list with stale rows in it is a list people stop reading, and the row
+   * that matters arrives in a list nobody reads any more.
+   *
+   * An entry naming THIS repository is now held to it —
+   * `alpha-claims-hand-edits.test.mjs` greps for the text and goes red when
+   * the edit has landed, so an in-repo row cannot outlive its job again. A
+   * cross-repo row still cannot be checked, for the reason above, and carries
+   * the command to check it by hand instead of a date that ages silently.
+   */
 ]);
 
-/** The cross-repo list, printed on every path — refusal and pass alike. */
+/**
+ * The cross-repo list, printed on every path — refusal and pass alike.
+ *
+ * Empty prints one line rather than a header over nothing: the absence of
+ * known hand edits is itself worth stating, because "no list" and "a list I
+ * forgot to print" look identical on a terminal.
+ */
 const crossRepoNotice = () =>
-  `\nHAND EDITS THIS GATE CANNOT SEE — it reads this repository only:\n\n` +
-  CROSS_REPO.map(
-    (item) =>
-      `  ${item.row}  ${item.where}` +
-      (item.lines.length > 0 ? `:${item.lines.map(String).join(",")}` : "") +
-      `\n      ${item.what}\n      ${item.note}\n`,
-  ).join("\n") +
-  `\n  These are not findings. Nothing here checked them, and nothing in the\n` +
-  `  cut will: the flip refuses on what this file can read, and these pages\n` +
-  `  are in another repository. They survive a green run unless somebody\n` +
-  `  edits them, which is why they are printed rather than assumed.\n`;
+  CROSS_REPO.length === 0
+    ? "\nNo hand edits outstanding that this gate cannot see.\n" +
+      "  (It reads this repository only. Cross-repo copy is checked by hand:\n" +
+      "   git -C ../byollm-cloud-web grep -rn -i alpha -- apps/www apps/docs)\n"
+    : `\nHAND EDITS THIS GATE CANNOT SEE — it reads this repository only:\n\n` +
+      CROSS_REPO.map(
+        (item) =>
+          `  ${item.row}  ${item.where}` +
+          (item.lines.length > 0
+            ? `:${item.lines.map(String).join(",")}`
+            : "") +
+          `\n      ${item.what}\n      ${item.note}\n`,
+      ).join("\n") +
+      `\n  These are not findings. Nothing here checked them, and nothing in the\n` +
+      `  cut will: the flip refuses on what this file can read, and these pages\n` +
+      `  are in another repository. They survive a green run unless somebody\n` +
+      `  edits them, which is why they are printed rather than assumed.\n`;
 
 const main = () => {
   const root = resolve(process.env["ALPHA_CLAIMS_ROOT"] ?? join(HERE, ".."));

@@ -33,6 +33,7 @@ zero-warning lint, no dead code, an adversarial corpus as a blocking gate, and
 the conformance kit green against both the reference server and Supabase. The
 README lists the numbers; `docs/standards.md` holds the reasoning.
 
-**Alpha, and honest about it:** the protocol is v0 and will change without a
-deprecation path. Read the warning at the top of the README before you build
-something on this.
+**Early, and honest about it:** the protocol is version 2 as of `0.1.0` and a
+party running `0.1.0` can talk to any later `0.1.x`. The software around it is
+early, and on-disk and store shapes are still moving. Read the warning at the
+top of the README before you build something on this.

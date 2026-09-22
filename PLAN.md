@@ -54,7 +54,8 @@ Libraries stay scoped: `@byollm/protocol`, `@byollm/server`,
 
 **Published 2026-08-10 under the `alpha` tag only**, with `latest`
 left empty on purpose: `byollm` and `@byollm/protocol` at
-0.1.0-alpha.0. `@byollm/server` and `@byollm/conformance` are marked
+0.1.0-alpha.0. That held for the whole prerelease series; `0.1.0`
+moved `latest` on 2026-09-22 and `alpha` stayed at `0.1.0-alpha.103`. `@byollm/server` and `@byollm/conformance` are marked
 `private` until they have miles — delete that line to ship them.
 
 Still to claim: the remaining domains. **Repo made public 2026-08-12**, and

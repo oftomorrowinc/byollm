@@ -45,7 +45,7 @@ try {
   check("pairing page renders", pair.includes("Connect a machine"));
   check(
     "pairing page shows the connect command",
-    pair.includes("npx byollm@alpha connect"),
+    pair.includes("npx byollm@latest connect"),
   );
 
   const badPair = await fetch(`${ORIGIN}/pair`, {

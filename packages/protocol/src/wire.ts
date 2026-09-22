@@ -30,7 +30,7 @@ import { JobKind } from "./kinds.js";
  * own words, from the release that silenced a fleet by adding a backend id.
  * The same sentence applies to removing an offer scope.
  */
-export const PROTOCOL_VERSION = "1" as const;
+export const PROTOCOL_VERSION = "2" as const;
 
 /**
  * Every protocol version this build can serve, **oldest first**.
@@ -498,8 +498,6 @@ export const HeartbeatRequest = z
      * grant the runner no longer holds — see {@link Lease.id}.
      */
     activeLeases: z.array(GrantRef),
-    /** True while the owner has the daemon paused; the server stops offering work. */
-    paused: z.boolean(),
   })
   .strict();
 export type HeartbeatRequest = z.infer<typeof HeartbeatRequest>;

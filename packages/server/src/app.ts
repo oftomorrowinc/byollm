@@ -513,7 +513,6 @@ export class ByollmApp {
     const live = all.filter(
       (runner) =>
         runner.revokedAt === null &&
-        !runner.paused &&
         now - runner.lastHeartbeatAt <= this.#livenessMs,
     );
 

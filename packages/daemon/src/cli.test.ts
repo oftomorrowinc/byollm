@@ -1052,25 +1052,6 @@ describe("connect when this device is already paired", () => {
     expect(confirmQuestions).toEqual([]);
   });
 
-  it("still sends the field the hub requires, and sends it false", async () => {
-    /**
-     * `paused` is required on HeartbeatRequest and the schema is `.strict()`,
-     * so this is not a value to tidy away with the feature that set it. A
-     * daemon that stops sending a required field is refused by every hub not
-     * upgraded in the same breath — and the hub is the side that does not
-     * upgrade when a laptop does.
-     *
-     * So the assertion is on the key, not only the value: dropping it is the
-     * failure, and `toEqual([false])` alone would pass on an object that had
-     * no such key at all. It goes at the 0.1.0 protocol cut (B044), where
-     * one publish moves both sides together.
-     */
-    await alreadyPaired();
-    expect(await run("connect", origin)).toBe(0);
-    expect(beats.map((b) => "paused" in b)).toEqual([true]);
-    expect(beats.map((b) => b.paused)).toEqual([false]);
-  });
-
   it("pairs again when the hub says the credential is spent", async () => {
     await alreadyPaired();
     answer = (res) => {
@@ -1401,44 +1382,6 @@ describe("byollm services, handed arguments", () => {
   it("refuses arguments to `manage` too, rather than ignoring them", async () => {
     expect(await run("services", "manage", "claude")).toBe(2);
     expect(err).toContain("claude");
-  });
-});
-
-describe("byollm models, handed arguments", () => {
-  it("refuses rather than behaving like a different command", async () => {
-    expect(await run("models", "claude", "fake")).toBe(2);
-    // Names what it got back, so somebody can see their typo rather than
-    // wonder which word was wrong.
-    expect(err).toContain("claude");
-    expect(err).toContain("fake");
-    // And points at the verb that does the thing they asked for.
-    expect(err).toContain("byollm model claude fake");
-  });
-
-  it("still lists when asked bare", async () => {
-    /* The control, and it needs a real config: a `models` that refused
-       everything would pass the case above while breaking the command, and
-       an empty home makes `models` exit non-zero for its own good reason —
-       which would have made this control pass without proving anything. */
-    await mkdir(home, { recursive: true });
-    await writeFile(
-      paths.config,
-      JSON.stringify({
-        services: {
-          studio: {
-            type: "openai-http",
-            baseUrl: "http://127.0.0.1:8080/v1",
-            model: "qwen",
-            kinds: ["llm.generate"],
-          },
-        },
-      }),
-      "utf8",
-    );
-
-    expect(await run("models")).toBe(0);
-    expect(out).toContain("studio");
-    expect(err).not.toContain("takes no arguments");
   });
 });
 

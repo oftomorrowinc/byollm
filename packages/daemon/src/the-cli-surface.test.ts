@@ -88,31 +88,6 @@ describe("what help offers", () => {
   });
 });
 
-describe("the words people already have in their shells", () => {
-  it("still work, and say what to type next time", async () => {
-    /* Not an error. Somebody mid-test with `byollm install` in their notes
-       gets the thing they asked for, plus one line. */
-    for (const [was, now] of [
-      ["install", "start"],
-      ["uninstall", "stop"],
-      ["models", "services"],
-    ] as const) {
-      err = "";
-      await runCli([was], { paths, io: io(), service: quietService() });
-      expect(err, was).toContain(`\`byollm ${was}\` is now \`byollm ${now}\``);
-    }
-  });
-
-  it("says it on stderr, so a pipeline still gets only the answer", async () => {
-    /* `byollm models > list.txt` should hold the list and not a notice about
-       naming. A deprecation that lands in a pipeline is the rename breaking
-       the thing it was trying not to break. */
-    await runCli(["models"], { paths, io: io() });
-    expect(err).toContain("is now");
-    expect(out).not.toContain("is now");
-  });
-});
-
 describe("run, which no longer takes a url", () => {
   it("refuses one rather than guessing, and names the verb that does", async () => {
     expect(
@@ -122,19 +97,6 @@ describe("run, which no longer takes a url", () => {
     expect(err).toContain("byollm connect https://example.test");
   });
 });
-
-/** A service layer that touches no real supervisor. */
-function quietService() {
-  return {
-    platform: "linux" as const,
-    execPath: process.execPath,
-    scriptPath: "/tmp/byollm-surface-not-real",
-    home,
-    uid: 0,
-    run: () => Promise.resolve({ code: 1, output: "" }),
-    wait: () => Promise.resolve(),
-  };
-}
 
 /**
  * The lock document names these verbs as locked — B236, and this is what

@@ -102,7 +102,6 @@ export interface RunnerRecord {
   readonly platform: "darwin" | "linux" | "win32";
   readonly daemonVersion: string;
   readonly capabilities: readonly Capability[];
-  readonly paused: boolean;
   /** Set once; a revoked runner never un-revokes. */
   readonly revokedAt: number | null;
   readonly lastHeartbeatAt: number;

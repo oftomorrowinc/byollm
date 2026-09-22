@@ -74,7 +74,6 @@ describe("cancel, which never reached the relay at all", () => {
           leaseId: (await relay.state.job(SITE_ID, jobId))!.claimedBy!.leaseId,
         },
       ],
-      paused: false,
     });
     const body = (await beat.json()) as {
       cancel: { jobId: string; leaseId: string }[];

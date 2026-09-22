@@ -2,7 +2,7 @@ import { spawnLocalServer } from "./local-server.js";
 import { gigabytes } from "./memory-gate.js";
 import { access } from "node:fs/promises";
 import { emphasise, terminalContext } from "./emphasis.js";
-import { backendVerifier, listModels, setModel, showModel } from "./model.js";
+import { backendVerifier, setModel, showModel } from "./model.js";
 import { preflight } from "./preflight.js";
 import { update } from "./update.js";
 import { realUpdateDeps } from "./update-deps.js";
@@ -139,12 +139,6 @@ const UPDATE_DRAIN_MS = 120_000;
 /** How often the update watcher looks for an offer. Nothing is waiting on a person. */
 const UPDATE_POLL_MS = 1_000;
 
-const RENAMED: Readonly<Record<string, string>> = {
-  install: "start",
-  uninstall: "stop",
-  models: "services",
-};
-
 /**
  * Verbs that are gone, and say so — B043, ruled by Todd 2026-09-04.
  *
@@ -169,21 +163,6 @@ const REMOVED = {
   pause: "stop",
   resume: "start",
 } as const;
-
-/**
- * One line, on stderr, saying what to type next time.
- *
- * On stderr rather than stdout: somebody piping `byollm services` into a
- * script should get the list and nothing else, and a deprecation notice that
- * lands in a pipeline is a rename that breaks the thing it was trying not to
- * break.
- */
-function renamedNotice(was: string): string {
-  return (
-    `note: \`byollm ${was}\` is now \`byollm ${RENAMED[was] ?? was}\` — ` +
-    `the old name still works for now.\n`
-  );
-}
 
 /**
  * What a removed verb says. Deliberately not the shape of a rename notice:
@@ -494,70 +473,8 @@ export async function runCli(
         return 2;
       }
       return commandServices(paths, io, service);
-    case "models":
-      /**
-       * Extra is not absent — ruled 2026-09-03.
-       *
-       * `byollm models claude fake` listed every service's model and exited
-       * zero, exactly as if it had been called bare. The arguments were
-       * dropped on the floor, so a command that was asked to *set* a model
-       * answered by *listing* them, and reported success for work it never
-       * did.
-       *
-       * This is the swallowed-argument cousin of the family this project
-       * keeps meeting: `undefined` is not `false`, an unreadable answer is
-       * not a negative one, and a request nobody understood is not a request
-       * nobody made. A verb handed arguments it has no use for must say so
-       * and point at the verb that does — never quietly behave like a
-       * different command.
-       */
-      if (rest.length > 0) {
-        io.err(
-          `byollm models takes no arguments, and got ` +
-            `${rest.map((arg) => JSON.stringify(arg)).join(" ")}.\n\n` +
-            `  byollm services                every service, and the model it runs\n` +
-            `  byollm model ${rest[0] ?? "<service>"}${
-              rest[1] === undefined ? "" : ` ${rest[1]}`
-            }   ` +
-            `${rest[1] === undefined ? "one service, and what it accepts" : "check that model, then use it"}\n`,
-        );
-        return 2;
-      }
-      /**
-       * Still lists exactly what it listed — byollm_020.
-       *
-       * `models` leaves the documented surface because the model is already
-       * a column of `services`, and two lists of one table is what this
-       * audit removes. But **a deprecation alias should do the same thing
-       * under a new name**: routing it at `services` would change what
-       * somebody sees, and on a fresh machine would swap a "run `byollm
-       * setup`" for a bare failure. That is a behaviour change wearing an
-       * alias's clothes — the same trap `pause` presents, and refused there
-       * for the same reason.
-       */
-      io.err(renamedNotice("models"));
-      return listModels(paths.config, io).then((r) => r.code);
     case "model":
       return commandModel(paths, rest, io);
-    /* The renamed verbs, still working and saying so once — byollm_020. */
-    case "install":
-      io.err(renamedNotice(command));
-      return commandInstall(
-        paths,
-        io,
-        service,
-        options.supervised === true ? false : undefined,
-        {
-          ...(options.platform === undefined
-            ? {}
-            : { platform: options.platform }),
-          ...(options.verify === undefined ? {} : { verify: options.verify }),
-          ...(options.login === undefined ? {} : { login: options.login }),
-        },
-      );
-    case "uninstall":
-      io.err(renamedNotice(command));
-      return commandUninstall(paths, io, service);
     /* Gone, and saying so rather than doing something adjacent — see
        {@link REMOVED} for why these are not aliases. */
     case "pause":
@@ -1479,7 +1396,6 @@ async function commandConnect(
            rejected by every hub that has not been upgraded in lockstep. The
            field itself dies at the 0.1.0 protocol cut with the aliases —
            B044 — where one publish moves both sides at once. */
-        paused: false,
       });
       const when = new Date(existing.pairedAt).toISOString().slice(0, 10);
       io.out(

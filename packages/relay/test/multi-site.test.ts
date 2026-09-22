@@ -202,37 +202,22 @@ describe("what this package says about its own tenancy — B328", () => {
     ).toBe(false);
   });
 
-  /**
-   * The warning block is the leading `> [!WARNING]` run, ending at the first
-   * release entry — the same boundary `alpha-claims-match-the-version.mjs`
-   * uses, and for the same reason: the warning and the changelog are one
-   * blockquote, so "where the blockquote ends" cannot delimit it.
-   */
-  const warningRegion = (() => {
-    const lines = readme.split("\n");
-    const opens = lines.findIndex((line) =>
-      /^\s*>\s*\[!WARNING\]\s*$/u.test(line),
-    );
-    expect(
-      opens,
-      "the relay README no longer opens with a warning",
-    ).toBeGreaterThanOrEqual(0);
-    const rest = lines.slice(opens + 1);
-    const ends = rest.findIndex((line) => /^\s*>\s*\*\*`/u.test(line));
-    expect(ends, "no release entry closes the warning region").toBeGreaterThan(
-      0,
-    );
-    return {
-      region: rest.slice(0, ends).join("\n"),
-      below: rest.slice(ends).join("\n"),
-    };
-  })();
-
   it("makes no single-site claim anywhere it owns the words", () => {
-    /* Everything but the warning block, which is a safety notice in Todd's
-       voice and is handled by the case below. */
+    /**
+     * The whole README now — B222.
+     *
+     * This used to exclude the leading warning block, because the sentence in
+     * it was a safety notice in Todd's voice and not mine to rewrite, and a
+     * tripwire beside this case asserted the sentence was still there so it
+     * would go red the moment he answered. **He answered at the 0.1.0 cut**:
+     * the warning block is gone from this package entirely, on his reading
+     * that "we use relay right? It isn't a skeleton."
+     *
+     * So the tripwire is deleted and the exclusion with it, which is exactly
+     * what that case said the remaining step was.
+     */
     const documents: readonly (readonly [string, string])[] = [
-      ["README.md (below the warning)", warningRegion.below],
+      ["README.md", readme],
       ...readdirSync(new URL("src/", dir))
         .filter((name) => name.endsWith(".ts") && !name.endsWith(".test.ts"))
         .map((name) => [`src/${name}`, source(name)] as const),
@@ -245,30 +230,5 @@ describe("what this package says about its own tenancy — B328", () => {
       offenders.map(([where]) => where),
       "this package tells a reader it serves one site, and it does not",
     ).toEqual([]);
-  });
-
-  it("still carries Todd's sentence in the warning, which is the one left", () => {
-    /**
-     * **A tripwire, not an endorsement.** `README.md:6` says the relay *"keeps
-     * its state in memory, serves one site, and has never run anywhere but a
-     * test"*. Two of those three are false — the hub runs this package with a
-     * Valkey-backed store, and B258 exists because a customer hit it in
-     * production — and it is on the npm page today.
-     *
-     * It is not mine to rewrite: it is a safety notice in Todd's voice, and
-     * changing a warning to say a product is *more* proven than it claimed is
-     * his call. It was routed to him on 09-18 (inbox 2026-09-18-2027) with
-     * draft wording and is unanswered; B328 carries the open question.
-     *
-     * So this asserts the sentence is STILL there, and goes red the moment he
-     * answers. **When it does: delete this case, and delete the exclusion of
-     * the warning region from the case above — that is the whole remaining
-     * step.** Written this way round because the alternative is a red check
-     * nobody can land and a true sentence nobody can see.
-     */
-    expect(
-      warningRegion.region,
-      "the warning no longer claims one site — Todd has ruled, so remove this case and stop excluding the warning region above",
-    ).toMatch(/\bserves one site\b/u);
   });
 });

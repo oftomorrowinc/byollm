@@ -639,7 +639,6 @@ export class MemoryStore implements ByollmStore {
       platform: pairing.platform,
       daemonVersion: pairing.daemonVersion,
       capabilities: pairing.capabilities,
-      paused: false,
       revokedAt: null,
       lastHeartbeatAt: args.now,
       createdAt: args.now,
@@ -690,7 +689,6 @@ export class MemoryStore implements ByollmStore {
       ...runner,
       capabilities: args.capabilities,
       daemonVersion: args.daemonVersion,
-      paused: args.paused,
       lastHeartbeatAt: args.now,
     };
     this.#runners.set(runner.id, updated);

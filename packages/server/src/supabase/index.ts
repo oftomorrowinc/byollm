@@ -93,7 +93,6 @@ interface RunnerRow {
   daemon_version: string;
   capabilities: Capability[];
   device: PublicIdentity;
-  paused: boolean;
   revoked_at: string | null;
   last_heartbeat_at: string;
   created_at: string;
@@ -178,7 +177,6 @@ function toRunner(row: RunnerRow): RunnerRecord {
     daemonVersion: row.daemon_version,
     capabilities: row.capabilities,
     device: row.device,
-    paused: row.paused,
     revokedAt: ms(row.revoked_at),
     lastHeartbeatAt: Date.parse(row.last_heartbeat_at),
     createdAt: Date.parse(row.created_at),
@@ -736,7 +734,6 @@ export function supabaseStore(options: SupabaseStoreOptions): ByollmStore {
           .update({
             capabilities: args.capabilities,
             daemon_version: args.daemonVersion,
-            paused: args.paused,
             last_heartbeat_at: iso(args.now),
           })
           .eq("id", args.runnerId)

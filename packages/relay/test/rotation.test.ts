@@ -67,7 +67,6 @@ describe("what the relay projects", () => {
     const before = await daemon.signedFetch("heartbeat", {
       runnerId: daemon.runnerId,
       activeLeases: [],
-      paused: false,
     });
     expect(await before.json()).not.toHaveProperty("successions");
   });

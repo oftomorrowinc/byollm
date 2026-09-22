@@ -101,7 +101,7 @@ const VOCABULARY = {
  * one that changes neither is not a wire change at all.
  */
 const PINNED = {
-  version: "1",
+  version: "2",
   enums: {
     audience: ["private", "team"],
     backendClass: ["http", "process"],
@@ -144,7 +144,6 @@ const PINNED = {
       "activeLeases",
       "capabilities",
       "daemonVersion",
-      "paused",
       "protocolVersion",
       "runnerId",
     ],

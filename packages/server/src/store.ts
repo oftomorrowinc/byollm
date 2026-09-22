@@ -300,7 +300,6 @@ export interface TouchArgs {
   readonly runnerId: string;
   readonly capabilities: readonly Capability[];
   readonly daemonVersion: string;
-  readonly paused: boolean;
   readonly now: number;
 }
 

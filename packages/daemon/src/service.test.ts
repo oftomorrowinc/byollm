@@ -540,7 +540,7 @@ describe("the CLI's own service commands", () => {
     // to stdout and passed. A check pointed at one stream says nothing about
     // the other.
     let out = "";
-    const code = await runCli(["install"], {
+    const code = await runCli(["start"], {
       paths: daemonPaths(join(home, ".byollm")),
       io: { err: (text) => (err += text), out: (text) => (out += text) },
       service: {
@@ -595,7 +595,7 @@ describe("the CLI's own service commands", () => {
 
     let out = "";
     expect(
-      await runCli(["install"], {
+      await runCli(["start"], {
         paths,
         io: { out: (t) => (out += t) },
         service,
@@ -614,7 +614,7 @@ describe("the CLI's own service commands", () => {
     ).toContain("ExecStart=/usr/bin/node /usr/lib/byollm/bin.js run");
 
     expect(
-      await runCli(["uninstall"], {
+      await runCli(["stop"], {
         paths,
         io: { out: () => undefined },
         service,

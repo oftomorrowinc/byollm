@@ -452,7 +452,6 @@ describe("a clock-skew refusal tells you how to fix it", () => {
         runnerId: "r1",
         daemonVersion: "test",
         capabilities: [],
-        paused: false,
         activeLeases: [],
       })
       .then(() => null)
@@ -503,7 +502,6 @@ describe("a floor refusal is a version problem, not a permission one", () => {
         runnerId: "r1",
         daemonVersion: "0.1.0-alpha.9",
         capabilities: [],
-        paused: false,
         activeLeases: [],
       })
       .then(() => null)

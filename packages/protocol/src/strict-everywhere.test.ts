@@ -93,7 +93,6 @@ describe("every wire shape refuses what it does not know", () => {
       capabilities: [],
       withheld: [],
       activeLeases: [{ jobId: "job_1", leaseId: "lease_1", renewed: true }],
-      paused: false,
     });
     expect(body.success).toBe(false);
   });

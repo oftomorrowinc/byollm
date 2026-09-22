@@ -80,12 +80,12 @@ describe("a paused consent", () => {
         },
       ],
       activeLeases: [],
-      // The daemon's own pause switch, which is a different word for a
-      // different thing: `HeartbeatRequest.paused` is "its operator stopped
-      // it", and this file is about a consent whose disclosure went stale.
-      // When the relay reports the latter it will not be called `paused` on
-      // the wire for exactly that reason.
-      paused: false,
+      // `HeartbeatRequest.paused` used to be sent here, and the note said why
+      // it was a different word for a different thing: it meant "its operator
+      // stopped it", where this file is about a consent whose disclosure went
+      // stale. B044 removed the field at 0.1.0 — nothing ever set it. The
+      // distinction still holds for the relay's own reporting, which is why a
+      // paused consent is not called `paused` on the wire.
     });
     expect(response.status).toBe(200);
     const body = (await response.json()) as {

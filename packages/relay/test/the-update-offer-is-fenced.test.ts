@@ -63,7 +63,6 @@ async function beat(input: {
     daemonVersion: input.daemonVersion,
     capabilities: await daemon.runner.detectCapabilities(),
     activeLeases: [],
-    paused: false,
   });
   return {
     status: response.status,

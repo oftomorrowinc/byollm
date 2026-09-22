@@ -51,36 +51,6 @@ async function readConfig(path: string): Promise<ConfigShape | undefined> {
 }
 
 /**
- * Every service and the model it runs — a column of `byollm services`.
- *
- * The plural verb exists because the singular one needs a service name, and
- * somebody who has just been told to run `byollm model <service> <model>` may
- * not know what this machine calls its services. A command whose first
- * argument you have to guess is a command with a prerequisite nobody
- * mentioned.
- */
-export async function listModels(
-  configPath: string,
-  io: ModelIo,
-): Promise<ModelResult> {
-  const config = await readConfig(configPath);
-  const services = config?.services ?? {};
-  const names = Object.keys(services);
-  if (names.length === 0) {
-    io.err(
-      `No services in ${configPath}.\n` +
-        "Run `byollm setup` to find what this computer already has.\n",
-    );
-    return { changed: false, code: 1 };
-  }
-  for (const name of names) {
-    const entry = services[name];
-    io.out(`  ${name.padEnd(16)} ${entry?.model ?? "(no model set)"}\n`);
-  }
-  return { changed: false, code: 0 };
-}
-
-/**
  * One service's model, and what its CLI is known to accept.
  *
  * The suggestions are printed as suggestions. Free text is the promise

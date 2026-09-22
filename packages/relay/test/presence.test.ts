@@ -74,7 +74,6 @@ describe("a daemon that has only ever heartbeat", () => {
       daemonVersion: "test",
       capabilities: await daemon.runner.detectCapabilities(),
       activeLeases: [],
-      paused: false,
     });
     expect(beat.status).toBe(200);
 
@@ -125,7 +124,6 @@ describe("a daemon that has only ever heartbeat", () => {
       daemonVersion: "test",
       capabilities: await daemon.runner.detectCapabilities(),
       activeLeases: [],
-      paused: false,
     });
 
     // Not a 401. The machine is approved, it signed with the key that was
@@ -227,7 +225,6 @@ describe("a daemon that has only ever heartbeat", () => {
       daemonVersion: "test",
       capabilities: [],
       activeLeases: [],
-      paused: false,
     });
     const stranger = await relay.handle(
       new Request("http://relay.test/byollm/heartbeat", {
@@ -270,7 +267,6 @@ describe("a daemon that has only ever heartbeat", () => {
       daemonVersion: "test",
       capabilities: full,
       activeLeases: [],
-      paused: false,
     });
     expect((await relay.state.presence(daemon.runnerId))?.capabilities).toEqual(
       full,
@@ -282,7 +278,6 @@ describe("a daemon that has only ever heartbeat", () => {
       daemonVersion: "test",
       capabilities: [],
       activeLeases: [],
-      paused: false,
     });
 
     // Empty is an answer: a paired machine whose backend died, which is the

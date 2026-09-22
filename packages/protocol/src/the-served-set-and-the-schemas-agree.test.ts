@@ -90,7 +90,6 @@ describe("the served set and the schemas", () => {
       daemonVersion: "1.0.0",
       capabilities: [],
       activeLeases: [],
-      paused: false,
     };
     expect(
       HeartbeatRequest.safeParse(good).success,

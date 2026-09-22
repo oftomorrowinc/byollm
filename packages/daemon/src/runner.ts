@@ -2694,13 +2694,6 @@ export class Runner {
         jobId: held.jobId,
         leaseId,
       })),
-      /* Required, and `.strict()` on both sides, so it is sent rather than
-         dropped — see the same note in cli.ts. Nothing sets it true any
-         more: B043 removed `byollm pause`, and this idle check was never
-         wired to it in the first place. The field dies at the 0.1.0
-         protocol cut (B044), where one publish moves hub and daemon
-         together. */
-      paused: false,
     });
 
     this.#noteClockSkew(heartbeat.serverTime);

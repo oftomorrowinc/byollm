@@ -120,7 +120,6 @@ describe("MemoryStore — edges", () => {
         runnerId: "runner_nope",
         capabilities: [],
         daemonVersion: "0",
-        paused: false,
         now,
       }),
     ).toBeNull();

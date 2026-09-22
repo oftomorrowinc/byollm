@@ -170,11 +170,6 @@ describe("byollm model — the verb, through the router", () => {
     expect(err).toContain("byollm model <service> <name>");
   });
 
-  it("says where to look when there is no config at all", async () => {
-    expect(await runCli(["models"], { paths, io: io() })).toBe(1);
-    expect(err).toContain("byollm setup");
-  });
-
   it("is in help, where somebody would look for it", async () => {
     await runCli(["--help"], { paths, io: io() });
     /* `models` left the surface in byollm_020 — its listing is a column of

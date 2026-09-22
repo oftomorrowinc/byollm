@@ -304,7 +304,6 @@ describe("no-runner signal [NO_RUNNER_SIGNAL]", () => {
         daemonVersion: "0.1.0",
         capabilities: [httpCapabilities()[0]!],
         activeLeases: [],
-        paused: false,
       },
       runner,
     );
@@ -332,26 +331,6 @@ describe("no-runner signal [NO_RUNNER_SIGNAL]", () => {
     expect(
       await h.app.runnerAvailability({ kind: "llm.generate", owner: "alice" }),
     ).toMatchObject({ available: true, candidates: 1 });
-  });
-
-  it("treats a paused runner as offline", async () => {
-    const h = createHarness();
-    const runner = await h.pair({ owner: "alice" });
-    await h.call(
-      "heartbeat",
-      {
-        protocolVersion: PROTOCOL_VERSION,
-        runnerId: runner.runnerId,
-        daemonVersion: "0.1.0",
-        capabilities: httpCapabilities(),
-        activeLeases: [],
-        paused: true,
-      },
-      runner,
-    );
-    expect(
-      await h.app.runnerAvailability({ kind: "llm.generate", owner: "alice" }),
-    ).toMatchObject({ available: false, reason: "no-runner-online" });
   });
 });
 
@@ -383,7 +362,6 @@ describe("availability, at enqueue time [byollm_016 Amendment L]", () => {
         daemonVersion: "0.1.0",
         capabilities,
         activeLeases: [],
-        paused: false,
       },
       runner,
     );

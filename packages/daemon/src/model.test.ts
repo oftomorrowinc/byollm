@@ -2,7 +2,7 @@ import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { backendVerifier, listModels, setModel, showModel } from "./model.js";
+import { backendVerifier, setModel, showModel } from "./model.js";
 import { knownModelsFor } from "./known-models.js";
 import { removeTemp } from "./test-support.js";
 
@@ -150,13 +150,6 @@ describe("setting a model", () => {
 });
 
 describe("reading models back", () => {
-  it("lists every service with what it runs", async () => {
-    await listModels(config, io);
-    expect(out).toContain("claude");
-    expect(out).toContain("sonnet");
-    expect(out).toContain("ollama");
-  });
-
   it("offers suggestions as suggestions, not as a menu", async () => {
     // Ruling 3: free text is the promise. Copy that read as a closed list
     // would make somebody believe a model released this morning is
@@ -175,16 +168,6 @@ describe("reading models back", () => {
 });
 
 describe("when there is nothing to read", () => {
-  it("points at setup rather than at an empty list", async () => {
-    // A config with no services is what a pre-alpha.44 install left behind,
-    // and "no services" as a bare fact is a dead end. The remedy is the
-    // command that finds what the computer already has.
-    await writeFile(config, JSON.stringify({ services: {} }));
-    const result = await listModels(config, io);
-    expect(result.code).toBe(1);
-    expect(err).toContain("byollm setup");
-  });
-
   it("names the service it could not find, and how to see the real ones", async () => {
     const result = await showModel(config, "clawed", io);
     expect(result.code).toBe(1);
@@ -206,20 +189,6 @@ describe("when there is nothing to read", () => {
 });
 
 describe("a config somebody edited by hand", () => {
-  it("says a service has no model rather than printing nothing", async () => {
-    // `model` is required by the schema the daemon loads, so a config without
-    // it is one somebody wrote themselves. Printing an empty column would
-    // read as a model called "" — this says which field is missing.
-    await writeFile(
-      config,
-      JSON.stringify({ services: { claude: { type: "claude-cli" } } }),
-    );
-    await listModels(config, io);
-    expect(out).toContain("(no model set)");
-    await showModel(config, "claude", io);
-    expect(out).toContain("(no model set)");
-  });
-
   it("still refuses on a probe, naming no previous model it cannot name", async () => {
     await writeFile(
       config,

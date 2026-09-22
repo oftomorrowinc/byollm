@@ -499,7 +499,6 @@ export class ByollmHandlers {
       runnerId: runner.id,
       capabilities: request.capabilities,
       daemonVersion: request.daemonVersion,
-      paused: request.paused,
       now,
     });
 

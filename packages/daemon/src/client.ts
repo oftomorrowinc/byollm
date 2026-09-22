@@ -242,7 +242,6 @@ export class ProtocolClient {
     /** Kinds this device could serve and is withholding — byollm_016. */
     withheld?: readonly WithheldKind[];
     activeLeases: readonly { jobId: string; leaseId: string }[];
-    paused: boolean;
   }): Promise<HeartbeatResponse> {
     return this.#post("heartbeat", HeartbeatResponse, {
       protocolVersion: PROTOCOL_VERSION,
@@ -251,7 +250,6 @@ export class ProtocolClient {
       capabilities: input.capabilities,
       withheld: input.withheld ?? [],
       activeLeases: input.activeLeases,
-      paused: input.paused,
     });
   }
 

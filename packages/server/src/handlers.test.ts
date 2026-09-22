@@ -489,7 +489,6 @@ describe("heartbeat", () => {
         daemonVersion: "0.1.0",
         capabilities: httpCapabilities(),
         activeLeases: leasesFrom(claimed),
-        paused: false,
       },
       runner,
     );
@@ -525,7 +524,6 @@ describe("heartbeat", () => {
         daemonVersion: "0.1.0",
         capabilities: httpCapabilities(),
         activeLeases: leasesFrom(claimed),
-        paused: false,
       },
       runner,
     );
@@ -563,7 +561,6 @@ describe("heartbeat", () => {
         daemonVersion: "0.1.0",
         capabilities: httpCapabilities(),
         activeLeases: [],
-        paused: false,
       },
       runner,
     );
@@ -601,7 +598,6 @@ describe("heartbeat", () => {
         daemonVersion: "0.1.0",
         capabilities: httpCapabilities(),
         activeLeases: leasesFrom(claimed),
-        paused: false,
       },
       runner,
     );

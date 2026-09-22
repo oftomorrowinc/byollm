@@ -336,3 +336,210 @@ describe("what the Release workflow can actually ask — B318", () => {
     expect(pins).toMatch(/BYOLLM_PINS"\]\s*===\s*"skip"/u);
   });
 });
+
+describe("the channel a version belongs to — B339", () => {
+  /**
+   * This check hardcoded `alpha`. `0.1.0` published to `latest`, `alpha`
+   * correctly stayed at `0.1.0-alpha.103`, and the check reported **six BAD
+   * TAGs and exited 1 on a release that was entirely correct** — then told the
+   * operator to re-run a workflow that cannot move a dist-tag, and died before
+   * the step that creates the GitHub Release.
+   *
+   * Todd, 09-22: *"we need to remove the alpha check now that we are out of
+   * alpha."*
+   */
+
+  /** A registry serving `version` on `channel` only, as npm really would. */
+  const onChannel = (version, channel, otherwise = "0.0.9") =>
+    Object.fromEntries(
+      NAMES.map((n) => [
+        n,
+        {
+          versions: [version],
+          "dist-tags": {
+            alpha: otherwise,
+            latest: otherwise,
+            [channel]: version,
+          },
+        },
+      ]),
+    );
+
+  it("asks `latest` for a stable version, and passes", async () => {
+    const version = "1.2.3";
+    const { status, stdout } = await run(
+      version,
+      NAMES,
+      "1",
+      {},
+      onChannel(version, "latest"),
+    );
+    expect(stdout).toContain("tagged `latest`");
+    expect(status, stdout).toBe(0);
+  });
+
+  it("asks `alpha` for a prerelease, and passes", async () => {
+    /**
+     * The mutation case. Hardcoding `latest` back into the script passes the
+     * one above and fails this one — which is the pair that makes the rule a
+     * rule rather than a different constant.
+     */
+    const version = "1.2.3-alpha.7";
+    const { status, stdout } = await run(
+      version,
+      NAMES,
+      "1",
+      {},
+      onChannel(version, "alpha"),
+    );
+    expect(stdout).toContain("tagged `alpha`");
+    expect(status, stdout).toBe(0);
+  });
+
+  it("does not ask a prerelease to have moved `latest`", async () => {
+    /* `release.yml` §4 sends a prerelease to its own tag deliberately, so
+       `latest` naming the release BEFORE it is the design working. Reporting
+       that as a problem is how a correct release gets a red. */
+    const version = "1.2.3-beta.2";
+    const { status, stdout } = await run(
+      version,
+      NAMES,
+      "1",
+      {},
+      onChannel(version, "beta", "1.2.2"),
+    );
+    expect(status, stdout).toBe(0);
+    expect(stdout).toContain("tagged `beta`");
+  });
+
+  it("refuses a stable version whose `latest` still names the previous one", async () => {
+    const version = "1.2.3";
+    const stale = Object.fromEntries(
+      NAMES.map((n) => [
+        n,
+        {
+          versions: [version],
+          "dist-tags": { alpha: "1.2.2", latest: "1.2.2" },
+        },
+      ]),
+    );
+    const { status, stdout, stderr } = await run(
+      version,
+      NAMES,
+      "1",
+      {},
+      stale,
+    );
+    const out = stdout + stderr;
+    expect(status, out).toBe(1);
+    expect(out).toContain("BAD TAG");
+
+    /**
+     * **The remedy has to be one that works.**
+     *
+     * It said "This is a partial release... Re-run the Release workflow for
+     * this tag." Both halves were wrong for this state: the packages ARE
+     * published, and re-running cannot move a dist-tag — publishing is
+     * idempotent, so it refuses and changes nothing. A remedy that cannot work
+     * is the loop somebody runs twice before they start doubting the message.
+     */
+    expect(out).toContain("npm dist-tag add");
+    expect(out).not.toMatch(/Re-run the Release workflow for this tag/u);
+    expect(out).not.toMatch(/This is a partial release/u);
+  });
+
+  it("never offers to point `latest` at a prerelease", async () => {
+    /**
+     * Found by running this against the real registry after the channel
+     * change, not from a fixture.
+     *
+     * `latest` is 0.1.0 and the version checked was 0.1.0-alpha.103, so
+     * `latest` is AHEAD. The note called that "still behind" and printed
+     * `npm dist-tag add <pkg>@0.1.0-alpha.103 latest` — a command that drags
+     * every `npm install byollm` back onto a prerelease, offered by a line
+     * describing the correct state as a lag.
+     *
+     * `release.yml` §4 never sends a prerelease to `latest`, so there is no
+     * state in which that command is right.
+     */
+    const version = "1.2.3-alpha.7";
+    const ahead = Object.fromEntries(
+      NAMES.map((n) => [
+        n,
+        {
+          versions: [version],
+          "dist-tags": { alpha: version, latest: "1.2.3" },
+        },
+      ]),
+    );
+    const { status, stdout } = await run(version, NAMES, "1", {}, ahead);
+    expect(status, stdout).toBe(0);
+    expect(
+      stdout,
+      "the check offers to move `latest` onto a prerelease",
+    ).not.toMatch(/dist-tag add \S+@1\.2\.3-alpha\.7 latest/u);
+    expect(stdout).not.toMatch(/`latest` still behind/u);
+    expect(stdout).toContain("never moves `latest` for a prerelease");
+  });
+
+  it("spells the rule the way `release.yml` spells it", () => {
+    /**
+     * **Two sources.** CW allowed the four lines to be copied with a comment
+     * saying where they live; a copy with a pointer is still a copy, and the
+     * failure it invites is the two ends disagreeing about which tag holds a
+     * release. So the workflow's own `case` is parsed and compared.
+     *
+     * `release.yml` is the source of truth because it is what actually
+     * publishes. If somebody adds `*-rc.*) TAG_NAME=rc ;;` there, this goes
+     * red until the script learns it — instead of the check quietly asking the
+     * wrong tag on the next release candidate.
+     */
+    const workflow = readFileSync(
+      join(".github", "workflows", "release.yml"),
+      "utf8",
+    );
+    const block = /case "\$VERSION" in([\s\S]*?)esac/u.exec(workflow);
+    expect(block, "release.yml §4's case statement has moved").not.toBeNull();
+
+    const arms = [
+      ...(block?.[1] ?? "").matchAll(/(\S+)\)\s*TAG_NAME=(\w+)/gu),
+    ].map(([, pattern, tag]) => ({ pattern, tag }));
+    expect(
+      arms.length,
+      "no arms parsed out of the case statement",
+    ).toBeGreaterThan(2);
+
+    /* A version that exercises each arm, built from the arm's own glob. */
+    const sample = (pattern) =>
+      pattern === "*" ? "9.9.9" : `9.9.9${pattern.replaceAll("*", "")}1`;
+
+    const script = readFileSync(join("scripts", "release-check.mjs"), "utf8");
+    const channelOf = (v) => {
+      if (v.includes("-alpha.")) return "alpha";
+      if (v.includes("-beta.")) return "beta";
+      if (v.includes("-")) return "next";
+      return "latest";
+    };
+    /* The local copy above is what the assertion compares WITH; that it
+       matches the script's own four lines is asserted separately, so a drift
+       in either one is caught. */
+    for (const line of [
+      'if (v.includes("-alpha.")) return "alpha";',
+      'if (v.includes("-beta.")) return "beta";',
+      'if (v.includes("-")) return "next";',
+      'return "latest";',
+    ]) {
+      expect(
+        script,
+        "release-check.mjs's channelOf has been reworded",
+      ).toContain(line);
+    }
+
+    for (const { pattern, tag } of arms) {
+      expect(
+        channelOf(sample(pattern)),
+        `release.yml sends ${pattern} to ${tag}`,
+      ).toBe(tag);
+    }
+  });
+});

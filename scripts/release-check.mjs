@@ -87,6 +87,42 @@ const version =
     .version;
 
 /**
+ * The dist-tag a version of ours is published under — B339.
+ *
+ * **The same `case` `release.yml` uses to decide where to publish** (§4, "a
+ * prerelease goes to its own dist-tag, never to `latest`"), and the same four
+ * lines as `byollm-cloud`'s `pins-agree.mjs`. Written from the rule rather
+ * than from a memory of it; `release-check.test.mjs` reads `release.yml`'s own
+ * `case` and compares, so a third spelling cannot appear quietly.
+ *
+ * ## Why this replaced the word `alpha`
+ *
+ * This file asked `tags["alpha"] === version`, and its success line read
+ * "live on every package, tagged `alpha`". True while every release was a
+ * prerelease; false at the first stable one. `0.1.0` published to `latest`,
+ * `alpha` correctly stayed at `0.1.0-alpha.103`, and this check reported
+ * **six BAD TAGs and exited 1 on a release that was entirely correct** —
+ * every package at 0.1.0, `latest` pointing at it.
+ *
+ * It then told the operator to re-run the Release workflow, which cannot fix a
+ * dist-tag, and the run died before the step that creates the GitHub Release.
+ * The checker was the failure, and it cost the v0.1.0 Release page.
+ *
+ * **Its success path was unreachable for the release it was gating** — the
+ * same law as B337 and B338: a check that cannot pass in the environment it
+ * runs in never ran the line.
+ */
+function channelOf(v) {
+  if (v.includes("-alpha.")) return "alpha";
+  if (v.includes("-beta.")) return "beta";
+  if (v.includes("-")) return "next";
+  return "latest";
+}
+
+/** The channel this run is about, named once and used everywhere. */
+const CHANNEL = channelOf(version);
+
+/**
  * What the registry says, or what a fixture says it says.
  *
  * `RELEASE_CHECK_FIXTURE` names a JSON file of
@@ -250,12 +286,12 @@ for (const name of names) {
         .filter(Boolean)
         .map((line) => line.split(": ").map((s) => s.trim())),
     );
-    if (versions.includes(version) && tags["alpha"] === version) break;
+    if (versions.includes(version) && tags[CHANNEL] === version) break;
     if (attempt < PROPAGATION_ATTEMPTS - 1) await sleep(backoff(attempt));
   }
 
   const published = versions.includes(version);
-  const alphaOk = tags["alpha"] === version;
+  const channelOk = tags[CHANNEL] === version;
 
   /**
    * A read that never resolved is a finding about the window, not the release.
@@ -296,43 +332,92 @@ for (const name of names) {
         `${describeWindow()}. That is this check giving up, not npm ` +
         `saying the version is absent.`,
     );
-  } else if (!alphaOk) {
+  } else if (!channelOk) {
     problems.push(
-      `${name} — published, but \`alpha\` points at ${tags["alpha"] ?? "nothing"}`,
+      `${name} — published, but \`${CHANNEL}\` points at ${tags[CHANNEL] ?? "nothing"}`,
     );
   }
-  if (published && alphaOk) readable.push(name);
-  if (published && alphaOk && tags["latest"] !== version) {
+  if (published && channelOk) readable.push(name);
+  /**
+   * `latest` lagging is a note for a PRERELEASE and nothing at all otherwise.
+   *
+   * On a prerelease the channel is `alpha`/`beta`/`next` and `latest` is
+   * meant to still name the release before it — that is `release.yml` §4
+   * working, and the line below says so without failing. On a stable release
+   * the channel IS `latest`, so the same comparison would be the verdict
+   * above restated as a warning.
+   */
+  if (
+    CHANNEL !== "latest" &&
+    published &&
+    channelOk &&
+    tags["latest"] !== version
+  ) {
     behind.push(`${name} (latest: ${tags["latest"] ?? "none"})`);
   }
 
-  const mark = !published ? "UNREAD  " : !alphaOk ? "BAD TAG " : "ok      ";
+  const mark = !published ? "UNREAD  " : !channelOk ? "BAD TAG " : "ok      ";
   console.log(
-    `  ${mark} ${name.padEnd(22)} alpha=${tags["alpha"] ?? "-"}  latest=${tags["latest"] ?? "-"}`,
+    `  ${mark} ${name.padEnd(22)} ${CHANNEL}=${tags[CHANNEL] ?? "-"}` +
+      (CHANNEL === "latest" ? "" : `  latest=${tags["latest"] ?? "-"}`),
   );
 }
 
 if (behind.length > 0) {
+  /**
+   * **`latest` is not "behind" a prerelease, and must never be moved to one
+   * — B339.**
+   *
+   * This block only runs for a prerelease now, and it read "`latest` still
+   * behind" with the remedy `npm dist-tag add <pkg>@${version} latest`. That
+   * was written when every release was an alpha and `latest` genuinely lagged.
+   *
+   * Since 0.1.0 it is inverted: `latest` names 0.1.0 and the version being
+   * checked is 0.1.0-alpha.103, so `latest` is AHEAD — and the printed remedy
+   * would drag every consumer of `npm install byollm` back onto a prerelease.
+   * A remedy nobody should run, offered by a line that calls the correct state
+   * a lag.
+   *
+   * `release.yml` §4 never sends a prerelease to `latest`. So this is context,
+   * not a deficit, and it carries no command.
+   */
   console.log(
-    `\n\`latest\` still behind on ${String(behind.length)}: ${behind.join(", ")}` +
-      `\n  Not a failure — moving it needs a human with 2FA, on purpose.` +
-      `\n  npm dist-tag add <pkg>@${version} latest`,
+    `\n\`latest\` names something else on ${String(behind.length)}: ${behind.join(", ")}` +
+      `\n  Expected — \`release.yml\` §4 never moves \`latest\` for a prerelease.` +
+      `\n  Do NOT point \`latest\` at ${version}; that moves every` +
+      `\n  \`npm install byollm\` onto a prerelease.`,
   );
 }
 
 if (problems.length > 0) {
   console.error(`\n${String(problems.length)} problem(s):`);
   for (const problem of problems) console.error(`  ${problem}`);
+  /**
+   * **What this list is, and what it is not — B339.**
+   *
+   * Every line above is a package that IS published at this version and whose
+   * `${CHANNEL}` tag points somewhere else. That is a dist-tag problem, and
+   * the tarballs are already on the registry.
+   *
+   * This said "This is a partial release... Re-run the Release workflow" and
+   * both halves were wrong for that. A partial release is packages that did
+   * not publish, and those are reported as UNREAD, not here. Re-running the
+   * workflow cannot move a dist-tag: publishing is idempotent, so it refuses
+   * with "every package is already at this version" and changes nothing — and
+   * on 0.1.0 it sent the operator at a registry that was entirely correct
+   * while the checker was the thing that was wrong.
+   *
+   * A remedy that cannot work is worse than none: it is the loop somebody
+   * runs twice before they start doubting the message.
+   */
   console.error(
-    `\nThis is a partial release: some packages at ${version}, others behind,` +
-      `\nand every one of them resolvable, which is the dangerous state.` +
-      `\n\nRe-run the Release workflow for this tag — cloud_008 §37.` +
-      `\nPublishing is idempotent per package, so a re-run publishes only what` +
-      `\nis missing and converges; if everything is already there it refuses` +
-      `\nwith "every package is already at ${version}", which is itself the` +
-      `\nanswer. Burning the version was right only when the pre-check refused` +
-      `\nany tag a package already had, which turned a stranded publish into a` +
-      `\nlost version.`,
+    `\nThese packages are PUBLISHED at ${version}; what disagrees is the` +
+      `\n\`${CHANNEL}\` dist-tag. Nothing needs republishing.` +
+      `\n\nMove the tag, per package:` +
+      `\n  npm dist-tag add <pkg>@${version} ${CHANNEL}` +
+      `\n\nIt needs a human with 2FA, on purpose. Re-running the Release` +
+      `\nworkflow will not do it — publishing is idempotent, so it refuses` +
+      `\nwith "every package is already at ${version}" and moves nothing.`,
   );
   process.exit(1);
 }
@@ -441,4 +526,4 @@ if (pins !== 0) {
   process.exit(1);
 }
 
-console.log(`\n${version} is live on every package, tagged \`alpha\`.\n`);
+console.log(`\n${version} is live on every package, tagged \`${CHANNEL}\`.\n`);

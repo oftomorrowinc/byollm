@@ -96,8 +96,19 @@ function replaceLiveVersion(path, text) {
     .map((line) => {
       const isManifestVersion =
         path.endsWith("package.json") && /^\s*"version"\s*:/.test(line);
+      /**
+       * **The README banner's shape changed at the flip and this rule did not
+       * — found at the 0.1.1 cut.**
+       *
+       * It matched `> **Alpha (\`` only. The flip's banner is
+       * `> **\`0.1.0\` — early.**` in Todd's approved words, so from 0.1.0
+       * onward the bumper silently stopped maintaining the most-read line in
+       * the repository. The comment below already made this argument for the
+       * SITE banner and widened that one; the README's was left behind.
+       */
       const isReadmeBanner =
-        path.endsWith("README.md") && /^\s*>\s*\*\*Alpha \(`/i.test(line);
+        path.endsWith("README.md") &&
+        /^\s*>\s*\*\*(?:Alpha \(`|`\d+\.\d+\.\d)/i.test(line);
       const isSiteBanner =
         path === "site/index.html" &&
         /<b>(?:Alpha \(|\d+\.\d+\.\d)/i.test(line);
@@ -105,10 +116,18 @@ function replaceLiveVersion(path, text) {
         path.endsWith("packages/daemon/src/index.ts") &&
         /^\s*export const DAEMON_VERSION\s*=/.test(line);
 
-      return isManifestVersion ||
-        isReadmeBanner ||
-        isSiteBanner ||
-        isDaemonVersion
+      /**
+       * The banner line carries TWO versions and only one of them moves.
+       *
+       * Todd's wording is `**\`0.1.0\` — early.** The protocol is version 2
+       * as of 0.1.0; …` — the first names what you are reading, the second is
+       * a permanent fact about when protocol 2 arrived. `split/join` renumbers
+       * both and turns a true sentence into "version 2 as of 0.1.1", which
+       * would be false the moment it was written.
+       */
+      if (isReadmeBanner) return line.replace(current, next);
+
+      return isManifestVersion || isSiteBanner || isDaemonVersion
         ? line.split(current).join(next)
         : line;
     })

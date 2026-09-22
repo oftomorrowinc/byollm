@@ -1,5 +1,5 @@
 > [!WARNING]
-> **`0.1.0` — early.** The protocol is version 2 as of 0.1.0; the
+> **`0.1.1` — early.** The protocol is version 2 as of 0.1.0; the
 > software is still early. These packages run one hosted service —
 > byollm.cloud — and a small number of integrations; beyond that they
 > have little mileage, and most of what we know about the failure modes

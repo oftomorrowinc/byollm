@@ -170,6 +170,50 @@ describe("a bump to a RELEASE retires the alpha, and only mechanically", () => {
     );
   });
 
+  it("maintains the README banner too, and only its own number", () => {
+    /**
+     * **The sibling of the case above, missing for five weeks — found at the
+     * 0.1.1 cut.**
+     *
+     * The site rule was widened when the flip changed the banner's shape. The
+     * README rule was not: it still read `> **Alpha (\`` only, so from 0.1.0
+     * onward the bumper silently stopped maintaining the most-read line in the
+     * repository. `pnpm verify` caught it at the next cut, exactly as the
+     * comment beside the site rule predicted — and "loud at the next cut is
+     * still worse than maintained".
+     *
+     * ## And why the line is not renumbered wholesale
+     *
+     * Todd's approved wording carries TWO versions on one line: the banner's
+     * own, and *"the protocol is version 2 as of 0.1.0"*, a permanent fact
+     * about when protocol 2 arrived. `split/join` moves both and produces
+     * "version 2 as of 0.1.1" — false the moment it is written, in the
+     * warning a visitor reads first.
+     */
+    root = mkdtempSync(join(tmpdir(), "bump-readme-banner-"));
+    mkdirSync(join(root, "packages/protocol"), { recursive: true });
+    writeFileSync(
+      join(root, "packages/protocol/package.json"),
+      '{\n  "version": "0.1.0"\n}\n',
+    );
+    writeFileSync(
+      join(root, "README.md"),
+      "> [!WARNING]\n" +
+        "> **`0.1.0` — early.** The protocol is version 2 as of 0.1.0; the\n" +
+        "> software is still early.\n\n# BYOLLM\n",
+    );
+    execFileSync(process.execPath, [script, "0.1.1"], { cwd: root });
+    const after = readFileSync(join(root, "README.md"), "utf8");
+    expect(after, "the banner's own version did not move").toContain(
+      "**`0.1.1` — early.**",
+    );
+    expect(
+      after,
+      "the historical sentence was renumbered — protocol 2 arrived at 0.1.0 " +
+        "and always will have",
+    ).toContain("version 2 as of 0.1.0");
+  });
+
   it("leaves the site's banner alone, because that block is not mechanical", () => {
     /**
      * I wrote the HTML rules first and they broke the page. The orange bar is

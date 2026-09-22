@@ -574,15 +574,48 @@ for (const rel of READMES) {
    * The lookarounds keep `127.0.0.1` out of it — an IP is not a version, and
    * matching one would put this check back to failing on correct files.
    */
-  const OURS = /(?<![\d.])0\.\d+\.\d+(?:-(?:alpha|beta|rc)\.\d+)?(?![\d.])/gu;
-  const stale = [...new Set(text.match(OURS) ?? [])].filter(
-    (found) => found !== manifest.version,
-  );
+  /**
+   * **Two rules, because "names no version but the shipped one" was too
+   * strong — found at the 0.1.1 cut.**
+   *
+   * That rule replaced `text.includes(version)` for good reasons (B340: the
+   * old one only held because the alpha banners carried the number, and it was
+   * satisfied by a SUBSTRING — `relay` said "Breaking in `0.1.0-alpha.12`" and
+   * passed because that contains `0.1.0`). But it forbade the sentence a
+   * compatibility release most needs to say: *"a 0.1.0 party talks to a 0.1.1
+   * party"*. A rule that refuses the truth gets deleted, and then it is not
+   * there for the citation that matters.
+   *
+   * So the two properties are separated:
+   *
+   *   1. **No README cites a PRERELEASE of ours.** That was the actual B341
+   *      defect — alpha-era citations addressed to readers who never saw one.
+   *      There is no honest reason for a shipped README to name `-alpha.N`;
+   *      the history lives in `docs/release-notes/` and `CHANGELOG.md`.
+   *
+   *   2. **The banner names the version being shipped.** It is the live claim
+   *      about what you are reading. Other stable versions may be named freely,
+   *      because comparing releases is what a release note is for.
+   */
+  const PRERELEASE = /(?<![\d.])0\.\d+\.\d+-(?:alpha|beta|rc)\.\d+(?![\d.])/gu;
+  const cited = [...new Set(text.match(PRERELEASE) ?? [])];
   check(
-    `${name}: names no version but the shipped one`,
-    stale.length === 0,
-    `names ${stale.join(", ")} — package.json says ${manifest.version}; ` +
-      "a version in prose is a claim, and history belongs in CHANGELOG.md",
+    `${name}: cites no prerelease`,
+    cited.length === 0,
+    `names ${cited.join(", ")} — a shipped README citing an alpha is dating a ` +
+      'fact to a version its reader never saw; say "before 0.1.0", and ' +
+      "leave the history in docs/release-notes/ and CHANGELOG.md",
+  );
+
+  /* The banner, if there is one. `bump-version.mjs` maintains this line and
+     stopped doing so for five weeks when the flip changed its shape, which is
+     how it came to be checked here rather than assumed. */
+  const banner = /^\s*>\s*\*\*`([^`]+)`\s*—\s*early/mu.exec(text);
+  check(
+    `${name}: the banner names the shipped version`,
+    banner === null || banner[1] === manifest.version,
+    `the banner says \`${banner?.[1] ?? ""}\` and package.json says ` +
+      `${manifest.version} — \`bump-version.mjs\` should have moved it`,
   );
   /**
    * Two patterns, neither of which enumerates a binary.

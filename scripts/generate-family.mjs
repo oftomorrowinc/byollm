@@ -212,8 +212,14 @@ function table() {
        `@byollm/agreements` on the day it was deliberately unpublished,
        pending a decision. A generated sentence is still a claim, and a
        generator may only claim what its input supports. */
-    `${spelled(FAMILY.length)} packages, versioned and released together. Ask ` +
-      "for `@alpha` explicitly — see the warning at the top of this file.",
+    /* **No dist-tag instruction here any more — B222.** This said "ask for
+       `@alpha` explicitly, see the warning at the top of this file", which
+       was right while the real release lived on `@alpha` and npm's forced
+       `latest` pointed at something older. At 0.1.0 `latest` IS the release,
+       the warning it referred to is gone, and telling a reader to ask for
+       `@alpha` now hands them alpha.103 — older than what a bare install
+       gets. A generated sentence is still a claim. */
+    `${spelled(FAMILY.length)} packages, versioned and released together.`,
     "",
     ...whereLines(),
     "",

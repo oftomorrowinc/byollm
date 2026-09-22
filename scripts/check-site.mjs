@@ -554,10 +554,35 @@ for (const rel of READMES) {
   for (const [snippet, why] of WRONG_IMPORTS) {
     check(`${name}: no \`${snippet}\``, !text.includes(snippet), why);
   }
+  /**
+   * **Names no version but the shipped one — rewritten for B340.**
+   *
+   * This asked `text.includes(manifest.version)`, which only ever held because
+   * every README opened with a release-note banner carrying the version. B340
+   * retired those banners to `docs/release-notes/`, and four READMEs then
+   * named no version at all — so a check that demanded one went red on
+   * READMEs with nothing wrong with them. Its success path had become
+   * unreachable, the same way `release-check`'s had (B339).
+   *
+   * The property worth keeping is the other direction: a README must not claim
+   * a version that is not the one shipping. `includes` could not express that
+   * — and worse, it was being satisfied by a SUBSTRING: `packages/relay` said
+   * "Breaking in `0.1.0-alpha.12`" and passed, because that text contains
+   * `0.1.0`. Two stale alpha-era citations sat in it through the whole cut,
+   * vouched for by the check meant to catch exactly them.
+   *
+   * The lookarounds keep `127.0.0.1` out of it — an IP is not a version, and
+   * matching one would put this check back to failing on correct files.
+   */
+  const OURS = /(?<![\d.])0\.\d+\.\d+(?:-(?:alpha|beta|rc)\.\d+)?(?![\d.])/gu;
+  const stale = [...new Set(text.match(OURS) ?? [])].filter(
+    (found) => found !== manifest.version,
+  );
   check(
-    `${name}: names the shipped version`,
-    text.includes(manifest.version),
-    "the alpha banner names a different version than package.json",
+    `${name}: names no version but the shipped one`,
+    stale.length === 0,
+    `names ${stale.join(", ")} — package.json says ${manifest.version}; ` +
+      "a version in prose is a claim, and history belongs in CHANGELOG.md",
   );
   /**
    * Two patterns, neither of which enumerates a binary.

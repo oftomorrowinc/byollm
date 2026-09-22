@@ -75,6 +75,7 @@ jobs:
       - run: node scripts/generate-about.mjs --check
       - run: pnpm run check:releasing
       - run: node scripts/alpha-claims-match-the-version.mjs
+      - run: node scripts/changelog.mjs --check
       - run: node scripts/every-package-ships-its-license.mjs
       # A leaked key in a public repository is not deletable: it is cloned
       # within minutes and rewriting history does not recall what was fetched.

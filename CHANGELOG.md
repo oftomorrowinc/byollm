@@ -6,8 +6,8 @@ Every release note, newest first. Each links to the full note in
 **This file is generated.** Add a note to the directory, then run
 `node scripts/changelog.mjs`; `--check` refuses a stale one in `verify`.
 
-- [`0.1.0`](docs/release-notes/0.1.0.md) — The wire is locked. What that means, and what it deliberately does not.
 - [`0.1.1`](docs/release-notes/0.1.1.md) — Documentation only. No code changed, and nothing needs upgrading.
+- [`0.1.0`](docs/release-notes/0.1.0.md) — The wire is locked. What that means, and what it deliberately does not.
 - [`0.1.0-alpha.103`](docs/release-notes/0.1.0-alpha.103.md) — Three results that a device produced and a site never showed.
 - [`0.1.0-alpha.102`](docs/release-notes/0.1.0-alpha.102.md) — A hosted console was landing in `/bin/sh`. There is no default now.
 - [`0.1.0-alpha.101`](docs/release-notes/0.1.0-alpha.101.md) — The box greets an empty room. Whoever arrives now hears it.

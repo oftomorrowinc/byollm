@@ -44,10 +44,26 @@ export function versions(dir = DIR) {
 function rank(version) {
   const [core, pre] = version.split("-");
   const [major = 0, minor = 0, patch = 0] = (core ?? "").split(".").map(Number);
-  /* A release outranks every prerelease of itself: `0.1.0` is above
-     `0.1.0-alpha.103`, which is what `release.yml` §4 means by a prerelease
-     never moving `latest`. */
-  const pre_n = pre ? Number(pre.replace(/\D+/gu, "")) || 0 : Infinity;
+  /**
+   * A release outranks every prerelease of itself: `0.1.0` is above
+   * `0.1.0-alpha.103`, which is what `release.yml` §4 means by a prerelease
+   * never moving `latest`.
+   *
+   * **The ceiling is finite, and `Infinity` was the bug — CW caught it at the
+   * 0.1.1 cut.** `Infinity` lifts a release above its own prereleases and
+   * lifts EVERY release to the same rank, so `0.1.0` and `0.1.1` tied and the
+   * sort left them in `readdir` order. The file promises "newest first" in its
+   * own second line and listed 0.1.0 above 0.1.1 — the first time there were
+   * two stable releases to get wrong, which is the first time it could be
+   * seen.
+   *
+   * 99999 is above any prerelease number we will reach — the largest so far is
+   * `alpha.103` — and below the 100000 a patch step adds, so a release stays
+   * under the next patch and over its own prereleases. A prerelease numbered
+   * past 99999 would outrank its own release, which is why the case below
+   * asserts the gap rather than the constant.
+   */
+  const pre_n = pre ? Number(pre.replace(/\D+/gu, "")) || 0 : 99_999;
   return ((major * 1000 + minor) * 1000 + patch) * 100000 + pre_n;
 }
 

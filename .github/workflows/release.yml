@@ -67,10 +67,29 @@ jobs:
             # `--json` over the checks API rather than the status API: CI is a
             # workflow, and a workflow that has not started yet reports
             # nothing at all rather than reporting pending.
-            STATE="$(gh run list --commit "$SHA" --workflow CI               --json status,conclusion --jq               '[.[]] | if length == 0 then "missing"
-                       elif any(.status != "completed") then "running"
-                       elif all(.conclusion == "success") then "success"
-                       else "failed" end')"
+            # **A cancelled run is not a verdict — 2026-09-22.**
+            #
+            # This asked `all(.conclusion == "success")`, so ANY run that was
+            # not green made the gate say "CI failed — not publishing". A
+            # `workflow_dispatch` of CI at the same sha cancels the push run
+            # through the concurrency group, and that cancelled run then sat
+            # in this list for ever: two CI runs had passed on three OSes and
+            # 0.1.1 still refused to publish, naming a failure that never
+            # happened.
+            #
+            # Cancelled means nobody asked the question to the end. So it is
+            # dropped, and the verdict is taken from the runs that answered:
+            # at least one success, and no failures. An empty list after
+            # dropping is "running", not "success" — the fail-open this
+            # repository keeps finding, and the reason `length == 0` is
+            # handled separately above.
+            STATE="$(gh run list --commit "$SHA" --workflow CI \
+              --json status,conclusion --jq \
+              '[.[] | select(.conclusion != "cancelled")]
+                 | if length == 0 then "running"
+                   elif any(.status != "completed") then "running"
+                   elif all(.conclusion == "success") then "success"
+                   else "failed" end')"
             case "$STATE" in
               success) echo "CI green on $SHA"; exit 0 ;;
               failed)  echo "::error::CI failed on $SHA — not publishing"; exit 1 ;;

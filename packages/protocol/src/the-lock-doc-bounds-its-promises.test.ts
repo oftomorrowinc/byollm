@@ -3,6 +3,7 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { GRANT_SIGNED_FIELDS } from "./grant.js";
 import { JobStub } from "./job.js";
+import { PROTOCOL_VERSION, SUPPORTED_PROTOCOL_VERSIONS } from "./wire.js";
 
 /**
  * The lock document bounds the audience promise, and the bound is true — B239.
@@ -145,5 +146,106 @@ describe("what the lock document says about the console", () => {
        old line — worth one assertion because the note copies this document
        and a copy is how the claim would come back. */
     expect(carveOut ?? "").not.toMatch(/nobody has run|no one has run/iu);
+  });
+});
+
+describe("what the lock document says about serving more than one version", () => {
+  /**
+   * **This paragraph decayed twice, and the second time it blocked a tag —
+   * B336.**
+   *
+   * §3 promised, as a present fact, that *"additions ship as version 2 served
+   * alongside version 1, routed by the version the daemon declares"*, and the
+   * release note copied it. It was true of plan B. Ruling A made the opposite
+   * true in the same cut: `PROTOCOL_VERSION` moved to `2`, the served set is
+   * built from it, and protocol 1 is now **refused by name**. So the document
+   * announcing the lock contradicted itself thirty lines apart, and the note
+   * shipped to the tag that way.
+   *
+   * It was flagged once before it was wrong — on 09-18, as *"served alongside
+   * has no mechanism"* — and the ruling that would have settled it was still
+   * owed when protocol 2 arrived through a different door.
+   *
+   * ## Why the existing guardians missed it
+   *
+   * `the-flip-note-matches-the-lock.test.ts` compares the note to this
+   * document, and they **agreed** — they were copies of the same false
+   * sentence. `the-served-set-and-the-schemas-agree.test.ts` pins the
+   * mechanism and reads no prose. Doc-vs-doc was guarded and doc-vs-code was
+   * not, which is the axis the claim actually moves on: nothing about editing
+   * a constant in `wire.ts` reminds you that a page two directories away
+   * describes what it used to be.
+   *
+   * So this is asked of `SUPPORTED_PROTOCOL_VERSIONS` rather than of a list
+   * here, and it is asked in BOTH directions — the day the set widens, the
+   * sentence saying it has not is the one that goes stale.
+   */
+  const section = /\n3\. \*\*The multi-version wire(.*?)(?=\n\d\. \*\*|\n## )/su
+    .exec(doc)?.[1]
+    ?.replaceAll(/\s+/gu, " ");
+
+  it("has the section at all, or the rest of this checks nothing", () => {
+    /* Every assertion below is about a paragraph's contents, and a missing
+       paragraph satisfies "does not overpromise" perfectly — the fail-open
+       shape this suite keeps finding in its own checks. */
+    expect(
+      section,
+      `${LOCK} no longer has a multi-version section`,
+    ).toBeDefined();
+  });
+
+  it("names the number of versions this build actually serves", () => {
+    /**
+     * Derived from the constant, so it cannot be satisfied by a sentence that
+     * was true once. While the set has one element the document must say so
+     * in the words the ruling used; when it grows, that sentence must go.
+     */
+    const only = `speaks protocol ${PROTOCOL_VERSION}, and only ${PROTOCOL_VERSION}`;
+    if (SUPPORTED_PROTOCOL_VERSIONS.length === 1) {
+      expect(
+        section ?? "",
+        `this build serves ${PROTOCOL_VERSION} and nothing else, and ` +
+          `${LOCK} §3 does not say so — it is the page people read to decide ` +
+          "what their daemon may talk to",
+      ).toContain(only);
+      return;
+    }
+    expect(
+      section ?? "",
+      `SUPPORTED_PROTOCOL_VERSIONS now serves ` +
+        `${SUPPORTED_PROTOCOL_VERSIONS.join(", ")}, so ${LOCK} §3 still ` +
+        "claiming a single version understates what the product accepts — " +
+        "rewrite it, and say which versions are routed and how",
+    ).not.toContain(only);
+  });
+
+  it("scopes the multi-version wire to the NEXT change, wherever it mentions it", () => {
+    /**
+     * The sentence that was false is still *present* — the multi-version wire
+     * is the ruled operating model for the next protocol change, and deleting
+     * the description would lose the design. What makes it safe is the tense,
+     * so the tense is what is asserted: the words cannot appear without the
+     * scope that keeps them from reading as a promise about this release.
+     *
+     * Asserted on the section rather than the document, because the note and
+     * the upgrade guidance mention it for their own honest reasons.
+     */
+    if (!/alongside/iu.test(section ?? "")) return;
+    expect(
+      section ?? "",
+      "§3 describes a version served alongside another without saying that " +
+        "is the model for the next change — which is how this paragraph read " +
+        "as a promise about 0.1.0 and contradicted the release note",
+    ).toMatch(/next\*?\*? protocol change/iu);
+    expect(section ?? "").toContain("not a property of this release");
+  });
+
+  it("does not promise that two versions are served today", () => {
+    /* The literal revert, and the copy. This document is what the launch copy
+       is written from, so the old sentence coming back anywhere in it is the
+       failure repeating through the same door it used the first time. */
+    if (SUPPORTED_PROTOCOL_VERSIONS.length > 1) return;
+    expect(said).not.toMatch(/two versions can be served at once/iu);
+    expect(said).not.toMatch(/Protocol 1(?:'s wire)? is STABLE/iu);
   });
 });

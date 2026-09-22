@@ -19,9 +19,15 @@ import {
  *     `ClaimRequest`, `HeartbeatRequest`, `ResultRequest`.
  *
  * They agree today for one reason only: the set is built from the version and
- * has a single element. **Widen it and they disagree**, in the direction the
- * release note promises out loud — *"Protocol 1 is stable, and additions ship
- * as version 2 served alongside it, routed by the version a daemon declares."*
+ * has a single element. **Widen it and they disagree** — and widening it is
+ * the direction the next protocol change goes.
+ *
+ * The release note scopes that deliberately: 0.1.0 speaks protocol 2 and only
+ * 2, and the multi-version wire — a later version served alongside this one,
+ * routed by the version a daemon declares — is the operating model for the
+ * NEXT protocol change, with its mechanism a ruling still owed. **This case is
+ * what makes owing that ruling safe**, because it is what refuses half of it
+ * arriving quietly in the meantime.
  *
  * A v1 daemon reaching a v2 build would pass the friendly check, because 1 is
  * in the set, and then fail `z.literal("2")` — arriving as a schema error

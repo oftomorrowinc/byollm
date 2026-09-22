@@ -104,17 +104,23 @@ validated; no code branches on them.
    it is the owner's, and a shape with no version is a shape you can only
    migrate by guessing from its contents. Absent means 1, permanently.
 
-3. **The multi-version wire is the operating model, not lockstep.**
+3. **The multi-version wire is the model for the NEXT change, not a property
+   of this one.**
    `PROTOCOL_VERSION`, `SUPPORTED_PROTOCOL_VERSIONS` and refusals that name
    the versions they accept already exist in `wire.ts` — lockstep is an alpha
-   habit that outlived its mechanism. **Protocol 1's wire is STABLE at 0.1.0.**
-   Additions ship as version 2 served *alongside* version 1, routed by the
-   version the daemon declares. A field added for a later feature therefore
-   never breaks an old daemon; it simply does not reach one.
+   habit that outlived its mechanism. But the constant holds one version and
+   the set is built from it: **0.1.0 speaks protocol 2, and only 2.** Protocol
+   1 was the alpha wire and is refused by name from here. The multi-version
+   wire — a later version served alongside this one, routed by the version a
+   daemon declares — is the operating model for the *next* protocol change,
+   not a property of this release; its mechanism (a union of literals,
+   version-parameterised schemas, or a second endpoint family) is a ruling
+   still owed, and B291's test refuses any half of it landing silently.
 
-   This is what makes the previous section's price payable. "Every new field is
-   a new version" is a constraint on the wire, not on the roadmap, because two
-   versions can be served at once.
+   So the previous section's price is paid in full here rather than deferred.
+   "Every new field is a new version" is a constraint on the wire, and until
+   that mechanism exists a new version is a break every daemon takes at once —
+   which is why the field windows above close at this release and not later.
 
 ## The stability promise
 

@@ -109,7 +109,12 @@ fi
 # `--committed`, because a pin that is only an unsaved edit is not a pin: a tag
 # names a commit, and a `git checkout` an hour later takes the edit and leaves
 # the release.
-node scripts/pins-checked.mjs "$version" --manifests-only --committed || exit 1
+# `--before-publish` — B346. The web repo's catalog cannot name a version npm
+# has not served without failing every Vercel production build, so its pin
+# lands with its lockfile in one push afterwards and `release-check.mjs`
+# refuses the release if it was forgotten. The hub has no such deploy and is
+# still checked here. The skip is printed, not silent.
+node scripts/pins-checked.mjs "$version" --manifests-only --committed --before-publish || exit 1
 
 # 6. The docs stop saying "alpha" when the version stops being one — B222.
 #

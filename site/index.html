@@ -144,7 +144,7 @@
 
 <div class="alpha"><div class="wrap">
   <b>0.1.1 — early.</b>
-  The protocol is v0 and will change without a deprecation path. These packages run one
+  The protocol is version 2 as of 0.1.0; the software is still early. These packages run one
   hosted service — byollm.cloud — and a small number of integrations; beyond that they have
   little mileage.
   <b>Team routing:</b> share a model on your device with people you name. Each job they send carries a signed, single-use grant your device verifies first.
@@ -209,7 +209,7 @@
     <pre class="block"><span class="c">// enqueue from anywhere in your app</span>
 <span class="k">const</span> job = <span class="k">await</span> app.<span class="f">enqueue</span>({
   kind: <span class="s">"llm.generate"</span>,
-  audience: <span class="s">"self"</span>,      <span class="c">// their device only</span>
+  audience: <span class="s">"private"</span>,   <span class="c">// their device only</span>
   owner: userId,
   payload: { prompt },
 });
@@ -239,7 +239,7 @@
   <table>
     <thead><tr><th>Provider</th><th>What it is</th><th>Cost</th></tr></thead>
     <tbody>
-      <tr><td colspan="3"><b>Your hardware</b> — local compute, costs electricity · shareable up to <span class="tag self">public</span></td></tr>
+      <tr><td colspan="3"><b>Your hardware</b> — local compute, costs electricity · shareable up to <span class="tag self">team</span></td></tr>
       <tr data-provider="ollama"><td><b>Ollama</b></td><td>The easiest way to run models locally</td><td><span class="tag self">free</span></td></tr>
       <tr data-provider="mlx"><td><b>MLX</b></td><td>Apple-silicon native, via <span class="mono">mlx_lm.server</span></td><td><span class="tag self">free</span></td></tr>
       <tr data-provider="llamacpp"><td><b>llama.cpp</b></td><td>The C++ engine behind much of local AI</td><td><span class="tag self">free</span></td></tr>
@@ -276,19 +276,19 @@
       <tr>
         <td><b>Ollama · MLX · llama.cpp · vLLM · LM Studio</b><br><span class="mono" style="color:var(--faint);font-size:13px">local models</span></td>
         <td><span class="tag self">free</span></td>
-        <td><span class="tag self">self</span> → <span class="tag self">named</span> → <span class="tag self">public</span></td>
-        <td>Local compute. Costs electricity, not money — the folding@home posture. Lend your computer to friends or the whole community.</td>
+        <td><span class="tag self">private</span> → <span class="tag self">team</span></td>
+        <td>Local compute. Costs electricity, not money — the folding@home posture. Lend your computer to your team.</td>
       </tr>
       <tr>
         <td><b>OpenAI · Gemini · Grok · Groq · OpenRouter</b><br><span class="mono" style="color:var(--faint);font-size:13px">your API key</span></td>
         <td><span class="tag lock">metered</span></td>
-        <td><span class="tag lock">self</span> unless you say otherwise</td>
+        <td><span class="tag lock">private</span> unless you say otherwise</td>
         <td>Your money, per token. Sharing is legitimate — and ruinous by accident — so widening needs an explicit acknowledgment <em>and</em> a daily ceiling the daemon enforces.</td>
       </tr>
       <tr>
         <td><b>claude CLI</b> &amp; other<br><span class="mono" style="color:var(--faint);font-size:13px">subscription accounts</span></td>
         <td><span class="tag lock">subscription</span></td>
-        <td><span class="tag lock">self · locked</span></td>
+        <td><span class="tag lock">private · locked</span></td>
         <td>One account runs one person's work. Enforced by the protocol, not a setting — your subscription is never part of shared compute.</td>
       </tr>
     </tbody>

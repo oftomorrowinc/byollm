@@ -28,7 +28,7 @@ npm install @byollm/protocol
 | `effectiveOfferScope`               | The subscription self-lock, applied at one place so no code path sees a widened scope. |
 | `MUSTS`                             | Every normative MUST as data. The conformance kit fails if one has no test.            |
 | `BACKENDS`                          | The backend registry — class (`http`/`process`) and account (`open`/`subscription`).   |
-| `ClaimedJob`, `HeartbeatRequest`, … | Schemas for the five endpoints.                                                        |
+| `ClaimedJob`, `HeartbeatRequest`, … | Schemas for the six endpoints.                                                        |
 | `canTransition`, `isTerminal`       | The job lifecycle, as data.                                                            |
 | `provenanceFor`                     | Builds a result's provenance; `untrusted` is derived, never supplied.                  |
 

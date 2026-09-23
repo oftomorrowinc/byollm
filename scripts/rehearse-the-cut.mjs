@@ -307,6 +307,62 @@ console.log(
         .join("\n")}`,
 );
 
+/**
+ * Refusal 7, reported like refusal 4 rather than asked — B344.
+ *
+ * It is a fact about the REAL repository at its CURRENT sha: has a three-OS CI
+ * run (schedule or workflow_dispatch) passed here? A scratch copy has no runs
+ * and no sha anybody pushed, so asking it there would answer about nothing.
+ *
+ * Reported on both paths, because "no three-OS run yet" is the ordinary state
+ * mid-rehearsal and the operator needs to know the tag will stop for it — which
+ * is the whole reason this rehearsal exists.
+ */
+const threeOs = (() => {
+  try {
+    const sha = execFileSync("git", ["rev-parse", "HEAD"], {
+      cwd: ROOT,
+      encoding: "utf8",
+    }).trim();
+    const out = execFileSync(
+      "gh",
+      [
+        "run",
+        "list",
+        "--commit",
+        sha,
+        "--workflow",
+        "ci.yml",
+        "--json",
+        "event,status,conclusion",
+        "--jq",
+        '[.[] | select(.event == "schedule" or .event == "workflow_dispatch")' +
+          ' | select(.conclusion != "cancelled")]' +
+          ' | map(select(.status == "completed" and .conclusion == "success"))' +
+          " | length",
+      ],
+      { cwd: ROOT, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] },
+    );
+    return Number(out.trim()) > 0 ? "green" : "none";
+  } catch {
+    /* No `gh`, no network, no permission — a third state, not a verdict. */
+    return "could not ask";
+  }
+})();
+
+console.log(
+  threeOs === "green"
+    ? "\n  (7. a three-OS run has passed on this sha)"
+    : threeOs === "none"
+      ? "\n  NO 7. no three-OS run has passed on this sha, and tag.sh refuses" +
+        "\n        that. A push to main is ubuntu only; Windows and macOS meet" +
+        "\n        a commit for the first time at the tag, which cost v0.1.1" +
+        "\n        two tags. Before cutting:" +
+        "\n          gh workflow run ci.yml --ref main   (then wait for green)"
+      : "\n  (7. COULD NOT ASK whether a three-OS run passed — no `gh`, or no" +
+        "\n      network. tag.sh asks again and may refuse.)",
+);
+
 console.log(
   failed === 0
     ? `\nEvery refusal this rehearsal can ask would pass at ${target}.\n` +

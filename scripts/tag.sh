@@ -134,6 +134,59 @@ node scripts/pins-checked.mjs "$version" --manifests-only --committed --before-p
 # and the one moment somebody is in a hurry.
 node scripts/alpha-claims-match-the-version.mjs || exit 1
 
+# 7. Windows and macOS have seen this tree — B344.
+#
+# A push to `main` runs the daemon suite on ubuntu only; the three-OS matrix
+# runs on a tag, a schedule, or a `workflow_dispatch` (B315, for the bill). So
+# the FIRST time Windows meets a commit is the release itself, and v0.1.1 found
+# that out twice in one night: 87f26b7 green on main and red on the tag
+# (changelog.mjs writing on import, byte-identical under LF and not under CRLF),
+# then b712b49 red the same way (`import()` given a path, which is only a URL
+# scheme error on Windows). Two dead tags, deleted and re-cut, because the tag
+# was doing a pre-tag check's work.
+#
+# So: a completed, successful `schedule` or `workflow_dispatch` CI run must
+# exist AT THIS SHA before a tag is made. Not "a green run" — those exist on
+# main and are ubuntu-only; the event is what carries the matrix.
+#
+# **Cancelled runs are dropped, and that is not a detail.** Dispatching CI by
+# hand at a sha that already has a push run cancels the push run through the
+# concurrency group — I did exactly that on e961280, and `release.yml`'s own
+# `Wait for CI` then read the cancelled run as a failure and refused to publish
+# a release whose CI had passed on three OSes, twice. A cancelled run is nobody
+# answering the question, not an answer.
+if command -v gh >/dev/null 2>&1; then
+  sha="$(git rev-parse HEAD)"
+  matrix="$(gh run list --commit "$sha" --workflow ci.yml \
+    --json event,status,conclusion --jq \
+    '[.[] | select(.event == "schedule" or .event == "workflow_dispatch")
+          | select(.conclusion != "cancelled")]
+       | map(select(.status == "completed" and .conclusion == "success"))
+       | length' 2>/dev/null || echo 0)"
+  if [ "${matrix:-0}" -lt 1 ]; then
+    echo
+    echo "  No three-OS run has passed on $(git rev-parse --short HEAD)."
+    echo
+    echo "  A push to main runs ubuntu only. Windows and macOS see a commit"
+    echo "  for the first time at the tag, and v0.1.1 lost two tags that way."
+    echo
+    echo "    gh workflow run ci.yml --ref $(git rev-parse --abbrev-ref HEAD)"
+    echo "    gh run watch <id> --exit-status     # then run tag.sh again"
+    echo
+    echo "  Do not dispatch at a sha whose push run is still going: the"
+    echo "  concurrency group cancels it, and a cancelled run is not a verdict."
+    exit 1
+  fi
+  echo "three-OS CI is green on $(git rev-parse --short HEAD)."
+else
+  # Said, not assumed. A refusal this check cannot make is one somebody has to
+  # know it did not make.
+  echo
+  echo "  gh is not installed, so the three-OS run was NOT checked (B344)."
+  echo "  Confirm by hand that a schedule or workflow_dispatch CI run passed"
+  echo "  on $(git rev-parse --short HEAD) before pushing this tag."
+fi
+
 git tag -a "$wanted" -m "$version" HEAD
 echo "tagged $(git rev-parse --short HEAD) as $wanted"
 echo

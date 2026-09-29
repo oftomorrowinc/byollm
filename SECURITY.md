@@ -35,7 +35,7 @@ a bug here.
 
 - **Breakout** — payload text escaping the model call into the machine (code
   execution, file access, network calls beyond the model itself). This is
-  meant to be structurally impossible. **A working breakout is the most
+  designed out, not detected — and re-proved against the real binary on every run. **A working breakout is the most
   serious report we can receive**, and we want it.
 - **Prompt injection** — payload text changing what the model _says_. No
   daemon can prevent this and we do not claim to; the consequences are bounded

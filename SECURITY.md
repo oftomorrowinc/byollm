@@ -48,6 +48,20 @@ that did not consent to it, exposes a payload to the relay or to us, lets a
 site's key change under an id a device has already pinned, lets a device run
 work no grant was signed for, or lets one account read another's data.
 
+One thing is _not_ a bug, because it is the design: a paired device serves any
+site the app it paired with offers it, from the first heartbeat that names the
+site. There is no per-site approval on the machine — `byollm approve` was
+retired by byollm_016 Amendment K. What the device keeps is the pairing
+ceremony (a human compares a fingerprint once, per app), the pin on each site's
+key, the grant check on every job, and a notice at the machine — `now serving
+<site>`, with the fingerprint — the first time a new site's work runs. A
+compromised app or control plane can therefore point a paired device at a site
+its owner never chose; that trade is recorded in
+[`specs/byollm_016-services.md`](specs/byollm_016-services.md) (Amendment K)
+and bounded by spend caps, `byollm stop` and `byollm forget`. A report that an
+app can add a site is telling us what the spec says; a report that it can do so
+_silently_, or run work for it without a grant, is one we want.
+
 Every guarantee in the threat model has a test id in the open protocol, and
 the suite blocks publish. If you find a guarantee that is claimed but not
 actually tested, that is also worth telling us — a rule nothing re-verifies is

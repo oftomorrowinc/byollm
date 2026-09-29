@@ -61,39 +61,46 @@ The daemon only ever connects **out**. There is nothing to open on the user's ne
 Mount the handler, point it at a store, and enqueue.
 
 ```ts
-// app/api/byollm/[...route]/route.ts
+// app/byollm/[...route]/route.ts
 import { createHandler } from "@byollm/server/next";
-import { getConfig } from "@/lib/byollm";
+import { siteKeysFromEnv } from "@byollm/server";
+import { getStore } from "@/lib/byollm";
 
 // A function, not an object: `next build` imports this module with no secrets
 // in the environment, and must not construct anything.
-export const { POST } = createHandler(getConfig);
+export const { POST } = createHandler(() => ({
+  store: getStore(),
+  siteKeys: siteKeysFromEnv("BYOLLM_SITE_KEYS"),
+  verificationUrl: "https://your-app.com/settings/runners",
+}));
 ```
 
 ```ts
 // lib/byollm.ts
 import { ByollmApp, MemoryStore, siteKeysFromEnv } from "@byollm/server";
 
-let shared: { store: MemoryStore; app: ByollmApp } | undefined;
-
-function get() {
-  if (!shared) {
-    const store = new MemoryStore();
-    // Generate once with `npx --package @byollm/server keygen` — never at startup,
-    // or each instance gets a different identity and paired daemons break.
-    const siteKeys = siteKeysFromEnv("BYOLLM_SITE_KEYS");
-    shared = { store, app: new ByollmApp({ store, siteKeys }) };
-  }
-  return shared;
+// Lazily, and memoized, for the same reason the mount takes a function: a
+// module-scope `new` runs during `next build`. Generate the keys once with
+// `npx --package @byollm/server keygen` — never at startup, or each instance
+// gets a different identity and paired daemons break.
+let store: MemoryStore | undefined;
+export function getStore(): MemoryStore {
+  return (store ??= new MemoryStore());
 }
 
-export const getApp = () => get().app;
-export const getConfig = () => ({
-  store: get().store,
-  siteKeys: siteKeysFromEnv("BYOLLM_SITE_KEYS"),
-  verificationUrl: "https://your-app.com/settings/runners",
-});
+let app: ByollmApp | undefined;
+export function getApp(): ByollmApp {
+  return (app ??= new ByollmApp({
+    store: getStore(),
+    siteKeys: siteKeysFromEnv("BYOLLM_SITE_KEYS"),
+  }));
+}
 ```
+
+The route lives at `/byollm`, not under `/api`: the daemon pairs with an
+origin — it drops any path it is given — and calls `<origin>/byollm/<endpoint>`,
+so a handler mounted anywhere else is one no daemon can reach. Users pair with
+`byollm connect https://your-app.com`.
 
 ```ts
 // anywhere in your app
@@ -174,7 +181,7 @@ subscriptions are locked to `private` whatever the file says.
 byollm services       # what's installed, healthy, advertised — and who each is offered to
 byollm sites          # which sites this device serves, and which keys it holds
 byollm log            # every prompt that ran here, ever
-byollm stop           # stop claiming work — the off switch, always yours
+byollm stop           # stop running in the background — the off switch, always yours
 byollm offer <service> team --cap 250     # share a paid service, deliberately
 ```
 

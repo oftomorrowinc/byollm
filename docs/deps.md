@@ -10,8 +10,9 @@ byollm_002's "Done when".
 | Package | Used by                        | Why                                                                                                                                                                                                                                                                                                                                                                                          |
 | ------- | ------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `zod`   | `protocol`, `server`, `daemon` | The wire boundary needs runtime validation, not just types: every payload is hostile input, and `strict()` parsing is the first line of `NO_PAYLOAD_ROUTING` — an unknown key becomes a parse failure rather than something ignored deeper in. Hand-rolling this for five endpoints plus config files would be more code and less trustworthy. One dependency, shared by all three packages. |
+| `libsodium-wrappers` | `protocol` (and so every package that seals or opens an envelope) | Envelope v2 seals payloads in a libsodium **sealed box** — ephemeral X25519 agreement with a BLAKE2b-derived nonce. byollm_009 §2 says established primitives, no novel constructions, and rebuilding a sealed box from lower-level pieces is exactly what that rule forbids. The keys themselves are Node's; only the sealing construction comes from here. Pinned exact (`0.8.4`); it pulls in `libsodium` (WASM) and nothing else. |
 
-That is the whole list.
+That is the whole list: two dependencies, three packages in the runtime tree.
 
 ### What we deliberately did not add
 

@@ -154,35 +154,46 @@ The meter is the product, and it gets the same care as the loop.
 
 ```bash
 byollm status         # what's connected, what's running, what you've done for others
-byollm sites          # which sites this device serves, and which are waiting on you
-byollm approve <site> # say yes to a site that asked
+byollm sites          # which sites this device serves, and which keys it still holds
 byollm log            # every prompt that has ever run here
 byollm log --full     # the whole text, not the first line
-byollm stop           # stop claiming work — the off switch, always yours
+byollm stop           # stop running in the background — the off switch, always yours
 byollm start          # and bring it back
+byollm forget <url>   # drop a pairing entirely
 ```
 
-### A site cannot add itself
+### Which sites this device serves is decided in your dashboard
 
 Pairing is with an *app* — a hub, a relay, your own server — and one pairing
 can cover several sites. Which sites arrives on the heartbeat, from the same
 party that routes the work.
 
-So a site that turns up after pairing **waits**. It is listed by
-`byollm sites` with its fingerprint, nothing is claimed for it, and it starts
-being served the moment you run `byollm approve <site>`. Compare the
-fingerprint against what the site itself shows you before you do.
+A site that turns up after pairing is **pinned and served** from that
+heartbeat on. Nothing on this machine asks you first: `byollm approve` is
+gone (it exits with a tombstone saying so), and which sites reach your device
+is decided in the app's dashboard, where the person changing it is signed in
+and can see what they are changing.
 
-The reason is narrow and worth stating: the daemon pins each site's keys so
-that the party routing a job cannot choose which key signed it. If that party
-could also *add* a site, it could generate a keypair, announce it, sign its
-own work with it, and every pin check downstream would pass — because the
-list they check against is the thing it wrote. Approving is the one step it
-cannot perform for you.
+What you get instead is a notice. The first time a new site's work runs here,
+the daemon says `now serving <site>, enabled from your dashboard` with the
+site's fingerprint — on screen in `byollm run`, in `~/.byollm/service.log`
+when it runs in the background — so a change made at the app is never silent
+at the machine. `byollm sites` lists every site this device serves and
+every key it still holds, with fingerprints, for comparing against what the
+site itself shows you.
 
-A key that moves under a site you already approved is refused rather than
-replaced, for the life of the pairing — including when the site leaves the
-list and comes back. Rotation is an explicit path, not a silent swap.
+What the daemon still refuses, whatever the app says: a key that moves under
+a site id it has already pinned, for the life of the pairing — including when
+the site leaves the list and comes back (rotation is an explicit, signed path,
+not a silent swap); and any job that does not carry a grant signed by the
+control-plane key this device pinned when it paired. A party that can add a
+site to your heartbeat still cannot sign work for it.
+
+The trade is stated plainly in the spec (byollm_016, Amendment K): an app or
+control plane that is compromised can point your device at a site you never
+chose. Spend caps bound what that costs, the notice makes it visible, and the
+levers are yours: `byollm stop` stops all work, `byollm forget <url>` drops
+the pairing.
 
 Every prompt is appended to `~/.byollm/ingress.log` **before** it executes, so
 a job that wedges the computer still leaves a record of what it was. The file is

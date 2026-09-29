@@ -36,10 +36,11 @@ ordering is awkward on purpose: `npm trust` configures a publisher *for a
 package*, so the package has to exist first. A brand-new name therefore takes
 one manual publish, then this, and rides the workflow from then on.
 
-`@byollm/relay` went that way at `0.1.0-alpha.5` — which is why it is the one
-package without a provenance attestation. It gains one at its next
-workflow-published release, and the gap is worth knowing about rather than
-discovering while auditing the supply chain.
+`@byollm/relay` went that way at `0.1.0-alpha.5`, so that one version carries
+no provenance attestation; every workflow-published release since does, and
+`@byollm/relay@0.1.1` is attested. The versions still without provenance are
+the three hand-published `byollm@0.1.0-alpha.0`, `.1` and `.2`. That gap is
+worth knowing about rather than discovering while auditing the supply chain.
 
 **The workflow now refuses rather than trusting you to have read this.**
 `@byollm/control-plane` was added to `packages/` and tagged without the manual
@@ -283,7 +284,7 @@ You should not need to. If the workflow is broken and a release cannot wait:
 
 ```bash
 pnpm run verify
-for pkg in protocol server daemon conformance relay control-plane agreements; do
+for pkg in protocol server daemon conformance relay control-plane; do
   ( cd "packages/$pkg" && pnpm publish --tag alpha --access public --no-git-checks )
 done
 ```

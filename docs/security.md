@@ -310,7 +310,7 @@ somebody else's software.
 ### 3.4 The device key file, and what protects it
 
 byollm_009 gives each device an Ed25519 identity key. It is the most
-sensitive file the daemon writes, and unlike a runner token it cannot be
+sensitive file the daemon writes, and unlike a bearer token it cannot be
 reissued: losing it means re-pairing every app, and leaking it means someone
 else can be this device.
 
@@ -329,9 +329,11 @@ daemon sets or verifies.
 
 This was found by the platform CI matrix within hours of it existing, by a
 test that asserted `0600` and failed. The tests are now platform-specific in
-both directions: POSIX asserts the mode, Windows asserts that it is *not* what
-protects the key, so nobody deletes the awkward assertion and restores a false
-one.
+both directions: POSIX asserts the mode, and that a widened file is warned
+about on load; Windows asserts only that the check is skipped — no warning is
+printed there, because one that fired on every start would claim to have fixed
+something it had not. Nothing asserts what _does_ protect the key on Windows;
+that is the ACL described above, and it is unverified by this suite.
 
 ### 3.5 What an upstream observes — the spec is the record, permanently
 
@@ -509,9 +511,11 @@ Test id: `RESULT_PROVENANCE`.
 
 ## 7. Identity and trust boundaries
 
-- A runner token is bound to **exactly one user**, learned from that user's own
-  authenticated session during device-code pairing. A daemon can never assert
-  who it is.
+- A device is bound to **exactly one user**, learned from that user's own
+  authenticated session during device-code pairing. Every request after
+  `pair` is signed by the device's pinned Ed25519 identity key
+  (`REQUESTS_SIGNED_NOT_BEARER`); there is no runner token. A daemon can never
+  assert who it is.
 - Owner ids are **server-namespace-local**. `alice` on one app is not `alice`
   on another, which is why the daemon's admission is keyed by
   **(server origin, user id)**.
@@ -526,9 +530,10 @@ Test id: `RESULT_PROVENANCE`.
 - A device paired with **no relay** serves its owner and nobody else. There is
   no control plane to sign a statement about anybody, so there is nothing it
   could verify — and a `team` offer narrows to `private`, loudly.
-- Tokens are stored as SHA-256 on the server and in a `0600` file on the
-  daemon. The daemon's whole state directory is readable and deletable by its
-  owner, by design.
+- There is no runner token to store. A device code is held as SHA-256 on the
+  server for the minutes a pairing is open; the device's private keys live in
+  a `0600` file on the daemon (§3.4). The daemon's whole state directory is
+  readable and deletable by its owner, by design.
 - Revocation is one-way and takes effect at the next heartbeat at the latest.
 
 ---

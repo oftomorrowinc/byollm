@@ -4,7 +4,7 @@ import type { HandlerConfig } from "./handlers.js";
 /**
  * `@byollm/server/next` — the one-file Next.js mount.
  *
- * Drop this in `app/api/byollm/[...route]/route.ts`:
+ * Drop this in `app/byollm/[...route]/route.ts`:
  *
  * ```ts
  * import { createHandler } from "@byollm/server/next";
@@ -15,9 +15,6 @@ import type { HandlerConfig } from "./handlers.js";
  *   store: getStore(),
  *   siteKeys: siteKeysFromEnv("BYOLLM_SITE_KEYS"),
  *   verificationUrl: "https://your-app.com/settings/runners",
- *   // Next serves this route under /api, so say so. The handler matches the
- *   // full path, not a suffix, and will 404 without it.
- *   basePath: "/api/byollm",
  * }));
  * ```
  *
@@ -31,16 +28,16 @@ import type { HandlerConfig } from "./handlers.js";
  * the second form because it is the one that fails in production and not in
  * development, which is the wrong way round for a default.
  *
- * **Then pair against that same path**: `byollm connect https://your-app.com/api`.
- * The daemon appends `/byollm/<endpoint>` to whatever origin it is given, so
- * connecting to the bare domain reaches `/byollm/claim` and finds nothing.
- * This is the first thing an integrator gets wrong, and it used to fail as a
- * silent 404 — the handler matched on the last path segment alone, so nothing
- * ever checked where it was mounted.
+ * **Then pair against the origin**: `byollm connect https://your-app.com`.
  *
- * To serve at `/byollm` instead, move the route to
- * `app/byollm/[...route]/route.ts`, drop `basePath`, and pair against the bare
- * domain.
+ * The route has to live at `/byollm`, not under `/api`. The daemon pairs with
+ * an origin — it drops any path it is given, so `https://your-app.com/api`
+ * pairs with `https://your-app.com` — and calls `<origin>/byollm/<endpoint>`.
+ * The handler matches the full path, not a suffix (it used to match the last
+ * segment alone, so nothing ever checked where it was mounted), which means a
+ * route at `app/api/byollm/[...route]/route.ts` with `basePath: "/api/byollm"`
+ * is one no shipped daemon can reach today. `basePath` remains for a handler
+ * something other than the daemon must find; leave it out for the daemon.
  *
  * That is the whole protocol surface. The app-facing half — enqueue, approve
  * a pairing, read a result — is {@link ByollmApp} from `@byollm/server`.
@@ -49,8 +46,9 @@ import type { HandlerConfig } from "./handlers.js";
  */
 /** What this mount needs, plus where it is mounted. */
 export type NextHandlerConfig = HandlerConfig & {
-  /** Where this route is mounted. Next users almost always want
-   * `"/api/byollm"`; see the example above. */
+  /** Where this route is mounted, when it is not `/byollm`. The daemon can
+   * only reach `/byollm` on an origin (it drops any path it is given), so a
+   * route that daemons pair with leaves this unset; see the example above. */
   readonly basePath?: string;
 };
 

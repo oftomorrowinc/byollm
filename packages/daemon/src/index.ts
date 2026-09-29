@@ -1,7 +1,7 @@
 /**
  * `byollm` — what end users run.
  *
- * The CLI (`byollm connect`, `status`, `log`, `pause`, `allow`) is the
+ * The CLI (`byollm connect`, `status`, `log`, `services`, `offer`) is the
  * product surface; this module is the same machinery as a library, so the
  * conformance kit can drive a real daemon in-process instead of shelling out.
  *

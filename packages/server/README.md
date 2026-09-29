@@ -22,7 +22,7 @@ npm install @byollm/server
 **1. Mount the protocol.**
 
 ```ts
-// app/api/byollm/[...route]/route.ts
+// app/byollm/[...route]/route.ts
 import { createHandler } from "@byollm/server/next";
 import { siteKeysFromEnv } from "@byollm/server";
 import { getStore } from "@/lib/byollm";
@@ -31,9 +31,6 @@ export const { POST } = createHandler(() => ({
   store: getStore(),
   siteKeys: siteKeysFromEnv("BYOLLM_SITE_KEYS"),
   verificationUrl: "https://your-app.com/settings/runners",
-  // Next serves this route under /api, so say where it is mounted. The
-  // handler matches the full path and will 404 without this.
-  basePath: "/api/byollm",
 }));
 ```
 
@@ -42,11 +39,16 @@ collect page data, in an environment that has no secrets. A config object is
 constructed during that import, so the build fails on credentials it cannot
 have. A function is not called until the first request.
 
-Then pair against that same path — `byollm connect https://your-app.com/api`.
-The daemon appends `/byollm/<endpoint>` to whatever origin it is given, so
-connecting to the bare domain looks for `/byollm/claim` and finds nothing.
-To serve at `/byollm` instead, put the route at `app/byollm/[...route]/route.ts`,
-drop `basePath`, and pair against the bare domain.
+Then pair against the origin — `byollm connect https://your-app.com`.
+
+**The route has to live at `/byollm`, not under `/api`.** The daemon pairs
+with an _origin_: it drops any path it is given (`https://your-app.com/api`
+pairs with `https://your-app.com`) and calls `<origin>/byollm/<endpoint>`.
+The handler matches the full path, so a route mounted anywhere else — the
+Next-conventional `app/api/byollm/[...route]/route.ts` with
+`basePath: "/api/byollm"` included — is one no shipped daemon can reach
+today. `basePath` remains for a handler that something other than the daemon
+must find; leave it out for the daemon.
 
 **2. Pick a store.**
 
@@ -201,14 +203,15 @@ Copy `supabase/migrations/*.sql` into your project's migrations. It ships the
 `byollm_*` tables, RLS policies, the atomic claim RPC, the dependency-unblock
 trigger and the expiry sweep.
 
-The protocol handler needs the **service role** key: a runner authenticates
-with its own bearer token, which is not a Supabase session. RLS still governs
-everything the browser does.
+The protocol handler needs the **service role** key: a runner is not a
+Supabase user — its requests are signed with its device key, not carried by a
+Supabase session — so RLS cannot identify it. RLS still governs everything
+the browser does.
 
 ## Two things the API makes you confront
 
-**Community results are untrusted.** A `named`/`public` result came from
-someone else's device and can be anything. Every result carries provenance,
+**Community results are untrusted.** A `team` result came from someone
+else's device and can be anything. Every result carries provenance,
 and `untrusted` is derived from the audience — you cannot mark volunteer
 output as first-party:
 

@@ -117,6 +117,12 @@ keys — which §6 depends on.
   This replaces the bearer token as the daemon's identity: a stolen
   file still needs to be on a machine that can use it, and a
   compromised upstream cannot mint a device.
+
+  **Amended in implementation.** No OS keychain is used on any platform;
+  the private halves live in a `0600` file (`keys.json`) everywhere, and
+  on Windows the mode is not what protects it —
+  [`docs/security.md` §3.4](../docs/security.md) says what does. A keychain
+  remains an option nothing has attempted.
 - **Site keys.** Same pair, same rules. A site key compromise is
   revocable without touching users.
 - **An upstream holds public keys only.** No escrow, no content
@@ -181,6 +187,11 @@ Runs on every connection, cheap enough to run on every reconnect.
    across a version cutover — the one path around a minimum-version
    policy, opened by an optimisation.
 
+   **Not built.** No implementation mints, sends or checks a resume
+   token. A dropped connection is re-established by the next signed
+   request, which carries the protocol version like every other one, so
+   the property this item protects holds without the token.
+
 The version tuple from byollm_010 §5 lands here — `--version` and the
 handshake report the same thing, because a support conversation and a
 minimum-version policy need the same facts.
@@ -209,6 +220,16 @@ the upstream refuses routes meanwhile; the daemon-side key drop lands
 by the next heartbeat. Stating both halves matters — a revocation that
 is only enforced at one end is a revocation that survives a compromise
 of that end.
+
+**Amended in implementation (2026-09-03).** The daemon marks a revoked
+pairing and stops serving it; it does not drop the key or the pairing
+file. A relay once answered `revoked` to devices nobody had revoked,
+and every one of them deleted its own pairings on the way down — a
+wrong server answer became local data loss with no evidence left to
+read. Enforcement lives where the authority is (the upstream refuses a
+revoked device whatever the daemon remembers), so the local copy
+protects nothing and its absence explains nothing. `byollm forget
+<url>` deletes a pairing for somebody who means it.
 
 ---
 
@@ -547,7 +568,7 @@ labelled rather than implied.
 | `LEASE_SCOPED_BY_GRANT` | A lease-scoped request MUST name the lease it acts on, and a server MUST apply it only to that lease. Naming the job and the runner is not enough. | conformance |
 | `SITE_KEY_BY_STUB` | A daemon MUST verify a job's payload against the pinned key of the site the stub names, MUST refuse a job naming a site it has not pinned, and MUST NOT fall back to another pinned key. | adversarial |
 | `KEYS_EXCHANGED_AT_CONSENT` | Pairing MUST exchange both parties' public identities, and each side MUST verify that the encryption key is signed by the identity presenting it. | conformance |
-| `SITES_LOCALLY_APPROVED` | A daemon MUST NOT run work for a site it has not approved on the machine itself. An upstream may propose a site set; a site the daemon has never approved MUST be offered to its owner and served nothing until they approve it. A key that has changed for an already-approved id MUST be refused for the life of the pairing, including after that id has left the set and returned. A **verified succession** is not a changed key: a new key id carrying a signature, by a key this daemon has already approved, over a statement naming both key ids MUST be accepted without a new local approval — provided the control plane projects the same successor — and MUST be announced rather than applied silently. | **construction + adversarial** |
+| `SITES_LOCALLY_APPROVED` | A daemon MUST NOT run work for a site on an upstream's word alone. An upstream may propose a site set; work for any site in it MUST additionally carry a grant signed by the control-plane key this daemon pinned at pairing. A key that has changed for an id this daemon already pinned MUST be refused for the life of the pairing, including after that id has left the set and returned. A **verified succession** is not a changed key: a new key id carrying a signature, by a key this daemon has already pinned, over a statement naming both key ids MUST be accepted — provided the control plane projects the same successor — and MUST be announced rather than applied silently. The first job from a site this daemon has never served MUST be announced at the machine. _(Statement as amended by byollm_016 Amendment K: local per-site approval retired; the id is kept.)_ | **construction + adversarial** |
 
 `FALLBACK_LABELED`'s kind was corrected here on 2026-08-20, from
 `conformance` to `construction` — the registry has said `construction`
@@ -939,7 +960,19 @@ up here; and a site id never approved on this machine is *offered*,
 never pinned — shown with its fingerprint, served by nothing, until
 somebody at that keyboard says yes.
 
-**And it cannot change a key by taking the site away first.** Approved
+**Amended by byollm_016 Amendment K (2026-08-26).** The third fence
+moved. A site id this daemon has never seen is pinned *and served* on
+first sighting; nobody at the keyboard is asked, and `byollm approve`
+is retired. What stands in its place is not on this machine: every job
+must carry a grant signed by the control-plane key pinned at pairing,
+so a relay that proposes a site still cannot produce work for it. The
+trade is recorded there plainly — a compromised control plane can point
+a device at a site its owner never chose — and the mitigation is that
+the first job from a site this device has never served is announced at
+the machine, with its fingerprint (`now serving <site>`). `byollm
+sites` lists what is served and what is still pinned.
+
+**And it cannot change a key by taking the site away first.** Pinned
 ids and their keys outlive consent on the daemon's disk, so an id that
 leaves the set and comes back under a different key is refused as a
 changed key rather than accepted as a stranger. Coming back *unchanged*
@@ -970,6 +1003,11 @@ name the disagreement and the fix rather than surface as a generic
 connection is versionless" was listed as a defect and closed there. The
 **relay has never run it.** Every version mismatch on every relay
 endpoint is a 400 `bad-request` that says nothing about versions.
+
+**Since fixed.** The reference relay now runs `checkProtocolVersion`
+before anything else on every `/byollm/` and `/relay/` path, and only
+there — health and the debug page stay versionless on purpose, so a
+probe keeps working on the day the version moves.
 
 So the wire has two upstreams and one of them answers the question
 usefully. Not patched at 4 a.m.: it is a serving-path change on every

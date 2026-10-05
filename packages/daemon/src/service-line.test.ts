@@ -256,6 +256,38 @@ describe("a service this device cannot start — B098", () => {
     /* And the only true remedy: there is no knob here, and inventing one is
        the mistake byollm_021 names. */
     expect(line).toContain("start it yourself");
+    expect(line, "an offer with no startable type behind it").not.toContain(
+      '"type"',
+    );
+  });
+
+  it("names the one field when byollm would start a server at that address", () => {
+    /**
+     * Todd, 10-05: `glm-5.2` as `openai-http` at `127.0.0.1:11434`, after a
+     * reboot, read "start it yourself" — and he took it for on-demand start
+     * having broken. Only `type: "ollama"` is started (ruled 09-10, offered
+     * not inferred); diagnose printed the fix and `status` did not.
+     */
+    const line = serviceLine({
+      service: "glm-5.2",
+      device: "toddsampson@Mac",
+      state: {
+        kind: "unstartable",
+        model: "glm-5.2:cloud",
+        startableAs: "ollama",
+      },
+    }).line;
+
+    expect(line).toBe(
+      "glm-5.2 — glm-5.2:cloud, not running, and toddsampson@Mac cannot " +
+        "start it for you: start it yourself, then it will be offered — " +
+        'or set "type": "ollama" on it in ~/.byollm/config.json and byollm ' +
+        "will start it for you",
+    );
+    /* Not `services manage`: it retypes only a server a probe identified
+       answering, and nothing here is answering. Naming it would send
+       somebody to a screen that leaves the type as it found it. */
+    expect(line).not.toContain("services manage");
   });
 
   it("still says install it when the program really is absent", () => {

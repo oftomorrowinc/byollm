@@ -1,4 +1,5 @@
 import { readFile, writeFile } from "node:fs/promises";
+import { BackendIdSchema } from "@byollm/protocol";
 import { z } from "zod";
 import type { ServiceReport } from "./service-line.js";
 
@@ -33,7 +34,13 @@ const Stored = z.record(
       z.object({ kind: z.literal("missing") }),
       /* B098. Stopped and unstartable is not the same as absent, and the
          file `byollm status` reads has to be able to tell them apart. */
-      z.object({ kind: z.literal("unstartable"), model: z.string() }),
+      z.object({
+        kind: z.literal("unstartable"),
+        model: z.string(),
+        /* An id this build does not know degrades to no offer, rather than
+           failing the whole file and blanking every service's line. */
+        startableAs: BackendIdSchema.optional().catch(undefined),
+      }),
       /**
        * Installed here, not running, and startable — B056.
        *

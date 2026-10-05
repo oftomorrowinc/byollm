@@ -1,4 +1,9 @@
-import { ensureLocalServer, startability } from "./local-server.js";
+import {
+  ensureLocalServer,
+  isLoopback,
+  startability,
+  startableAt,
+} from "./local-server.js";
 import { guardApplies, memoryGate } from "./memory-gate.js";
 import type { MemoryPressure, MemoryReading } from "./memory.js";
 import type { ServiceReport } from "./service-line.js";
@@ -32,6 +37,7 @@ import {
      checks a fresh literal, and `ran` arrives as a variable from another
      method whose return type is inferred. */
   SealedOutcome,
+  type BackendId,
   type JobOutcome,
   CLOCK_ATTRIBUTION_MS,
   CLOCK_SKEW_WARN_MS,
@@ -1218,13 +1224,16 @@ export class Runner {
            * command, is the url on this machine, and is the binary actually
            * on PATH. Any no leaves the behaviour exactly as it was.
            */
+          const baseUrl =
+            this.#options.loaded.config.services[route.service]?.baseUrl;
+          const onPath =
+            this.#options.onPath === undefined
+              ? {}
+              : { onPath: this.#options.onPath };
           const startable = await startability({
             id: route.backendId,
-            baseUrl:
-              this.#options.loaded.config.services[route.service]?.baseUrl,
-            ...(this.#options.onPath === undefined
-              ? {}
-              : { onPath: this.#options.onPath }),
+            baseUrl,
+            ...onPath,
           });
           /**
            * Startable is not the same as started — B087, a defect shipped in
@@ -1270,7 +1279,11 @@ export class Runner {
               ? { kind: "stopped", model: route.model, starts }
               : startable.why === "not-installed"
                 ? { kind: "missing" }
-                : { kind: "unstartable", model: route.model },
+                : {
+                    kind: "unstartable",
+                    model: route.model,
+                    ...(await this.#startableAs(route.backendId, baseUrl)),
+                  },
             ...remedy,
           });
         } else if (options.canary !== true || backend.canary === undefined) {
@@ -1858,6 +1871,39 @@ export class Runner {
    * too, and none of them should be able to start a model server as a side
    * effect of asking a question.
    */
+  /**
+   * The type that WOULD be started at this address, for the owner's line —
+   * B098's offer, reaching `byollm status`.
+   *
+   * Asks `startableAt`, the one function `byollm diagnose` asks, and then
+   * asks `startability` of THAT type at this address — so the offer is made
+   * only where taking it would actually work: loopback, a start command, and
+   * the binary on PATH. Retyping a service into one that then reads "not
+   * found" is a remedy that moves the problem rather than fixing it.
+   */
+  async #startableAs(
+    configured: BackendId,
+    baseUrl: string | undefined,
+  ): Promise<{ startableAs?: BackendId }> {
+    if (baseUrl === undefined || !isLoopback(baseUrl)) return {};
+    let origin: string;
+    try {
+      origin = new URL(baseUrl).origin;
+    } catch {
+      return {};
+    }
+    const id = startableAt(origin);
+    if (id === undefined || id === configured) return {};
+    const would = await startability({
+      id,
+      baseUrl,
+      ...(this.#options.onPath === undefined
+        ? {}
+        : { onPath: this.#options.onPath }),
+    });
+    return would.startable ? { startableAs: id } : {};
+  }
+
   /**
    * Should this machine take a job that loads a model right now — B080.
    *

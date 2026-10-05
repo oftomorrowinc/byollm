@@ -1,3 +1,5 @@
+import type { BackendId } from "@byollm/protocol";
+
 /**
  * One sentence about a service, for the three surfaces its owner reads.
  *
@@ -37,7 +39,29 @@ export type ServiceState =
    * installed, which is an afternoon spent on a fix that was never the
    * problem.
    */
-  | { readonly kind: "unstartable"; readonly model: string }
+  | {
+      readonly kind: "unstartable";
+      readonly model: string;
+      /**
+       * The type byollm WOULD start at this service's address — B098's offer,
+       * carried to the screen people look at.
+       *
+       * Todd, 10-05, after a reboot: `glm-5.2` is `openai-http` at
+       * `127.0.0.1:11434`, and this line told him only "start it yourself".
+       * He read it as on-demand start having broken. It had not — only
+       * `type: "ollama"` is ever started, ruled 09-10, offered not inferred —
+       * and `byollm diagnose` already printed the one-field fix. `status`
+       * did not, and `status` is what people read.
+       *
+       * Set by the daemon from `startableAt` (local-server.ts), the same function
+       * diagnose asks, and only when that provider is installed here: an
+       * offer to retype a service into one that would then read "not found"
+       * is a remedy that moves the problem. Optional, and absent means no
+       * offer — a file written before this field existed says what it always
+       * said.
+       */
+      readonly startableAs?: BackendId | undefined;
+    }
   | {
       readonly kind: "stopped";
       readonly model: string;
@@ -165,14 +189,25 @@ export function serviceLine(input: {
        * knows a command for `ollama` only, so they were unstartable and got
        * told they were absent.
        *
-       * The sentence ends in what a person can actually do. There is no knob
-       * here and inventing one would be the invented-remedy mistake
+       * The sentence ends in what a person can actually do. Usually there
+       * is no knob, and inventing one would be the invented-remedy mistake
        * byollm_021 names, so it says the true thing: start it yourself.
+       *
+       * When there IS one, it says that too — B098's offer. A service at
+       * Ollama's address typed `openai-http` is one field from being started
+       * on demand, and diagnose knew it while this line said nothing. Not
+       * `byollm services manage`: that screen retypes a service only when a
+       * probe identifies the server answering, and this line exists because
+       * nothing is answering.
        */
       return {
         line:
           `${service} — ${state.model}, not running, and ${device} cannot ` +
-          `start it for you: start it yourself, then it will be offered`,
+          `start it for you: start it yourself, then it will be offered` +
+          (state.startableAs === undefined
+            ? ""
+            : ` — or set "type": "${state.startableAs}" on it in ` +
+              `~/.byollm/config.json and byollm will start it for you`),
       };
     case "blocked": {
       /* No remedy, because there is not one — and saying so is the point.

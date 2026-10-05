@@ -1,5 +1,9 @@
 import { spawn } from "node:child_process";
-import type { BackendId } from "@byollm/protocol";
+import {
+  BACKEND_IDS,
+  backendDescriptor,
+  type BackendId,
+} from "@byollm/protocol";
 
 /**
  * Starting a local model server when a job needs it — B050.
@@ -45,6 +49,38 @@ export function startCommandFor(
          them on it, one at a time, the way the login commands were done. */
       return undefined;
   }
+}
+
+/**
+ * Which provider byollm could start at this address — B098, and it asks
+ * rather than adding a third table.
+ *
+ * Here, beside {@link startCommandFor}, because two surfaces ask it —
+ * `byollm diagnose` and the `unstartable` line `byollm status` prints — and
+ * a copy in each is two answers that agree only until one is edited.
+ *
+ * Two authorities, both already here: the protocol registry knows each
+ * provider's default address, and `startCommandFor` knows which ones this
+ * daemon can spawn. Writing `11434 -> ollama` into diagnose.ts's `BY_PORT`
+ * would have been a third place naming that port and a promise to update it
+ * when the start command list grows, which is the divergence instruction 9 is
+ * about.
+ * **Delete `ollama serve` from `startCommandFor` and this offer disappears by
+ * itself**, which is the property a hand-written table cannot have.
+ */
+export function startableAt(origin: string): BackendId | undefined {
+  for (const id of BACKEND_IDS) {
+    if (startCommandFor(id) === undefined) continue;
+    const address = backendDescriptor(id).defaultBaseUrl;
+    if (address === undefined) continue;
+    try {
+      if (new URL(address).origin === origin) return id;
+    } catch {
+      /* A registry entry with an unparseable address is not this function's
+         to complain about; it simply matches nothing. */
+    }
+  }
+  return undefined;
 }
 
 /**

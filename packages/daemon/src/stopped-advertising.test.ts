@@ -262,6 +262,66 @@ describe("advertising a stopped server", () => {
     expect(states.get("local")?.state).toMatchObject({ kind: "unstartable" });
   });
 
+  it("carries the offer to `byollm status` when the address is one byollm starts", async () => {
+    /**
+     * Todd, 10-05, after a reboot: `glm-5.2` as `openai-http` at Ollama's
+     * address read "start it yourself", and he took it for on-demand start
+     * having broken. `byollm diagnose` already knew the one-field fix; the
+     * screen people look at did not say it.
+     *
+     * The join again, because a renderer that can print the offer proves
+     * nothing if the runner never hands it the type.
+     */
+    const backend = new StoppedBackend();
+    backend.id = "openai-http";
+    const glm = {
+      model: "glm-5.2:cloud",
+      kinds: ["llm.generate"],
+      type: "openai-http",
+      baseUrl: "http://127.0.0.1:11434/v1",
+      spend: { acknowledged: true, dailyCapCents: 2500 },
+    };
+    const { states } = await detect({ backend, service: glm });
+    const state = states.get("local")?.state;
+    expect(state).toMatchObject({
+      kind: "unstartable",
+      startableAs: "ollama",
+    });
+    if (state === undefined) return;
+    expect(
+      serviceLine({ service: "glm-5.2", device: "this device", state }).line,
+    ).toContain(`set "type": "ollama" on it in ~/.byollm/config.json`);
+
+    /* Controls. An address no start command serves — Todd's MLX on 6999 —
+       keeps the plain sentence: inventing a knob there is byollm_021's
+       mistake. */
+    const mlx = new StoppedBackend();
+    mlx.id = "openai-http";
+    const elsewhere = await detect({
+      backend: mlx,
+      service: { ...glm, model: "m", baseUrl: "http://127.0.0.1:6999/v1" },
+    });
+    expect(elsewhere.states.get("local")?.state).toEqual({
+      kind: "unstartable",
+      model: "m",
+    });
+
+    /* And no offer to retype into a server this machine does not have:
+       taking it would turn "start it yourself" into "not found", which
+       moves the problem rather than fixing it. */
+    const absent = new StoppedBackend();
+    absent.id = "openai-http";
+    const uninstalled = await detect({
+      backend: absent,
+      service: glm,
+      onPath: (binary) => Promise.resolve(binary !== "ollama"),
+    });
+    expect(uninstalled.states.get("local")?.state).toEqual({
+      kind: "unstartable",
+      model: "glm-5.2:cloud",
+    });
+  });
+
   it("still says missing when the binary really is absent", async () => {
     /**
      * The control, and it is the case "install it" was written for. Without

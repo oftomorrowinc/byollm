@@ -38,6 +38,44 @@ describe("what the probe leaves behind", () => {
   });
 
   /**
+   * B098's offer has to survive the file, or `status` never sees it.
+   *
+   * The daemon decides the offer and a different process prints it, so a
+   * schema that dropped the field would leave the runner right, the renderer
+   * right, and the owner reading "start it yourself" exactly as before.
+   */
+  it("round-trips the type byollm would start, for the unstartable line", async () => {
+    const path = await where();
+    const report = {
+      state: {
+        kind: "unstartable" as const,
+        model: "glm-5.2:cloud",
+        startableAs: "ollama" as const,
+      },
+    };
+    await writeServiceStates(path, new Map([["glm-5.2", report]]));
+    expect((await readServiceStates(path)).get("glm-5.2")).toEqual(report);
+  });
+
+  /* An id this build does not know costs the offer, never the file: one
+     service's unreadable suggestion must not blank every other line. */
+  it("drops an offer it cannot read and keeps the service", async () => {
+    const path = await where();
+    await writeFile(
+      path,
+      JSON.stringify({
+        local: {
+          state: { kind: "unstartable", model: "m", startableAs: "vllm-9" },
+        },
+      }),
+      "utf8",
+    );
+    const back = (await readServiceStates(path)).get("local");
+    expect(back?.state).toMatchObject({ kind: "unstartable", model: "m" });
+    expect(back?.state).not.toHaveProperty("startableAs", "vllm-9");
+  });
+
+  /**
    * Absent is not signed-out.
    *
    * A machine that has never probed has not discovered anything, and `status`

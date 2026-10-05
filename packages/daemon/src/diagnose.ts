@@ -1,12 +1,7 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import {
-  BACKEND_IDS,
-  backendDescriptor,
-  backendName,
-  type BackendId,
-} from "@byollm/protocol";
-import { startCommandFor } from "./local-server.js";
+import { backendName, type BackendId } from "@byollm/protocol";
+import { startableAt } from "./local-server.js";
 
 const run = promisify(execFile);
 
@@ -144,33 +139,6 @@ const whichProbe: PathProbe = async (binary) => {
     return code === 1 || code === "ENOENT" ? false : undefined;
   }
 };
-
-/**
- * Which provider byollm could start at this address — B098, and it asks
- * rather than adding a third table.
- *
- * Two authorities, both already here: the protocol registry knows each
- * provider's default address, and `startCommandFor` knows which ones this
- * daemon can spawn. Writing `11434 -> ollama` into {@link BY_PORT} would have
- * been a third place naming that port and a promise to update it when the
- * start command list grows, which is the divergence instruction 9 is about.
- * **Delete `ollama serve` from `startCommandFor` and this offer disappears by
- * itself**, which is the property a hand-written table cannot have.
- */
-function startableAt(origin: string): BackendId | undefined {
-  for (const id of BACKEND_IDS) {
-    if (startCommandFor(id) === undefined) continue;
-    const address = backendDescriptor(id).defaultBaseUrl;
-    if (address === undefined) continue;
-    try {
-      if (new URL(address).origin === origin) return id;
-    } catch {
-      /* A registry entry with an unparseable address is not this function's
-         to complain about; it simply matches nothing. */
-    }
-  }
-  return undefined;
-}
 
 /**
  * A sentence about one unhealthy route, or nothing when there is no better

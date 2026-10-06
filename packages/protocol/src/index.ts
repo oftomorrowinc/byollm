@@ -31,6 +31,11 @@ export {
   ABOUT_SHORT,
   ABOUT_SHORT_LEDE,
   ABOUT_SHORT_TAIL,
+  AGENT_PROMPTS,
+  AGENT_PROMPTS_HEADING,
+  AGENT_PROMPTS_LEDE,
+  type AgentPrompt,
+  type AgentPromptAudience,
 } from "./about.js";
 export {
   NOT_YET,

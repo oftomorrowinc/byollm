@@ -22,3 +22,50 @@ export const ABOUT_SHORT_TAIL = "Sites can charge you less because you bring you
 
 /** Both halves, for a surface that wants the paragraph entire. */
 export const ABOUT_SHORT = `${ABOUT_SHORT_LEDE}\n\n${ABOUT_SHORT_TAIL}`;
+
+// -- agent prompts -------------------------------------------------------------
+//
+// From AGENT-PROMPTS.md. The README strip and byo-llm.com's are generated from
+// the same file, and agent-prompts.test.ts holds every command, docs anchor
+// and package a prompt names to something that exists.
+
+/** Who a prompt is for, which is also which path it sets up. */
+export type AgentPromptAudience = "user" | "developer" | "operator";
+
+/** One "paste this into your agent" prompt. */
+export interface AgentPrompt {
+  /** Stable, for anchors: `agent-<id>` on byo-llm.com. */
+  readonly id: string;
+  readonly title: string;
+  readonly audience: AgentPromptAudience;
+  /** Verbatim, line breaks included — what the copy button copies. */
+  readonly prompt: string;
+}
+
+/** The heading every surface shows above the prompts. */
+export const AGENT_PROMPTS_HEADING = "You already have an AI. Hand it this.";
+
+/** The one line under it. */
+export const AGENT_PROMPTS_LEDE = "Paste the prompt into whatever you use — Claude, ChatGPT, Codex, Cursor, a local model — and it does the setup, stopping where a step needs you.";
+
+/** Set up my computer, add BYOLLM to my site, run my own relay — in that order. */
+export const AGENT_PROMPTS: readonly AgentPrompt[] = [
+  {
+    "id": "computer",
+    "title": "Set up my computer",
+    "audience": "user",
+    "prompt": "Set up BYOLLM on my computer so websites I approve can use the AI I already\nhave. Some steps need me at the keyboard: tell me exactly what to type, then\nwait. First I open Terminal (Mac) or PowerShell (Windows). Run\n`node --version`; if it fails or is below 22.14, I install the LTS version\nof Node.js — the free program BYOLLM runs on — from https://nodejs.org and\nreopen the window. Then run `npm install -g byollm@latest`. Then I run\n`byollm setup` myself, because it asks questions: it finds what I have\n(Ollama, MLX or llama.cpp here, or my Claude Pro/Max or Codex sign-in —\nsubscriptions stay mine, never shared) and pairs with byollm.cloud. When it\nprints a pairing code and fingerprint, STOP: I approve it at\nhttps://dashboard.byollm.cloud/devices and check the fingerprint matches.\nThen run `byollm status` and `byollm services`, fix anything they name, and\n`byollm start` if it is not running. Finish by having me press Connect at\nhttps://test.byollm.cloud. Reference:\nhttps://docs.byollm.cloud/#what-is-byollm and\nhttps://docs.byollm.cloud/#keep-daemon-running. Don't guess commands:\n`byollm --help` is the authority."
+  },
+  {
+    "id": "site",
+    "title": "Add BYOLLM to my site",
+    "audience": "developer",
+    "prompt": "Add BYOLLM to this project so my users bring their own AI. Install\n`@byollm/server`, generate site keys once with\n`npx --package @byollm/server keygen` and put them in env (never in the\nrepo), mount the handler at `/byollm` (not under `/api` — the daemon pairs\nwith an origin), and add one `enqueue` with a timeout and a no-runner path —\nnever a bare await. Then register the site at https://dashboard.byollm.cloud\nand add the Connect button exactly as https://docs.byollm.cloud/#embed says:\nthe iframe gets `site`, `state` and `return`, the page posts\n`{ byollm: \"hello\" }` first, and the return page posts\n`{ byollm: \"connected\" }` and closes. Job states and why an answer stopped:\nhttps://docs.byollm.cloud/#job-states and\nhttps://docs.byollm.cloud/#stop-reason. Test against\nhttps://test.byollm.cloud's flow before you tell me it works. STOP and ask\nme for anything that needs my dashboard login."
+  },
+  {
+    "id": "relay",
+    "title": "Run my own relay",
+    "audience": "operator",
+    "prompt": "Stand up my own BYOLLM relay instead of byollm.cloud. Use `@byollm/relay`\nand `@byollm/control-plane` from npm — one replica on the built-in memory\nstore, or give the relay a shared `RoutingStore` to run more — and prove it\nwith `@byollm/conformance`\n(`npx --package @byollm/conformance byollm-certify <target>`) before\npointing any daemon at it: a server is byollm-compatible when the kit\npasses. Then pair a daemon with `byollm connect <my relay origin>`. The\nrelay never sees prompts (https://docs.byollm.cloud/#what-we-see) and that\nmust stay true in my deployment. Reference:\nhttps://github.com/oftomorrowinc/byollm#packages. STOP and ask me before\nanything that costs money or opens a port to the internet."
+  }
+];

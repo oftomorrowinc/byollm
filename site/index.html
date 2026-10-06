@@ -138,6 +138,14 @@
 
   .note{font-size:13.5px; color:var(--faint); margin-top:14px}
   .not-yet{margin:0; padding-left:22px; max-width:680px; line-height:1.9}
+
+  /* agent prompts — generated into #agents from AGENT-PROMPTS.md */
+  .prompts{display:grid; gap:18px}
+  .prompt .ph{display:flex; justify-content:space-between; align-items:baseline; gap:12px; margin-bottom:8px}
+  .prompt h3{margin:0; font-size:16px}
+  .prompt .cp{color:var(--faint); cursor:pointer; border:1px solid var(--line); border-radius:7px;
+    background:var(--surface); font-size:13px; padding:4px 10px}
+  .prompt pre.block{margin:0; white-space:pre-wrap}
   .hl{color:var(--ink)}
 </style>
 </head>
@@ -170,15 +178,78 @@
   <h1>Stop renting the compute<br>your users <span class="g">already own</span>.</h1>
   <p class="sub">AI features bill you per token, per user, forever, while the hardware already in your users' hands sits idle. byollm lets your app run its LLM jobs there instead: their Ollama box, their Mac running MLX, their <span class="mono">claude</span> CLI. No tunnels. No inbound ports. No shared keys.</p>
   <div class="cmd mono">
-    <span class="p">$</span><span class="c">npx byollm@latest connect https://your-app.com</span>
-    <button class="cp" id="cp" aria-label="Copy the connect command">copy</button>
+    <span class="p">$</span><span class="c" id="cmd-text">npx byollm@latest connect https://your-app.com</span>
+    <button class="cp" data-copy="cmd-text" aria-label="Copy the connect command">copy</button>
   </div>
   <div class="cta">
-    <a class="btn pri" href="#dev">Integrate your app</a>
+    <a class="btn pri" href="#agents">Hand this to your AI →</a>
     <a class="btn sec" href="https://github.com/oftomorrowinc/byollm">Read the source</a>
   </div>
+  <p class="note"><a href="https://github.com/oftomorrowinc/byollm#quick-start">I'll do it myself → quick start</a></p>
   <p class="note">Open source · MIT · built by <a href="https://oftomorrow.net/" target="_blank" rel="noopener noreferrer">Of Tomorrow</a></p>
 </div></header>
+
+<!-- agents:start -->
+<!-- Generated from AGENT-PROMPTS.md by `pnpm run about`. Edit that. -->
+<section id="agents" class="band"><div class="wrap">
+  <p class="eyebrow">Paste this into your agent</p>
+  <h2>You already have an AI. Hand it this.</h2>
+  <p class="lead">Paste the prompt into whatever you use — Claude, ChatGPT, Codex, Cursor, a local model — and it does the setup, stopping where a step needs you.</p>
+  <div class="prompts">
+    <div class="prompt" id="agent-computer">
+      <div class="ph"><h3>Set up my computer</h3><button class="cp" data-copy="agent-computer-text" aria-label="Copy the Set up my computer prompt">copy</button></div>
+      <pre class="block" id="agent-computer-text">Set up BYOLLM on my computer so websites I approve can use the AI I already
+have. Some steps need me at the keyboard: tell me exactly what to type, then
+wait. First I open Terminal (Mac) or PowerShell (Windows). Run
+`node --version`; if it fails or is below 22.14, I install the LTS version
+of Node.js — the free program BYOLLM runs on — from https://nodejs.org and
+reopen the window. Then run `npm install -g byollm@latest`. Then I run
+`byollm setup` myself, because it asks questions: it finds what I have
+(Ollama, MLX or llama.cpp here, or my Claude Pro/Max or Codex sign-in —
+subscriptions stay mine, never shared) and pairs with byollm.cloud. When it
+prints a pairing code and fingerprint, STOP: I approve it at
+https://dashboard.byollm.cloud/devices and check the fingerprint matches.
+Then run `byollm status` and `byollm services`, fix anything they name, and
+`byollm start` if it is not running. Finish by having me press Connect at
+https://test.byollm.cloud. Reference:
+https://docs.byollm.cloud/#what-is-byollm and
+https://docs.byollm.cloud/#keep-daemon-running. Don't guess commands:
+`byollm --help` is the authority.</pre>
+    </div>
+    <div class="prompt" id="agent-site">
+      <div class="ph"><h3>Add BYOLLM to my site</h3><button class="cp" data-copy="agent-site-text" aria-label="Copy the Add BYOLLM to my site prompt">copy</button></div>
+      <pre class="block" id="agent-site-text">Add BYOLLM to this project so my users bring their own AI. Install
+`@byollm/server`, generate site keys once with
+`npx --package @byollm/server keygen` and put them in env (never in the
+repo), mount the handler at `/byollm` (not under `/api` — the daemon pairs
+with an origin), and add one `enqueue` with a timeout and a no-runner path —
+never a bare await. Then register the site at https://dashboard.byollm.cloud
+and add the Connect button exactly as https://docs.byollm.cloud/#embed says:
+the iframe gets `site`, `state` and `return`, the page posts
+`{ byollm: "hello" }` first, and the return page posts
+`{ byollm: "connected" }` and closes. Job states and why an answer stopped:
+https://docs.byollm.cloud/#job-states and
+https://docs.byollm.cloud/#stop-reason. Test against
+https://test.byollm.cloud's flow before you tell me it works. STOP and ask
+me for anything that needs my dashboard login.</pre>
+    </div>
+    <div class="prompt" id="agent-relay">
+      <div class="ph"><h3>Run my own relay</h3><button class="cp" data-copy="agent-relay-text" aria-label="Copy the Run my own relay prompt">copy</button></div>
+      <pre class="block" id="agent-relay-text">Stand up my own BYOLLM relay instead of byollm.cloud. Use `@byollm/relay`
+and `@byollm/control-plane` from npm — one replica on the built-in memory
+store, or give the relay a shared `RoutingStore` to run more — and prove it
+with `@byollm/conformance`
+(`npx --package @byollm/conformance byollm-certify &lt;target&gt;`) before
+pointing any daemon at it: a server is byollm-compatible when the kit
+passes. Then pair a daemon with `byollm connect &lt;my relay origin&gt;`. The
+relay never sees prompts (https://docs.byollm.cloud/#what-we-see) and that
+must stay true in my deployment. Reference:
+https://github.com/oftomorrowinc/byollm#packages. STOP and ask me before
+anything that costs money or opens a port to the internet.</pre>
+    </div>
+  </div>
+</div></section>
+<!-- agents:end -->
 
 <section id="how" class="band"><div class="wrap">
   <p class="eyebrow">The shape</p>
@@ -352,17 +423,22 @@
 
 <script>
   // Copy, and say so — a button that does nothing visible reads as broken.
+  // Every copy button names the element whose text it copies, so the prompts
+  // are copied from what the page shows and exist on it exactly once.
   (function () {
-    var b = document.getElementById("cp");
-    if (!b || !navigator.clipboard) { if (b) b.hidden = true; return; }
-    b.addEventListener("click", function () {
-      navigator.clipboard
-        .writeText("npx byollm@latest connect https://your-app.com")
-        .then(function () {
-          b.textContent = "copied";
-          setTimeout(function () { b.textContent = "copy"; }, 1600);
+    var buttons = document.querySelectorAll("button.cp[data-copy]");
+    for (var i = 0; i < buttons.length; i++) {
+      (function (b) {
+        var from = document.getElementById(b.getAttribute("data-copy"));
+        if (!from || !navigator.clipboard) { b.hidden = true; return; }
+        b.addEventListener("click", function () {
+          navigator.clipboard.writeText(from.textContent).then(function () {
+            b.textContent = "copied";
+            setTimeout(function () { b.textContent = "copy"; }, 1600);
+          });
         });
-    });
+      })(buttons[i]);
+    }
   })();
 </script>
 

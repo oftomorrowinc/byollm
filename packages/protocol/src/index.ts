@@ -33,6 +33,14 @@ export {
   ABOUT_SHORT_TAIL,
 } from "./about.js";
 export {
+  NOT_YET,
+  NOT_YET_LEDE,
+  NOT_YET_TAIL,
+  notYetLine,
+  notYetSentence,
+  type NotYet,
+} from "./not-yet.js";
+export {
   Audience,
   AUDIENCES,
   effectiveOfferScope,

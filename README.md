@@ -266,7 +266,19 @@ A server is **byollm-compatible** when the conformance kit passes against it. Th
 
 The protocol is at v0 and the audience model is settled, but v0 means what it says: it will change without a deprecation path. A device serves its owner alone until it is paired with a relay and its owner shares a service deliberately. Backends at v1: `openai-http` for any OpenAI-compatible server (Ollama, MLX, llama.cpp, vLLM, LM Studio and the rest), the CLI backends `claude-cli` and `codex-cli`, and named ids for the hosted vendors — the full set is `BACKEND_IDS` in `@byollm/protocol`.
 
-What exists: a large test suite, an adversarial corpus wired as a blocking CI gate, and a conformance kit green against both the in-memory reference and real Postgres. What does not exist: a single production mile. Wait for `latest`.
+What exists: a large test suite, an adversarial corpus wired as a blocking CI gate, and a conformance kit green against both the in-memory reference and real Postgres.
+
+### Not yet
+
+Things we know are limiting right now:
+
+- Tool use
+- Access to your local files
+- Streaming — a result comes back whole
+- Job kinds beyond llm.generate and llm.chat — no embeddings or images yet
+- Jobs while your device is offline — your device has to be online for your jobs to run
+
+We have plans for every one of these, and we are building in public — follow and join them on the [issues page](https://github.com/oftomorrowinc/byollm/issues).
 
 ## Contributing
 

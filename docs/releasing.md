@@ -118,6 +118,18 @@ pnpm run verify
 #    Do NOT try to update their lockfiles yet. A lockfile records what the
 #    registry resolved, and the registry has nothing to resolve until step 7
 #    publishes. That half is checked in step 9.
+#
+#    These two commits are made by hand, by whoever is tagging — not by a
+#    runner. A pins-only commit fails the signals lander's
+#    `pnpm install --frozen-lockfile --offline`, and it is right to: the
+#    lockfile cannot resolve a version npm does not have yet. Found cutting
+#    0.1.3, when both pins sat on runner branches (#643, #644) that could
+#    never land. So commit them straight onto each repository's main —
+#    writing them, or cherry-picking a runner's commit — and push:
+git -C ../byollm-cloud commit -m "hub: pin byollm packages to <version>" hub/package.json
+git -C ../byollm-cloud-web commit -m "catalog: @byollm at <version>" pnpm-workspace.yaml
+#    The lockfiles follow in step 8, after publish, and those can go through
+#    a runner, because by then there is something to resolve.
 
 # 6. Tag it. `tag.sh` refuses to make one this repository cannot publish,
 #    one that disagrees with packages/, one with no release note, and one

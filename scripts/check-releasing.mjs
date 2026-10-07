@@ -187,6 +187,33 @@ for (const [where, text] of Object.entries(surfaces)) {
   );
 }
 
+/**
+ * 4. Step 5's hosted pins are the tagger's own commits.
+ *
+ * Cutting 0.1.3, both pin commits sat on runner branches (#643, #644) that
+ * the lander could never land: its `pnpm install --frozen-lockfile --offline`
+ * cannot resolve a version npm does not have yet, and it is right to refuse.
+ * Step 5 is two hand commits, and its text has to say so and name both.
+ */
+const step5 = doc.match(/^# 5\.[\s\S]*?(?=^# 6\.)/m)?.[0] ?? "";
+check(
+  "step 5 is present",
+  step5.length > 0,
+  "no `# 5.` … `# 6.` span in the runbook, so the checks below read nothing",
+);
+for (const repo of ["byollm-cloud", "byollm-cloud-web"]) {
+  check(
+    `step 5 names ${repo}`,
+    new RegExp(`\\b${repo}(?![\\w-])`).test(step5),
+    "the pins live in two repositories; a step naming one moves one",
+  );
+}
+check(
+  'step 5 says the pins are committed "by hand"',
+  /\bby hand\b/i.test(step5),
+  "a pins-only commit fails the lander's frozen offline install; a runner cannot land it",
+);
+
 process.stdout.write(
   failures === 0
     ? "\n  the runbook matches packages/\n\n"

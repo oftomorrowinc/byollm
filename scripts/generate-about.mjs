@@ -24,9 +24,15 @@ const ROOT = new URL("..", import.meta.url).pathname;
 const OUT = join(ROOT, "packages/protocol/src/about.ts");
 const CUT = "<!-- lede ends here.";
 
-const full = readFileSync(join(ROOT, "ABOUT.md"), "utf8").trim();
-const agents = readFileSync(join(ROOT, "AGENT-PROMPTS.md"), "utf8");
-const short = readFileSync(join(ROOT, "ABOUT-SHORT.md"), "utf8").trim();
+/**
+ * A file as LF text. Windows checkouts can be CRLF, and everything here is
+ * compared to LF constants — 0.1.3's Windows CI was red on exactly that (#706).
+ */
+const readText = (path) => readFileSync(path, "utf8").replace(/\r\n/g, "\n");
+
+const full = readText(join(ROOT, "ABOUT.md")).trim();
+const agents = readText(join(ROOT, "AGENT-PROMPTS.md"));
+const short = readText(join(ROOT, "ABOUT-SHORT.md")).trim();
 
 const at = short.indexOf(CUT);
 if (at === -1) {
@@ -135,7 +141,7 @@ const siteStrip = [
 
 /** Replace what sits between two markers, or say there is nowhere to put it. */
 function splice(path, want) {
-  const text = readFileSync(join(ROOT, path), "utf8");
+  const text = readText(join(ROOT, path));
   const from = text.indexOf(STRIP_START);
   const to = text.indexOf(STRIP_END, from);
   if (from === -1 || to === -1) {
@@ -205,7 +211,7 @@ export const AGENT_PROMPTS: readonly AgentPrompt[] = ${JSON.stringify(prompts, n
 if (process.argv.includes("--check")) {
   let current;
   try {
-    current = readFileSync(OUT, "utf8");
+    current = readText(OUT);
   } catch {
     // No generated file yet is drift too: the package would ship nothing
     // where the description of record should be.
@@ -216,11 +222,11 @@ if (process.argv.includes("--check")) {
     ["packages/protocol/ABOUT-SHORT.md", `${short}\n`],
   ];
   const staleGenerated = generated
-    .filter(([where, want]) => readFileSync(join(ROOT, where), "utf8") !== want)
+    .filter(([where, want]) => readText(join(ROOT, where)) !== want)
     .map(([where]) => where);
   const staleCopy = copies.find(([where, want]) => {
     try {
-      return readFileSync(join(ROOT, where), "utf8") !== want;
+      return readText(join(ROOT, where)) !== want;
     } catch {
       return true;
     }

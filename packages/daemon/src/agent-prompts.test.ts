@@ -16,7 +16,13 @@
  * protocol — not the other way round.
  */
 import { execFileSync } from "node:child_process";
-import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
+import {
+  existsSync,
+  readdirSync,
+  readFileSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -247,18 +253,44 @@ describe("AGENT_PROMPTS — docs anchors", () => {
 
 // -- the generated copies ----------------------------------------------------
 
+/**
+ * A file as LF text. Windows checkouts can be CRLF, and these copies are
+ * compared to LF constants — 0.1.3's Windows CI was red on exactly that (#706).
+ */
+const readText = (path: string): string =>
+  readFileSync(path, "utf8").replace(/\r\n/gu, "\n");
+
+/** Where the README carries a prompt, or -1. */
+const readmeAt = (readme: string, prompt: string): number =>
+  readme.indexOf(`\`\`\`text\n${prompt}\n\`\`\``);
+
 describe("AGENT_PROMPTS — where they are shown", () => {
-  const readme = readFileSync(join(ROOT, "README.md"), "utf8");
-  const site = readFileSync(join(ROOT, "site/index.html"), "utf8");
+  const readme = readText(join(ROOT, "README.md"));
+  const site = readText(join(ROOT, "site/index.html"));
 
   it.each(AGENT_PROMPTS.map((p) => [p.id, p] as const))(
     "README carries %s verbatim, before Why",
     (_, p) => {
-      const at = readme.indexOf(`\`\`\`text\n${p.prompt}\n\`\`\``);
+      const at = readmeAt(readme, p.prompt);
       expect(at).toBeGreaterThan(-1);
       expect(at).toBeLessThan(readme.indexOf("## Why"));
     },
   );
+
+  it("finds the prompts in a CRLF checkout of the README", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "byollm-crlf-"));
+    try {
+      const path = join(dir, "README.md");
+      writeFileSync(path, readme.replace(/\n/gu, "\r\n"));
+      const raw = readFileSync(path, "utf8");
+      const prompt = AGENT_PROMPTS[0]?.prompt ?? "";
+      /* The failure itself, so this case is not passing for nothing. */
+      expect(readmeAt(raw, prompt)).toBe(-1);
+      expect(readmeAt(readText(path), prompt)).toBeGreaterThan(-1);
+    } finally {
+      await removeTemp(dir);
+    }
+  });
 
   it.each(AGENT_PROMPTS.map((p) => [p.id, p] as const))(
     "byo-llm.com carries %s verbatim, with a copy button",

@@ -1,4 +1,6 @@
-import { readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { NOT_YET, notYetLine } from "@byollm/protocol";
 import { describe, expect, it } from "vitest";
@@ -14,8 +16,14 @@ import { describe, expect, it } from "vitest";
  * red.
  */
 
+/**
+ * A file as LF text. Windows checkouts can be CRLF, and the copies are
+ * compared to LF constants — 0.1.3's Windows CI was red on exactly that (#706).
+ */
+const readText = (path) => readFileSync(path, "utf8").replace(/\r\n/g, "\n");
+
 const read = (path) =>
-  readFileSync(fileURLToPath(new URL(`../${path}`, import.meta.url)), "utf8");
+  readText(fileURLToPath(new URL(`../${path}`, import.meta.url)));
 
 const want = NOT_YET.map(notYetLine);
 
@@ -49,6 +57,19 @@ describe("the Not yet list", () => {
     const md = read("README.md");
     expect(md.indexOf("### Not yet")).toBeGreaterThan(md.indexOf("## Status"));
     expect(readmeNotYet(md)).toEqual(want);
+  });
+
+  it("is NOT_YET in a CRLF checkout of the README", () => {
+    const dir = mkdtempSync(join(tmpdir(), "byollm-crlf-"));
+    try {
+      const path = join(dir, "README.md");
+      writeFileSync(path, read("README.md").replace(/\n/g, "\r\n"));
+      /* The failure itself, so this case is not passing for nothing. */
+      expect(readmeNotYet(readFileSync(path, "utf8"))).toBeNull();
+      expect(readmeNotYet(readText(path))).toEqual(want);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   it("is NOT_YET on byo-llm.com, after the packages", () => {

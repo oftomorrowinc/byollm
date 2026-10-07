@@ -1,0 +1,16 @@
+# LF everywhere, on every OS. Git on windows-latest otherwise checks out CRLF,
+# and the tests that read README.md, site/index.html and AGENT-PROMPTS.md and
+# compare them to LF constants go red on bytes nobody wrote (0.1.3, #706).
+* text=auto eol=lf
+
+*.md text eol=lf
+*.html text eol=lf
+*.ts text eol=lf
+*.tsx text eol=lf
+*.mjs text eol=lf
+*.js text eol=lf
+*.json text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+*.sql text eol=lf
+*.sh text eol=lf

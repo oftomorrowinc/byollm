@@ -1,5 +1,5 @@
 <!-- release-note 0.1.1 -->
-> **`0.1.2` is documentation only — nothing to upgrade.** `PROTOCOL_VERSION`
+> **`0.1.3` is documentation only — nothing to upgrade.** `PROTOCOL_VERSION`
 > is still `2`, so a 0.1.0 party and a 0.1.1 party talk to each other in both
 > directions. No dependency, schema, wire field or on-disk shape moved.
 >

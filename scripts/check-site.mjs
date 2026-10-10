@@ -491,6 +491,26 @@ check(
   invented.length === 0,
   `not in the registry: ${invented.join(", ")}`,
 );
+// The one subscription we do NOT ship, said beside the ones we do — a row
+// with no `data-provider`, because it is not in the registry. The launch video
+// says it, so the README and the page have to say it too, in the same words:
+// two surfaces paraphrasing one fact drift apart one edit at a time.
+const GEMINI_SUBSCRIPTION = [
+  "Gemini subscription (Gemini CLI sign-in)",
+  "Not yet; we haven't found a way to isolate it the way the Claude Code and " +
+    "Codex sign-ins are isolated; the API key route works today, metered.",
+];
+const readme = await readFile(new URL("README.md", root), "utf8");
+for (const [where, text] of [
+  ["the providers table", providerSection],
+  ["README.md", readme],
+]) {
+  check(
+    `${where} says where the Gemini subscription stands`,
+    GEMINI_SUBSCRIPTION.every((s) => text.includes(s)),
+    `expected, verbatim: ${GEMINI_SUBSCRIPTION.join(" — ")}`,
+  );
+}
 
 const NUMBERS = {
   16: "Sixteen",

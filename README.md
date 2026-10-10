@@ -269,6 +269,7 @@ Every job carries an **audience** and every backend an **offer scope**. A job ru
 | **Ollama, MLX, llama.cpp, vLLM, LM Studio** | `free` | `private` → `team` | Local compute. Costs electricity, not money. |
 | **Anthropic, OpenAI, Gemini, Grok, Groq, OpenRouter…** | `metered` | `private` by default; `team` only with an explicit spend acknowledgment **and** a daily ceiling | Your API key, your money, per token. Sharing it is legitimate and ruinous by accident. |
 | **claude CLI & other subscription accounts** | `subscription` | `private` **only, enforced** | One account runs one person's work. A protocol MUST, not a setting. |
+| **Gemini subscription (Gemini CLI sign-in)** | — | — | Not yet; we haven't found a way to isolate it the way the Claude Code and Codex sign-ins are isolated; the API key route works today, metered. |
 
 Cost class comes from the protocol registry and is **not yours to declare**. Point the generic `openai-http` backend at a remote endpoint and it is `metered` no matter what you call it — "free" is derived from the address the request is sent to, not from the config. That is the one rule that makes the rest enforceable.
 

@@ -33,6 +33,14 @@ concurrency:
 permissions:
   contents: read
 
+# The release gate — job 888. A live canary whose provider refuses to serve it
+# (quota, sign-in) is a loud skip under a plain `verify` and a FAILURE here: a
+# release does not ship with its canary unrun. These runners carry no signed-in
+# CLI today, so the canaries say "not on PATH" instead; this is set so that the
+# day one does, the answer is already the release's answer.
+env:
+  BYOLLM_RELEASE_GATE: "1"
+
 jobs:
   # Nothing publishes on a commit CI has not passed — cloud_008 §3.7.
   #

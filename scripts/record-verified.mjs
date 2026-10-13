@@ -110,3 +110,26 @@ process.stdout.write(
     ).join("") +
     "CI runs all three. A green here is not a prediction that CI passes.\n",
 );
+
+/**
+ * And what it did not run here — job 888.
+ *
+ * A live canary whose provider refused to serve it (a quota, a sign-in) is a
+ * skip under `verify`, and a skip that only scrolled past in the middle of the
+ * vitest output is one nobody reads. So each one is written to
+ * `.live-canary-skipped` and repeated here, last, where a landing log ends.
+ * `tag.sh` refuses to tag while the file exists: green with a canary unrun is
+ * green enough to land and not enough to release.
+ */
+if (existsSync(".live-canary-skipped")) {
+  process.stdout.write(
+    "\n" +
+      readFileSync(".live-canary-skipped", "utf8")
+        .split("\n")
+        .filter((line) => line !== "")
+        .map((line) => `⚠ ${line}\n`)
+        .join("") +
+      "  A skip, not a pass. The release gate (BYOLLM_RELEASE_GATE=1) fails on\n" +
+      "  it, and tag.sh refuses while .live-canary-skipped exists.\n",
+  );
+}

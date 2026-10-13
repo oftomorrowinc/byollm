@@ -87,6 +87,21 @@ if [ -n "$(git status --porcelain)" ]; then
   exit 1
 fi
 
+# 4b. The live canaries ran — job 888.
+#
+# Under plain `verify` a live canary whose provider refused to serve it (codex
+# out of quota, claude signed out) is a skip, so that one account's bill does
+# not stop every landing. It is not a skip here. `verify` writes each one to
+# .live-canary-skipped, and a release does not ship with BY-01 unrun.
+if [ -f .live-canary-skipped ]; then
+  echo "refusing to tag: the last verify skipped a live canary:" >&2
+  sed 's/^/    /' .live-canary-skipped >&2
+  echo "  Wait out the provider, or sign it in, then re-run" >&2
+  echo "    BYOLLM_RELEASE_GATE=1 pnpm run verify" >&2
+  echo "  which fails rather than skips on the same refusal." >&2
+  exit 1
+fi
+
 # 5. The cut carries the pin — B234.
 #
 # `.95`, `.96` and `.97` were all cut correctly, and all three needed a second,

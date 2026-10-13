@@ -4,6 +4,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { codexArgv } from "../../src/backends/index.js";
+import {
+  providerUnavailable,
+  requireLeak,
+  runControl,
+  settleRefusal,
+} from "./live-canary.js";
 
 /**
  * Codex runs with no tools — proved against the shipped binary, not asserted.
@@ -88,7 +94,7 @@ describe.runIf(LIVE)("codex runs with no tools [byollm_004 §2]", () => {
   it(
     "cannot read a file the control run reads",
     { timeout: 600_000 },
-    async () => {
+    async (context) => {
       const dir = await mkdtemp(join(tmpdir(), "byollm-canary-"));
       const canary = "CANARY-7Q4F-ZX91-MARKER";
       await writeFile(join(dir, "secret.txt"), `${canary}\n`, "utf8");
@@ -98,18 +104,38 @@ describe.runIf(LIVE)("codex runs with no tools [byollm_004 §2]", () => {
 
       try {
         const guarded = await runCodex(dir, codexArgv(MODEL), prompt);
-        const control = await runCodex(dir, WITHOUT_DISABLES(MODEL), prompt);
+        const control = await runControl("codex", canary, () =>
+          runCodex(dir, WITHOUT_DISABLES(MODEL), prompt).then((run) => ({
+            code: run.code,
+            out: `${run.stdout}\n${run.stderr}`,
+          })),
+        );
 
         // The control first, because a control that does not leak means the run
         // proved nothing — the model may have been offline, rate limited, or
         // simply unwilling. Reporting a pass from that is worse than reporting
-        // nothing.
-        expect(
-          control.stdout.includes(canary),
+        // nothing. A provider that refused outright is told apart from the
+        // other two — see live-canary.ts for what each mode makes of it.
+        requireLeak(
+          control,
+          "the codex tool-disabling check",
           "control run did not read the canary — this experiment is inconclusive, " +
-            "not a pass. Check that codex is signed in and the network answers.\n" +
-            control.stderr.slice(0, 400),
-        ).toBe(true);
+            "not a pass. Check that codex is signed in and the network answers.",
+          context,
+        );
+
+        // And the guarded run must have reached a model at all: a refusal
+        // carries no canary for the same reason it carries no answer.
+        const refusal = providerUnavailable("codex", {
+          code: guarded.code,
+          out: `${guarded.stdout}\n${guarded.stderr}`,
+        });
+        if (refusal !== undefined)
+          settleRefusal(
+            refusal,
+            "the codex tool-disabling check, guarded run",
+            context,
+          );
 
         expect(
           guarded.stdout.includes(canary),

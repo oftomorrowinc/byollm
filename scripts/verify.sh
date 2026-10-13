@@ -18,6 +18,11 @@
 # `&&` braces.
 set -euo pipefail
 
+# A live canary that skipped because the provider refused to serve (job 888)
+# writes one line here, and record-verified.mjs repeats it at the bottom. This
+# run's skips are the only ones it may report, so the last run's go first.
+rm -f .live-canary-skipped
+
 node scripts/generate-about.mjs --check
 pnpm run format:check
 pnpm run build

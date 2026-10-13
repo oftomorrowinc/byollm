@@ -101,9 +101,11 @@ node scripts/bump-version.mjs <version>
 #    only thing standing between what you changed and the people installing
 #    it. Write it for them, not for the commit log.
 
-# 3. Verify locally. CI runs this too, and so does the release workflow —
-#    but finding it here is cheaper than finding it mid-release.
-pnpm run verify
+# 3. Verify locally, as the release gate. CI runs this too, and so does the
+#    release workflow — but finding it here is cheaper than finding it
+#    mid-release. The variable is what makes a live canary the provider
+#    refused to serve a failure instead of a skip; see "Live canaries" below.
+BYOLLM_RELEASE_GATE=1 pnpm run verify
 
 # 4. Commit, push, and let CI go green.
 
@@ -176,6 +178,25 @@ hook installer yet; a stray tag there is still only inert.
 The tag push triggers the workflow. It re-runs the full gate — `verify`, the
 adversarial corpus, and conformance — before publishing anything, because a
 tag can point at any commit, including one CI never saw.
+
+### Live canaries: two modes, and the hand override
+
+The BY-01 rows spawn the real `claude` and `codex` CLIs, and their control run
+has three outcomes: it leaked the canary (the experiment ran), the model
+answered without it (INCONCLUSIVE — a failure everywhere), or the provider
+refused to serve at all, read from the CLI's own output by the same quota and
+sign-in classifiers the daemon ships (PROVIDER_UNAVAILABLE). A plain
+`pnpm run verify` — every landing, every pre-push stamp — treats the last as a
+**skip**: it prints one line naming the provider, its words and its retry date,
+and `record-verified.mjs` repeats it at the bottom of the log
+(`live canary skipped: codex quota until 2026-10-28`). Under the release gate,
+`BYOLLM_RELEASE_GATE=1`, which step 3, `release.yml` and the three-OS CI run
+set, it **fails** exactly as INCONCLUSIVE does, and `tag.sh` refuses while the
+last `verify` left a `.live-canary-skipped` behind: a release does not ship with
+its canary unrun. `BYOLLM_LIVE_CANARY=0` turns the row off entirely and prints
+that it did; it is the recorded hand override for a night the canary cannot
+run, used on 2026-10-13 when the account Todd and the runner share ran out of
+codex quota until Oct 28 — and it is never a way to release.
 
 ### Rehearsing
 

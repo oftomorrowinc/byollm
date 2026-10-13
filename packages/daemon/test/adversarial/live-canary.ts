@@ -62,7 +62,7 @@ export function liveCanaryMode(
  * last `verify`; `record-verified.mjs` prints it into the log, and `tag.sh`
  * refuses to tag while it exists.
  */
-export const SKIP_MARKER = fileURLToPath(
+const SKIP_MARKER = fileURLToPath(
   new URL("../../../../.live-canary-skipped", import.meta.url),
 );
 
@@ -207,7 +207,7 @@ export type ControlVerdict =
  * A provider refusal is not retried: the quota will not lift between two
  * attempts a second apart, and asking again only spends the time.
  */
-export const CONTROL_ATTEMPTS = 3;
+const CONTROL_ATTEMPTS = 3;
 
 /** Run the control until it leaks, the provider refuses, or attempts run out. */
 export async function runControl(
@@ -236,7 +236,7 @@ function day(epochMs: number): string {
 }
 
 /** The one line a landing log carries: `live canary skipped: codex quota until 2026-10-28`. */
-export function skipNote(refusal: ProviderUnavailable): string {
+function skipNote(refusal: ProviderUnavailable): string {
   return `live canary skipped: ${refusalLine(refusal)}`;
 }
 

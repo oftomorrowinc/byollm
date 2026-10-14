@@ -11,6 +11,11 @@ into a deployable site, and stand up real docs.
   it **self-contained and dependency-free** (it must open from a file
   and deploy to any static host / GitHub Pages / Vercel with zero
   build).
+  - One read, one optional step (signals #961): the build log (`#log`)
+    reads signals' public feed in the browser, and on Vercel
+    `site/build.mjs` writes the newest entries in at deploy. As
+    committed the page has none and the browser fills them, so the file
+    still opens and deploys as it is.
 - Add: an OG/Twitter card image + meta; a favicon (the green dot);
   a real "copy" affordance with copied-state feedback; prefers-
   reduced-motion honored; Lighthouse ≥95 all categories; the

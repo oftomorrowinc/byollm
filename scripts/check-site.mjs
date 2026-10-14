@@ -131,6 +131,8 @@ check(
 //    static host with zero build, so nothing may be *fetched* from a CDN.
 //    Only loading attributes count — an outbound <a href> is a link, not a
 //    dependency, and treating the two alike flagged every honest link.
+//    The build log's fetch (#log) is not a dependency either: the page is
+//    whole without it, and the-site-shows-the-build-log.test.mjs holds it.
 const loads = [
   ...html.matchAll(/<script[^>]+src="(https?:\/\/[^"]+)"/g),
   // Only <link> rels that actually fetch. `canonical` is metadata: it names

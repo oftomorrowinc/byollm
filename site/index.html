@@ -139,6 +139,18 @@
   .note{font-size:13.5px; color:var(--faint); margin-top:14px}
   .not-yet{margin:0; padding-left:22px; max-width:680px; line-height:1.9}
 
+  /* the build log — #log, filled from signals' public feed */
+  .log-live{margin:0 0 14px; color:var(--ink); font-size:15px}
+  .log-live-dot{display:inline-block; width:8px; height:8px; margin:0 10px 1px 0; border-radius:50%; background:var(--accent);
+    box-shadow:0 0 10px var(--accent); animation:log-pulse 2s ease-in-out infinite}
+  @keyframes log-pulse{50%{opacity:.35}}
+  .log-entries{list-style:none; margin:0 0 18px; padding:0; max-width:820px}
+  .log-entries li{padding:10px 0; border-bottom:1px solid var(--line); color:var(--muted); font-size:15px}
+  .log-entries li:first-child{border-top:1px solid var(--line)}
+  .log-bracket{font-family:"SF Mono",ui-monospace,"JetBrains Mono",Menlo,Consolas,monospace; font-size:13px; color:var(--faint)}
+  .log-entries .log-title{color:var(--ink)}
+  .log-entries code{font-size:13px; color:var(--code)}
+
   /* agent prompts — generated into #agents from AGENT-PROMPTS.md */
   .prompts{display:grid; gap:18px}
   .prompt .ph{display:flex; justify-content:space-between; align-items:baseline; gap:12px; margin-bottom:8px}
@@ -420,6 +432,22 @@ anything that costs money or opens a port to the internet.</pre>
   <p class="note">We have plans for every one of these, and we are building in public. The plans are on the <a href="https://github.com/oftomorrowinc/byollm/issues">issues page</a>.</p>
 </div></section>
 
+<!-- The build log: the newest entries from signals' public feed for ot.byollm.
+     site/build.mjs writes them between the markers on deploy, using the
+     renderer in the script below; the browser reads the feed again on load,
+     for the live line and anything newer. The page as committed has none, so
+     opened from a file it still works: the browser fills it. -->
+<section id="log" class="band"><div class="wrap">
+  <p class="eyebrow">Being built in public</p>
+  <h2>The build log.</h2>
+  <p class="lead">What the people and agents building BYOLLM did, as the ledger recorded it — newest first.</p>
+  <div data-log data-feed="https://signals.oftomorrow.net/api/log" data-scope="ot.byollm" data-count="5">
+    <div class="log-live-lines" data-log-live hidden></div>
+    <ol class="log-entries" data-log-entries><!-- log:start --><!-- log:end --></ol>
+  </div>
+  <a href="https://oftomorrow.net/log/byollm" data-log-all>The whole log →</a>
+</div></section>
+
 <footer class="band"><div class="wrap">
   <span>© 2026 <a href="https://oftomorrow.net/" target="_blank" rel="noopener noreferrer">Of Tomorrow</a>, Inc. · MIT licensed</span>
   <!-- B272: this footer linked GitHub and npm and stopped there, so the page
@@ -447,6 +475,102 @@ anything that costs money or opens a port to the internet.</pre>
       })(buttons[i]);
     }
   })();
+</script>
+
+<script id="log-script">
+  // The build log (#log): one line per entry, the way oftomorrow.net writes
+  // them — [by · project], what happened, the card number, the title. The
+  // feed decides what may be shown (its fences are in its query); this only
+  // renders, and escapes every string it was given. site/build.mjs runs this
+  // same script with no `document` to write the entries in at deploy, so the
+  // page and the build cannot render an entry two ways.
+  (function (root) {
+    var WHOLE_LOG = "https://oftomorrow.net/log/byollm";
+    var VERB = {
+      "job.done": "Built",
+      "job.landed": "Landed",
+      "decision.logged": "Decided on",
+      "decision.ruled": "Ruled on",
+      message: "Said",
+    };
+
+    function esc(s) {
+      return String(s)
+        .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+    }
+    // Escaped prose, with `backticks` as code.
+    function prose(s) {
+      return esc(s).replace(/`([^`]+)`/g, "<code>$1</code>");
+    }
+    function cardLink(scope, id) {
+      return "https://signals.oftomorrow.net/board?scope=" + encodeURIComponent(scope) + "&card=" + encodeURIComponent(id);
+    }
+
+    // "[ccb, for todd · byollm] Landed #944 as `358ac1c` in byollm: <title>"
+    function entryHtml(e) {
+      var slug = String(e.scope).split(".")[1] || e.scope;
+      var head = VERB[e.kind] || "Did";
+      if (e.id) head += e.link ? ' <a href="' + esc(e.link) + '" class="log-card">#' + esc(e.id) + "</a>" : " #" + esc(e.id);
+      if (e.kind === "job.landed") {
+        if (e.commit) head += " as <code>" + esc(e.commit) + "</code>";
+        if (e.repo) head += " in " + esc(e.repo);
+      }
+      var line = '<span class="log-bracket">[' + esc(e.by) + " · " + esc(slug) + "]</span> " + head;
+      var body = e.body ? String(e.body).trim() : "";
+      if (e.title) {
+        line += ': <a href="' + WHOLE_LOG + "#e" + esc(e.seq) + '" class="log-title">' + prose(e.title) + "</a>";
+        if (e.kind === "job.done" && e.worked) line += ' <span class="log-worked">(' + esc(e.worked) + ")</span>";
+      } else if (body) {
+        // A message has no title; its body is the line.
+        line += ": " + prose(body);
+      }
+      return '<li class="log-entry" data-seq="' + esc(e.seq) + '">' + line + "</li>";
+    }
+    function entriesHtml(entries, count) {
+      return entries.slice(0, count).map(entryHtml).join("");
+    }
+    // "ccb is on #961 for 3m" — the card number links to the card.
+    function liveHtml(lines) {
+      return lines.map(function (l) {
+        var text = esc(l.line).replace("#" + esc(l.id), '<a href="' + esc(cardLink(l.scope, l.id)) + '" class="log-card">#' + esc(l.id) + "</a>");
+        return '<p class="log-live" data-log-live-line title="' + esc(l.title) + '"><span class="log-live-dot" aria-hidden="true"></span>' + text + "</p>";
+      }).join("");
+    }
+
+    if (typeof document === "undefined") {
+      root.byollmLog = { entriesHtml: entriesHtml, liveHtml: liveHtml };
+      return;
+    }
+
+    // In the browser: the live line, and anything newer than the build. A
+    // static page that showed only what it was built with would be hours
+    // stale and still look live, so this asks on load and every minute.
+    var el = document.querySelector("[data-log]");
+    if (!el || !window.fetch) return;
+    var count = Number(el.getAttribute("data-count")) || 5;
+    var list = el.querySelector("[data-log-entries]");
+    var live = el.querySelector("[data-log-live]");
+    var url = el.getAttribute("data-feed") + "?scope=" + encodeURIComponent(el.getAttribute("data-scope")) + "&limit=" + count + "&live=1";
+    function shownTop() {
+      var first = list.querySelector("[data-seq]");
+      return first ? Number(first.getAttribute("data-seq")) : 0;
+    }
+    function tick() {
+      fetch(url).then(function (res) { return res.ok ? res.json() : null; }).then(function (page) {
+        // Unreadable is not "nothing": leave what is shown.
+        if (!page || !page.entries) return;
+        var lines = page.live || [];
+        live.innerHTML = liveHtml(lines);
+        // Absent, not "idle", when nothing is claimed.
+        live.hidden = lines.length === 0;
+        var top = page.entries.length ? page.entries[0].seq : 0;
+        if (top > shownTop()) list.innerHTML = entriesHtml(page.entries, count);
+      }).catch(function () {});
+    }
+    tick();
+    setInterval(function () { if (document.visibilityState === "visible") tick(); }, 60000);
+  })(this);
 </script>
 
 </body>

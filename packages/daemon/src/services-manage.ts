@@ -1379,6 +1379,15 @@ export async function manageServices(input: {
           continue;
         }
         row.capCents = cents;
+        /* Said here, at the ceiling, because this is the moment the owner
+           decides what bounds their team's work on it — and the job caps
+           not applying is the half nobody would guess (10-22). */
+        io.out(
+          `  Your team's jobs on ${row.name} stop at that amount. They are not\n` +
+            "  also counted against the hourly and daily job caps for other\n" +
+            "  people's work — to count them too:\n" +
+            "    byollm budget community --count-team-jobs yes\n",
+        );
       }
       anyShared = shareable.some((row) => row.shared);
     }

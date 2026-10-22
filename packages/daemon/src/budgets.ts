@@ -10,8 +10,21 @@ const BudgetFile = z
   })
   .strict();
 
-export type BudgetRefusal =
-  "hourly-cap" | "daily-cap" | "payload-too-large" | "ledger-untrusted";
+/**
+ * The caps this class enforces. `countTeamJobs` is not one of them: whether a
+ * job is counted is the runner's question, asked per job, and answered here
+ * through `check`'s `counted`.
+ */
+type Caps = Omit<CommunityBudget, "countTeamJobs">;
+
+/** Which brake refused a community job — written to the ingress log. */
+export const BudgetRefusal = z.enum([
+  "hourly-cap",
+  "daily-cap",
+  "payload-too-large",
+  "ledger-untrusted",
+]);
+export type BudgetRefusal = z.infer<typeof BudgetRefusal>;
 
 export type BudgetDecision =
   | { readonly ok: true }
@@ -32,13 +45,13 @@ export type BudgetDecision =
  */
 export class Budgets {
   readonly #path: string;
-  readonly #limits: CommunityBudget;
+  readonly #limits: Caps;
   #accepted: number[] = [];
   #loaded = false;
   #untrusted: string | undefined;
   readonly #writer: LedgerWriter;
 
-  constructor(path: string, limits: CommunityBudget) {
+  constructor(path: string, limits: Caps) {
     this.#path = path;
     this.#limits = limits;
     this.#writer = new LedgerWriter(path);
@@ -70,8 +83,13 @@ export class Budgets {
    *
    * @param payloadChars - total payload text length, checked against the
    * stricter community limit rather than the protocol's absolute ceiling.
+   * @param counted - whether this job counts toward the hourly and daily
+   * caps. `false` only for a teammate's job on a metered service the owner
+   * shared, which the spend ceiling already bounds — see
+   * {@link CommunityBudget}'s `countTeamJobs`. The payload limit applies
+   * either way.
    */
-  check(now: number, payloadChars: number): BudgetDecision {
+  check(now: number, payloadChars: number, counted = true): BudgetDecision {
     if (!this.#loaded) throw new Error("budgets used before load()");
     /* Before the counts, because the counts are the thing in doubt. Refusing
        is a nuisance for strangers and costs the owner nothing: only work for
@@ -96,6 +114,8 @@ export class Budgets {
           `characters; this one is ${String(payloadChars)}`,
       };
     }
+
+    if (!counted) return { ok: true };
 
     const hour = this.#countSince(now - 3_600_000);
     if (hour >= this.#limits.maxJobsPerHour) {
@@ -129,7 +149,7 @@ export class Budgets {
   }
 
   /** Current usage, for `byollm status`. */
-  usage(now: number): { hour: number; day: number; limits: CommunityBudget } {
+  usage(now: number): { hour: number; day: number; limits: Caps } {
     this.#prune(now);
     return {
       hour: this.#countSince(now - 3_600_000),

@@ -113,6 +113,18 @@ export const CommunityBudget = z
       .default(256 * 1024),
     /** Payload-size ceiling — stricter than the protocol's absolute limit. */
     maxPayloadChars: z.number().int().positive().default(100_000),
+    /**
+     * Whether a teammate's job on a METERED service you shared counts toward
+     * the two job caps above.
+     *
+     * Off by default, because that work is already bounded by the service's
+     * daily spend ceiling, in your own dollars — and counting it twice is how
+     * a teammate's writing assistant stopped at twenty jobs an hour on a
+     * service that had spent $0.80 of $25.00 (10-22). The payload, wall-clock
+     * and output ceilings apply either way, and work on a free service — your
+     * GPU, which no dollar ceiling bounds — is always counted.
+     */
+    countTeamJobs: z.boolean().default(false),
   })
   .strict();
 export type CommunityBudget = z.infer<typeof CommunityBudget>;

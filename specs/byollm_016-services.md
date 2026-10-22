@@ -569,6 +569,21 @@ of it becomes an accidental discovery mid-build:
    being central — a teammate's runaway loop still hits the
    jobs/hour, wall-clock, and payload caps. Worth one conformance
    case so the rename can't silently widen the budget exemption.
+
+   *Amended 2026-10-22 (job 3859, ruled by owl in #15096).* One
+   exemption, owner-switchable: a teammate's job, admitted under a
+   signed grant, on a **metered** service offered to the **team** with
+   an acknowledged daily ceiling, does not count toward the jobs/hour
+   and jobs/day caps unless `community.countTeamJobs` is set. That work
+   is already bounded by the dollar ceiling; counting it again stopped a
+   teammate at 20 jobs an hour on a service that had spent $0.80 of
+   $25.00. Payload, wall-clock and output caps still apply. Free-class
+   team work, metered work on any other scope, and every job with the
+   flag on stay counted. The cost: a runaway or forged teammate can now
+   spend the whole daily ceiling in minutes instead of across the day —
+   still the bound, reached sooner. The conformance case asked for above
+   ships in `runner.test.ts` under `[COMMUNITY_BUDGETS]`, one case per
+   edge.
 6. **Phase B's defaults-meet-audiences corner survives the
    simplification.** A device whose kind-default is a *private*
    service still receives member jobs kind-only; resolution for a

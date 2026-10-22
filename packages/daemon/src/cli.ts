@@ -33,7 +33,7 @@ import type { BackendId } from "@byollm/protocol";
 import { backendDescriptor, backendName, classifyCost } from "@byollm/protocol";
 import { fingerprint } from "@byollm/protocol";
 import { normalizeOrigin, UnusableOrigin } from "./origins.js";
-import { Budgets } from "./budgets.js";
+import { Budgets, type BudgetRefusal } from "./budgets.js";
 import { ClientError, ProtocolClient } from "./client.js";
 import {
   REVOKED_SENTENCE,
@@ -43,9 +43,14 @@ import {
 } from "./revoked.js";
 import { TEST_YOUR_DEVICE } from "./test-your-device.js";
 import { diagnoseRoute } from "./diagnose.js";
-import { DaemonConfig, loadConfig, writeConfig } from "./config.js";
+import {
+  DaemonConfig,
+  loadConfig,
+  writeConfig,
+  type CommunityBudget,
+} from "./config.js";
 import { connect } from "./connect.js";
-import { IngressLog, stripControlChars } from "./ingress.js";
+import { IngressLog, stripControlChars, type IngressEntry } from "./ingress.js";
 import { readHostMemory } from "./memory.js";
 import { modelLoadQuestion } from "./model-memory.js";
 import { probeLocalServers } from "./probe-local.js";
@@ -106,6 +111,7 @@ const USAGE = `byollm — run an app's LLM jobs on your own models.
   byollm services manage      turn services on and off, and share them
   byollm model <svc> <name>   check a model answers, then use it
   byollm offer <service> <scope>  who a service is offered to (private|team)
+  byollm budget community     how many jobs other people may run here
   byollm sites                which sites this device serves
 
 Config lives in ~/.byollm/config.json. Everything this daemon has ever run is
@@ -437,7 +443,9 @@ export async function runCli(
     case "disallow":
       return commandRetiredAdmission("disallow", io);
     case "offer":
-      return commandOffer(paths, rest, io);
+      return commandOffer(paths, rest, io, service, options.env);
+    case "budget":
+      return commandBudget(paths, rest, io, service, options.env);
     case "sites":
       return commandSites(paths, io);
     case "approve":
@@ -3224,13 +3232,33 @@ async function commandStatus(
   }
 
   const usage = budgets.usage(now);
+  const entries = await ingress.read();
   io.out("\ncommunity work done for others\n");
   io.out(
     `  ${String(usage.hour)} in the last hour (cap ${String(usage.limits.maxJobsPerHour)}), ` +
       `${String(usage.day)} today (cap ${String(usage.limits.maxJobsPerDay)})\n`,
   );
-
-  const entries = await ingress.read();
+  for (const line of brakeLines(entries, now, usage.limits, paths.config)) {
+    io.out(`  ${line}\n`);
+  }
+  /* Said, so a count that stops rising is not read as a count still guarding
+     a service it no longer counts (owl, #15096). Same predicate as the
+     runner's `#countsTowardJobCaps`, read from the same resolved routes. */
+  if (!loaded.config.community.countTeamJobs) {
+    for (const route of metered) {
+      if (
+        route.offerScope !== "team" ||
+        !route.spendAcknowledged ||
+        route.spendDailyCapCents === undefined
+      ) {
+        continue;
+      }
+      io.out(
+        `  your team's jobs on ${route.service} are not counted here — its ` +
+          `daily spend ceiling bounds them\n`,
+      );
+    }
+  }
   const prompts = entries.filter((entry) => entry.type === "prompt");
   const outcomes = entries.filter((entry) => entry.type === "outcome");
   io.out("\nthis device has run\n");
@@ -3246,6 +3274,50 @@ async function commandStatus(
       `${String(loaded.config.ingress.communityPromptDays)} days, then hashed\n`,
   );
   return 0;
+}
+
+/**
+ * Which community brake fired in the last hour, and how to release it — 10-22.
+ *
+ * Lis's jobs stopped and this screen showed *"20 in the last hour (cap 20)"*
+ * under a metered line reading $0.80 of $25.00: every fact was there and none
+ * of them said which one had refused her, or what to type. One line per brake
+ * that fired, with its count, the limit it hit and the command that moves it.
+ * A brake that has not fired says nothing — a cap nobody reached is not news.
+ */
+function brakeLines(
+  entries: readonly IngressEntry[],
+  now: number,
+  limits: Pick<
+    CommunityBudget,
+    "maxJobsPerHour" | "maxJobsPerDay" | "maxPayloadChars"
+  >,
+  configPath: string,
+): string[] {
+  const counts = new Map<BudgetRefusal, number>();
+  for (const entry of entries) {
+    if (entry.type !== "outcome" || entry.brake === undefined) continue;
+    if (entry.at < now - 3_600_000) continue;
+    counts.set(entry.brake, (counts.get(entry.brake) ?? 0) + 1);
+  }
+  const why: Record<BudgetRefusal, string> = {
+    "hourly-cap":
+      `hourly cap (${String(limits.maxJobsPerHour)}) — raise it: ` +
+      "byollm budget community --per-hour N",
+    "daily-cap":
+      `daily cap (${String(limits.maxJobsPerDay)}) — raise it: ` +
+      "byollm budget community --per-day N",
+    "payload-too-large":
+      `payload limit (${String(limits.maxPayloadChars)} characters) — ` +
+      `community.maxPayloadChars in ${configPath}`,
+    "ledger-untrusted":
+      "its record of community work cannot be read — see " +
+      '"bookkeeping this device cannot read" above',
+  };
+  return [...counts].map(
+    ([brake, count]) =>
+      `refused ${String(count)} in the last hour: ${why[brake]}`,
+  );
 }
 
 // -- log ---------------------------------------------------------------------
@@ -3516,6 +3588,8 @@ async function commandOffer(
   paths: DaemonPaths,
   args: readonly string[],
   io: CliIo,
+  serviceIo: ServiceIo,
+  env: NodeJS.ProcessEnv = process.env,
 ): Promise<ExitCode> {
   const [serviceKey, scope, ...rest] = args;
   if (serviceKey === undefined || scope === undefined) {
@@ -3753,6 +3827,173 @@ async function commandOffer(
         : `, capped at ${dollars(written)} a day`) +
       "\n",
   );
+  await pickUpTheChange(paths, io, serviceIo, env);
+  return 0;
+}
+
+/**
+ * The line every config-writing command ends with — 10-22.
+ *
+ * A running daemon reads its config once, at start, so a command that writes
+ * config has changed a file and nothing else. Under a box's supervisor it is
+ * told (B207); under a laptop's background service the owner is handed the
+ * pair that picks it up. `services manage` says the same through
+ * `writeManaged`; `offer` said nothing at all until `budget` needed this, and
+ * a command that raised a cap the running daemon cannot see would have been
+ * the brake staying on with a screen saying it had come off.
+ */
+async function pickUpTheChange(
+  paths: DaemonPaths,
+  io: CliIo,
+  serviceIo: ServiceIo,
+  env: NodeJS.ProcessEnv,
+): Promise<void> {
+  const told = tellSupervisor(undefined, env);
+  if (told === "told") {
+    io.out(
+      "\nTold the supervisor — this device is picking the change up now.\n",
+    );
+    return;
+  }
+  if (told === "gone") {
+    io.out(
+      "\nThis device's supervisor is not answering, so nothing is serving the\n" +
+        "new configuration yet. Restarting the device picks it up.\n",
+    );
+    return;
+  }
+  if (await serviceIsInstalled(serviceTarget(paths, serviceIo))) {
+    io.out(
+      "\nThe background service is running with the config it started on.\n" +
+        "  byollm stop && byollm start    pick this up\n",
+    );
+  }
+}
+
+// -- budget -------------------------------------------------------------------
+
+const BUDGET_USAGE =
+  "usage: byollm budget community [--per-hour N] [--per-day N] " +
+  "[--count-team-jobs yes|no]\n";
+
+/**
+ * The community job caps, set without editing JSON — 10-22.
+ *
+ * Lis's jobs on Todd's shared glm-5.2 stopped at twenty an hour, and the only
+ * way to move that number was `community.maxJobsPerHour` in a file nobody had
+ * been told about. Status now names the brake and this command; this command
+ * is what it names.
+ *
+ * Only the three settings somebody is sent here to change. The wall-clock,
+ * output and payload ceilings stay in the file: nothing says to raise them,
+ * and a command offering every knob invites raising the ones that protect the
+ * machine rather than the ones that ration it.
+ */
+async function commandBudget(
+  paths: DaemonPaths,
+  args: readonly string[],
+  io: CliIo,
+  serviceIo: ServiceIo,
+  env: NodeJS.ProcessEnv = process.env,
+): Promise<ExitCode> {
+  const [scope, ...flags] = args;
+  if (scope !== "community") {
+    io.err(BUDGET_USAGE);
+    return 2;
+  }
+
+  const changes: { perHour?: number; perDay?: number; countTeam?: boolean } =
+    {};
+  for (let i = 0; i < flags.length; i += 2) {
+    const flag = flags[i];
+    const value = flags[i + 1];
+    if (flag === "--per-hour" || flag === "--per-day") {
+      // A whole number above zero, and nothing else: `Number("")` is 0,
+      // `Number("1e2")` is 100, and a cap of 0 is not "unlimited" but "refuse
+      // everybody", which nobody reaches for by typing it.
+      if (
+        value === undefined ||
+        !/^[0-9]+$/.test(value) ||
+        Number(value) <= 0
+      ) {
+        io.err(
+          `${flag} takes a whole number of jobs, greater than zero` +
+            (value === undefined ? "" : ` — not "${value}"`) +
+            "\n",
+        );
+        return 2;
+      }
+      if (flag === "--per-hour") changes.perHour = Number(value);
+      else changes.perDay = Number(value);
+      continue;
+    }
+    if (flag === "--count-team-jobs") {
+      if (value !== "yes" && value !== "no") {
+        io.err("--count-team-jobs takes yes or no\n");
+        return 2;
+      }
+      changes.countTeam = value === "yes";
+      continue;
+    }
+    io.err(`unknown option "${flag ?? ""}"\n${BUDGET_USAGE}`);
+    return 2;
+  }
+
+  let raw: string;
+  try {
+    raw = await readFile(paths.config, "utf8");
+  } catch {
+    io.err(
+      `no config at ${paths.config} — nothing to set a budget on yet.\n` +
+        "Run `byollm setup` first.\n",
+    );
+    return 1;
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    io.err(`${paths.config} is not valid JSON — fix it by hand first\n`);
+    return 1;
+  }
+  const result = DaemonConfig.safeParse(parsed);
+  if (!result.success) {
+    io.err(`${paths.config} is not a valid byollm config — fix it first\n`);
+    return 1;
+  }
+
+  const community = result.data.community;
+  const changed = Object.keys(changes).length > 0;
+  if (changed) {
+    result.data.community = {
+      ...community,
+      ...(changes.perHour === undefined
+        ? {}
+        : { maxJobsPerHour: changes.perHour }),
+      ...(changes.perDay === undefined
+        ? {}
+        : { maxJobsPerDay: changes.perDay }),
+      ...(changes.countTeam === undefined
+        ? {}
+        : { countTeamJobs: changes.countTeam }),
+    };
+    await writeConfig(paths.config, result.data);
+  }
+
+  const now = result.data.community;
+  io.out(
+    `other people's jobs on this device: up to ` +
+      `${String(now.maxJobsPerHour)} an hour, ${String(now.maxJobsPerDay)} a day\n` +
+      (now.countTeamJobs
+        ? "  your team's jobs on metered services you shared count toward these\n"
+        : "  your team's jobs on metered services you shared do not count toward\n" +
+          "  these — the service's daily spend ceiling bounds them\n"),
+  );
+  if (!changed) {
+    io.out(`\n${BUDGET_USAGE.replace("usage: ", "change it: ")}`);
+    return 0;
+  }
+  await pickUpTheChange(paths, io, serviceIo, env);
   return 0;
 }
 

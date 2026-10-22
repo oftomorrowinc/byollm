@@ -54,7 +54,7 @@ import {
   type BackendResult,
 } from "./backends/index.js";
 import { SpentGrants } from "./spent-grants.js";
-import type { Budgets } from "./budgets.js";
+import type { BudgetRefusal, Budgets } from "./budgets.js";
 import { ClientError, type ProtocolClient } from "./client.js";
 import { composePrompt } from "./compose.js";
 import type { LoadedConfig, ResolvedRoute } from "./config.js";
@@ -1383,6 +1383,45 @@ export class Runner {
   }
 
   /**
+   * Does this other person's job count toward the community job caps?
+   *
+   * Not when it is a teammate's job on a metered service the owner shared
+   * with a ceiling, unless the owner set `community.countTeamJobs`: that work
+   * is already counted, in dollars, against a limit the owner chose, and
+   * counting it a second time as a stranger's job is what stopped Lis at
+   * twenty an hour on a service that had spent $0.80 of $25.00 (10-22).
+   *
+   * Everything else is counted, and that is the bound byollm_016 §5 and
+   * byollm_001 lean on: a free service is the owner's GPU, which no dollar
+   * ceiling bounds, so a teammate's runaway loop there still stops at the
+   * hourly cap. An unresolved route counts — the safe direction for a
+   * question asked about somebody else's work.
+   *
+   * "Metered" is the cost class this daemon resolved for the service, and
+   * "team" is a team-scoped service reached under a signed grant — never
+   * anything the job says about itself (owl, #15096). The grant has already
+   * been verified by `#grantAdmits` on every path that reaches here; asking
+   * for it again is what keeps a future caller that skips admission from
+   * inheriting the exemption.
+   */
+  #countsTowardJobCaps(
+    /* `object`, because `runJob`'s `ClaimedJob` does not declare the grant
+       its stub carried in — asked of the value, not the type. */
+    job: object,
+    route: ResolvedRoute | undefined,
+  ): boolean {
+    const granted = "grant" in job && job.grant !== undefined;
+    if (route === undefined || !granted) return true;
+    if (this.#options.loaded.config.community.countTeamJobs) return true;
+    const boundedBySpend =
+      route.cost === "metered" &&
+      route.offerScope === "team" &&
+      route.spendAcknowledged &&
+      route.spendDailyCapCents !== undefined;
+    return !boundedBySpend;
+  }
+
+  /**
    * The route a job takes — byollm_016 Phase B, both sides of it.
    *
    * Was `routes.find((r) => r.kind === kind)`, which was correct while a kind
@@ -1703,7 +1742,9 @@ export class Runner {
    * A job that fails here is released with reason `refused`, which the
    * upstream remembers so it is never offered back.
    */
-  admit(job: ClaimedStub): { ok: true } | { ok: false; reason: string } {
+  admit(
+    job: ClaimedStub,
+  ): { ok: true } | { ok: false; reason: string; brake?: BudgetRefusal } {
     // Before anything else, and before a payload is fetched: is this a site
     // this machine serves? `#pinFor` asks the same question at seal time,
     // which is *after* a backend has been paid to answer a prompt from a site
@@ -1801,8 +1842,15 @@ export class Runner {
       const decision = this.#options.budgets.check(
         this.#now(),
         sizeClassCeiling(job.sizeClass),
+        this.#countsTowardJobCaps(job, route),
       );
-      if (!decision.ok) return { ok: false, reason: decision.detail };
+      if (!decision.ok) {
+        return {
+          ok: false,
+          reason: decision.detail,
+          brake: decision.refusal,
+        };
+      }
     }
 
     /**
@@ -2147,7 +2195,9 @@ export class Runner {
         prompt,
       });
 
-      if (community) await this.#options.budgets.record(this.#now());
+      if (community && this.#countsTowardJobCaps(job, route)) {
+        await this.#options.budgets.record(this.#now());
+      }
 
       const backend = this.#backendFor(route);
       /**
@@ -3004,7 +3054,7 @@ export class Runner {
       /* Refused on this device's own rules, permanently — so the attempt
          history is spent bookkeeping about a job that will not come back
          (B041). */
-      await this.#refuseOnOurOwnRules(job, admission.reason);
+      await this.#refuseOnOurOwnRules(job, admission.reason, admission.brake);
       return;
     }
 
@@ -3123,18 +3173,18 @@ export class Runner {
      * Only for other people's work. The owner's own jobs never reach the
      * community budget, here or at admission.
      */
-    if (job.owner !== this.#options.owner) {
-      const refusal = this.#withinCommunityBudget(job, payload);
-      if (refusal !== undefined) {
-        await this.#refuseOnOurOwnRules(job, refusal);
-        return;
-      }
-    }
-
     // The grant's resolution, carried into the opened job. A relayed job runs
     // on the service the person mapped; a direct one on the owner's default.
     const resolved = job.grant?.service;
     const route = this.#routeFor(job.kind, resolved);
+
+    if (job.owner !== this.#options.owner) {
+      const refusal = this.#withinCommunityBudget(job, payload, route);
+      if (refusal !== undefined) {
+        await this.#refuseOnOurOwnRules(job, refusal.detail, refusal.refusal);
+        return;
+      }
+    }
     const { outcome, ran } = await this.runJob({
       ...job,
       payload,
@@ -3399,7 +3449,12 @@ export class Runner {
    * `refused` rather than a lapse, because a lapse means "ask me later" and
    * this device's answer will not change.
    */
-  async #refuseOnOurOwnRules(job: ClaimedStub, reason: string): Promise<void> {
+  async #refuseOnOurOwnRules(
+    job: ClaimedStub,
+    reason: string,
+    /** Which community brake did it, when one did — for `byollm status`. */
+    brake?: BudgetRefusal,
+  ): Promise<void> {
     this.#jobSettled(job);
     this.#refused += 1;
     await this.#options.ingress.recordOutcome({
@@ -3408,6 +3463,7 @@ export class Runner {
       site: job.site,
       outcome: "refused",
       detail: reason,
+      ...(brake === undefined ? {} : { brake }),
     });
     this.#options.onEvent?.({ type: "refused", jobId: job.id, reason });
     await this.#safely(() =>
@@ -3424,6 +3480,10 @@ export class Runner {
    *
    * Returns the refusal to give, or `undefined` to proceed.
    *
+   * `route` decides only whether the job caps apply
+   * ({@link ByollmRunner.#countsTowardJobCaps}); the payload is measured
+   * whatever it says.
+   *
    * The admission-time call passes `sizeClassCeiling(job.sizeClass)`, a number
    * the sender chose. This passes `payloadTextLength` of the opened payload,
    * which is the same function the site used to derive that class — so a job
@@ -3438,15 +3498,17 @@ export class Runner {
   #withinCommunityBudget(
     job: ClaimedStub,
     payload: JobPayload,
-  ): string | undefined {
+    route: ResolvedRoute | undefined,
+  ): { refusal: BudgetRefusal; detail: string } | undefined {
     const decision = this.#options.budgets.check(
       this.#now(),
       payloadTextLength({
         kind: job.kind,
         payload,
       } as Parameters<typeof payloadTextLength>[0]),
+      this.#countsTowardJobCaps(job, route),
     );
-    return decision.ok ? undefined : decision.detail;
+    return decision.ok ? undefined : decision;
   }
 
   async #openPayload(

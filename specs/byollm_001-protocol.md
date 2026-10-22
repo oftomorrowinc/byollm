@@ -287,7 +287,12 @@ What bounds it is not this MUST and never was:
   service consults no list, so no roster change reaches it — somebody
   else's terms stay unlendable however the roster moves.
 - `COMMUNITY_BUDGETS` bounds a teammate's jobs per hour and per day,
-  their wall-clock, and their payload size, whatever the roster says.
+  their wall-clock, and their payload size, whatever the roster says —
+  except the job count on a metered service shared with the team, which
+  by default is bounded by its daily dollar ceiling instead
+  (byollm_016 §5, amended 2026-10-22). A forged member there can spend
+  the whole ceiling in minutes rather than across the day; the ceiling
+  still holds.
 - Jobs are sealed and inert. A job that runs reads nothing and writes
   nothing; `byollm_004 §2` and `OUTPUT_INERT` do not consult
   membership.

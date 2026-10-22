@@ -278,7 +278,7 @@ async function makeRunner(payloadChars: number) {
     if (!settled.yet) throw new Error("the job never reached an end");
   };
 
-  return { cycle, released, refusals };
+  return { cycle, released, refusals, ingress };
 }
 
 describe("a community job that declared a size it is not", () => {
@@ -301,6 +301,19 @@ describe("a community job that declared a size it is not", () => {
     expect(refusals).toHaveLength(1);
     expect(refusals[0]).toContain(String(COMMUNITY_LIMIT));
     expect(refusals[0]).toContain(String(HUGE));
+  });
+
+  it("names the brake on the log line, so `byollm status` can say which one", async () => {
+    /* 10-22: status groups refusals by this code and names the fix. Without
+       it the screen could only quote a sentence. */
+    const { cycle, ingress } = await makeRunner(HUGE);
+    await cycle();
+    const outcomes = (await ingress.read()).filter(
+      (entry) => entry.type === "outcome",
+    );
+    expect(outcomes).toMatchObject([
+      { outcome: "refused", brake: "payload-too-large" },
+    ]);
   });
 
   it("releases the lease as refused, so the hub stops offering it here", async () => {

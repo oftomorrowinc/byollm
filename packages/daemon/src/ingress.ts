@@ -7,6 +7,7 @@ import {
   type StopReason,
   type StopReasonMapping,
 } from "./backends/types.js";
+import { BudgetRefusal } from "./budgets.js";
 import type { MemoryPressure, MemoryReading } from "./memory.js";
 import { z } from "zod";
 
@@ -108,6 +109,19 @@ export const OutcomeEntry = z
      * entries written before that should still read as they were true.
      */
     stopKind: z.enum(["declared", "unavailable", "unverified"]).optional(),
+    /**
+     * Which community brake refused this job, when one did — 10-22.
+     *
+     * `detail` already said it in words, and `byollm status` could not tell
+     * the hourly cap from the payload limit without parsing a sentence: Lis
+     * was refused 21 times and the screen said which cap was full only by
+     * arithmetic. The code is what status groups by and names the fix for.
+     *
+     * Optional, like everything added here. A build older than this one reads
+     * a line carrying it as malformed and skips it — one refusal missing from
+     * an older binary's count, which is the cost of a strict reader.
+     */
+    brake: BudgetRefusal.optional(),
   })
   .strict();
 export type OutcomeEntry = z.infer<typeof OutcomeEntry>;
@@ -225,6 +239,7 @@ export class IngressLog {
     detail?: string;
     stop?: StopReason;
     stopKind?: StopReasonMapping["kind"];
+    brake?: BudgetRefusal;
   }): Promise<void> {
     await this.#append({
       type: "outcome",
@@ -245,6 +260,7 @@ export class IngressLog {
       ...(input.detail === undefined ? {} : { detail: input.detail }),
       ...(input.stop === undefined ? {} : { stop: input.stop }),
       ...(input.stopKind === undefined ? {} : { stopKind: input.stopKind }),
+      ...(input.brake === undefined ? {} : { brake: input.brake }),
     });
   }
 

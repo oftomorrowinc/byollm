@@ -124,10 +124,15 @@ async function makeRunner(
     ) => Promise<void>;
     /** The starter seam — B087, and whether it exists decides advertising. */
     spawnServer?: (command: readonly string[]) => void;
+    /** The `community` block, for the cases about whose work is counted. */
+    community?: Record<string, unknown>;
   } = {},
 ) {
   const loaded = resolveConfig(
     DaemonConfig.parse({
+      ...(options.community === undefined
+        ? {}
+        : { community: options.community }),
       ...(options.defaults === undefined ? {} : { defaults: options.defaults }),
       services: options.services ?? {
         primary: {
@@ -367,6 +372,103 @@ describe("admit — the daemon enforcing against the server", () => {
     const result = runner.admit(job({ owner: "alice", audience: "team" }));
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.reason).toContain("community jobs");
+  });
+
+  /**
+   * The team exemption, and its edges — 10-22, owl #15096.
+   *
+   * byollm_016 §5 asked for one conformance case so the exemption could not
+   * widen silently. Only a teammate's job on a metered team service with
+   * `countTeamJobs` off skips the job count; every neighbour stays counted.
+   */
+  describe("team jobs on a metered service you shared", () => {
+    const meteredTeam = {
+      paid: {
+        model: "m",
+        kinds: ["llm.generate"],
+        type: "openai",
+        offer: "team",
+        spend: { acknowledged: true, dailyCapCents: 2500 },
+      },
+    };
+    const freeTeam = {
+      primary: {
+        model: "m",
+        kinds: ["llm.generate"],
+        type: "openai-http",
+        baseUrl: "http://127.0.0.1:11434/v1",
+        offer: "team",
+      },
+    };
+    const lisGranted = (id: string, service: string) =>
+      job({
+        id,
+        owner: "lis",
+        audience: "team",
+        grant: plane.sign({ jobId: id, user: "lis", service }),
+      });
+    const full = async (budgets: Budgets) => {
+      const now = Date.now();
+      for (let i = 0; i < 20; i += 1) await budgets.record(now);
+    };
+
+    it("are not refused by a full hourly count when countTeamJobs is off", async () => {
+      const { runner, budgets } = await makeRunner({ services: meteredTeam });
+      await full(budgets);
+      expect(runner.admit(lisGranted("job_1", "paid")).ok).toBe(true);
+    });
+
+    it("do not consume the hourly count when countTeamJobs is off", async () => {
+      const { runner, budgets } = await makeRunner({ services: meteredTeam });
+      await runner.runJob({ ...lisGranted("job_1", "paid"), service: "paid" });
+      expect(budgets.usage(Date.now()).hour).toBe(0);
+    });
+
+    it("are counted, and refused by the hourly cap, when countTeamJobs is on", async () => {
+      const { runner, budgets } = await makeRunner({
+        services: meteredTeam,
+        community: { countTeamJobs: true },
+      });
+      await runner.runJob({ ...lisGranted("job_2", "paid"), service: "paid" });
+      expect(budgets.usage(Date.now()).hour).toBe(1);
+      await full(budgets);
+      const result = runner.admit(lisGranted("job_1", "paid"));
+      expect(result).toMatchObject({ ok: false, brake: "hourly-cap" });
+    });
+
+    it("on a free service are always counted — no dollar ceiling bounds your GPU", async () => {
+      const { runner, budgets } = await makeRunner({ services: freeTeam });
+      await full(budgets);
+      const result = runner.admit(lisGranted("job_1", "primary"));
+      expect(result).toMatchObject({ ok: false, brake: "hourly-cap" });
+    });
+
+    it("on a metered service that is not team-scoped are counted", async () => {
+      const { runner, budgets } = await makeRunner({
+        services: { paid: { ...meteredTeam.paid, offer: "private" } },
+      });
+      await runner.runJob({ ...lisGranted("job_1", "paid"), service: "paid" });
+      expect(budgets.usage(Date.now()).hour).toBe(1);
+    });
+
+    it("without a grant are counted, whatever service they name", async () => {
+      const { runner, budgets } = await makeRunner({ services: meteredTeam });
+      const { grant: _grant, ...stub } = lisGranted("job_1", "paid");
+      await runner.runJob({ ...stub, service: "paid" });
+      expect(budgets.usage(Date.now()).hour).toBe(1);
+    });
+
+    it("still meet the payload limit", async () => {
+      const { runner } = await makeRunner({
+        services: meteredTeam,
+        community: { maxPayloadChars: 10 },
+      });
+      const result = runner.admit({
+        ...lisGranted("job_1", "paid"),
+        sizeClass: "large",
+      });
+      expect(result).toMatchObject({ ok: false, brake: "payload-too-large" });
+    });
   });
 
   it("never applies community budgets to the owner's own work", async () => {

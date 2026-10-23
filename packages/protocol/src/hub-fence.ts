@@ -109,9 +109,14 @@ export const HUB_FENCE_CLAUSES: readonly FenceClause[] = Object.freeze([
     says: "each job's kind, size, outcome",
     covers: Object.freeze(["kind", "size_class", "disposition", "bytes"]),
   },
+  /*
+   * first_at and last_at are the pair row's two times (usage_served_by,
+   * #4131). They fit this clause, so claiming them is a release, not a ruling
+   * (#4058).
+   */
   {
     says: "and time",
-    covers: Object.freeze(["at", "month", "updated_at"]),
+    covers: Object.freeze(["at", "month", "updated_at", "first_at", "last_at"]),
   },
   /*
    * Ruled plumbing, not a new fact about a person — Todd, 2026-09-04.

@@ -86,8 +86,9 @@ describe("the hub fence", () => {
      * kind, size_class, disposition, price_version) and usage_bytes
      * (member_id, site_id, month, bytes, updated_at). `served_by_owner_id` is
      * the pair row's device owner, which the hub card after this one adds to
-     * RECORDED with its table (#4058 shape (c), replacing #4035's 0010); until
-     * it lands, this list is ahead of the hub by that one column, on purpose.
+     * RECORDED with its table (#4058 shape (c), replacing #4035's 0010), and
+     * `first_at`/`last_at` are that table's two times (#4131); until it lands,
+     * this list is ahead of the hub by those three columns, on purpose.
      *
      * This checks the clause list against that copy in both directions. The
      * hub's own suite is the real check — it reads the schema and refuses a
@@ -112,8 +113,10 @@ describe("the hub fence", () => {
       "month",
       "bytes",
       "updated_at",
-      // the pair row (#4058), arriving with the hub card that follows #4114
+      // the pair row (#4058), usage_served_by, arriving with the hub card #4131
       "served_by_owner_id",
+      "first_at",
+      "last_at",
     ];
     const claimed = HUB_FENCE_CLAUSES.flatMap((clause) => clause.covers);
     expect(

@@ -194,12 +194,31 @@ describe("byollm budget community", () => {
     expect(await readFile(paths.config, "utf8")).toBe(before);
   });
 
-  it("tells the running daemon, through the supervisor seam", async () => {
-    // A pid no machine hands out, so the signal finds nobody: "gone" is the
-    // branch that can be driven without signalling a real process.
-    await run(["budget", "community", "--per-hour", "60"], {
-      BYOLLM_SUPERVISOR_PID: "2147483646",
-    });
-    expect(out).toContain("supervisor is not answering");
-  });
+  // win32 never sends SIGHUP (supervised.ts) and the CLI does not take the
+  // platform seam, so "gone" is unreachable there; the next case covers it.
+  it.skipIf(process.platform === "win32")(
+    "tells the running daemon, through the supervisor seam",
+    async () => {
+      // A pid no machine hands out, so the signal finds nobody: "gone" is the
+      // branch that can be driven without signalling a real process.
+      await run(["budget", "community", "--per-hour", "60"], {
+        BYOLLM_SUPERVISOR_PID: "2147483646",
+      });
+      expect(out).toContain("supervisor is not answering");
+    },
+  );
+
+  it.runIf(process.platform === "win32")(
+    "on win32, signals nobody and says no supervisor heard it",
+    async () => {
+      expect(
+        await run(["budget", "community", "--per-hour", "60"], {
+          BYOLLM_SUPERVISOR_PID: "2147483646",
+        }),
+      ).toBe(0);
+      expect(await community()).toMatchObject({ maxJobsPerHour: 60 });
+      expect(out).not.toContain("supervisor is not answering");
+      expect(out).not.toContain("Told the supervisor");
+    },
+  );
 });

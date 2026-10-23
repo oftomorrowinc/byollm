@@ -16,13 +16,16 @@ import { HUB_FENCE, HUB_FENCE_CLAUSES } from "./index.js";
  * sentence.
  */
 describe("the hub fence", () => {
-  it("is one sentence pair, and says the two things it must", () => {
-    /* The promise has a positive half and a negative half, and the negative
-       half is the one people came for. A sentence that lost it would still
-       read as a privacy statement. */
-    expect(HUB_FENCE).toContain("sees only what routing and metering need");
-    expect(HUB_FENCE).toContain(
-      "Never prompts, never answers, never credentials.",
+  it("is the sentence Todd ruled, word for word", () => {
+    /* #4058, 10-22, verbatim. The whole literal rather than its keywords: the
+       last version of this test checked for "sees only what routing and
+       metering need", which is the opening that ruling removed — a keyword
+       pin keeps passing on any sentence that kept the keyword, and fails on
+       none that lost a clause. */
+    expect(HUB_FENCE).toBe(
+      "byollm.cloud sees who asked, which devices and sites are connected, " +
+        "which device did each job, and each job's kind, size, outcome and " +
+        "time. Never prompts, never answers, never credentials.",
     );
   });
 
@@ -53,7 +56,8 @@ describe("the hub fence", () => {
        *
        * A mutation found this on the day the module moved into protocol:
        * shortening the clause `"and timestamps"` to `"and times"` passed,
-       * because one is a prefix of the other. The clause text is what maps
+       * because one is a prefix of the other (today it is `"and tim"`
+       * against `"and time"`). The clause text is what maps
        * promise-words to columns, so a clause claiming words the sentence does
        * not actually end on is a mapping to a phrase nobody printed — the same
        * "a mention is not a route" this file exists to prevent across two
@@ -67,6 +71,59 @@ describe("the hub fence", () => {
         `"${clause.says}" is a truncation of a longer phrase in the fence, not a clause of it`,
       ).toBe(false);
     }
+  });
+
+  it("claims only columns the hub records, and every one of them", () => {
+    /**
+     * The hub's RECORDED, copied — a restatement, so it can rot, and here is
+     * how to re-check it. The source is `byollm-cloud`'s
+     * `hub/test/what-the-hub-keeps.test.ts`, the `RECORDED` constant:
+     *
+     *   git -C ../byollm-cloud show origin/main:hub/test/what-the-hub-keeps.test.ts \
+     *     | sed -n '/^const RECORDED/,/^};/p'
+     *
+     * As of 10-22 that is usage_events (id, at, owner_id, site_id, job_id,
+     * kind, size_class, disposition, price_version) and usage_bytes
+     * (member_id, site_id, month, bytes, updated_at). `served_by_owner_id` is
+     * the pair row's device owner, which the hub card after this one adds to
+     * RECORDED with its table (#4058 shape (c), replacing #4035's 0010); until
+     * it lands, this list is ahead of the hub by that one column, on purpose.
+     *
+     * This checks the clause list against that copy in both directions. The
+     * hub's own suite is the real check — it reads the schema and refuses a
+     * column no clause claims — but it runs against whatever version it pins,
+     * so a clause naming a column the hub does not keep (a typo, a rename)
+     * would sit in a published release until somebody bumped the pin. Here it
+     * fails before the publish.
+     */
+    const recorded = [
+      // usage_events
+      "id",
+      "at",
+      "owner_id",
+      "site_id",
+      "job_id",
+      "kind",
+      "size_class",
+      "disposition",
+      "price_version",
+      // usage_bytes
+      "member_id",
+      "month",
+      "bytes",
+      "updated_at",
+      // the pair row (#4058), arriving with the hub card that follows #4114
+      "served_by_owner_id",
+    ];
+    const claimed = HUB_FENCE_CLAUSES.flatMap((clause) => clause.covers);
+    expect(
+      claimed.filter((column) => !recorded.includes(column)),
+      "a clause claims a column the hub does not record",
+    ).toEqual([]);
+    expect(
+      recorded.filter((column) => !claimed.includes(column)),
+      "the hub records a column no clause claims",
+    ).toEqual([]);
   });
 
   it("has at least one clause that is not the exemption", () => {

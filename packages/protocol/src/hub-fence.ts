@@ -42,7 +42,16 @@
  */
 
 /**
- * The hub fence, verbatim — ruled by Todd, 2026-09-04.
+ * The hub fence, verbatim — ruled by Todd, 2026-10-22 (#4058), replacing the
+ * 2026-09-04 wording.
+ *
+ * It says what the hub sees and stops there. The old sentence opened "sees
+ * only what routing and metering need", and that opening is why the sentence
+ * was ruled three times: a justification fails every new fact that serves
+ * neither — the device that did each job is kept for the team card, not for
+ * routing (which has it in Valkey) or billing (unchanged). Without it, the
+ * fence is the mapping below: a column that fits a clause is a release, and
+ * one that fits none is a ruling.
  *
  * Asserted whole rather than by keyword wherever it is checked: "close
  * enough" is not a standard a page about what we can see gets to use, and a
@@ -50,9 +59,9 @@
  * nobody ships.
  */
 export const HUB_FENCE =
-  "byollm.cloud sees only what routing and metering need: which devices " +
-  "and sites are connected, each job's kind, size, and outcome, and " +
-  "timestamps. Never prompts, never answers, never credentials.";
+  "byollm.cloud sees who asked, which devices and sites are connected, " +
+  "which device did each job, and each job's kind, size, outcome and time. " +
+  "Never prompts, never answers, never credentials.";
 
 /**
  * A clause of {@link HUB_FENCE}, and the columns it accounts for.
@@ -82,15 +91,26 @@ export interface FenceClause {
  */
 export const HUB_FENCE_CLAUSES: readonly FenceClause[] = Object.freeze([
   {
-    says: "which devices and sites are connected",
-    covers: Object.freeze(["owner_id", "site_id", "member_id"]),
+    says: "who asked",
+    covers: Object.freeze(["owner_id", "member_id"]),
+  },
+  /*
+   * The pair row's device owner — the hub's one row per (requester, device
+   * owner), #4058's shape (c). Ruled into "devices and sites"; the clause runs
+   * on through "which device did each job" because that is the phrase the
+   * column makes true, and a clause that stopped short would map the column
+   * to words that do not mention it.
+   */
+  {
+    says: "which devices and sites are connected, which device did each job",
+    covers: Object.freeze(["site_id", "served_by_owner_id"]),
   },
   {
-    says: "each job's kind, size, and outcome",
+    says: "each job's kind, size, outcome",
     covers: Object.freeze(["kind", "size_class", "disposition", "bytes"]),
   },
   {
-    says: "and timestamps",
+    says: "and time",
     covers: Object.freeze(["at", "month", "updated_at"]),
   },
   /*

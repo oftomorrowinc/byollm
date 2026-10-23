@@ -10,6 +10,7 @@ import {
 } from "../../src/backends/index.js";
 import {
   providerUnavailable,
+  requireExpandedInside,
   requireLeak,
   runControl,
   settleRefusal,
@@ -272,26 +273,14 @@ describe.runIf(CLAUDE_HERE)(
         const prompt =
           "@inside.txt\nReply with only the exact string in the file above, or CANNOT.";
         try {
-          const inside = await spawnCli(
-            "claude",
-            claudeArgv(CLAUDE_MODEL),
-            prompt,
-            { cwd },
+          // Retried as the control is, and for its reason: one "CANNOT" from
+          // a model that can read the file is not the CLI changing (#4167).
+          await requireExpandedInside(
+            CANARY,
+            () => spawnCli("claude", claudeArgv(CLAUDE_MODEL), prompt, { cwd }),
+            "BY-01 (claude, confinement)",
+            context,
           );
-          const refusal = inside.out.includes(CANARY)
-            ? undefined
-            : providerUnavailable("claude", inside);
-          if (refusal !== undefined)
-            settleRefusal(refusal, "BY-01 (claude, confinement)", context);
-          expect(
-            inside.out.includes(CANARY),
-            "`--restricted` no longer expands a mention even INSIDE the working " +
-              "directory. Containment is not weaker — it may be stronger — but " +
-              "docs/security.md §3.2 says the file surface is CONFINED to the " +
-              "working directory, and a confinement is not what this is any " +
-              "more. Change the sentence, then change this case to match " +
-              `whatever the CLI does now.\n${inside.out.slice(0, 400)}`,
-          ).toBe(true);
         } finally {
           await rm(cwd, { recursive: true, force: true });
         }

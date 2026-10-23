@@ -7,7 +7,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   type LiveCanaryMode,
   type Run,
+  NOT_EXPANDED_INSIDE,
   liveCanaryMode,
+  requireExpandedInside,
   requireLeak,
   runControl,
   spawnCli,
@@ -160,6 +162,74 @@ describe("a model that answered without the canary [job 888]", () => {
   it("passes only when the control actually leaks", async () => {
     const result = await settle("codex", "codex-leaks", "release-gate");
     expect(result).toEqual({});
+  });
+});
+
+/**
+ * BY-01's positive control: a mention inside the working directory must
+ * expand. It failed once on release night on a single "CANNOT" and passed
+ * six of six after (#4163); it now retries the way the control does (#4167).
+ */
+describe("the inside case retries a one-off refusal [job 4167]", () => {
+  /** Each attempt runs the next fake mode; the last one repeats. */
+  async function inside(
+    modes: readonly string[],
+    canaryMode: LiveCanaryMode = "release-gate",
+  ): Promise<{ skipped?: string; failed?: string }> {
+    let skipped: string | undefined;
+    try {
+      await requireExpandedInside(
+        CANARY,
+        () => fake(modes[Math.min(attempts, modes.length - 1)]!)(),
+        "the fake inside case",
+        { skip: (note) => (skipped = note) },
+        canaryMode,
+        marker,
+        () => NOW,
+      );
+    } catch (error) {
+      return { failed: String(error) };
+    }
+    return skipped === undefined ? {} : { skipped };
+  }
+
+  it("passes when a single CANNOT is followed by the canary, under the gate", async () => {
+    const result = await inside(["claude-cannot", "claude-leaks"]);
+    expect(result).toEqual({});
+    expect(attempts).toBe(2);
+    // The refusal the retry outlived is kept, not swallowed.
+    const printed = stderr.join("");
+    expect(printed).toMatch(/the fake inside case: expanded on attempt 2 of 3/);
+    expect(printed).toMatch(/CANNOT/);
+  });
+
+  it("passes on the first attempt without retrying or printing", async () => {
+    expect(await inside(["claude-leaks"])).toEqual({});
+    expect(attempts).toBe(1);
+    expect(stderr.join("")).toBe("");
+  });
+
+  for (const canaryMode of ["verify", "release-gate"] as const) {
+    it(`still fails with the doc message when it is never expanded, under ${canaryMode}`, async () => {
+      const result = await inside(["claude-cannot"], canaryMode);
+      expect(attempts).toBe(3);
+      expect(result.skipped).toBeUndefined();
+      expect(result.failed).toContain(NOT_EXPANDED_INSIDE);
+      expect(result.failed).toContain("docs/security.md §3.2");
+      // The 400-char tail of what the CLI said, as before.
+      expect(result.failed).toMatch(/the last said:\)\nCANNOT/);
+      expect(existsSync(marker)).toBe(false);
+    });
+  }
+
+  it("does not retry a provider refusal, and settles it by mode", async () => {
+    const gate = await inside(["claude-not-logged-in"]);
+    expect(gate.failed).toMatch(/PROVIDER_UNAVAILABLE/);
+    expect(attempts).toBe(1);
+    const verify = await inside(["claude-not-logged-in"], "verify");
+    expect(verify.skipped).toBe(
+      "live canary skipped: claude auth no retry date given",
+    );
   });
 });
 

@@ -310,3 +310,71 @@ export function requireLeak(
   }
   expect.fail(`${inconclusive}\n${verdict.out.slice(0, 600)}`);
 }
+
+/**
+ * Why BY-01's positive control fails: a mention *inside* the working directory
+ * no longer expands. The sentence lives here so the fake-CLI test asserts the
+ * one the live row prints.
+ */
+export const NOT_EXPANDED_INSIDE =
+  "`--restricted` no longer expands a mention even INSIDE the working " +
+  "directory. Containment is not weaker — it may be stronger — but " +
+  "docs/security.md §3.2 says the file surface is CONFINED to the " +
+  "working directory, and a confinement is not what this is any " +
+  "more. Change the sentence, then change this case to match " +
+  "whatever the CLI does now.";
+
+/**
+ * BY-01's positive control, enforced: a canary inside the working directory
+ * must come back — #4167.
+ *
+ * It gets the control's retries, through {@link runControl} itself, for the
+ * control's reason: a model that can read the file sometimes says "CANNOT"
+ * anyway. One did, once, under the release gate on 2026-10-22 and passed six
+ * of six after (#4163) — and with no retry that one refusal read as the CLI
+ * having changed and blocked `tag.sh`. A real change does not go away on a
+ * second ask, so it still fails, after every attempt has said the same.
+ *
+ * A refusal that a retry outlived is printed, not dropped: if the flake
+ * becomes a habit, the run that passed is where it shows first.
+ */
+export async function requireExpandedInside(
+  canary: string,
+  attempt: () => Promise<Run>,
+  what: string,
+  context: Skipper,
+  mode: LiveCanaryMode = liveCanaryMode(),
+  marker: string = SKIP_MARKER,
+  now: () => number = Date.now,
+): Promise<void> {
+  const said: string[] = [];
+  const verdict = await runControl(
+    "claude",
+    canary,
+    async () => {
+      const run = await attempt();
+      said.push(run.out);
+      return run;
+    },
+    now,
+  );
+  if (verdict.kind === "provider-unavailable") {
+    settleRefusal(verdict.refusal, what, context, mode, marker);
+    return;
+  }
+  if (verdict.kind === "leaked") {
+    const refused = said.slice(0, -1);
+    if (refused.length > 0)
+      process.stderr.write(
+        `\n  ⚠ ${what}: expanded on attempt ${String(said.length)} of ` +
+          `${String(CONTROL_ATTEMPTS)}; before that the model said:\n` +
+          refused.map((out) => `    ${out.slice(0, 400)}\n`).join("") +
+          "\n",
+      );
+    return;
+  }
+  expect.fail(
+    `${NOT_EXPANDED_INSIDE}\n(not expanded on any of ${String(said.length)} ` +
+      `attempts; the last said:)\n${verdict.out.slice(0, 400)}`,
+  );
+}

@@ -56,6 +56,14 @@ switch (mode) {
     process.stdout.write("Not logged in · Please run /login\n");
     process.exit(1);
     break;
+  case "claude-cannot":
+    // A model that could read the file and said it could not — once, on
+    // release night, in BY-01's positive control (#4163).
+    process.stdout.write("CANNOT\n");
+    break;
+  case "claude-leaks":
+    process.stdout.write(`${canary}\n`);
+    break;
   case "claude-answers":
     process.stdout.write("CANNOT — and I am not logged in to anything.\n");
     break;

@@ -267,6 +267,20 @@ describe.runIf(CLAUDE_HERE)(
          * would leave a documented mechanism that is not the mechanism, which
          * is the drift this repository spends its checks on. Read the message,
          * rewrite the sentence, rewrite this case. Do not delete it.
+         *
+         * **It retries a refusal, as the controls do, and for their reason.** It
+         * is a positive control — it asserts the canary *does* come back — so it
+         * inherits the flake the header measured: haiku answers "CANNOT" to a
+         * file it can read, and that probe refused once and then leaked on the
+         * next three identical runs. Run once, one such answer turned the release
+         * gate red and read as "the CLI stopped expanding mentions" (#4163, which
+         * did not reproduce in 10/10 runs). So it goes through `runControl`:
+         * any attempt that returns the canary passes, a provider refusal is
+         * settled as before, and only a run in which no attempt leaked fails.
+         *
+         * Can a retry hide a real change? Only one where the CLI expands the
+         * mention on some tries and not others — and the failure names how many
+         * attempts it made, so "none of N" is what a red run says.
          */
         const cwd = await mkdtemp(join(tmpdir(), "byollm-job-canary-"));
         await writeFile(join(cwd, "inside.txt"), `${CANARY}\n`, "utf8");

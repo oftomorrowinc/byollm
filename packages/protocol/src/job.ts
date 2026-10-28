@@ -705,10 +705,14 @@ export const SIZE_CLASS_LIMITS = Object.freeze({
 /**
  * The most a payload in this bucket can be.
  *
- * Used where a decision must be made from a stub, before the payload has been
- * fetched — a budget check, for instance. Charging the bucket's ceiling is the
- * conservative direction: it refuses slightly too eagerly rather than
- * admitting work that turns out larger than the budget allowed.
+ * For anything that must bound a payload FROM ABOVE before it has been
+ * measured. It is no longer what the daemon charges at admission, and the
+ * reason is the lesson of #5738: `large`'s ceiling is `Infinity`, so charging
+ * it refused every declared-large job from another person at every
+ * `maxPayloadChars` an owner could set — raising the limit changed nothing.
+ * Admission asks "can this possibly fit?", which is a question about the
+ * bucket's smallest member: see {@link sizeClassFloor}. Whether the job DOES
+ * fit is decided on the opened payload, measured with `payloadTextLength`.
  *
  * `unbounded` returns `Infinity`, which fails every ceiling. That is correct
  * until byollm_006 defines how a streamed job is budgeted — failing closed on
@@ -717,6 +721,34 @@ export const SIZE_CLASS_LIMITS = Object.freeze({
 export function sizeClassCeiling(sizeClass: SizeClass): number {
   if (sizeClass === "unbounded") return Number.POSITIVE_INFINITY;
   return SIZE_CLASS_LIMITS[sizeClass];
+}
+
+/**
+ * The least a payload in this bucket can be — one past the bucket below's
+ * ceiling, because {@link sizeClassOf} puts a boundary value in the lower
+ * bucket.
+ *
+ * What a decision made from a stub, before the payload is fetched, may
+ * charge without refusing work that could fit (#5738). A job whose declared
+ * floor is already over a limit cannot fit if its declaration is honest; one
+ * whose floor is under it might, and is fetched, opened and measured. The
+ * floor is a cheap early refusal, never the gate: a declaration is whatever
+ * the sender chose, and only the measured payload is evidence.
+ *
+ * `unbounded` returns `Infinity`: still closed until byollm_006 defines how a
+ * streamed job is budgeted. It has no size to be at least.
+ */
+export function sizeClassFloor(sizeClass: SizeClass): number {
+  switch (sizeClass) {
+    case "small":
+      return 0;
+    case "medium":
+      return SIZE_CLASS_LIMITS.small + 1;
+    case "large":
+      return SIZE_CLASS_LIMITS.medium + 1;
+    case "unbounded":
+      return Number.POSITIVE_INFINITY;
+  }
 }
 
 /** Bucket a payload by its text length. */

@@ -120,6 +120,7 @@ export {
   type StopReason,
   tooLargeMessage,
   sizeClassCeiling,
+  sizeClassFloor,
   sizeClassOf,
   ResultProvenance,
   TERMINAL_STATES,

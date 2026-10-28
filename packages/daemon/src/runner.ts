@@ -19,7 +19,7 @@ import {
   publicIdentityOf,
   seal,
   payloadTextLength,
-  sizeClassCeiling,
+  sizeClassFloor,
   fingerprint,
   verifyPublicIdentity,
   type ClaimedStub,
@@ -485,6 +485,17 @@ const ATTEMPT_BACKOFF_MS = 30_000;
 
 /** How long an attempt record is kept — same reasoning as the give-up TTL. */
 const ATTEMPT_TTL_MS = 10 * 60_000;
+
+/**
+ * Why another person's `unbounded` job is refused — #5738.
+ *
+ * Words, not a number: the bucket's floor and ceiling are both `Infinity`, and
+ * a refusal reading "this one is Infinity" names a size nobody measured and a
+ * limit no owner can raise to meet.
+ */
+export const UNBOUNDED_COMMUNITY_REFUSAL =
+  "this job is streamed, so it has no size until it ends — community jobs " +
+  "of that kind are not accepted yet, at any payload limit";
 
 /**
  * A job id is only unique WITHIN a site — B041, found by an existing test.
@@ -1819,35 +1830,59 @@ export class Runner {
 
     if (job.owner !== this.#options.owner) {
       /**
-       * A CHEAP EARLY REFUSAL ON A NUMBER THE SENDER CHOSE — B188.
+       * A CHEAP EARLY REFUSAL OF WHAT CANNOT FIT — B188, #5738.
        *
        * From the stub's bucket, because admission happens before the payload
-       * is fetched. The ceiling is charged rather than a midpoint: refusing
-       * slightly too eagerly is the safe direction for someone else's work on
-       * the owner's machine.
+       * is fetched. **This refuses only what cannot fit; it is not the gate.**
+       * The gate is {@link ByollmRunner.#withinCommunityBudget}, which
+       * measures the opened payload with `payloadTextLength` against the
+       * same limit — and it runs on every path that reaches a backend for
+       * another person's job.
        *
-       * **That argument is about ROUNDING and says nothing about a LIE, and
-       * this used to be the only payload check there was.** `sizeClass` is
-       * declared by whoever enqueued the job; an untrusted end user declares
-       * `small` and sends whatever they like. The 08-27 review measured the
-       * overrun at ~40x the owner's configured community limit, on their
-       * metered backend, and `budgets.check`'s own parameter is documented as
-       * *"total payload text length"* while being handed a bucket.
+       * So the bucket's FLOOR is charged, not its ceiling. The ceiling was
+       * charged here until #5738, on the argument that refusing too eagerly
+       * is the safe direction; but `large`'s ceiling is `Infinity`, so every
+       * declared-large job from a teammate was refused at every
+       * `maxPayloadChars` the owner could set, and raising the limit — which
+       * `byollm status` tells them to do — changed nothing. And `sizeClass`
+       * is declared by whoever enqueued the job, so the ceiling never bounded
+       * anything a liar sent anyway (the 08-27 review: `small`, at ~40x).
        *
-       * It stays, because refusing a job that cannot fit before fetching it
-       * is worth doing. **It is no longer load-bearing**: the payload is
-       * measured against the same limit after it is opened, in
-       * {@link ByollmRunner.#withinCommunityBudget}.
+       * The cost, stated plainly: an owner whose limit sits between a
+       * bucket's floor and its ceiling — say 10,000 against a declared
+       * `medium` — now fetches and opens that job before refusing it, where
+       * a job of 9,000 characters runs. The download is bounded by
+       * `MAX_ENVELOPE_BYTES`, which the upstream enforces when the site
+       * deposits the envelope (this daemon does not cap the fetch itself),
+       * and the `refused` release after measurement stops the job being
+       * offered here again. No backend is reached.
+       *
+       * `unbounded` is refused here and only here, without a brake: it has
+       * no size to measure, and `community.maxPayloadChars` — the remedy the
+       * payload brake's status line names — cannot admit it at any value.
+       * Closed until byollm_006 defines how a streamed job is budgeted.
        */
+      if (job.sizeClass === "unbounded") {
+        return { ok: false, reason: UNBOUNDED_COMMUNITY_REFUSAL };
+      }
+      const floor = sizeClassFloor(job.sizeClass);
       const decision = this.#options.budgets.check(
         this.#now(),
-        sizeClassCeiling(job.sizeClass),
+        floor,
         this.#countsTowardJobCaps(job, route),
       );
       if (!decision.ok) {
         return {
           ok: false,
-          reason: decision.detail,
+          /* `check` says "this one is N", which of a floor would claim a
+             measurement nobody made. The declaration is what is known. */
+          reason:
+            decision.refusal === "payload-too-large"
+              ? `community jobs are limited to ` +
+                `${String(this.#options.budgets.usage(this.#now()).limits.maxPayloadChars)} ` +
+                `characters; this one is declared ${job.sizeClass}, which is ` +
+                `at least ${String(floor)}`
+              : decision.detail,
           brake: decision.refusal,
         };
       }
@@ -3484,11 +3519,12 @@ export class Runner {
    * ({@link ByollmRunner.#countsTowardJobCaps}); the payload is measured
    * whatever it says.
    *
-   * The admission-time call passes `sizeClassCeiling(job.sizeClass)`, a number
-   * the sender chose. This passes `payloadTextLength` of the opened payload,
-   * which is the same function the site used to derive that class — so a job
-   * whose declaration was honest is measured to the same place it declared,
-   * and one that lied is caught here.
+   * The admission-time call passes `sizeClassFloor(job.sizeClass)`, derived
+   * from a class the sender chose, and so refuses only what cannot fit. This
+   * passes `payloadTextLength` of the opened payload, which is the same
+   * function the site used to derive that class — so a job whose declaration
+   * was honest is measured to the same place it declared, and one that lied
+   * is caught here. This is the gate; admission is not.
    *
    * The whole `check` is re-run rather than the payload arm alone, because the
    * limits it enforces are one decision: a device that has since hit its

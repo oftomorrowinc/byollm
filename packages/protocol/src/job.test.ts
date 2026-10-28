@@ -5,6 +5,9 @@ import {
   isTerminal,
   JobState,
   provenanceFor,
+  sizeClassCeiling,
+  sizeClassFloor,
+  sizeClassOf,
   TERMINAL_STATES,
 } from "./job.js";
 
@@ -88,4 +91,31 @@ describe("ClaimedJob wire shape", () => {
       ).toBe(false);
     },
   );
+});
+
+describe("sizeClassFloor (#5738)", () => {
+  it("is the least payload sizeClassOf puts in each bucket", () => {
+    expect(sizeClassFloor("small")).toBe(0);
+    expect(sizeClassFloor("medium")).toBe(4_001);
+    expect(sizeClassFloor("large")).toBe(64_001);
+    /* The boundary values themselves, so the floor and the bucketing cannot
+       disagree by one: the floor is in its bucket, one less is not. */
+    expect(sizeClassOf(4_001)).toBe("medium");
+    expect(sizeClassOf(4_000)).toBe("small");
+    expect(sizeClassOf(64_001)).toBe("large");
+    expect(sizeClassOf(64_000)).toBe("medium");
+  });
+
+  it("never exceeds a payload of its own class, so it cannot refuse one that fits", () => {
+    for (const chars of [
+      0, 1, 3_999, 4_000, 4_001, 63_999, 64_000, 64_001, 1e6,
+    ]) {
+      expect(sizeClassFloor(sizeClassOf(chars))).toBeLessThanOrEqual(chars);
+    }
+  });
+
+  it("stays closed for unbounded, until byollm_006 says how a stream is budgeted", () => {
+    expect(sizeClassFloor("unbounded")).toBe(Number.POSITIVE_INFINITY);
+    expect(sizeClassCeiling("unbounded")).toBe(Number.POSITIVE_INFINITY);
+  });
 });

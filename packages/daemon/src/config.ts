@@ -111,7 +111,16 @@ export const CommunityBudget = z
       .int()
       .positive()
       .default(256 * 1024),
-    /** Payload-size ceiling — stricter than the protocol's absolute limit. */
+    /**
+     * Payload-size ceiling, in characters of the OPENED payload — stricter
+     * than the protocol's absolute limit.
+     *
+     * Measured after the payload is opened, so it is what a job really is,
+     * not what it declared. Before the fetch a job is refused only if its
+     * declared class cannot fit: a `large` job needs at least 64,001 here to
+     * be fetched at all, a `medium` one 4,001 (#5738). A streamed
+     * (`unbounded`) job is refused at any value until byollm_006.
+     */
     maxPayloadChars: z.number().int().positive().default(100_000),
     /**
      * Whether a teammate's job on a METERED service you shared counts toward

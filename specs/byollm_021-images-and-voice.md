@@ -446,14 +446,19 @@ direction only, which is why the order below matters.
 | 0.1.4 site, 0.1.5 hub | Nothing changes. It never asks for a new kind, so it never meets a new result key. |
 | 0.1.5 site, 0.1.4 hub | A new kind is refused at enqueue as a bad request. Step 2 before step 5 prevents this on byollm.cloud, and self-hosters upgrade their server before their site, which on the direct lane is the same package. |
 
-**A gap in the existing gate, found while writing this.** The hub's
-`wire-shapes` gate (read by `ready-for-latest.mjs`) refuses to promote a
-daemon release whose requests carry *keys* the deployed hub does not
-accept. A new kind is a new *value*, not a key, so the gate would wave a
-0.1.5 daemon through against a 0.1.4 hub. Before 0.1.5 is promoted to
-`latest`, the gate needs to compare enum memberships as well: `JobKind`,
-`StopReason`, and anything else the daemon sends that the hub parses as an
-enum. That is a card of its own and it gates the release.
+**The existing gate already covers the hub.** `scripts/ready-for-latest.mjs`
+in byollm-cloud checks two things before a release is promoted to
+`latest`. It compares the *keys* the hub accepts (`/wire`, from
+`wire-shapes.ts`). It also compares every closed vocabulary the hub reports
+in `/healthz` (backends, kinds, offer scopes, audiences, size classes,
+backend classes) against the exports of the `@byollm/protocol` version
+being promoted. `kinds` maps to `JOB_KINDS`. So a 0.1.5 daemon that
+advertises `llm.research` is refused promotion until the deployed hub
+accepts it, and a vocabulary the gate cannot map is itself a refusal.
+(This section first said the gate compared keys only. That was wrong: it
+read `wire-shapes.ts` without reading the vocabulary half of the script.)
+What the gate cannot reach is a self-hosted `@byollm/server` still on
+0.1.4, and guard (b) above exists for that case.
 
 ### R3. What `@oftomorrow/byollm` (Press) needs
 
@@ -547,25 +552,25 @@ qualification and is replaced by R6's paragraph.
 Filed only after Todd rules, each naming the ruling, on the ot.byollm lane.
 In order, with the hub before the release:
 
-1. **Gate:** `wire-shapes` compares enum values (R2). It gates promotion.
-2. **Protocol:** kinds, schemas, `BlobRef`, labels, `NOT_YET`, registry
+1. **Protocol:** kinds, schemas, `BlobRef`, labels, `NOT_YET`, registry
    entries and spec tables.
-3. **Daemon, tools:** the research argv and stream watcher, the
+2. **Daemon, tools:** the research argv and stream watcher, the
    function-calling loop, search providers, the config stanza and the
    per-kind lock, budgets and logging.
-4. **Daemon, fetcher:** §7 of byollm_012 and its nineteen checks, each with
+3. **Daemon, fetcher:** §7 of byollm_012 and its nineteen checks, each with
    its MUTATIONS.md row.
-5. **Blobs:** store methods, the reference server endpoints, Supabase SQL,
+4. **Blobs:** store methods, the reference server endpoints, Supabase SQL,
    and the site SDK's encrypt, pad, strip and verify.
-6. **Daemon, images:** vision parts, image generation, probes, and the
+5. **Daemon, images:** vision parts, image generation, probes, and the
    `claude-cli`/`codex-cli` verification.
-7. **Hub (byollm-cloud):** enum acceptance, R2 and presigning, the
-   own-only Research pulldown, consent lines, the version-aware "update your
-   device" slot text, and #5744's reader.
-8. **Release:** #4265 back out of the icebox (pins, tag, three-OS run), the
+6. **Hub (byollm-cloud):** enum acceptance (the existing
+   `ready-for-latest.mjs` refuses promotion until it is deployed, R2), R2
+   and presigning, the own-only Research pulldown, consent lines, the
+   version-aware "update your device" slot text, and #5744's reader.
+7. **Release:** #4265 back out of the icebox (pins, tag, three-OS run), the
    note (R6), the changelog and the docs (R5).
-9. **Press:** R3, after 8.
+8. **Press:** R3, after 7.
 
-Cards 3–4 and 5–6 can run in parallel. Card 7 can start once 2 is on main.
-Nothing reaches npm until 8, and nothing reaches people until the hub has
+Cards 2–3 and 4–5 can run in parallel. Card 6 can start once 1 is on main.
+Nothing reaches npm until 7, and nothing reaches people until the hub has
 gone first.

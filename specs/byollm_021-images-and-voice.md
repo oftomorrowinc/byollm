@@ -75,7 +75,7 @@ The result is `outcome: "ok"` with `text` (empty, or the backend's revised
 prompt where it returns one) and `images: BlobRef[]`.
 
 **Not in this spec:** editing an image (image in and image out in one job),
-images in `llm.research`, and images in `llm.generate`. Each is a later kind
+images in `llm.tools`, and images in `llm.generate`. Each is a later kind
 if someone needs it.
 
 ## 2. Where the bytes go
@@ -270,8 +270,8 @@ the build cards test first.
 **Image output is bytes, never URLs.** The daemon asks `/v1/images/generations`
 for `b64_json`. A backend that answers with a URL instead is an error,
 because fetching it would mean the daemon fetching a URL the backend chose,
-which is exactly what byollm_012 §7 exists to govern. That fetch is not
-allowed here.
+which is exactly the device-side fetch byollm_012 holds back from v1
+(§11.1). That fetch is not allowed here.
 
 **Named future backends:** ComfyUI and Automatic1111, where most local image
 generation actually runs. Neither speaks the OpenAI shape, so each is a new
@@ -337,7 +337,7 @@ precludes it, and so that "not now" is about cost:
 
 ## 10. Proposed MUSTs and their checks
 
-These are in bold rather than registry rows, for the reason byollm_012 §13
+These are in bold rather than registry rows, for the reason byollm_012 §12
 gives.
 
 - **BLOBS_SEALED**: blob bytes leave an endpoint only encrypted under a key
@@ -375,7 +375,7 @@ gives.
 | 9 | C065 image bytes, not URLs | an image backend that answers with a URL | job errors; no fetch made | follow the URL |
 | 10 | C069 blob size checked before offer | the reference server issues a 256 KiB slot; the site stores 512 KiB under it, then a job is enqueued | the job is refused at enqueue and never offered | trust the slot's size |
 
-(C066–C068 are byollm_012's, added after Owl's review.)
+(byollm_012's checks are C033–C045.)
 
 ## 11. Done when
 
@@ -402,21 +402,28 @@ that release, with the two fixes already in it.
 
 ### R1. What changes in the protocol
 
-- `JobKind` gains whichever of `llm.research`, `llm.vision` and `llm.image`
-  are ruled. A tool-bearing list holds `llm.research`.
-- New payload schemas: research is chat's shape; vision is chat with image
-  parts; image is §1's.
-- Result additions, each on its own kind only: `sources` and `toolCalls`
-  (research), `images` (image). `StopReason` gains `tool-budget`.
+- `JobKind` gains whichever of `llm.tools`, `llm.vision` and `llm.image`
+  are ruled.
+- New payload schemas: tools is chat's shape plus `tools` and
+  `maxToolCalls`; vision is chat with image parts; image is §1's.
+- Result additions, each on its own kind only: `toolCalls` (tools),
+  `images` (image). `StopReason` gains `tool-budget`.
+- For tools: `Purpose.tools` in the manifest; `toolsDigest` on grants for
+  `llm.tools` only; the `tool-call` and `tool-result` envelope directions;
+  four endpoints, `tool-call` and `tool-results` on the daemon plane and
+  `calls` and `tool-result` on the site plane, served by the relay and by
+  `@byollm/server` alike; and the site SDK's tool handlers in the pump.
 - `BlobRef`, the media caps and the 256 KiB padding.
-- New endpoints: the site's blob slot, the device's lease-scoped blob URLs,
-  and the device's output slots. On the hub they are presigned R2 URLs. On
-  `@byollm/server` they are served from the store.
+- New endpoints for images: the site's blob slot, the device's lease-scoped
+  blob URLs, and the device's output slots. On the hub they are presigned R2
+  URLs. On `@byollm/server` they are served from the store.
 - The store contract gains three blob methods. The Supabase SQL gains a
-  bucket and its policy.
-- Kind labels: "Research", "Reading images", "Making images".
+  bucket and its policy. Tool calls and results in flight need a store too,
+  and on the direct lane they use the same adapter: a short-lived row per
+  call, deleted with its job.
+- Kind labels: "Using the site's tools", "Reading images", "Making images".
 - `NOT_YET` updated (both specs' "done when").
-- The MUSTs in byollm_012 §13 and §10 above, as registry entries and spec
+- The MUSTs in byollm_012 §12 and §10 above, as registry entries and spec
   tables, with their checks.
 
 **`PROTOCOL_VERSION` stays `"2"`.** Every addition is a new value that
@@ -429,8 +436,10 @@ direction only, which is why the order below matters.
    iceboxed today, which comes back out.
 2. **The hub goes on 0.1.5 before anything sends a new kind**: relay,
    control plane and the dashboard's consent screen, plus the R2 bucket, its
-   lifecycle rule and presigning. The Research pulldown lists own services
-   only. The kind labels and §10's disclosure lines go live.
+   lifecycle rule and presigning. The control plane signs `toolsDigest`
+   into `llm.tools` grants and re-asks a person when a purpose's tools
+   change. The tools slot's pulldown lists services with tools on, own and
+   team. The kind labels and both specs' disclosure lines go live.
 3. **Manifests.** Todd updates the byollm.cloud manifest of record by hand,
    as today. New slots start unmapped, and people get the mapping
    notification (Amendment L's rider).
@@ -440,11 +449,11 @@ direction only, which is why the order below matters.
 
 | pair | what happens |
 |---|---|
-| 0.1.4 daemon, 0.1.5 hub | Nothing changes. It never advertises a new kind and is never offered one. A person whose only devices are on 0.1.4 sees the new slot as "nothing of yours does Research yet — update byollm on <device> (0.1.4)". The hub knows the version from `daemonVersion` on the device's requests, so the hub composes the fix (byollm_013's rule). |
+| 0.1.4 daemon, 0.1.5 hub | Nothing changes. It never advertises a new kind and is never offered one. A person whose only devices are on 0.1.4 sees the new slot as "nothing of yours can use the site's tools yet — update byollm on <device> (0.1.4)". It never receives a grant carrying `toolsDigest`, because grants carry it only for `llm.tools`, which it never claims. The hub knows the version from `daemonVersion` on the device's requests, so the hub composes the fix (byollm_013's rule). |
 | 0.1.5 daemon, 0.1.5 hub | Everything ruled. |
-| 0.1.5 daemon, **0.1.4 upstream** (a hub not yet deployed, or a self-hosted `@byollm/server`) | **The danger case.** `Capability.kind` is an enum, and a 0.1.4 upstream parses the heartbeat strictly. One new kind in the advertisement and the whole heartbeat is refused, so the device goes dark for *everything*, not only the new kind. Two guards. (a) New kinds are off by default, so a plain upgrade advertises nothing new. (b) The daemon must never let a new kind take the device down, and must not blame the upstream's version for a refusal the new kind did not cause. A 0.1.4 upstream's refusal does not say which field failed: the relay and the reference server both answer `400 bad-request` with a fixed message ("request failed schema validation" in `relay/src/daemon-plane.ts`, "request body failed schema validation" in `server/src/handlers.ts`) that names no path. So the daemon tells the two cases apart by a differential retry instead of by reading the body. When a heartbeat that advertises a 0.1.5 kind is refused as `bad-request`, the daemon re-sends the same heartbeat once, with only the 0.1.5 kinds removed. **Only if that retry succeeds** does it remember, for the session, that this upstream predates them, and say so: "<upstream> runs byollm 0.1.4 or older and does not route Research — update it, or remove `llm.research` from `qwen`". If the retry is refused too, the new kinds were not the cause. The daemon reports the original refusal as it does today, and blames no version. The hub cannot warn the daemon with a new response field, because B019 is the same hazard in the other direction. A 0.1.5 upstream may name the failing path inside the existing `message` string, which adds no key, but the daemon must not depend on that, because 0.1.4 upstreams never will. |
+| 0.1.5 daemon, **0.1.4 upstream** (a hub not yet deployed, or a self-hosted `@byollm/server`) | **The danger case.** `Capability.kind` is an enum, and a 0.1.4 upstream parses the heartbeat strictly. One new kind in the advertisement and the whole heartbeat is refused, so the device goes dark for *everything*, not only the new kind. Two guards. (a) New kinds are off by default, so a plain upgrade advertises nothing new. (b) The daemon must never let a new kind take the device down, and must not blame the upstream's version for a refusal the new kind did not cause. A 0.1.4 upstream's refusal does not say which field failed: the relay and the reference server both answer `400 bad-request` with a fixed message ("request failed schema validation" in `relay/src/daemon-plane.ts`, "request body failed schema validation" in `server/src/handlers.ts`) that names no path. So the daemon tells the two cases apart by a differential retry instead of by reading the body. When a heartbeat that advertises a 0.1.5 kind is refused as `bad-request`, the daemon re-sends the same heartbeat once, with only the 0.1.5 kinds removed. **Only if that retry succeeds** does it remember, for the session, that this upstream predates them, and say so: "<upstream> runs byollm 0.1.4 or older and cannot carry the site's tools — update it, or turn tools off for `qwen`". If the retry is refused too, the new kinds were not the cause. The daemon reports the original refusal as it does today, and blames no version. The hub cannot warn the daemon with a new response field, because B019 is the same hazard in the other direction. A 0.1.5 upstream may name the failing path inside the existing `message` string, which adds no key, but the daemon must not depend on that, because 0.1.4 upstreams never will. |
 | 0.1.4 site, 0.1.5 hub | Nothing changes. It never asks for a new kind, so it never meets a new result key. |
-| 0.1.5 site, 0.1.4 hub | A new kind is refused at enqueue as a bad request. Step 2 before step 5 prevents this on byollm.cloud, and self-hosters upgrade their server before their site, which on the direct lane is the same package. |
+| 0.1.5 site, 0.1.4 hub | A new kind is refused at enqueue as a bad request. Step 2 before step 5 prevents this on byollm.cloud, and self-hosters upgrade their server before their site, which on the direct lane is the same package. A 0.1.5 site's pump asks a 0.1.4 relay for `calls` and gets a 404. The pump reads that as "this relay carries no tools" and carries on with the rest of its cycle, so a site that upgrades early keeps working. |
 
 **The existing gate already covers the hub.** `scripts/ready-for-latest.mjs`
 in byollm-cloud checks two things before a release is promoted to
@@ -453,7 +462,7 @@ in byollm-cloud checks two things before a release is promoted to
 in `/healthz` (backends, kinds, offer scopes, audiences, size classes,
 backend classes) against the exports of the `@byollm/protocol` version
 being promoted. `kinds` maps to `JOB_KINDS`. So a 0.1.5 daemon that
-advertises `llm.research` is refused promotion until the deployed hub
+advertises `llm.tools` is refused promotion until the deployed hub
 accepts it, and a vocabulary the gate cannot map is itself a refusal.
 (This section first said the gate compared keys only. That was wrong: it
 read `wire-shapes.ts` without reading the vocabulary half of the script.)
@@ -464,12 +473,21 @@ What the gate cannot reach is a self-hosted `@byollm/server` still on
 
 - Pin `@byollm/*` to exactly 0.1.5. `docs/schema-lock.md` says to pin
   exactly.
-- **`llmSearch` becomes a thin wrapper over `llm` with `llm.research`**,
-  which is what its docstring has been promising. It goes to the runner
-  first. When no device can serve it, it takes Press's existing labelled
-  API path (`FALLBACK_LABELED`), as `llm` does today.
-- `PURPOSES["fact-checker"].kinds` gains `"llm.research"`. No purpose gains
-  an image kind unless its owner asks (§0).
+- **Press hosts one tool, `web_search`,** as a handler registered with the
+  site SDK. It runs on Press's own search key, with Press's cache and rate
+  limits, and authorises each call as the job's user (byollm_012 §6).
+- **`llmSearch` becomes a thin wrapper over `llm` with `llm.tools`** and
+  that one tool, which is what its docstring has been promising. It goes to
+  the runner first. When no device can serve it, it takes Press's existing
+  labelled API path (`FALLBACK_LABELED`), as `llm` does today.
+- **The waiting request keeps the pump turning**, as it does today
+  (`pumpWhileWaiting`), and the pump now answers tool calls as well. A
+  verification job that makes several calls keeps its request open for
+  longer, so the route's timeout has to cover the round trips (byollm_012
+  §5.3).
+- `PURPOSES["fact-checker"]` gains `"llm.tools"` in `kinds` and the
+  `web_search` declaration in `tools`. No purpose gains an image kind unless
+  its owner asks (§0).
 - If Press's store runs on the Supabase adapter's SQL, the blob bucket
   migration is vendored into `modules/byollm/migrations` **at the end of the
   folder**, because `register` numbers module migrations by sorted position,
@@ -478,17 +496,23 @@ What the gate cannot reach is a self-hosted `@byollm/server` still on
 
 ### R4. What the byollm.cloud manifest needs
 
-Press's manifest of record gains `llm.research` on Fact Checker, and the
-hub's manifest validation accepts the new kinds (step 2). The purpose's own
-description does not change. The Research line under it comes from the
-person's service (byollm_012 §10), so the site cannot describe a tool the
-person's machine will not run.
+Press's manifest of record gains `llm.tools` on Fact Checker, with its
+`web_search` declaration, and the hub's manifest validation accepts the new
+kinds and `Purpose.tools` (step 2). The purpose's own description does not
+change. The tools line under it is built from the declarations (byollm_012
+§10), and the digest of those same declarations is what the device checks,
+so the consent screen and the device cannot disagree about which tools
+exist.
 
 ### R5. Docs
 
-- `docs/security.md`: byollm_012 §12's worst case word for word, the
-  address table, image inertness and blob encryption.
-- `docs/protocol.md`: the new kinds, `BlobRef`, and the blob endpoints.
+- `docs/security.md`: byollm_012 §13's sentence word for word, what a site
+  takes on when it declares a tool (byollm_012 §6), image inertness and blob
+  encryption.
+- `docs/protocol.md`: the new kinds, the tool envelopes and endpoints,
+  `BlobRef`, and the blob endpoints.
+- A site guide for tools: declaring them, writing a handler, authorising as
+  the job's user, and what the round trips cost on each lane.
 - `docs/schema-lock.md`: whether the new payload shapes and `BlobRef` are
   inside the lock. The recommendation is yes, beside the envelope, since a
   site's stored references outlive a release.
@@ -504,7 +528,7 @@ person's machine will not run.
 `docs/release-notes/0.1.5.md` keeps its two paragraphs and gains these,
 with the headline rewritten:
 
-> **0.1.5 — Research, images, and two fixes.**
+> **0.1.5 — Site tools, images, and two fixes.**
 >
 > `PROTOCOL_VERSION` is still `2`. **Update your hub or server first.** A
 > daemon on 0.1.5 works with a 0.1.4 upstream until you turn on one of the
@@ -514,10 +538,14 @@ with the headline rewritten:
 > blob bucket. If you wrote your own store adapter, it needs `putBlob`,
 > `getBlob` and `deleteBlob`.
 >
-> **Research.** A new kind, `llm.research`, lets a site's model search the
-> web and read public pages, on your own devices only, through your Claude
-> subscription's search or a search provider you configure. It is off until
-> you add it to a service. Every lookup is in `byollm log`. (byollm_012)
+> **Site tools.** A new kind, `llm.tools`, lets the model on your device
+> call tools a site declares, such as its search or its catalogue. The
+> tools run on the site's servers, never on your device: your device sends
+> the model's requests to that site, sealed, and hands back what the site
+> returns. You see the site's tools when you choose a model for them, and
+> again if the site changes them. It works on local and HTTP models; your
+> Claude and Codex subscriptions can't serve it yet. It is off until you
+> turn it on for a service. Every request is in `byollm log`. (byollm_012)
 >
 > **Images.** `llm.vision` reads images and `llm.image` makes them. Images
 > travel encrypted, by reference, and are deleted with their job.
@@ -552,25 +580,30 @@ qualification and is replaced by R6's paragraph.
 Filed only after Todd rules, each naming the ruling, on the ot.byollm lane.
 In order, with the hub before the release:
 
-1. **Protocol:** kinds, schemas, `BlobRef`, labels, `NOT_YET`, registry
-   entries and spec tables.
-2. **Daemon, tools:** the research argv and stream watcher, the
-   function-calling loop, search providers, the config stanza and the
-   per-kind lock, budgets and logging.
-3. **Daemon, fetcher:** §7 of byollm_012 and its nineteen checks, each with
-   its MUTATIONS.md row.
-4. **Blobs:** store methods, the reference server endpoints, Supabase SQL,
+1. **Protocol:** kinds, schemas, `Purpose.tools`, the grant's
+   `toolsDigest`, the tool envelope directions, `BlobRef`, labels,
+   `NOT_YET`, registry entries and spec tables.
+2. **Relay and reference server, tools:** the four endpoints, the
+   `waiting-on-site` sub-state, the relay's per-job count, and the direct
+   lane's store rows for calls in flight.
+3. **Daemon, tools:** the function-calling loop on `http` backends, the
+   digest check at admission, the waits and timeouts, budgets, logging and
+   the probe.
+4. **Site SDK, tools:** handler registration, the pump's `calls` step, the
+   SDK's per-job count, and the 404 tolerance for an older relay.
+5. **Blobs:** store methods, the reference server endpoints, Supabase SQL,
    and the site SDK's encrypt, pad, strip and verify.
-5. **Daemon, images:** vision parts, image generation, probes, and the
+6. **Daemon, images:** vision parts, image generation, probes, and the
    `claude-cli`/`codex-cli` verification.
-6. **Hub (byollm-cloud):** enum acceptance (the existing
-   `ready-for-latest.mjs` refuses promotion until it is deployed, R2), R2
-   and presigning, the own-only Research pulldown, consent lines, the
-   version-aware "update your device" slot text, and #5744's reader.
-7. **Release:** #4265 back out of the icebox (pins, tag, three-OS run), the
+7. **Hub (byollm-cloud):** enum acceptance (the existing
+   `ready-for-latest.mjs` refuses promotion until it is deployed, R2), the
+   relay's tool endpoints, `toolsDigest` in grants and re-consent on a
+   changed tool list, R2 and presigning, consent lines, the version-aware
+   "update your device" slot text, and #5744's reader.
+8. **Release:** #4265 back out of the icebox (pins, tag, three-OS run), the
    note (R6), the changelog and the docs (R5).
-8. **Press:** R3, after 7.
+9. **Press:** R3, after 8.
 
-Cards 2–3 and 4–5 can run in parallel. Card 6 can start once 1 is on main.
-Nothing reaches npm until 7, and nothing reaches people until the hub has
-gone first.
+Cards 2–4 and 5–6 can run in parallel once 1 is on main. Card 7 can start
+once 1 is on main. Nothing reaches npm until 8, and nothing reaches people
+until the hub has gone first.

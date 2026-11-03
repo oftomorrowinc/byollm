@@ -3,8 +3,8 @@
 *Proposal · byollm · tool support*
 *Kevin Samsoe · 4 September 2026 · for discussion*
 
-> Kept here as the record behind byollm_012's "Beyond 012", B1 (decision
-> #6755). It was written as a web page and shared and discussed with Todd on
+> Kept here as the record behind byollm_012 v1, which specs this proposal
+> (decision #6755). It was written as a web page and shared and discussed with Todd on
 > 09-04, and CW logged it in byollm-cloud `specs/icebox.md` the same day. It
 > was converted to Markdown on 2026-11-02 with the text unchanged. The
 > page's diagram is redrawn below as text.

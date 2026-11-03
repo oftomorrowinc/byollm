@@ -1,10 +1,12 @@
 # byollm_012 — Tools: declared and run by the site, called by the model
 
-**Status: v1, for ruling. Written 2026-11-02 and rewritten 2026-11-03 by
-Kevin Samsoe for decision #6933 (card #6758), under #6756's ruling as
-written out at #54358. Nothing here is built, and under rule 34 nothing in
-this repo changes until Todd has read it and ruled. The red team and CW
-review on #6933.**
+**Status: v1, ruled. Written 2026-11-02 and rewritten 2026-11-03 by Kevin
+Samsoe for decision #6933 (card #6758), under #6756's ruling as written out
+at #54358. Todd ruled #6933 on 2026-11-03 (#55201), and this version is the
+one commit that ruling names, with the six branch fixes CW's #55220 lists
+(from Owl's red team passes #54911 and #54949). Nothing here is built, and
+under rule 34 nothing in this repo changes until the cards that follow the
+ruling are filed.**
 **Replaces `byollm_012-tools.stub.md`. The stub's position stands, and v1
 keeps it more strictly than the stub's own "narrow maybe" could: no tool
 runs on the device at all. The stub's closing note is kept as written.**
@@ -150,7 +152,12 @@ run a tool loop never advertises `llm.tools`, so it is never offered one
 ```
 { messages, system?,                 // as llm.chat, same PAYLOAD_LIMITS
   tools: ToolDeclaration[],          // 1..16, exactly the purpose's tools
-  maxToolCalls?: 1..20 }             // default 8; the owner can only lower it
+  maxToolCalls?: 1..20,              // at most the purpose's budget (§4),
+                                     // which is also its default; the
+                                     // owner can only lower it
+  purposeLimits: {                   // the purpose's two limits, as
+    maxToolCalls,                    // registered; inside the digest (§4)
+    maxToolResultChars } }
 
 ToolDeclaration = {
   name,          // /^[a-z][a-z0-9_]{0,63}$/
@@ -174,10 +181,19 @@ and the object is `.strict()`, so a payload carrying `tool_calls` or a
 daemon's loop, and every one of them arrived as a sealed, signed envelope
 for a call the daemon itself sent (§5).
 
-**The result.** `outcome: "ok"` and `text` as today. `RunMetadata` gains
-`toolCalls`, the number of calls the job made, present on `llm.tools`
-results only. `StopReason` gains `tool-budget`, for a job that reached its
-ceiling (§8). All of it is sealed, like the rest of the result.
+**The result.** `outcome: "ok"` and `text` as today. `RunMetadata` gains,
+on `llm.tools` results only:
+
+- `toolCalls`, the number of calls the job made, which is what the budget
+  counts;
+- `toolOutcomes: { answered, errored, timedOut, refused }`, how those calls
+  ended: answered by the site, answered with the site's error, timed out
+  waiting (§5.3), or refused by the daemon before sending (§12, C036). A
+  site can then tell "answered from search" from "every call timed out",
+  which `toolCalls` alone cannot (Owl, #54911 part 2 point 4).
+
+`StopReason` gains `tool-budget`, for a job that reached its call budget or
+its context cap (§8). All of it is sealed, like the rest of the result.
 
 **The label.** `llm.tools` renders as **"Using the site's tools"** on every
 user surface, with the site's name in place of "the site" where the surface
@@ -186,28 +202,55 @@ has it. It joins "Chat" and "Generation" in the one kind-label table
 
 ## 4. Declared in the manifest, matched at the device
 
-**The manifest.** A `Purpose` gains `tools`, a record from tool name to
-`{ description, parameters }`. It is required, with 1 to 16 entries, when
-the purpose's `kinds` include `llm.tools`, and refused otherwise. Its
-descriptions follow the manifest's renderable rules, since the consent
-screen shows them.
+**The manifest.** A `Purpose` gains three fields, required when its `kinds`
+include `llm.tools` and refused otherwise:
+
+- `tools`, a record from tool name to `{ description, parameters }`, 1 to 16
+  entries. The descriptions follow the manifest's renderable rules, since
+  the consent screen shows them;
+- `maxToolCalls`, the purpose's call budget, 1 to 20, default 8. It is the
+  number the consent screen states (§10);
+- `maxToolResultChars`, how much tool-result text one job may read, 1 to
+  256,000, default 32,000. It is what makes the context cap (§8) part of
+  the job's size before the job runs.
 
 **The grant carries the digest.** Amendment J's grant gains `toolsDigest`:
-SHA-256 over the RFC 8785 (JCS) canonical form of the purpose's `tools`
-record, as the person consented to it. It is present on grants for
+SHA-256 over the RFC 8785 (JCS) canonical form of `{ tools, maxToolCalls,
+maxToolResultChars }` for the purpose, as the person consented to it. The
+limits are inside the digest so that the numbers a person was shown bind
+(Owl, #54911 part 2 point 2): without them, a site could send
+`maxToolCalls: 20` to a person who was shown 8. It is present on grants for
 `llm.tools` jobs and absent on every other grant. That matters for
 coexistence, because a 0.1.4 daemon parses grants strictly and must never
 meet the key. It never claims `llm.tools`, so it never gets such a grant
 (byollm_021 §R2). The field is signed like every other grant field
 (`GRANT_SIGNED_FIELDS` is derived from the schema).
 
-**The device compares.** At admission, after the grant's own checks and
-before the backend sees anything, the daemon canonicalises the payload's
-`tools` (as a record keyed by name) and compares its digest with the
-grant's. A mismatch is refused (`tools-not-consented`) and the job's payload
-never reaches a backend. So a site cannot add a tool to a payload that the
-person did not see, and a relay cannot either, since the payload is signed by
-the site and the grant by the control plane.
+**The device compares.** The payload carries the purpose's limits it was
+built against (`purposeLimits`, beside `tools`). At admission, after the
+grant's own checks and before the backend sees anything, the daemon
+canonicalises `{ tools, ...purposeLimits }` from the payload (tools as a
+record keyed by name) and compares its digest with the grant's. A mismatch
+is refused (`tools-not-consented`). So is a payload whose `maxToolCalls` is
+above `purposeLimits.maxToolCalls`. Either way the payload never reaches a
+backend. So a site cannot add a tool, or raise the budget,
+past what the person saw, and a relay cannot either, since the payload is
+signed by the site and the grant by the control plane.
+
+**The site's code and the manifest of record cannot drift silently.** The
+payload's declarations come from the site's code (Press's `PURPOSES`). The
+digest comes from the manifest of record, which Todd registers by hand. If
+the two differ by one character, every device would refuse every job after
+claiming it, and the site would see only no-runner (Owl, #54911 part 2 point
+3). So the site SDK computes the same digest over what it is about to send
+and puts it in the **enqueue request** (`toolsDigest` beside the stub, not in
+it, so `STUB_METADATA_EXHAUSTIVE` is untouched and a device never sees it).
+The hub compares it with the digest of the manifest of record and refuses a
+mismatch at enqueue, with nothing queued: `tools-manifest-mismatch`, "the
+tools <site> declares in code for <purpose> differ from its registered
+manifest — register the manifest, or fix the declaration". The digest is
+of public consent text, not job content, so `RELAY_BLIND` is untouched. The
+key is sent only for `llm.tools`, which a 0.1.4 hub refuses anyway.
 
 **A changed tool list is a changed consent.** When a manifest's tools for a
 purpose change, the digest changes, and the person's mapping for that
@@ -222,8 +265,10 @@ changing it asks again.
 **The direct lane has no control plane** and is kind-only (byollm_009 §6).
 There, the person consents to the site when they pair, and the owner turns
 `llm.tools` on per service. There is no grant to carry a digest, so the
-device checks the payload's declarations against the schema rules above
-and no more. That is weaker, and acceptable for this reason: on the direct
+device checks the payload's declarations against the schema rules above,
+and `maxToolCalls` against the protocol ceiling and the owner's cap, and no
+more. Drift cannot happen there either: the declarations and the server are
+the same deployment. That is weaker, and acceptable for this reason: on the direct
 lane the site *is* the upstream the person paired with, and nothing the
 declarations say can make anything run on the device.
 
@@ -314,7 +359,20 @@ written against it.
 - **A site whose pump stops** (a serverless request that timed out, a
   deploy) leaves its calls unanswered. They time out one by one, the model
   answers with what it has, and the job ends normally or with
-  `tool-budget`. The result waits to be collected like any other.
+  `tool-budget`. The result waits to be collected like any other, and its
+  `toolOutcomes` say how many calls timed out (§3), so the site never
+  mistakes it for an answer from search.
+- **So a site must keep its pump turning for as long as its tool jobs run,
+  not only while one request waits.** A serverless route has a platform
+  ceiling (Press's fact-checker routes are already at the 300-second
+  maximum), so a pump tied to the waiting request dies with it mid-job (Owl,
+  #54911 part 2 point 4). The site SDK therefore gives the site two pieces:
+  the pump cycle it has today, and `toolJobsInFlight()`, which says whether
+  any of the site's tool jobs is still running. A site runs the cycle from
+  its waiting request *and* from a scheduled job that keeps cycling while
+  `toolJobsInFlight()` is true. A site that cannot schedule work runs one
+  tool job per request and sizes `maxToolCalls` to fit its route's ceiling.
+  byollm_021 §Rollout R3 says which of these Press does.
 
 ## 6. Who may run it: teammates included
 
@@ -330,7 +388,7 @@ time, bounded by budgets, plus up to `maxToolCalls` more turns of it. So
 gains "with its tools" for `llm.tools`. The owner's offer settings say, for a
 `team` service with tools on: "Teammates' jobs may use the site's tools. The
 tools run on the site's servers, not on this device. What they return is
-read by your model."
+read by your model, on this device."
 
 **The risk this moves to the site, stated plainly.** Once a model can call a
 site's tool, every argument is chosen by a party the site does not control:
@@ -339,13 +397,21 @@ teammate's device, a device owner who modified their daemon. The calls are
 signed by a real device under a real grant, so the site knows *who* called.
 It cannot know the arguments were the model's honest choice. So:
 
-- **A site treats a tool call as untrusted input from that job's user,** and
-  authorises it as that user, never as itself. A tool that reads the user's
-  manuscript reads *that user's* manuscript. A tool that would act for
-  somebody else is not a tool to declare.
-- **The site SDK runs each handler with the job's `user` and `purpose`** and
-  refuses calls past the job's budget (§8), so a modified daemon cannot buy
-  more calls than the job allowed.
+- **A site treats a tool call as untrusted input,** and authorises it no
+  wider than the job, never as itself.
+- **On any purpose a teammate can serve, a tool is scoped to the job, not
+  to the user** (Owl, #54911 part 2 point 5). The test: a tool may return
+  only what the site would have been willing to put in that job's payload.
+  Authorising as the job's user is not enough there, because the caller may
+  be a teammate's modified daemon, and the user's authority reaches further
+  than the job does. A tool that reads "the user's manuscript" reads the
+  manuscript this job is about, not any manuscript the user can open. A
+  tool that would act for somebody else is not a tool to declare at all.
+  The site guide (byollm_021 R5) says this with an example, and Press's
+  first tool, `web_search`, reads nothing of the user's.
+- **The site SDK runs each handler with the job's id, `user` and `purpose`**,
+  so a handler can scope to the job, and refuses calls past the job's budget
+  (§8), so a modified daemon cannot buy more calls than the job allowed.
 - **The docs recommend read-only tools for a first integration.** Nothing
   in the protocol requires it. What a site's tools do on the site's side is
   the site's business, as it is when the site runs its own model, but the
@@ -386,10 +452,11 @@ rule: a refusal names its fix).
 
 | what | protocol ceiling | default | who enforces it |
 |---|---|---|---|
-| tool calls in one job | 20 | the payload's `maxToolCalls`, else 8 | the daemon, the relay (cloud lane), and the site SDK |
+| tool calls in one job | 20 | the purpose's `maxToolCalls` (in the digest, §4); a payload may ask for fewer | the daemon, the relay (cloud lane), and the site SDK |
 | the owner's cap per job | ≤ the ceiling | none | the daemon: the lower of the owner's cap and the payload's number wins |
 | one call's arguments | 64 KiB | — | the daemon before sealing; the site SDK after opening |
 | one result's content | 256 KiB | — | the site SDK before sealing; the daemon after opening |
+| tool-result text the model reads, summed over the job (the context cap) | 256,000 characters | the purpose's `maxToolResultChars` (32,000 if unset), counted in the job's size class | the site SDK when it sizes the job; the daemon before handing each result to the model |
 | waiting on one call | `TOOL_CALL_TIMEOUT`, 60 s | — | the daemon |
 | the whole loop | the job's `deadlineAt` | — | as today |
 
@@ -399,10 +466,40 @@ site's tools than the job allowed. The site SDK's counter covers the direct
 lane, where there is no relay, and a relay that is wrong. Each one has its
 own check (§12).
 
+**The context cap** (Owl, #54911 part 2 point 1; CW's finding 2 on the old
+fetch design). The owner bounds what their device takes from other people
+with the size class and `community.maxPayloadChars`, and admission measures
+the opened payload (`payloadTextLength`). Tool results arrive *after*
+admission. Twenty results of 256 KiB would put about 5 MiB of site-chosen
+text into the model's context, re-sent on every later turn, on the owner's
+key if the service is hosted, and no limit of the owner's would see it. A
+site can do that without being hostile: one `get_chapter` tool returns a
+whole chapter. So the result text a job may read is counted **before the
+job runs**, in the measure the owner already set:
+
+- For `llm.tools`, `payloadTextLength` is the payload's own characters
+  **plus `purposeLimits.maxToolResultChars`**. The site computes the stub's
+  `sizeClass` from that, so a job that may read 32,000 characters of results
+  is classed by its whole possible context, not by its prompt alone.
+- Admission then works as it does for any job: a teammate's device whose
+  `community.maxPayloadChars` is below the job's total refuses it, at the
+  stub when the class's floor already exceeds the limit (#5743).
+- While the job runs, the daemon keeps the result total and holds it to
+  `maxToolResultChars`. A result that would take it past is not handed to
+  the model. The daemon logs it, counts it as `refused` in `toolOutcomes`,
+  and moves to the closing turn below.
+
+So the owner's limits see everything the model will read, and a site that
+wants a `get_chapter` tool declares a large `maxToolResultChars`, which puts
+its jobs in a larger class that each owner can accept or refuse. Fetching results by reference later (021's
+blobs) would change how the bytes travel, not what the model reads, so it
+does not replace this cap.
+
 **At the limit, the job finishes and does not fail.** When a job reaches its
-budget, the daemon asks the model once more *with no tools offered*: "Answer
-from what you have." The result comes back `ok` with `stop: "tool-budget"`,
-so the site can tell a short answer from a complete one.
+call budget or its context cap, the daemon asks the model once more *with no
+tools offered*: "Answer from what you have." The result comes back `ok` with
+`stop: "tool-budget"`, so the site can tell a short answer from a complete
+one.
 
 **Spend.** A tool job costs the person up to `maxToolCalls + 1` model turns,
 each with the conversation so far. The daemon's existing daily budgets count
@@ -441,9 +538,14 @@ manifest:
 > Up to 8 uses each time. The tools run on Of Tomorrow Press's servers,
 > never on your device. What they return is read by your model.
 
-The number is the purpose's default budget, or the owner's cap if it is
-lower. When the tool list changes, the row says "Of Tomorrow Press changed
-these tools" and waits for the person (§4).
+When the person maps the slot to a teammate's service, the last sentence
+names whose model it is (Owl, #54911 part 2 point 5): "What they return is
+read by Dane's model, on Dane's device."
+
+The number is the purpose's `maxToolCalls`, which the digest binds (§4), or
+the owner's cap if it is lower. When the tool list or the number changes, the
+row says "Of Tomorrow Press changed these tools" and waits for the person
+(§4).
 
 **Press, concretely.** The fact checker's verification step becomes an
 `llm.tools` job with one tool, `web_search`, which Press declares and runs
@@ -530,16 +632,20 @@ spec's table.
   the device only as an envelope signed by the device and sealed to the
   job's site. Daemon; conformance (checks 1, 2).
 - **TOOLS_MATCH_CONSENT**: on the cloud lane, an `llm.tools` payload whose
-  declarations do not match the grant's `toolsDigest` is refused before any
-  backend sees it. A call to an undeclared tool, or with arguments that fail
-  its schema, is a tool error to the model, and nothing is sent. Daemon;
-  conformance (checks 3, 4).
+  declarations or limits do not match the grant's `toolsDigest`, or whose
+  `maxToolCalls` is above the purpose's, is refused before any backend sees
+  it. An enqueue whose `toolsDigest` does not match the manifest of record is
+  refused at the hub with nothing queued. A call to an undeclared tool, or
+  with arguments that fail its schema, is a tool error to the model, and
+  nothing is sent. Daemon and hub; conformance (checks 3, 4, 15).
 - **TOOL_ENVELOPES_BOUND**: `tool-call` and `tool-result` are directions
   inside the signature, and a result is accepted only for an outstanding
   call of the same job. Daemon; conformance (check 5).
-- **TOOLS_BUDGETED**: §8's per-job ceiling, enforced before the call that
-  would exceed it, by the daemon, the relay and the site SDK. Conformance
-  (checks 6–8).
+- **TOOLS_BUDGETED**: §8's per-job call ceiling, enforced before the call
+  that would exceed it, by the daemon, the relay and the site SDK; and the
+  context cap, counted in the job's size class before it runs and enforced
+  by the daemon before each result reaches the model. Conformance (checks
+  6–8, 14).
 - **`INGRESS_LOGGED_BEFORE_EXECUTION`**, amended: each tool call is logged
   before it is sent. Daemon; conformance (check 10).
 - **byollm_004 §2's "No prompt-driven tools"** becomes: "The daemon exposes
@@ -548,30 +654,48 @@ spec's table.
   never executes: a call is sealed to the site.** Any tool that would run on
   the device is a new kind with its own spec and its own threat review, not
   a payload flag." `OUTPUT_INERT` is unchanged (§1).
+- **byollm_016's "Kept out, deliberately" (line 206) is amended in words**
+  (Owl, #54911 part 2 point 6). It keeps out "payload-influenced request
+  fields, ever", and on `llm.tools` the payload's declarations become the
+  function declarations in the backend request, and `maxToolCalls` shapes
+  the loop. The amended line reads: "payload-influenced request fields,
+  ever — **except a site's tool declarations and call budget on an
+  `llm.tools` job (byollm_012), which on the cloud lane are bound by the
+  grant's `toolsDigest` to what the person consented to, and on the direct
+  lane are the paired site's own; they never name a model, a parameter of
+  the model or anything that runs on the device**." The amendment is
+  deliberate, not argued away: the declarations are site-chosen request
+  content, and the consent binding is why they are acceptable, not a reason
+  to pretend they are something else.
 
-The ids below are proposals. byollm_021 uses C057–C065 and C069. The build
-cards assign the real ids after C032.
+The ids below are proposals. byollm_021 uses C057–C066 and C069–C071. The
+build cards assign the real ids after C032.
 
 | # | proposed id | what it does | passes when | mutation that must fail it |
 |---|---|---|---|---|
 | 1 | C033 a tool call leaves sealed | an echo backend calls `lookup` once | the kit's upstream receives one `tool-call` envelope; it opens only with the site's key, verifies against the device's identity key, and carries the `tool-call` direction | send the call in the clear |
 | 2 | C034 nothing runs on the device | a hostile site declares `shell`, `read_file` and `fetch`; an echo backend calls each with plausible arguments | the injected process spawner and socket factory record no spawn and no connection except to the upstream; three sealed calls reach the site | a daemon helper that runs a declared tool locally |
-| 3 | C035 tools match consent | a payload that adds one tool to the purpose's set; one that changes a description | each refused at admission as `tools-not-consented`; the backend saw nothing | skip the digest compare |
+| 3 | C035 tools match consent | a payload that adds one tool to the purpose's set; one that changes a description; one whose `purposeLimits` raise `maxToolCalls` from 8 to 20; one whose `maxToolCalls` is above its `purposeLimits` | each refused at admission as `tools-not-consented`; the backend saw nothing | skip the digest compare (or leave the limits out of it) |
 | 4 | C036 undeclared or ill-typed calls | an echo backend calls an undeclared name, then a declared tool with an extra key, then with a string past `maxLength` | three tool errors to the model; nothing sent; three calls charged | let unknown names through |
 | 5 | C037 a result is bound to its call | the upstream returns a result for an unknown `callId`, for another job's call, a replay of an answered call, and a `payload`-direction envelope | each dropped and logged; the model never sees it | drop the `callId` check |
 | 6 | C038 the daemon's budget | an echo backend that calls forever, `maxToolCalls: 3` | exactly 3 calls sent; a final turn with no tools; `ok` with `stop: "tool-budget"` | count after sending instead of before |
 | 7 | C039 the relay's budget | the kit plays a modified daemon and posts 21 calls on one job | the relay refuses the 21st; the site's `calls` never shows it | drop the relay's count |
 | 8 | C040 the site SDK's budget | the kit posts `maxToolCalls + 1` valid sealed calls on the direct lane | the SDK runs `maxToolCalls` handlers and refuses the rest | drop the SDK's count |
-| 9 | C041 a site that does not answer | the site never posts a result; the job's deadline is 5 minutes | after `TOOL_CALL_TIMEOUT` the model gets a tool error and the job ends `ok`; the lease was held throughout, with no reclaim | resolve the wait only at the deadline, or stop renewing the lease while waiting |
+| 9 | C041 a site that does not answer | the site never posts a result; the job's deadline is 5 minutes | after `TOOL_CALL_TIMEOUT` the model gets a tool error and the job ends `ok` with `toolOutcomes.answered` 0 and `timedOut` equal to `toolCalls`; the lease was held throughout, with no reclaim | resolve the wait only at the deadline, stop renewing the lease while waiting, or count a timeout as answered |
 | 10 | C042 calls logged first | the upstream asserts the ingress line exists when the call arrives | every call has its line already | log after sending |
 | 11 | C043 other kinds unchanged | an `llm.chat` job on a service with tools on | the backend receives no function declarations | send declarations on every request |
 | 12 | C044 off by default | a service with no tools setting | `llm.tools` not advertised; `backends` says how to turn it on | default it on |
 | 13 | C045 the grant field stays home | the control plane authors grants for an `llm.chat` and an `llm.tools` job | `toolsDigest` present on the second only | put it on every grant |
+| 14 | C046 the context cap | a `medium` job whose `maxToolResultChars` is 20,000; an echo backend that calls a tool returning 15,000 characters, then calls it again | the site SDK classed the job by its prompt plus 20,000; the first result reaches the model, the second does not; one closing turn with no tools; `ok` with `stop: "tool-budget"` and `toolOutcomes.refused` 1 | hand every result to the model, or size the job by its prompt alone |
+| 15 | C047 code and manifest agree at enqueue | the hub holds a manifest whose tool description differs by one character from what the site SDK declares | the enqueue is refused as `tools-manifest-mismatch`; nothing is queued and no device claims anything | drop the enqueue compare |
 
 ## 13. Done when
 
 - `llm.tools` exists in `@byollm/protocol`, with the payload, envelopes and
-  result additions above, and `Purpose.tools` in the manifest schema.
+  result additions above, `payloadTextLength` counting
+  `maxToolResultChars`, and `Purpose.tools`, `maxToolCalls` and
+  `maxToolResultChars` in the manifest schema.
+- byollm_016's "Kept out" line reads as §12 amends it.
 - The grant carries `toolsDigest` for `llm.tools` and only for it.
 - The relay and `@byollm/server` serve the four endpoints, and the site SDK's
   pump collects calls, runs registered handlers with the job's user and

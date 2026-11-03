@@ -1,36 +1,42 @@
 # byollm_021 — Images in and out; audio as a named future
 
-**Status: for ruling. Written 2026-11-02 and revised 2026-11-03 by Kevin
-Samsoe for decision #6933 (card #6758), beside byollm_012 v1. Nothing here is
-built, and under rule 34 nothing in this repo changes until Todd has read it
-and ruled. The red team and CW review on #6933.**
-**Read with: #6756's ruling as written out at #54358, `MAX_ENVELOPE_BYTES`
-in `packages/protocol/src/job.ts` (the 09-10 ruling), byollm_009 §6 and §12,
-byollm_013, byollm_016 Amendment L.**
+**Status: ruled. Written 2026-11-02 and revised 2026-11-03 by Kevin Samsoe
+for decision #6933 (card #6758). Todd ruled #6933 on 2026-11-03 (#55201):
+object storage by reference stands, and the rulebook's "no blob path" line is
+amended by that ruling. This version is the one commit that ruling names.
+Nothing here is built, and under rule 34 nothing in this repo changes until
+the cards that follow the ruling are filed.**
+**Read with: Todd's ruling at #55201 and CW's write-up at #55220; #6756's
+ruling as written out at #54358; `MAX_ENVELOPE_BYTES` in
+`packages/protocol/src/job.ts` (the 09-10 line); byollm_009 §6 and §12;
+byollm_013; byollm_016 Amendment L.**
 **§Rollout at the end covers this spec and byollm_012 together.**
 
-**What changed on 2026-11-03.** The first version carried image bytes by
-reference, as encrypted blobs in R2 on the hub. #6756's ruling struck that:
-*"'hub-stored' image bytes (a blob path, forbidden by the rulebook)"*, and
-adopted CW's *"image input is inline (counted against the payload size
-class) or nothing"*. It also ruled image input HTTP-backend-only and
-`claude-cli`'s and `codex-cli`'s containment untouched. This version follows
-that ruling. It is later than Todd's 09-10 line ("We will add R2 for
-multimodal later"), and this spec reads the later ruling as the one that
-stands. Object storage stays the named path for anything bigger, in its own
-spec and its own two steps (§2).
+**How this text got here.** The first version (488cb02) carried image bytes
+by reference, as encrypted blobs in R2. #6756's write-up struck "hub-stored"
+image bytes on 11-02, so 9331a6d put them inline at about 4 MiB a job. Todd
+then ruled on #6933, in his own words: *"I want object storage by reference —
+storage URLs with file pointers — for images and other large files, so we
+don't hit size issues. That's the 488cb02 §2 design, and the rulebook's 'no
+blob path' line is amended by this."* His example: inline, one 5 MB phone
+photo from Ad Studio is refused; by reference it is 20 MiB an image, eight to
+a job, encrypted and gone when the job is collected. So §2 and §3 are
+488cb02's again, with CW's finding 5 answered (blob deletion waits for the
+site to hold its output). Everything 9331a6d settled stays: images on HTTP
+backends only (§6), "audio" (§9), the release order and cut line
+(§Rollout).
 
-## What Todd is asked to rule
+## What was ruled
 
-1. **Image input (`llm.vision`) and image output (`llm.image`)**, as two
-   decisions. Both carry their bytes the same way, inline.
-2. **Inline, inside the sealed envelope** (§2–§3), counted against the
-   payload's size class, and within `MAX_ENVELOPE_BYTES`. No blob path, no
-   store change, no migration. This is #6756's ruling applied, and the cost
-   is named: about 4 MiB of image per job.
-3. **HTTP backends only** (§6), as #6756 ruled. The CLI rows are struck.
-4. **Audio** (§9): a named future, with its shape recorded so that nothing
-   built now gets in its way. "Audio", not "voice", because byollm_016
+1. **Image input (`llm.vision`) and image output (`llm.image`).**
+2. **By reference** (§2–§3): each image an encrypted blob in object storage,
+   its key only inside the sealed envelope, 20 MiB an image, eight to a job,
+   deleted with the job. The rulebook's "no blob path" line is amended by the
+   ruling, and the blob path arrives in two steps (§Rollout R2): the three
+   servers we run take the blob endpoints on `0.1.5-beta.1` before any daemon
+   can send an image.
+3. **HTTP backends only** (§6), as #6756 ruled.
+4. **Audio** (§9): a named future. "Audio", not "voice", because byollm_016
    already uses "voice" for an owner's tuned service.
 5. **The rollout** (§Rollout): one gathered 0.1.5 with byollm_012, every
    server we run upgraded before any daemon gets 0.1.5, the cut line #6756
@@ -38,22 +44,23 @@ spec and its own two steps (§2).
 
 ## 0. Where this starts
 
-- **#6756, ruled 2026-11-02** (Todd's "Yes, with the clarifications from CW
-  and Owl", written out at #54358). Image input is inline or nothing. Tools
-  and image input are HTTP-backend-only in this release. Every server we run
-  upgrades before any 0.1.5 daemon ships.
+- **#6933, ruled 2026-11-03** (#55201, above). By reference stands.
+- **#6756, ruled 2026-11-02** (written out at #54358). Tools and image input
+  are HTTP-backend-only in this release. Every server we run upgrades before
+  any 0.1.5 daemon ships. Its strike of "hub-stored" image bytes is replaced
+  by #6933.
 - **Todd, 2026-09-10**, recorded on `MAX_ENVELOPE_BYTES`: *"6 MB solves for
   just text and people don't try to push images. We will add R2 for
-  multimodal later."* The docstring explains that the cap is a shape
-  decision: the envelope is the wrong tool for a large photo. This spec
-  keeps that true by keeping images small, not by adding the other tool.
+  multimodal later."* The docstring explains why: **the cap is a shape
+  decision.** It makes the envelope the wrong tool for a photo, because the
+  right tool for a photo is object storage and a reference to it. #6933 is
+  that "later".
 - **`NOT_YET`** says "no embeddings or images yet" on every surface.
 - **Amendment L's own example** names an image kind: `"advertising":
   ["llm.generate", "llm.image"]`. This spec keeps that name for image
   output.
-- **No integrator has asked for images through byollm yet.** Press's Ad
-  Studio is the obvious candidate. This spec does not claim it needs images.
-  Whoever owns Ad Studio says so, and that is the evidence.
+- **Ad Studio is the case Todd named.** A phone photo is the input it needs,
+  which is what the 20 MiB cap is sized for.
 
 ## 1. Two kinds, not a bigger `llm.chat`
 
@@ -71,8 +78,7 @@ a `user` message's `content` may be a list of parts instead of a string:
 
 ```
 { type: "text",  text: string }
-{ type: "image", mediaType: "image/png" | "image/jpeg" | "image/webp",
-                 data: string }          // base64 of the image bytes
+{ type: "image", image: BlobRef }        // §2
 ```
 
 There are 1 to 8 images per job, only in `user` turns. The result is text,
@@ -94,77 +100,142 @@ produce either on purpose. `count` is clamped by the owner's
 `maxImagesPerJob`.
 
 The result is `outcome: "ok"` with `text` (empty, or the backend's revised
-prompt where it returns one) and `images`: a list of `{ mediaType, data }`,
-inline, like the input parts.
+prompt where it returns one) and `images: BlobRef[]`.
 
 **Not in this spec:** editing an image (image in and image out in one job),
-images in `llm.tools`, and images in `llm.generate`. Each is a later kind
-if someone needs it.
+images in `llm.tools`, tool results by reference, and images in
+`llm.generate`. Each is a later kind or a later use of the same blobs, if
+someone needs it.
 
-## 2. Where the bytes go: inline, sealed, nowhere else
+## 2. Where the bytes go: by reference
 
-**Image bytes travel only inside the sealed payload or the sealed result.**
-They are signed and sealed with everything else (`ENVELOPE_SEALED_AND_SIGNED`),
-so `RELAY_BLIND` covers them with no new mechanism. The relay holds them for
-as long as it holds any envelope, and stores nothing else. There is no blob
-store, no upload slot, no presigned URL, no deletion sweep and no migration.
+**By reference, always.** The envelope stays at most 6 MiB and carries
+references. Bytes never ride inside it, even when a small image would fit.
+Two placements would mean two implementations, and #6933 chose this one.
 
-**What that costs.** `MAX_ENVELOPE_BYTES` is 6 MiB, and base64 adds a third.
-So a job carries about 4 MiB of image in total, in or out (§3). That is
-enough for what vision models actually read: they resample large images
-down, typically to around 1,500–2,000 pixels on the long side, so a phone
-photo resized to 2,048 pixels as JPEG (a few hundred KiB) loses nothing the
-model would have used. The site SDK resizes and re-encodes before sealing,
-by default, and an app can turn that off only to send something smaller.
+**Each image is its own blob, encrypted before it leaves the endpoint that
+made it:**
 
-**What it rules out.** A full-resolution photo, a scan at print resolution,
-or a long document as page images. Those need object storage and a reference,
-which is Todd's 09-10 path. If someone needs them, that is its own spec,
-taking the rulebook's two steps for a blob path, not a rider on this one.
+- A fresh 32-byte key per blob. XChaCha20-Poly1305, with the nonce stored
+  ahead of the ciphertext.
+- The associated data is `jobId ‖ blobId ‖ direction` (`in` or `out`). A
+  blob therefore cannot be moved to another job, or passed off as an output
+  when it was an input, without failing to decrypt.
+- The reference, `BlobRef`, travels **only inside the sealed, signed
+  envelope**:
+
+```
+BlobRef = { blob: string, mediaType, bytes, width, height, sha256, key }
+```
+
+`sha256` is the hash of the plaintext and is checked after decrypting. Since
+`key` exists only inside an envelope that is signed and sealed
+(`ENVELOPE_SEALED_AND_SIGNED`), whoever stores the blob holds ciphertext and
+nothing that opens it. That keeps `RELAY_BLIND` true for media.
+
+**The blob is padded to a multiple of 256 KiB before it is encrypted.**
+Amendment A's rule is that the router sees a bucket, never a byte count,
+because the exact figure is the stronger fingerprint. A blob store sees each
+object's size, so padding is how that rule reaches media. byollm_009 §12
+says traffic analysis is not addressed. This keeps blobs from making it
+worse.
+
+### The cloud lane (byollm.cloud)
+
+- **Upload, site side.** The site asks the hub for an upload slot with a
+  signed request (`POST /relay/blobs`, site key, the job id and the padded
+  size). The hub answers with a blob id and a short-lived presigned R2 `PUT`
+  URL that signs that size as its `Content-Length`. The site uploads the
+  ciphertext **straight to R2**. Whether R2 enforces a signed
+  `Content-Length` is Cloudflare's behaviour, not ours, so nothing rests on
+  it: **the hub reads each object's size (a `HEAD`) before the job is
+  offered**, and refuses the job if any of its blobs is missing or differs
+  from the size its slot was issued for. Output blobs get the same check
+  before the result is accepted. The build card still tests R2 once, so the
+  docs can say whether an oversized upload fails at R2 or only at the hub.
+  Either way, the 256 KiB padding and a teammate's budget rest on a size
+  that has been checked, not only declared.
+  The bytes never pass through the relay's memory. That matters, because the
+  09-10 docstring sizes the cap to a 320 MiB box. A site may upload at
+  enqueue time, before any device has claimed the job, because the key does
+  not depend on the device. The upload overlaps the wait.
+- **Download, device side.** A daemon holding the job's lease asks for a
+  short-lived presigned `GET` with a lease-scoped signed request
+  (`LEASE_SCOPED_BY_GRANT`). No lease, no URL.
+- **Output.** The daemon asks for upload slots the same way (lease-scoped,
+  `out`), uploads, and only then posts the sealed result that references
+  them. The site downloads with its own signed request.
+- **Deletion, in an order that lets the site keep its output** (CW's
+  finding 5). 488cb02 deleted every blob when the site collected the
+  result, but the site downloads its output blobs *after* it collects, so
+  that order deleted the images before the site could fetch them. Instead:
+  - **input blobs** are deleted when the device's result is accepted, since
+    nothing reads them after that;
+  - **output blobs** are deleted when the site says it holds them
+    (`POST /relay/blobs/received`, signed, naming the job), which the site
+    SDK sends once every output blob has downloaded and verified;
+  - if the site never says so, output blobs are deleted **one hour** after
+    the result was collected;
+  - a job that is never collected has its blobs deleted 24 hours after
+    `deadlineAt`;
+  - an R2 lifecycle rule deletes anything older than 7 days as a floor
+    under all of these, for the case where the hub's own sweep is down.
+
+  **No blob outlives its job by more than a day in normal operation**, and
+  the privacy page says so.
+- **Metering.** Blob bytes are counted into the existing monthly aggregate,
+  the same as envelope bytes (the "two grains" ruling of 2026-08-28). No
+  per-job byte figure is recorded. The object's size exists in R2 for as
+  long as the object exists, as the envelope's size does in the store, and
+  goes with it.
+
+### The direct lane (`@byollm/server`)
+
+The server answers the same endpoints from its store adapter, which gains
+`putBlob`, `getBlob` and `deleteBlob`, and the same deletion order. The memory
+store keeps blobs in memory. The Supabase adapter uses a private Storage
+bucket that only the service role can reach, which **means a migration**.
+For anyone who wrote their own store adapter, this is a breaking addition to
+the store contract, and §Rollout says so in the release note.
 
 ## 3. Size class and caps
 
-**Image data counts against the payload's size class**, as #6756 ruled.
-`payloadTextLength` for `llm.vision` counts every text part plus the length of
-every image's base64 `data`, and the site computes `sizeClass` from that, as
-it does today. An image job is therefore almost always `large` (more than
-64,000 characters is about 47 KiB of image). The enum gains no value and the
-stub gains no field (`STUB_METADATA_EXHAUSTIVE` is untouched).
+**`sizeClass` keeps its meaning, which is characters of text.** For
+`llm.vision` it buckets the text parts, and for `llm.image` the prompt.
+Images are not squeezed into it, and the enum gains no value. Image bytes
+are bounded by protocol constants instead, so the stub gains no field
+(`STUB_METADATA_EXHAUSTIVE` is untouched) and a 0.1.4 parser never meets a
+new size class.
 
 | value | constant | why |
 |---|---|---|
-| 4 MiB of image bytes per job, in or out, before base64 | `MAX_IMAGE_BYTES_PER_JOB` | what fits in a 6 MiB envelope with base64 and room for the text |
+| 20 MiB per image, in or out | `MAX_IMAGE_BYTES` | a full-resolution phone photo as JPEG, with room to spare |
 | 8 per `llm.vision` job | `MAX_IMAGES_IN` | several pages or screenshots; more is a batch, which is several jobs |
 | 4 per `llm.image` job | `MAX_IMAGES_OUT` | the `count` ceiling |
-| 8,192 px a side, 40 megapixels | `MAX_IMAGE_SIDE`, `MAX_IMAGE_PIXELS` | a small PNG can decode to gigabytes; this refuses decompression bombs from the header |
+| 8,192 px a side, 40 megapixels | `MAX_IMAGE_SIDE`, `MAX_IMAGE_PIXELS` | a 20 MiB PNG can decode to gigabytes; this refuses decompression bombs from the header |
 
 (The value comes first because `musts-match-specs.test.ts` reads any table
 row that starts with a backticked SCREAMING_CASE id as a declared MUST.)
 
-**A teammate's images use the budget a teammate's text already uses.** The
-daemon's `community.maxPayloadChars` (default 100,000) applies to every
-non-owner job, images included, because image data is counted as payload.
-There is no separate image budget. Two consequences, both named:
+**A teammate's images are budgeted before they are downloaded.** The daemon
+gains `community.maxImageBytes`, set by the owner, with a default of 16 MiB
+per job, for jobs whose owner is not the device's owner. The check runs on
+the `bytes` declared in the opened payload, **before any blob is
+downloaded**. While downloading, the daemon counts actual bytes and stops at
+the declared size, so a blob larger than declared is refused.
 
-- **By default, most teammates' image jobs are refused**, because 100,000
-  characters is about 73 KiB of image. An owner who offers `llm.vision` to
-  `team` raises `community.maxPayloadChars`. When they turn on `team` for
-  `llm.vision` with the default still in place, `byollm` says so, and names
-  the setting and the size a typical image job needs (byollm_013's rule).
-- **Fetch, then refuse, now costs megabytes.** Since 23102a5 (#5743), a
-  device admits a `large` job by its class's floor (64,001), fetches it, and
-  refuses it on its actual size. With images, that fetch can be up to
-  `MAX_ENVELOPE_BYTES`. It is bounded, and §Rollout R7 asks Todd to rule the
-  trade in one sentence. An owner who does not want any of it does not offer
-  `llm.vision` to `team`: offer scope is per kind.
+**The default is lower than `MAX_IMAGE_BYTES` on purpose.** 16 MiB per job
+admits two or three ordinary phone photos (a few MiB each as JPEG) from a
+teammate. It refuses a single image at the 20 MiB protocol cap. The cap is
+sized for an owner's own work, where the person paying for the bandwidth is
+the person sending the image. On a teammate's job the device's owner pays,
+so the default leaves that headroom unspent until the owner raises
+`community.maxImageBytes`. The refusal names the setting and the size the
+job needed (byollm_013's rule).
 
-**Output** counts against nothing on the device. It is bounded by
-`MAX_IMAGE_BYTES_PER_JOB`. The daemon asks backends for JPEG or WebP where
-they allow it, and a result whose images total more than the cap ends as an
-error that names the cap ("4 images at this size do not fit; ask for fewer").
-The daemon never re-encodes an image to make it fit, because re-encoding is
-decoding, and decoding untrusted images is a surface the daemon does not
-take on.
+This is #5738's "fetch, then refuse" (see §Rollout R7) made cheap on
+purpose: what is fetched before the decision is the sealed payload, at most
+6 MiB of text and references, never 160 MiB of somebody else's photos.
 
 ## 4. Formats
 
@@ -178,9 +249,10 @@ take on.
   decoding, and an image over the pixel cap is refused before it reaches a
   backend.
 - **Location metadata is the site's to remove.** The daemon passes input
-  bytes through unchanged. The site SDK strips EXIF while it resizes, by
-  default, and the docs say why: a phone photo carries where it was taken,
-  and a teammate's device should not learn that.
+  bytes through unchanged, because rewriting an image is decoding it. The
+  site SDK strips EXIF before upload by default, and the docs say why: a
+  phone photo carries where it was taken, and a teammate's device should not
+  learn that.
 - **Output is untrusted to the site** (byollm_003 Rev 1's return trip). The
   site SDK checks the type and dimensions before it hands bytes to the app,
   and the docs tell apps to serve them only with the verified
@@ -256,7 +328,7 @@ backend type with its own adversarial rows, not a registry line.
 ## 7. Who may send images to whose device
 
 **Images are allowed on `team`**, under the owner's per-kind offer scope and
-payload budget (§3). An image does nothing on the device. It is data handed
+`community.maxImageBytes` (§3). An image does nothing on the device. It is data handed
 to a model, and the result is text or bytes. But an image is more personal
 than most text, so:
 
@@ -290,12 +362,12 @@ byollm_016 already uses "voice" for an owner's tuned service, such as
   the service*: an owner's tuned service is what byollm_016 calls a voice,
   and a site asks for speech and never names one, under the same
   key-not-value law as everything else.
-- **Inline, like images, and therefore short.** The parts take the same
-  `{ mediaType, data }` shape with audio types per kind. Formats in: WAV,
-  MP3, M4A/AAC, Ogg Opus, FLAC, WebM. Out: MP3, WAV, Opus. About 4 MiB per
-  job is a few minutes of compressed speech. Anything longer, such as a
-  chapter of an audiobook, needs object storage, which is the same
-  separate spec §2 names.
+- **The same blob mechanism.** `BlobRef.mediaType` is a closed enum *per
+  kind*, which is why §2 calls it `BlobRef` and not `ImageRef`: audio types
+  join it for audio kinds without a new reference shape. This is the "other
+  large files" in Todd's ruling. Formats in: WAV, MP3, M4A/AAC, Ogg Opus,
+  FLAC, WebM. Out: MP3, WAV, Opus. Caps are set by duration as well as
+  bytes (for example 30 minutes in, 10,000 characters out).
 - **Backends:** `/v1/audio/transcriptions` (whisper.cpp server,
   faster-whisper-server, LocalAI, OpenAI, Groq) and `/v1/audio/speech`
   (OpenAI, LocalAI, Kokoro-FastAPI), all HTTP.
@@ -303,8 +375,8 @@ byollm_016 already uses "voice" for an owner's tuned service, such as
 **Why it waits:**
 
 - **No integrator has asked through byollm.** Earwax, an audiobook studio,
-  is the obvious first one for `audio.speak`, and its chapters are longer
-  than an inline envelope holds. This spec does not claim it needs audio.
+  is the obvious first one for `audio.speak`. This spec does not claim it
+  needs audio.
   Whoever owns earwax says so, and that is the evidence 016's
   evidence-gating asks for.
 - **Live audio needs streaming**, which is byollm_006 and is parked. Only
@@ -319,45 +391,63 @@ byollm_016 already uses "voice" for an owner's tuned service, such as
 These are in bold rather than registry rows, for the reason byollm_012 §12
 gives.
 
-- **IMAGES_INLINE_ONLY**: image bytes travel only inside a sealed, signed
-  payload or result envelope, counted in the payload's size class and within
-  `MAX_ENVELOPE_BYTES`. No other path carries them, and no upstream stores
-  them beyond the envelope's own life. Conformance and operator.
+- **BLOBS_SEALED**: blob bytes leave an endpoint only encrypted under a key
+  that travels only inside a sealed, signed envelope; a blob store and a
+  relay hold no key that opens one. It extends `RELAY_BLIND` to media.
+  Operator and conformance.
+- **BLOB_BOUND_TO_JOB**: a blob that fails to decrypt under its job's
+  associated data, or whose plaintext hash does not match its reference, is
+  refused at both endpoints. Conformance.
 - **MEDIA_VERIFIED**: declared type matches the magic bytes, and the
   dimensions are within the caps, checked at both endpoints before a backend
   or an app sees the bytes. Conformance and adversarial.
+- **BLOB_BUDGET_BEFORE_DOWNLOAD**: a non-owner's images are charged against
+  `community.maxImageBytes` from the declared sizes before any blob is
+  fetched, and a download stops at its declared size. An upstream offers
+  no job whose stored blobs differ from the sizes their slots were issued
+  for (§2). Conformance on the reference server (C060, C061, C069);
+  operator on the hub.
+- **BLOBS_GO_WITH_THE_JOB**: input blobs are deleted when the result is
+  accepted; output blobs when the site says it holds them, or one hour after
+  collection; an uncollected job's blobs 24 hours after its deadline.
+  Conformance on the reference server (C063, C071); operator on the hub.
 - **IMAGE_BYTES_NOT_URLS**: a daemon never fetches a URL a backend returned
   in place of image bytes. Adversarial.
 - **`KIND_NO_CODE`, `OUTPUT_INERT` and the CLI containment** are unchanged,
   and the image kinds are never advertised on a `process` backend. Daemon;
-  conformance (check 6).
+  conformance (C070).
 
 | # | proposed id | what it does | passes when | mutation that must fail it |
 |---|---|---|---|---|
-| 1 | C057 images sealed | the kit reads the relay's whole state during and after an image job | no plaintext image bytes anywhere | carry the image beside the envelope |
-| 2 | C058 images count toward size | a vision payload with a 200 KiB image and ten characters of text | the site SDK classes it `large`, and a teammate's device whose `community.maxPayloadChars` is below 64,001 refuses it at the stub, before fetching | count text parts only |
+| 1 | C057 blobs sealed | the kit reads every stored blob and the relay's whole state | no plaintext image bytes anywhere; no key | store the plaintext |
+| 2 | C058 blob bound to its job | swap two jobs' blob ids; swap `in` for `out`; flip one byte | each one refused before the backend | drop the associated data |
 | 3 | C059 media verified | PNG declared over JPEG bytes; an SVG; a 50,000 × 50,000 PNG header | each one refused; backend saw nothing | trust the declared type |
-| 4 | C060 a teammate's images meet the payload budget | a teammate's vision job of 300,000 characters against the default `community.maxPayloadChars` | refused on size; the backend saw nothing | exempt image data from the budget |
-| 5 | C061 output fits or fails | an image backend returning four 2 MiB PNGs | the job errors naming the cap; nothing is truncated or re-encoded | re-encode to fit |
-| 6 | C062 no images on a process backend | a `claude-cli` service listing `llm.vision` | `llm.vision` not advertised; `backends` says the kind needs an HTTP backend | advertise it |
-| 7 | C064 vision is detected | an echo backend that ignores images and answers "blue" | `llm.vision` not advertised; `backends` says why | probe for a 200 only |
-| 8 | C065 image bytes, not URLs | an image backend that answers with a URL | job errors; no fetch made | follow the URL |
+| 4 | C060 blob budget before download | a teammate's job declaring 3 × 10 MiB against a 16 MiB budget | refused; **zero blob downloads** | check after downloading |
+| 5 | C061 blob larger than declared | a blob of 12 MiB declared as 2 MiB | download stops at 2 MiB; refused | trust the declaration |
+| 6 | C062 blob needs the lease | a download request without the job's lease | refused; no URL issued | drop the lease scope |
+| 7 | C063 blobs go with the job | collect a result and send `received`; let another job pass its deadline plus a day | no blob left for either | skip the sweep |
+| 8 | C064 vision is detected | an echo backend that ignores images and answers "blue" | `llm.vision` not advertised; `backends` says why | probe for a 200 only |
+| 9 | C065 image bytes, not URLs | an image backend that answers with a URL | job errors; no fetch made | follow the URL |
+| 10 | C069 blob size checked before offer | the reference server issues a 256 KiB slot; the site stores 512 KiB under it, then a job is enqueued | the job is refused at enqueue and never offered | trust the slot's size |
+| 11 | C070 no images on a process backend | a `claude-cli` service listing `llm.vision` | `llm.vision` not advertised; `backends` says the kind needs an HTTP backend | advertise it |
+| 12 | C071 output outlives collection until received | the site collects an `llm.image` result, then downloads its blobs 30 seconds later without having sent `received` | every download succeeds; the blobs are gone after `received`, or one hour after collection without it | delete output blobs at collection |
 
-(byollm_012's checks are C033–C045. C063 and C069 are retired with the blob
-path. C066 is the daemon's differential heartbeat retry, in §Rollout R2.)
+(byollm_012's checks are C033–C045. C066 is the daemon's differential
+heartbeat retry, in §Rollout R2.)
 
 ## 11. Done when
 
 - `llm.vision` and `llm.image` (whichever are ruled) exist in
-  `@byollm/protocol`, with the inline parts, the caps, `payloadTextLength`
-  counting image data, and the kind labels.
+  `@byollm/protocol`, with `BlobRef`, the caps and the kind labels.
+- Blobs work on both lanes: R2 with presigned URLs on the hub, and the store
+  adapter methods on `@byollm/server` with the Supabase migration, both with
+  §2's deletion order.
 - §10's checks pass and are recorded in MUTATIONS.md.
 - The backends in §6 marked "yes" pass their probes on a real machine.
 - `claude-cli`'s and `codex-cli`'s containment files and tests are
   unchanged, which the release card checks by diff.
-- The site SDK resizes, re-encodes, strips EXIF and verifies output, and
-  `byollm` warns an owner whose payload budget refuses typical teammate
-  image jobs.
+- The site SDK encrypts, pads, strips EXIF, uploads, verifies output and
+  sends `received`, and an app never handles a key.
 - `NOT_YET` drops "no images yet" and keeps "no audio yet".
 
 ---
@@ -377,18 +467,22 @@ that release, with the two fixes already in it.
   `maxToolCalls`; vision is chat with image parts; image is §1's.
 - Result additions, each on its own kind only: `toolCalls` (tools),
   `images` (image). `StopReason` gains `tool-budget`.
-- For tools: `Purpose.tools` in the manifest; `toolsDigest` on grants for
-  `llm.tools` only; the `tool-call` and `tool-result` envelope directions;
+- For tools: `Purpose.tools`, `maxToolCalls` and `maxToolResultChars` in
+  the manifest; `toolsDigest` on grants for `llm.tools` only, and in the
+  site's enqueue request beside the stub; `payloadTextLength` counting
+  `maxToolResultChars`; `RunMetadata.toolOutcomes`; the `tool-call` and `tool-result` envelope directions;
   four endpoints, `tool-call` and `tool-results` on the daemon plane and
   `calls` and `tool-result` on the site plane, served by the relay and by
   `@byollm/server` alike; and the site SDK's tool handlers in the pump.
-- For images: the inline `{ mediaType, data }` parts, the caps, and
-  `payloadTextLength` counting image data. No endpoint, store method or
-  migration for images.
-- Tool calls and results in flight need a store on the direct lane:
-  `@byollm/server`'s store adapter gains a short-lived row per call, deleted
-  with its job, and the Supabase SQL gains that table. This is the release's
-  one migration, and it is tools', not images'.
+- For images: `BlobRef`, the media caps and the 256 KiB padding. New
+  endpoints: the site's blob slot (`POST /relay/blobs`), the device's
+  lease-scoped blob URLs, the device's output slots, and the site's
+  `received`. On the hub they are presigned R2 URLs. On `@byollm/server` they
+  are served from the store.
+- The store contract gains `putBlob`, `getBlob` and `deleteBlob`, and a
+  short-lived row per tool call in flight, deleted with its job. The Supabase
+  SQL gains two migrations: the private Storage bucket and its policy, and
+  the tool-call table.
 - Kind labels: "Using the site's tools", "Reading images", "Making images".
 - `NOT_YET` updated (both specs' "done when").
 - The MUSTs in byollm_012 §12 and §10 above, as registry entries and spec
@@ -414,17 +508,25 @@ prerelease, and the clean version follows:
    brief and the current 0.1.5 note describe a two-fix release, and rule 32
    does not amend a brief in place.
 2. **Every server we run moves to `0.1.5-beta.1` and deploys**, before
-   anything else:
-   - **the hub**: relay, control plane and the dashboard's consent screen.
-     The control plane signs `toolsDigest` into `llm.tools` grants and
-     re-asks a person when a purpose's tools change. The tools slot's
-     pulldown lists services with tools on, own and team. The kind labels
-     and both specs' disclosure lines go live;
-   - **Signals**: `signals/package.json` and `apps/web/package.json`, which
-     needs no kind change, only the pin, so that its chat keeps working for a
-     device that turns a new kind on;
-   - **Press**: `packages/byollm` and `modules/byollm`, with the pin only at
-     this step (R3's feature work comes later).
+   anything else. **This is the blob path's first step**, as #6933 ruled
+   (Owl's offer, which Todd took): the blob endpoints and store methods
+   reach the three servers we run while no daemon from `latest` can send an
+   image. Until step 3 it can be backed out by pinning the servers back to
+   0.1.4, and nothing depends on it.
+   - **the hub**: relay, control plane and the dashboard's consent screen,
+     plus the blob endpoints, presigning against the R2 bucket, the `HEAD`
+     before offer and the deletion sweep. The bucket, its 7-day lifecycle
+     rule and the access key are Todd's by hand (R8). The control plane
+     signs `toolsDigest` into `llm.tools` grants and re-asks a person when a
+     purpose's tools change. The tools slot's pulldown lists services with
+     tools on, own and team. The kind labels and both specs' disclosure
+     lines go live;
+   - **Signals**: `signals/package.json` and `apps/web/package.json`. Only
+     the pin: Signals runs the library's `MemoryStore`, which keeps blobs and
+     tool-call rows in memory, so there is no migration. Its chat keeps
+     working for a device that turns a new kind on;
+   - **Press**: `packages/byollm` and `modules/byollm`, the pin plus its two
+     migrations (R3), at this step. R3's feature work comes later.
 3. **Publish `0.1.5`** (dist-tag `latest`). Same wire as the beta, so the
    servers on the beta accept it. The three servers then move to the clean
    pin at their next deploy.
@@ -486,29 +588,58 @@ C066 do.
   Press runs the tool itself, so it already knows the true number: the
   wrapper counts the `web_search` handler runs for that job that returned a
   result, and reports that. With that, "every caller stays as written" holds.
-- **The waiting request keeps the pump turning**, as it does today
-  (`pumpWhileWaiting`), and the pump now answers tool calls as well. A
-  verification job that makes several calls keeps its request open for
-  longer, so the route's timeout has to cover the round trips (byollm_012
-  §5.3).
-- `PURPOSES["fact-checker"]` gains `"llm.tools"` in `kinds` and the
-  `web_search` declaration in `tools`. No purpose gains an image kind unless
+- **The pump does not die with the request** (byollm_012 §5.3). The
+  fact-checker's routes are already at `maxDuration = 300`, the platform's
+  maximum, so a longer route timeout is not available. Press does both
+  things the SDK offers:
+  - the waiting request keeps turning the pump, as `pumpWhileWaiting` does
+    today, and the pump now answers tool calls as well;
+  - a scheduled job, beside the drain that already runs on a schedule,
+    keeps cycling the pump while `toolJobsInFlight()` is true, so a call
+    made after the waiting request ended is still answered.
+
+  And the drain takes at most one `llm.tools` unit per invocation, so one
+  invocation's 300 seconds cover that job's round trips.
+- **A verdict reached without a search says so.** The fact checker already
+  treats `searches: 0` as a verdict from memory. With `searches` counted
+  from Press's own handler runs (above), a job whose every call timed out
+  reports 0, and `toolOutcomes.timedOut` is shown in the run's details.
+- `PURPOSES["fact-checker"]` gains `"llm.tools"` in `kinds`, the
+  `web_search` declaration in `tools`, and its limits: `maxToolCalls` 8 and
+  a `maxToolResultChars` sized to its searches (the build card measures a
+  typical verification and picks it). No purpose gains an image kind unless
   its owner asks (§0).
-- If Press's store runs on the Supabase adapter's SQL, the tool-call table
-  migration (R1) is vendored into `modules/byollm/migrations` **at the end of
-  the folder**, because `register` numbers module migrations by sorted
-  position, and pushed with `--include-all`. Earwax takes the same pin bump
-  when it wants and needs no kind change.
+- **Two migrations, each with its twin** (CW's finding 7). Press's store runs
+  on the Supabase adapter's SQL, so the blob bucket migration and the
+  tool-call table migration (R1) are vendored into
+  `modules/byollm/migrations` **at the end of the folder**, because
+  `register` numbers module migrations by sorted position. Each gets its twin
+  in `supabase/migrations`, as the existing byollm ones do
+  (`0106_adopted_leases_are_not_ours.sql` ↔
+  `20003013_byollm_adopted_leases_are_not_ours.sql`), because since #6824
+  `pnpm test` refuses an app migration with no twin. They are pushed with
+  `--include-all`, at the pin card (R2 step 2). Earwax takes the same pin
+  bump and migrations when it wants, and needs no kind change.
 
 ### R4. What the byollm.cloud manifest needs
 
 Press's manifest of record gains `llm.tools` on Fact Checker, with its
-`web_search` declaration, and the hub's manifest validation accepts the new
-kinds and `Purpose.tools` (step 2). The purpose's own description does not
-change. The tools line under it is built from the declarations (byollm_012
-§10), and the digest of those same declarations is what the device checks,
-so the consent screen and the device cannot disagree about which tools
-exist.
+`web_search` declaration and its two limits, and the hub's manifest
+validation accepts the new kinds and the three `Purpose` fields (step 2). The
+purpose's own description does not change. The tools line under it is built
+from the declarations (byollm_012 §10), and the digest of those same
+declarations is what the device checks, so the consent screen and the device
+cannot disagree about which tools exist.
+
+**The site's code and the manifest of record can disagree, and that is
+caught at enqueue** (byollm_012 §4, check C047). Press's `PURPOSES` is
+typed in code and the manifest of record is registered by hand. If they
+differ, the hub refuses each `llm.tools` enqueue as
+`tools-manifest-mismatch`, with the purpose named, before any device
+claims anything. So the manifest update and Press's feature card (R8 card
+11) land together: Todd registers the new manifest, then the feature card
+deploys. A copy edit to a tool description later is a changed consent
+(byollm_012 §4), so it is a decision, not a typo fix.
 
 ### R5. Docs
 
@@ -528,11 +659,20 @@ line is quoted as it reads on origin/main today, with what it becomes.
 Also in the docs card:
 
 - `docs/security.md`: byollm_012 §13's sentence word for word, what a site
-  takes on when it declares a tool (byollm_012 §6), and image inertness.
-- `docs/protocol.md`: the new kinds, the tool envelopes and endpoints, and
-  the inline image parts.
-- A site guide for tools: declaring them, writing a handler, authorising as
-  the job's user, and what the round trips cost on each lane.
+  takes on when it declares a tool (byollm_012 §6), image inertness and blob
+  encryption.
+- `docs/protocol.md`: the new kinds, the tool envelopes and endpoints,
+  `BlobRef`, and the blob endpoints with their deletion order.
+- byollm.cloud `/privacy`: images are stored encrypted for the life of a job
+  and deleted once the site holds its output, or at most a day after the
+  job's deadline. This lands with #4556's deletion sentence, which already
+  rides with the 0.1.5 web deploy.
+- A site guide for tools: declaring them and their limits, writing a
+  handler, and what the round trips cost on each lane. It says, with an
+  example, that **on any purpose a teammate can serve, a tool is scoped to
+  the job, not the user**: it returns only what the site would have put in
+  that job's payload (byollm_012 §6). It also says how to keep the pump
+  turning while tool jobs run (byollm_012 §5.3).
 - `docs/schema-lock.md`: whether the new payload shapes are inside the lock.
   The recommendation is yes, beside the envelope.
 - README and byollm.cloud: `NOT_YET` renders the updated list on every
@@ -552,9 +692,10 @@ with the headline rewritten:
 > daemon on 0.1.5 works with a 0.1.4 upstream until you turn on one of the
 > new kinds, and if the upstream is older, it tells you and keeps serving
 > everything else. A 0.1.4 daemon works with a 0.1.5 hub and never sees the
-> new kinds. **There is a migration** if you run the Supabase adapter: the
-> table that holds site-tool calls in flight. If you wrote your own store
-> adapter, it needs the tool-call methods.
+> new kinds. **There are two migrations** if you run the Supabase adapter:
+> the private Storage bucket for images, and the table that holds site-tool
+> calls in flight. If you wrote your own store adapter, it needs `putBlob`,
+> `getBlob`, `deleteBlob` and the tool-call methods.
 >
 > **Site tools.** A new kind, `llm.tools`, lets the model on your device
 > call tools a site declares, such as its search or its catalogue. The
@@ -566,10 +707,11 @@ with the headline rewritten:
 > turn it on for a service. Every request is in `byollm log`. (byollm_012)
 >
 > **Images.** `llm.vision` reads images and `llm.image` makes them, on
-> local and HTTP models. Images travel inside the sealed job like its text,
-> up to about 4 MiB a job, and nothing stores them. A teammate's image job
-> counts against the payload budget you already set for teammates.
-> (byollm_021)
+> local and HTTP models, up to 20 MiB an image and eight to a job. Images
+> travel by reference, encrypted with a key only the job's two ends hold,
+> and are deleted once the site has its output. A teammate's images are
+> budgeted before your device downloads them (`community.maxImageBytes`,
+> 16 MiB a job by default). (byollm_021)
 
 ### R7. #5743 rides along (#6214)
 
@@ -580,12 +722,11 @@ an answer for Todd to accept or change:
 
 - **Fetch, then refuse (red team point 3).** Admitting by the floor means a
   device fetches and opens a non-owner's payload before it can refuse it.
-  That trade was accepted by Owl, not Todd. With images inline (§3) it
-  costs more: up to `MAX_ENVELOPE_BYTES` per refused job, not kilobytes.
-  **Proposed, for Todd to rule in one sentence with this spec:** "A device
-  may fetch and open a non-owner's sealed payload, up to
-  `MAX_ENVELOPE_BYTES`, before refusing it on size; an owner who does not
-  want that for images does not offer `llm.vision` to `team`."
+  That trade was accepted by Owl, not Todd. §3 of this spec makes the same
+  trade for images and bounds it: the sealed payload may be fetched, blobs
+  may not. **The sentence, as #55220 carries it for the ruling:** "A device
+  may fetch and open a non-owner's sealed payload before refusing it on
+  size; it never downloads that job's blobs before the budget check."
 - **#5744's unblock condition has no reader (point 4).** Step 2 puts the hub
   on 0.1.5 with device versions in view, which is the reader #5744's
   condition needs ("the hub shows every teammate-reachable device on it").
@@ -604,37 +745,47 @@ Press is touched. byollm_012 v1 has no address-policy code, so #6756's
 release. It applies again if daemon-run tools (byollm_012 §11.1) are ever
 specced.
 
-1. **Protocol:** kinds, schemas, `Purpose.tools`, the grant's
-   `toolsDigest`, the tool envelope directions, the inline image parts and
-   `payloadTextLength`, labels, `NOT_YET`, registry entries and spec tables.
+1. **Protocol:** kinds, schemas, `Purpose.tools` and its budget, the
+   grant's `toolsDigest`, the tool envelope directions, `BlobRef` and the
+   caps, labels, `NOT_YET`, registry entries and spec tables.
 2. **Relay and reference server, tools:** the four endpoints, the
    `waiting-on-site` sub-state, the relay's per-job count, the direct lane's
    store rows for calls in flight, and the Supabase SQL for them.
 3. **Daemon, tools:** the function-calling loop on `http` backends, the
-   digest check at admission, the waits and timeouts, budgets, logging, the
-   probe, and guard (b) with C066.
+   digest check at admission, the context cap, the waits and timeouts,
+   budgets, logging, the probe, and guard (b) with C066.
 4. **Site SDK, tools:** handler registration, the pump's `calls` step, the
-   SDK's per-job count, and the 404 tolerance for an older relay.
-5. **Site SDK, images:** resize, re-encode, strip EXIF, and verify output.
+   SDK's per-job count, the digest check at enqueue, and the 404 tolerance
+   for an older relay.
+5. **Blobs:** store methods, the reference server endpoints with §2's
+   deletion order, the Supabase SQL for the bucket, and the site SDK's
+   encrypt, pad, strip, upload, verify and `received`.
 6. **Daemon, images:** vision parts and image generation on `http`
-   backends, the probes, the payload-budget warning, and C062's check that
+   backends, the probes, `community.maxImageBytes`, and C070's check that
    neither kind is ever advertised on a `process` backend.
-7. **Release, beta:** a new card, not #4265 (R2 step 1). It publishes
+7. **By hand, Todd's** (rulebook §1): the R2 bucket, its 7-day lifecycle rule
+   and the access key for presigning, with the commands, on Todd's lane.
+8. **Release, beta:** a new card, not #4265 (R2 step 1). It publishes
    `0.1.5-beta.1` and carries the three-OS run.
-8. **Servers on the beta** (R2 step 2), in this order, each its own card:
-   the hub (byollm-cloud: enum acceptance, the relay's tool endpoints,
-   `toolsDigest` in grants and re-consent on a changed tool list, consent
-   lines, the version-aware "update your device" slot text, and #5744's
-   reader); Signals' pin (on the signals lane); Press's pin (on Kevin's
-   lane).
-9. **Release, clean:** publishes `0.1.5`, the note (R6), the changelog and
-   the docs (R5), after card 8's three are deployed. It applies the cut line
-   first.
-10. **Press, features:** R3, after 9.
+9. **Servers on the beta** (R2 step 2), each its own card:
+   - the hub (byollm-cloud: enum acceptance, the relay's tool endpoints,
+     `toolsDigest` in grants and re-consent on a changed tool list, the blob
+     endpoints, presigning, the `HEAD` before offer and the sweep, consent
+     lines, the version-aware "update your device" slot text, and #5744's
+     reader). Its brief carries `by-hand: machine — card 7 (R2 bucket,
+     lifecycle rule and key)`, so it waits for that card;
+   - Signals' pin (on the signals lane);
+   - Press's pin and its two migrations with their twins (on Kevin's lane).
+10. **Release, clean:** publishes `0.1.5`, the note (R6), the changelog and
+    the docs (R5), after card 9's three are deployed. It applies the cut
+    line first.
+11. **Press, features:** R3, after 10.
 
-Cards 2–4 and 5–6 can run in parallel once 1 is on main. The hub's work in
-card 8 can start once 1 is on main and deploys on the beta. Nothing reaches
-`latest` until every server we run is on the beta.
+Cards 2–4 and 5–6 can run in parallel once 1 is on main. Card 7 can run any
+time. The hub's work in card 9 can start once 1 is on main, and deploys on
+the beta once card 7 is done. Nothing reaches `latest` until every server we
+run is on the beta.
 
-There is no R2 bucket, lifecycle rule or access key to provision, since
-images are inline (§2). Owl's #54857 point 8 falls away with the blob path.
+**CW edits `cw/RULEBOOK.md` §2** to the ruled wording: "adding a blob path —
+exists since #6933 (11-03), by reference only, never inline; a change to it
+takes the two steps above". That is CW's edit, not a byollm card.

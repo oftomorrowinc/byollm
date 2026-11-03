@@ -1,9 +1,10 @@
 # byollm_012 — Tools: declared and run by the site, called by the model
 
 **Status: v1, for ruling. Written 2026-11-02 and rewritten 2026-11-03 by
-Kevin Samsoe for decision #6755 (card #6758). Nothing here is built, and
-under rule 34 nothing in this repo changes until Todd has read it and ruled.
-CW reviews on #6755.**
+Kevin Samsoe for decision #6933 (card #6758), under #6756's ruling as
+written out at #54358. Nothing here is built, and under rule 34 nothing in
+this repo changes until Todd has read it and ruled. The red team and CW
+review on #6933.**
 **Replaces `byollm_012-tools.stub.md`. The stub's position stands, and v1
 keeps it more strictly than the stub's own "narrow maybe" could: no tool
 runs on the device at all. The stub's closing note is kept as written.**
@@ -32,7 +33,8 @@ branch.
 2. **Teammates' devices may serve it** (§6). Nothing runs on the device, so
    the machine-safety argument for self-only does not apply. What remains is
    a risk to the site, which §6 states.
-3. **`http`-class backends only in v1** (§7). On `claude-cli` and `codex-cli`, calling
+3. **`http`-class backends only in v1** (§7), as #6756 ruled (shape 2), with
+   the CLI containment untouched and named. On `claude-cli` and `codex-cli`, calling
    a site's tool needs a bridge inside the vendor CLI with tools switched on.
    That is the same isolation question that holds back provider-native
    search, so it waits with it.
@@ -87,7 +89,17 @@ only design where nothing new happens on the person's machine, and the only
 one whose isolation rests entirely on things byollm already builds and
 tests.
 
-## 1. The position, unchanged, and kept more strictly
+## 1. The first consumer, its plane, and the position
+
+**The first consumer is Press's fact checker**, its verification step: the
+`fact-checker` purpose in `@oftomorrow/byollm`'s `PURPOSES`, which today
+calls `llmSearch` on Press's own key. **Its plane is `team`.** Press routes
+jobs to teammates' devices (#5738, #5726). #6756's ruling (shape 3) says a
+consumer on that plane is the 09-04 site-executed design, a separate design
+from the daemon menu. This spec is that design. The daemon menu is held in
+§11.1, and nothing of it is in v1.
+
+### The position, unchanged, and kept more strictly
 
 **Jobs are typed data, never code** (`KIND_NO_CODE`). **Output is inert**
 (`OUTPUT_INERT`). The child gets a fixed argv, a stripped environment and no

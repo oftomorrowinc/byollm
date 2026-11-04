@@ -42,12 +42,15 @@ import { afterEach, describe, expect, it } from "vitest";
  * (The brief for #7055 calls this C066; byollm_021 §10 renumbered it to C060
  * in #7053, and the spec wins.)
  *
- * Two cases, because the guard has two halves:
+ * Three cases, because the guard has two halves and the new kinds can ride
+ * in either of the heartbeat's two lists:
  *
  * 1. the heartbeat is refused only for the new kinds — the retry without them
  *    succeeds, the daemon says the upstream predates them and names it, and
  *    `llm.chat` jobs keep running;
- * 2. the heartbeat is malformed for another reason — the retry is refused
+ * 2. the same, when the new kind is only WITHHELD — 0.1.4's `WithheldKind`
+ *    has the same closed enum (Owl, #55998);
+ * 3. the heartbeat is malformed for another reason — the retry is refused
  *    too, and the daemon reports the original refusal and blames no version.
  */
 
@@ -100,8 +103,43 @@ afterEach(async () => {
   for (const step of cleanup.splice(0)) await step();
 });
 
+/**
+ * A model that answers chat and does NOT call functions: it answers the
+ * echo_number probe in prose, so its service fails the probe (§7) and
+ * `llm.tools` is never a capability of it.
+ */
+class NoFunctionCallingBackend extends CapableBackend {
+  override converse(_request: ConverseRequest): Promise<ConverseResult> {
+    return Promise.resolve({
+      ok: true,
+      text: "I would echo 7 if I could.",
+      toolCalls: [],
+      stop: "end",
+      durationMs: 1,
+    });
+  }
+}
+
+/** The config C060's first two cases run: one service, tools and vision on. */
+const ONE_SERVICE = {
+  qwen: {
+    model: "m",
+    // `llm.vision` is not served by this build yet, so config withholds
+    // it; the guard has to handle whatever the advertisement carries.
+    kinds: ["llm.chat", "llm.tools", "llm.vision"],
+    type: "openai-http",
+    baseUrl: "http://127.0.0.1:11434/v1",
+  },
+};
+
 /** A 0.1.5 daemon paired with the 0.1.4 server, every heartbeat recorded. */
-async function againstTheOldServer(options: { daemonVersion?: string } = {}) {
+async function againstTheOldServer(
+  options: {
+    daemonVersion?: string;
+    services?: Record<string, unknown>;
+    backend?: () => Backend;
+  } = {},
+) {
   const siteKeys = generateSiteKeys();
   const store = new MemoryStore({ defaultTtlMs: 60_000 });
   const app = new ByollmApp({ store, siteKeys });
@@ -111,17 +149,22 @@ async function againstTheOldServer(options: { daemonVersion?: string } = {}) {
     siteKeys,
     leaseMs: 30_000,
   });
-  const heartbeats: { status: number; kinds: string[] }[] = [];
+  const heartbeats: { status: number; kinds: string[]; withheld: string[] }[] =
+    [];
   const fetchImpl: typeof fetch = async (input, init) => {
     const request = new Request(input, init);
     const body = request.url.endsWith("/heartbeat")
-      ? ((await request.clone().json()) as { capabilities: { kind: string }[] })
+      ? ((await request.clone().json()) as {
+          capabilities: { kind: string }[];
+          withheld?: { kind: string }[];
+        })
       : undefined;
     const response = await handler(request);
     if (body !== undefined) {
       heartbeats.push({
         status: response.status,
         kinds: body.capabilities.map((c) => c.kind),
+        withheld: (body.withheld ?? []).map((w) => w.kind),
       });
     }
     return response;
@@ -131,16 +174,7 @@ async function againstTheOldServer(options: { daemonVersion?: string } = {}) {
   cleanup.push(() => rm(home, { recursive: true, force: true }));
   const loaded = resolveConfig(
     DaemonConfig.parse({
-      services: {
-        qwen: {
-          model: "m",
-          // `llm.vision` is not served by this build yet, so config withholds
-          // it; the guard has to handle whatever the advertisement carries.
-          kinds: ["llm.chat", "llm.tools", "llm.vision"],
-          type: "openai-http",
-          baseUrl: "http://127.0.0.1:11434/v1",
-        },
-      },
+      services: options.services ?? ONE_SERVICE,
     }),
   );
   const identity = new DeviceIdentity(join(home, "keys.json"));
@@ -193,7 +227,7 @@ async function againstTheOldServer(options: { daemonVersion?: string } = {}) {
       communityPromptDays: 7,
       keepSelfPrompts: true,
     }),
-    backendFactory: () => new CapableBackend(),
+    backendFactory: options.backend ?? (() => new CapableBackend()),
     onEvent: (event) => events.push(event),
   });
   cleanup.push(() => {
@@ -223,9 +257,14 @@ describe("C060 guard (b): a 0.1.5 daemon against the 0.1.4 reference server from
     expect(old.heartbeats[0]).toEqual({
       status: 400,
       kinds: ["llm.chat", "llm.tools"],
+      withheld: [],
     });
     // The retry, with only the new kind taken out, was accepted.
-    expect(old.heartbeats[1]).toEqual({ status: 200, kinds: ["llm.chat"] });
+    expect(old.heartbeats[1]).toEqual({
+      status: 200,
+      kinds: ["llm.chat"],
+      withheld: [],
+    });
     const said = old.events.filter((e) => e.type === "upstream-predates-kinds");
     expect(said).toHaveLength(1);
     expect(said[0]).toMatchObject({
@@ -259,6 +298,77 @@ describe("C060 guard (b): a 0.1.5 daemon against the 0.1.4 reference server from
     expect(
       old.events.filter((e) => e.type === "upstream-predates-kinds"),
     ).toHaveLength(1);
+  });
+
+  it("also takes a new kind out of `withheld`, where 0.1.4 parses the same closed enum", async () => {
+    // Owl's reproduction (#55998 fix 1): `llm.tools` on two HTTP services
+    // with no `defaults.llm.tools`, so it is WITHHELD, and a model that fails
+    // the probe, so it is never a capability. The new kind is in the
+    // heartbeat only as a withheld entry — and 0.1.4's `WithheldKind.kind`
+    // refuses it as surely as `Capability.kind` would.
+    const old = await againstTheOldServer({
+      services: {
+        ollama: {
+          model: "m",
+          kinds: ["llm.chat", "llm.tools"],
+          type: "openai-http",
+          baseUrl: "http://127.0.0.1:11434/v1",
+        },
+        lmstudio: {
+          model: "m",
+          kinds: ["llm.tools"],
+          type: "openai-http",
+          baseUrl: "http://127.0.0.1:1234/v1",
+        },
+      },
+      backend: () => new NoFunctionCallingBackend(),
+    });
+
+    await old.runner.tick();
+
+    // The precondition, observed: no new kind advertised, one withheld, and
+    // the published server refused it.
+    expect(old.heartbeats[0]).toEqual({
+      status: 400,
+      kinds: ["llm.chat"],
+      withheld: ["llm.tools"],
+    });
+    // The retry took it out of `withheld` too, and was accepted.
+    expect(old.heartbeats[1]).toEqual({
+      status: 200,
+      kinds: ["llm.chat"],
+      withheld: [],
+    });
+    const said = old.events.filter((e) => e.type === "upstream-predates-kinds");
+    expect(said).toHaveLength(1);
+    // The services named are the withheld claimants: nothing advertised it.
+    expect(said[0]).toMatchObject({
+      upstream: ORIGIN,
+      kinds: ["llm.tools"],
+      services: ["ollama", "lmstudio"],
+      message:
+        `${ORIGIN} runs byollm 0.1.4 or older and cannot carry the site's ` +
+        "tools — update it, or turn tools off for `ollama`, `lmstudio`",
+    });
+
+    // And llm.chat is not dark: a job is claimed and runs.
+    const job = await old.app.enqueue({
+      kind: "llm.chat",
+      payload: { messages: [{ role: "user", content: "still here?" }] },
+      owner: old.owner,
+    });
+    for (let i = 0; i < 50; i += 1) {
+      await old.runner.tick();
+      if ((await old.app.job(job.id))?.state === "ok") break;
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    }
+    const record = await old.app.job(job.id);
+    expect(record?.state).toBe("ok");
+    expect(record?.outcome).toMatchObject({ outcome: "ok" });
+    expect(old.heartbeats.slice(2).every((h) => h.status === 200)).toBe(true);
+    expect(
+      old.heartbeats.slice(2).every((h) => !h.withheld.includes("llm.tools")),
+    ).toBe(true);
   });
 
   it("blames no version when the heartbeat is malformed for another reason", async () => {

@@ -140,9 +140,14 @@ export class OpenAiHttpBackend implements Backend {
   }
 
   async execute(request: BackendRequest): Promise<BackendResult> {
-    const turn = await this.#complete(request, {
-      messages: [{ role: "user", content: request.prompt }],
-    });
+    const turn = await this.#complete(
+      request,
+      { messages: [{ role: "user", content: request.prompt }] },
+      /* Every kind but llm.tools reads the response as main did: a
+         `tool_calls` field it never asked for is ignored, malformed or not
+         (C043, other kinds unchanged — Owl, #55998). */
+      { readsCalls: false },
+    );
     if (!turn.ok) return turn;
     if (turn.message.content === null) {
       return this.#fail(
@@ -211,6 +216,7 @@ export class OpenAiHttpBackend implements Backend {
   async #complete(
     request: Omit<BackendRequest, "prompt">,
     conversation: { messages: unknown[]; tools?: unknown[] },
+    reading: { readsCalls: boolean } = { readsCalls: true },
   ): Promise<
     | { ok: true; started: number; message: CompletionMessage }
     | (BackendResult & { ok: false })
@@ -284,7 +290,7 @@ export class OpenAiHttpBackend implements Backend {
         );
       }
 
-      const message = extractMessage(text);
+      const message = extractMessage(text, reading.readsCalls);
       if (message === null) {
         return this.#fail(
           "backend-error",
@@ -394,7 +400,10 @@ interface CompletionMessage {
 }
 
 /** Pull the assistant turn out of an OpenAI chat-completion response. */
-function extractMessage(raw: string): CompletionMessage | null {
+function extractMessage(
+  raw: string,
+  readsCalls: boolean,
+): CompletionMessage | null {
   let parsed: unknown;
   try {
     parsed = JSON.parse(raw);
@@ -409,9 +418,9 @@ function extractMessage(raw: string): CompletionMessage | null {
   const content = (message as { content?: unknown }).content;
   if (typeof content !== "string" && content !== null && content !== undefined)
     return null;
-  const toolCalls = extractToolCalls(
-    (message as { tool_calls?: unknown }).tool_calls,
-  );
+  const toolCalls = readsCalls
+    ? extractToolCalls((message as { tool_calls?: unknown }).tool_calls)
+    : [];
   if (toolCalls === null) return null;
   const finish = (choices[0] as { finish_reason?: unknown }).finish_reason;
   return {

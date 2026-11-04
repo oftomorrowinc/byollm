@@ -2223,9 +2223,10 @@ export class Runner {
   /**
    * Run an `llm.tools` job's loop — byollm_012 §5, §7, §8, §9.
    *
-   * The budget is the lowest of the payload's `maxToolCalls`, the purpose's
-   * (which admission has already held the payload to) and the protocol's
-   * ceiling. The context cap is the purpose's `maxToolResultChars`. Each call
+   * The budget is min(payload's `maxToolCalls`, the purpose's), computed
+   * here; admission has already held the payload to the purpose's, and the
+   * protocol's ceiling is not recomputed because the schema that parsed the
+   * payload already enforces it. The context cap is the purpose's `maxToolResultChars`. Each call
    * is logged, then sealed to the job's own site — the pin the payload was
    * opened against — and sent under the job's lease.
    */
@@ -3267,8 +3268,10 @@ export class Runner {
    * and a newer upstream's may, but must not be depended on. So this decides
    * by a differential retry and **never by the body**:
    *
-   * - refused as a 400 while advertising a kind newer than 0.1.4: send the
-   *   same heartbeat once more with only those kinds taken out;
+   * - refused as a 400 while carrying a kind newer than 0.1.4 — advertised
+   *   in `capabilities` or reported in `withheld`, which 0.1.4 parses with
+   *   the same closed enum: send the same heartbeat once more with only those
+   *   kinds taken out of both;
    * - only if THAT succeeds, remember for the session that this upstream
    *   predates them, keep them off every later heartbeat and claim, and say
    *   so, naming the upstream;
@@ -3315,7 +3318,23 @@ export class Runner {
     try {
       return { heartbeat: await send(capabilities, predates), capabilities };
     } catch (refused) {
-      const newer = capabilities.filter((c) => isAfter014(c.kind));
+      /* Newer kinds in EITHER list. A 0.1.4 upstream parses
+         `WithheldKind.kind` with the same closed enum as `Capability.kind`,
+         so `llm.tools` withheld for want of a default, on a model that failed
+         the probe, refuses the heartbeat as surely as one advertised (Owl,
+         #55998). Deciding from capabilities alone left that device dark. */
+      const newerHeld = this.#options.loaded.withheld.filter((held) =>
+        isAfter014(held.kind),
+      );
+      const newer = [
+        ...capabilities
+          .filter((c) => isAfter014(c.kind))
+          .map((c) => ({ kind: c.kind, services: [c.service] })),
+        ...newerHeld.map((held) => ({
+          kind: held.kind,
+          services: [...held.services],
+        })),
+      ];
       if (
         predates ||
         newer.length === 0 ||
@@ -3335,7 +3354,7 @@ export class Runner {
       }
       this.#upstreamPredates = true;
       const kinds = [...new Set(newer.map((c) => c.kind))];
-      const services = [...new Set(newer.map((c) => c.service))];
+      const services = [...new Set(newer.flatMap((c) => c.services))];
       this.#options.onEvent?.({
         type: "upstream-predates-kinds",
         upstream: this.#options.client.origin,

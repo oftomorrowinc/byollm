@@ -202,13 +202,18 @@ export async function runToolLoop(input: ToolLoopInput): Promise<ToolLoopRun> {
         continue;
       }
       /* Charged BEFORE the call, never after (§8, C038): the call that would
-         exceed the budget is the one that is not made. */
-      if (calls >= input.budget) {
-        atLimit = true;
-        messages.push(toolTurn(asked, "Not run: this job's tools are spent."));
-        continue;
-      }
+         exceed the budget is the one that is not made — it finds `atLimit`
+         already set above.
+
+         ONE check, here at the charge, so no path out of this iteration can
+         skip it. There were two — before each call, and after the switch —
+         and the refusal's `continue` skipped the second: a turn whose last
+         call was refused and spent the budget asked the model once more with
+         tools offered, as did one whose last call was sent before the second
+         check existed (Owl, #55998 fix 2). With the check after the charge,
+         the turn that spends the budget always goes to the closing turn. */
       calls += 1;
+      if (calls >= input.budget) atLimit = true;
       const seq = calls;
       const callId = newCallId();
 
@@ -336,7 +341,6 @@ export async function runToolLoop(input: ToolLoopInput): Promise<ToolLoopRun> {
           break;
         }
       }
-      if (calls >= input.budget) atLimit = true;
     }
 
     if (atLimit) {

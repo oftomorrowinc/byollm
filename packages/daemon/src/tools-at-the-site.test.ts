@@ -403,6 +403,75 @@ describe("C038 the daemon's budget — TOOLS_BUDGETED", () => {
   });
 });
 
+describe("C038 the daemon's budget, spent on a turn's last call — TOOLS_BUDGETED", () => {
+  it("goes straight to the closing turn: the model is never offered tools again", async () => {
+    // Two calls a turn and a budget of two, so the budget runs out on the
+    // LAST call of the first turn, and nothing in that turn is left over for
+    // the pre-call check to stop. Only the post-call check knows the job is
+    // at its limit; without it the model is asked once more WITH tools — a
+    // turn charged to the daily budgets for calls that can never be made
+    // (Owl, #55998 fix 2).
+    daemon = await toolDaemon({
+      job: { maxToolCalls: 2 },
+      script: (request) =>
+        request.tools === undefined
+          ? { text: "what I have" }
+          : {
+              calls: [
+                { name: "lookup", arguments: '{"query":"one"}' },
+                { name: "lookup", arguments: '{"query":"two"}' },
+              ],
+            },
+    });
+    const outcome = await ranOk(daemon);
+
+    expect(daemon.calls).toHaveLength(2);
+    // Two model turns: the one that spent the budget, and the closing turn.
+    expect(daemon.model.requests).toHaveLength(2);
+    expect(daemon.model.requests[0]?.tools).toBeDefined();
+    const closing = daemon.model.requests[1];
+    expect(closing?.tools).toBeUndefined();
+    expect(closing?.messages.at(-1)).toEqual({
+      role: "user",
+      content: CLOSING_TURN,
+    });
+    // Nothing was answered "spent": no call was asked for past the budget.
+    expect(toolTurns(closing ?? { messages: [] })).toEqual([
+      "found lookup",
+      "found lookup",
+    ]);
+    expect(outcome.ran).toMatchObject({ stop: "tool-budget", toolCalls: 2 });
+  });
+
+  it("does the same when the call that spends it is refused, not sent", async () => {
+    // A refused call is charged (§5.3), and the refusal's path used to skip
+    // the post-call check: this turn's second call, undeclared, spent the
+    // budget and the model was offered tools again.
+    daemon = await toolDaemon({
+      job: { maxToolCalls: 2 },
+      script: (request) =>
+        request.tools === undefined
+          ? { text: "what I have" }
+          : {
+              calls: [
+                { name: "lookup", arguments: '{"query":"one"}' },
+                { name: "shell", arguments: '{"command":"id"}' },
+              ],
+            },
+    });
+    const outcome = await ranOk(daemon);
+
+    expect(daemon.calls).toHaveLength(1);
+    expect(daemon.model.requests).toHaveLength(2);
+    expect(daemon.model.requests[1]?.tools).toBeUndefined();
+    expect(outcome.ran).toMatchObject({
+      stop: "tool-budget",
+      toolCalls: 2,
+      toolOutcomes: { answered: 1, refused: 1 },
+    });
+  });
+});
+
 describe("C041 a site that does not answer — TOOLS_BUDGETED", () => {
   it("gives the model a tool error after TOOL_CALL_TIMEOUT, ends ok, and holds the lease throughout", async () => {
     daemon = await toolDaemon({

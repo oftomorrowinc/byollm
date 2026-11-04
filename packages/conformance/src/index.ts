@@ -44,7 +44,7 @@ export {
   type HarnessDaemon,
 } from "./harness.js";
 
-export type { ConformanceTarget } from "./target.js";
+export type { BlobTarget, ConformanceTarget } from "./target.js";
 
 export {
   POSTURE_CHECKS,

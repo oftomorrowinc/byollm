@@ -143,7 +143,7 @@ import { getStore } from "@/lib/byollm";
 
 // A function, not an object: `next build` imports this module with no secrets
 // in the environment, and must not construct anything.
-export const { POST } = createHandler(() => ({
+export const { POST, GET, PUT } = createHandler(() => ({
   store: getStore(),
   siteKeys: siteKeysFromEnv("BYOLLM_SITE_KEYS"),
   verificationUrl: "https://your-app.com/settings/runners",

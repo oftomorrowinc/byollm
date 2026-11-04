@@ -80,8 +80,47 @@ export function referenceTarget(): ConformanceTarget {
           ? {}
           : { dependsOn: input.dependsOn }),
         ...(input.ttlMs === undefined ? {} : { ttlMs: input.ttlMs }),
+        ...(input.deadlineAt === undefined
+          ? {}
+          : { deadlineAt: input.deadlineAt }),
+        ...(input.id === undefined ? {} : { id: input.id }),
       });
       return { id: handle.id };
+    },
+
+    blobs: {
+      enqueueVision: async (input) => {
+        const handle = await app.enqueue({
+          kind: "llm.vision",
+          owner: input.owner,
+          payload: {
+            messages: [
+              {
+                role: "user",
+                content: [
+                  { type: "text", text: input.text },
+                  ...input.images.map((image) => ({
+                    type: "image" as const,
+                    image,
+                  })),
+                ],
+              },
+            ],
+          },
+          ...(input.deadlineAt === undefined
+            ? {}
+            : { deadlineAt: input.deadlineAt }),
+        });
+        return { id: handle.id };
+      },
+      slot: (input) => app.blobSlot(input),
+      upload: (blob, data) => app.uploadBlob(blob, data),
+      collect: async (jobId) => ({
+        state: (await app.result(jobId))?.state ?? "unknown",
+      }),
+      images: (jobId, options) => app.images(jobId, options),
+      stored: () => Promise.resolve(store.allBlobs()),
+      records: () => Promise.resolve(JSON.stringify(store.allJobs())),
     },
 
     approvePairing: async (userCode, owner) => {

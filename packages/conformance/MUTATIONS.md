@@ -837,3 +837,59 @@ by hand against the local stack inside a transaction that rolled back: every
 refusal in the contract, the timeout, a requeue's calls out of reach but
 counted, deletion at `ok`, and `anon` unable to execute. It has no automated
 run in `verify`, as the rest of the adapter has none.
+
+## Verified 2026-11-04 — images by reference (byollm_021 §10, #7057)
+
+Card 5's checks, numbered as byollm_021 §10 numbers them after #7053's
+renumbering. The brief named them by the ids first proposed (C057, C062,
+C063, C069 and C071 are C048, C053, C054, C057 and C059 here). Each mutation was
+applied to the named file, the package rebuilt, and the whole kit run
+against the reference server. Every one of them was reverted afterwards.
+
+| check                                 | mutated                           | mutation                                                                         | result                                  |
+| ------------------------------------- | --------------------------------- | -------------------------------------------------------------------------------- | --------------------------------------- |
+| `C048_BLOBS_SEALED`                   | `packages/server/src/app.ts`      | Upload the plaintext, zero-padded to the slot's size, in place of the ciphertext | ✓ bites ("holds plaintext image bytes") |
+| `C048_BLOBS_SEALED`                   | `packages/server/src/handlers.ts` | Store an output reference's key as it arrived (`wrappedKey: key`)                | ✓ bites; also C054, C059 (see below)    |
+| `C053_BLOB_NEEDS_THE_LEASE`           | `packages/server/src/handlers.ts` | Drop the runner and lease-id comparison from `#held`                             | ✓ bites, alone                          |
+| `C054_BLOBS_GO_WITH_THE_JOB`          | `packages/server/src/app.ts`      | Skip the sweep: delete `deleteBlob({ due })` from `sweep()`                      | ✓ bites                                 |
+| `C054_BLOBS_GO_WITH_THE_JOB`          | `packages/server/src/handlers.ts` | Keep input blobs after the result is accepted                                    | ✓ bites                                 |
+| `C057_BLOB_SIZE_CHECKED_BEFORE_OFFER` | `packages/server/src/blobs.ts`    | Trust the slot: drop `blob.data.length !== blob.slotBytes` from `blobFault`      | ✓ bites, alone                          |
+| `C059_OUTPUT_OUTLIVES_COLLECTION`     | `packages/server/src/app.ts`      | Delete output blobs at collection (`notAfter: now` in `result()`)                | ✓ bites; also C048, C054 (see below)    |
+
+**The overlaps are shared paths, not broad mutations.** C048, C054 and C059
+all collect an `llm.image` result and then read its images. So deleting
+outputs at collection fails all three, and that is the chokepoint working as
+intended. A key stored unwrapped fails C054 and C059 too, because
+`images()` unwraps whatever is stored, and an unwrapped key unwrapped again
+opens nothing.
+
+**C057 was rewritten so that its mutation can bite.** The first draft
+referenced the oversized blob honestly, declaring its true 300 KB. Its
+slot-versus-reference comparison then refused the job, and "trust the slot"
+passed. The reference now declares what the slot was issued for, so the
+stored size is the only thing wrong, and only reading the stored size
+refuses it.
+
+**C048 searches before it opens.** It searches the store first and only then
+runs its controls (the device opens its input, the site opens its output). A
+plaintext upload is therefore reported as plaintext, not as "the device
+could not open its input".
+
+**What the real-clock targets do not exercise.** C054's day-after-deadline
+sweep and C059's hour-after-collection deletion wait only on a target that
+can move its clock (`advanceTime`). A real-clock target is held to the
+recorded deletion time instead, `deleteAt` measured from the blob's own
+creation, so the sweep mutation bites only on the reference server. The
+Supabase adapter passed all 37 checks against a fresh local stack with
+Storage enabled.
+
+**Not kit checks, and why.** byollm_021 §10's C049 ("refused before the
+backend"), C050 ("backend saw nothing") and C052 ("download stops at 2 MiB")
+are the device's end, and they need a daemon that serves an image kind. That
+is card 6 (#7058), so `BLOB_BOUND_TO_JOB` and `MEDIA_VERIFIED` stay
+`pending`, and `BLOB_BUDGET_BEFORE_DOWNLOAD` keeps C051 and C052 `planned`.
+The site's end of all three is in `packages/server/src/blobs.test.ts`. It
+covers a swapped job, `in` passed as `out`, a flipped byte, a JPEG declared
+as PNG, an over-cap header, and an object larger than declared, each refused
+before the app sees a byte. It does not claim those MUSTs, because half a
+MUST is not a covered MUST.

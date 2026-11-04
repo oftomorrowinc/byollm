@@ -394,11 +394,11 @@ and the card that builds one promotes its MUST and edits its "Verified" cell.
 
 | MUST | Statement | Verified | Checks, and the kind they verify it as |
 |---|---|---|---|
-| `BLOBS_SEALED` | Blob bytes leave an endpoint only encrypted under a key that travels only inside a sealed, signed envelope; a blob store and a relay hold no key that opens one. It extends `RELAY_BLIND` to media. | pending | C048: operator + conformance |
+| `BLOBS_SEALED` | Blob bytes leave an endpoint only encrypted under a key that travels only inside a sealed, signed envelope; a blob store and a relay hold no key that opens one. It extends `RELAY_BLIND` to media. | conformance + **operator** | C048: conformance on the reference server (card 5, #7057); operator on the hub |
 | `BLOB_BOUND_TO_JOB` | A blob that fails to decrypt under its job's associated data, or whose plaintext hash does not match its reference, is refused at both endpoints. | pending | C049: conformance |
 | `MEDIA_VERIFIED` | Declared type matches the magic bytes, and the dimensions are within the caps, checked at both endpoints before a backend or an app sees the bytes. | pending | C050: conformance + adversarial |
-| `BLOB_BUDGET_BEFORE_DOWNLOAD` | A non-owner's images are charged against `community.maxImageBytes` from the declared sizes before any blob is fetched, and a download stops at its declared size. An upstream offers no job whose stored blobs differ from the sizes their slots were issued for (§2). | pending | C051, C052, C057: conformance on the reference server; operator on the hub |
-| `BLOBS_GO_WITH_THE_JOB` | Input blobs are deleted when the result is accepted; output blobs when the site says it holds them, or one hour after collection; an uncollected job's blobs 24 hours after its deadline. | pending | C054, C059: conformance on the reference server; operator on the hub |
+| `BLOB_BUDGET_BEFORE_DOWNLOAD` | A non-owner's images are charged against `community.maxImageBytes` from the declared sizes before any blob is fetched, and a download stops at its declared size. An upstream offers no job whose stored blobs differ from the sizes their slots were issued for (§2). | conformance + **operator** | C057: conformance on the reference server (card 5, #7057); operator on the hub; C051, C052: conformance, planned (card 6) |
+| `BLOBS_GO_WITH_THE_JOB` | Input blobs are deleted when the result is accepted; output blobs when the site says it holds them, or one hour after collection; an uncollected job's blobs 24 hours after its deadline. | conformance + **operator** | C054, C059: conformance on the reference server (card 5, #7057); operator on the hub |
 | `IMAGE_BYTES_NOT_URLS` | A daemon never fetches a URL a backend returned in place of image bytes. | pending | C056: adversarial |
 
 Beside the table: **`KIND_NO_CODE`, `OUTPUT_INERT` and the CLI containment**

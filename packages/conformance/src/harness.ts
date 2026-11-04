@@ -1,9 +1,15 @@
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { crc32 } from "node:zlib";
 import {
+  BlobRef,
   ENVELOPE_MAX_AGE_MS,
+  blobObjectBytes,
   PROTOCOL_VERSION,
+  encryptBlob,
+  sniffImage,
+  type ImageJobOutcome,
   keyId,
   open,
   seal,
@@ -715,7 +721,8 @@ export async function postResult(
   daemon: HarnessDaemon,
   input: {
     jobId: string;
-    outcome: JobOutcome;
+    /** An `llm.image` answer carries its output references here. */
+    outcome: JobOutcome | ImageJobOutcome;
     sealWith?: StoredKeys;
     disposition?: "ok" | "error" | "canceled";
     /** The grant the work was done under — cloud_008 §1.4a. */
@@ -831,4 +838,181 @@ export async function fetchGenuine(
     }
   }
   return false;
+}
+
+// ---------------------------------------------------------------------------
+// Images by reference — byollm_021 §2
+// ---------------------------------------------------------------------------
+
+/**
+ * A signed daemon-plane POST, raw. The blob checks play the device's half of
+ * the protocol themselves: no shipped daemon serves an image kind until
+ * byollm_021 card 6, and the property under test is the server's anyway.
+ */
+export async function signedPost(
+  target: ConformanceTarget,
+  daemon: HarnessDaemon,
+  endpoint: string,
+  fields: Record<string, unknown>,
+): Promise<Response> {
+  const body = JSON.stringify({
+    protocolVersion: PROTOCOL_VERSION,
+    runnerId: daemon.runnerId,
+    ...fields,
+  });
+  const signature = signRequest(daemon.keys, {
+    endpoint,
+    runnerId: daemon.runnerId,
+    issuedAt: Date.now(),
+    body,
+  });
+  return target.fetch(
+    new Request(`${target.origin}/byollm/${endpoint}`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-byollm-runner": signature.runnerId,
+        "x-byollm-issued-at": String(signature.issuedAt),
+        "x-byollm-signature": signature.signature,
+      },
+      body,
+    }),
+  );
+}
+
+/**
+ * What this daemon would advertise for the image kinds — its own detected
+ * capability, with the kind swapped. Claims over the raw protocol use it,
+ * so the server offers image jobs to a device that has no handler for them
+ * and the check plays the handler.
+ */
+export async function imageCapabilities(
+  daemon: HarnessDaemon,
+): Promise<Capability[]> {
+  const [base] = await daemon.runner.detectCapabilities();
+  if (base === undefined) throw new Error("the harness daemon serves nothing");
+  return [
+    { ...base, kind: "llm.vision" },
+    { ...base, kind: "llm.image" },
+  ];
+}
+
+/** Claim one job of an image kind, raw, as a device that serves them. */
+export async function claimImageJob(
+  target: ConformanceTarget,
+  daemon: HarnessDaemon,
+  jobId: string,
+): Promise<ClaimedStub> {
+  const caps = await imageCapabilities(daemon);
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    const stub = (await claimRaw(target, daemon, caps)).find(
+      (job) => job.id === jobId,
+    );
+    if (stub) return stub;
+    await sleep(50);
+  }
+  throw new Error(`job ${jobId} was never offered`);
+}
+
+/**
+ * A small, well-formed PNG whose pixel chunk is random — so a window of it
+ * found in a store can only have come from this image — with an `eXIf`
+ * chunk the site must strip before upload.
+ */
+export function testPng(
+  width = 4,
+  height = 4,
+  payloadBytes = 4096,
+): Uint8Array {
+  const chunk = (type: string, data: Uint8Array): Buffer => {
+    const head = Buffer.alloc(8);
+    head.writeUInt32BE(data.length, 0);
+    head.write(type, 4, "ascii");
+    const crc = Buffer.alloc(4);
+    crc.writeUInt32BE(crc32(Buffer.concat([head.subarray(4), data])), 0);
+    return Buffer.concat([head, data, crc]);
+  };
+  const ihdr = Buffer.alloc(13);
+  ihdr.writeUInt32BE(width, 0);
+  ihdr.writeUInt32BE(height, 4);
+  ihdr[8] = 8;
+  ihdr[9] = 2;
+  const random = Buffer.from(
+    Array.from({ length: payloadBytes }, () => Math.floor(Math.random() * 256)),
+  );
+  return Uint8Array.from(
+    Buffer.concat([
+      Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+      chunk("IHDR", ihdr),
+      chunk("eXIf", Buffer.from("GPS 51.5007N 0.1246W")),
+      chunk("IDAT", random),
+      chunk("IEND", new Uint8Array()),
+    ]),
+  );
+}
+
+/** Whether `needle` occurs anywhere in `haystack`. */
+export function contains(haystack: Uint8Array, needle: Uint8Array): boolean {
+  return Buffer.from(haystack).includes(Buffer.from(needle));
+}
+
+/**
+ * Upload one output image as a device does: a slot of the padded size,
+ * the ciphertext `PUT` to its URL, and the reference to seal into the result.
+ */
+export async function uploadOutput(
+  target: ConformanceTarget,
+  daemon: HarnessDaemon,
+  input: { jobId: string; leaseId: string; image: Uint8Array },
+): Promise<BlobRef> {
+  const sniffed = sniffImage(input.image);
+  if (sniffed === null) throw new Error("the test image did not sniff");
+  const slot = await signedPost(target, daemon, "blob-slot", {
+    jobId: input.jobId,
+    leaseId: input.leaseId,
+    bytes: blobObjectBytes(input.image.length),
+  });
+  if (slot.status !== 200) {
+    throw new Error(`blob-slot answered ${String(slot.status)}`);
+  }
+  const { blob, url } = (await slot.json()) as { blob: string; url: string };
+  const sealed = await encryptBlob({
+    plaintext: input.image,
+    jobId: input.jobId,
+    blobId: blob,
+    direction: "out",
+  });
+  const put = await target.fetch(
+    new Request(url, { method: "PUT", body: sealed.object }),
+  );
+  if (put.status !== 204) {
+    throw new Error(`the output PUT answered ${String(put.status)}`);
+  }
+  return BlobRef.parse({
+    blob,
+    mediaType: sniffed.mediaType,
+    bytes: input.image.length,
+    width: sniffed.width,
+    height: sniffed.height,
+    sha256: sealed.sha256,
+    key: sealed.key,
+  });
+}
+
+/** Ask for an input blob's URL under a lease, and download it if granted. */
+export async function downloadInput(
+  target: ConformanceTarget,
+  daemon: HarnessDaemon,
+  input: { jobId: string; leaseId: string; blob: string },
+): Promise<{ status: number; url?: string; object?: Uint8Array }> {
+  const asked = await signedPost(target, daemon, "blob-url", input);
+  if (asked.status !== 200) return { status: asked.status };
+  const { url } = (await asked.json()) as { url: string };
+  const got = await target.fetch(new Request(url, { method: "GET" }));
+  if (got.status !== 200) return { status: got.status, url };
+  return {
+    status: 200,
+    url,
+    object: new Uint8Array(await got.arrayBuffer()),
+  };
 }

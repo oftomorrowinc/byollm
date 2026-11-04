@@ -28,6 +28,7 @@ import {
   waitFor,
 } from "./harness.js";
 import type { ConformanceTarget } from "./target.js";
+import { BLOB_CHECKS } from "./blob-checks.js";
 
 /** One certification check. */
 export interface Check {
@@ -2143,4 +2144,8 @@ export const CHECKS: readonly Check[] = [
       }
     },
   },
+
+  // Images by reference — byollm_021 §10 (#7057). In their own file, which
+  // says why they play the device over the raw wire.
+  ...BLOB_CHECKS,
 ];

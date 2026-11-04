@@ -40,7 +40,7 @@ byollm conformance — my server
   ✓ C001_PAIRING_BINDS_ONE_USER  a runner token is bound to exactly the approving user  (279ms)
   ✓ C002_JOB_ROUND_TRIP  an enqueued job runs on the owner's daemon and the result comes back  (83ms)
   …
-  32 checks passed — my server is byollm-compatible.
+  37 checks passed — my server is byollm-compatible.
 ```
 
 ## What it actually does
@@ -117,6 +117,11 @@ Two optional hooks worth knowing about:
 | `C014_RESULT_PROVENANCE`               | community results arrive marked untrusted                    |
 | `C015_INGRESS_BEFORE_EXECUTION`        | every executed prompt is logged                              |
 | `C016_UNAUTHENTICATED_REFUSED`         | endpoints refuse an unknown token                            |
+| `C048_BLOBS_SEALED`                    | the store holds no image bytes and no blob key               |
+| `C053_BLOB_NEEDS_THE_LEASE`            | a blob URL needs the job's lease, and dies with it           |
+| `C054_BLOBS_GO_WITH_THE_JOB`           | inputs go at acceptance, outputs on received, the rest later |
+| `C057_BLOB_SIZE_CHECKED_BEFORE_OFFER`  | a blob not its slot's size is refused before it is offered   |
+| `C059_OUTPUT_OUTLIVES_COLLECTION`      | output images survive collection until received, or an hour  |
 
 ## It reports its own gaps
 

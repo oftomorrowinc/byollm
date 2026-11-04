@@ -1,12 +1,13 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type {
   Audience,
+  BlobDirection,
   Capability,
-  JobOutcome,
   JobState,
   PublicIdentity,
 } from "@byollm/protocol";
 import type {
+  StoredOutcome,
   StoredJobInput,
   JobRecord,
   PairingRecord,
@@ -21,6 +22,7 @@ import type {
   AdoptArgs,
   CompleteArgs,
   CompleteResult,
+  DeleteBlobArgs,
   LeaseRef,
   RecordToolCallArgs,
   RecordToolCallResult,
@@ -29,6 +31,7 @@ import type {
   RenewResult,
   ToolCallRecord,
   ToolResultsArgs,
+  StoredBlob,
   TouchArgs,
 } from "../store.js";
 
@@ -84,11 +87,29 @@ interface JobRow {
   deadline_at: string | null;
   refused_by: string[];
   attempts: number;
-  outcome: JobOutcome | null;
+  outcome: StoredOutcome | null;
   provenance: JobRecord["provenance"];
   created_at: string;
   updated_at: string;
 }
+
+/** Row shape of `byollm_blobs` — byollm_021 §2. The bytes are in Storage. */
+interface BlobRow {
+  id: string;
+  job_id: string;
+  direction: BlobDirection;
+  slot_bytes: number;
+  /** The stored object's size, or null for a slot nothing was uploaded under. */
+  stored_bytes: number | null;
+  delete_at: string;
+  created_at: string;
+}
+
+/**
+ * The private Storage bucket blobs live in —
+ * `20261104050000_blob_bucket.sql`. Only the service role reaches it.
+ */
+export const BLOB_BUCKET = "byollm-blobs";
 
 /** Row shape of `byollm_runners`. */
 interface RunnerRow {
@@ -868,6 +889,97 @@ export function supabaseStore(options: SupabaseStoreOptions): ByollmStore {
         owner === undefined ? await query : await query.eq("owner", owner),
       );
       return rows.map(toRunner);
+    },
+
+    // -- blobs (byollm_021 §2) ----------------------------------------------
+    //
+    // Ciphertext in a private Storage bucket, one object per blob id; its
+    // slot, job, direction and deletion time in `byollm_blobs`. The object is
+    // written before its row says it is stored, and removed before its row
+    // goes, so a row never claims bytes that are not there.
+
+    async putBlob(blob: StoredBlob): Promise<void> {
+      if (blob.data !== null) {
+        const { error } = await db.storage
+          .from(BLOB_BUCKET)
+          .upload(blob.id, blob.data, {
+            upsert: true,
+            contentType: "application/octet-stream",
+          });
+        if (error) throw new Error(`supabase storage: ${error.message}`);
+      }
+      const { error } = await db.from("byollm_blobs").upsert({
+        id: blob.id,
+        job_id: blob.jobId,
+        direction: blob.direction,
+        slot_bytes: blob.slotBytes,
+        stored_bytes: blob.data === null ? null : blob.data.length,
+        delete_at: iso(blob.deleteAt),
+        created_at: iso(blob.createdAt),
+      });
+      if (error) throw new Error(`supabase: ${error.message}`);
+    },
+
+    async getBlob(blobId: string): Promise<StoredBlob | null> {
+      const row = unwrapMaybe<BlobRow>(
+        await db.from("byollm_blobs").select().eq("id", blobId).maybeSingle(),
+      );
+      if (row === null) return null;
+      let data: Uint8Array | null = null;
+      if (row.stored_bytes !== null) {
+        const { data: file, error } = await db.storage
+          .from(BLOB_BUCKET)
+          .download(row.id);
+        // A row whose object is gone is a blob that is gone.
+        if (error) return null;
+        data = new Uint8Array(await file.arrayBuffer());
+      }
+      return {
+        id: row.id,
+        jobId: row.job_id,
+        direction: row.direction,
+        slotBytes: row.slot_bytes,
+        data,
+        deleteAt: Date.parse(row.delete_at),
+        createdAt: Date.parse(row.created_at),
+      };
+    },
+
+    async deleteBlob(args: DeleteBlobArgs): Promise<number> {
+      let due: number;
+      if ("due" in args) {
+        due = args.due;
+      } else {
+        // Only ever brought forward: rows already due sooner keep their time.
+        const { error } = await db
+          .from("byollm_blobs")
+          .update({ delete_at: iso(args.notAfter) })
+          .eq("job_id", args.jobId)
+          .eq("direction", args.direction)
+          .gt("delete_at", iso(args.notAfter));
+        if (error) throw new Error(`supabase: ${error.message}`);
+        due = args.now;
+      }
+      const query = db
+        .from("byollm_blobs")
+        .select("id")
+        .lte("delete_at", iso(due));
+      const rows = unwrap<{ id: string }[]>(
+        "due" in args
+          ? await query
+          : await query
+              .eq("job_id", args.jobId)
+              .eq("direction", args.direction),
+      );
+      if (rows.length === 0) return 0;
+      const ids = rows.map((row) => row.id);
+      const removed = await db.storage.from(BLOB_BUCKET).remove(ids);
+      if (removed.error) {
+        throw new Error(`supabase storage: ${removed.error.message}`);
+      }
+      const { error } = await db.from("byollm_blobs").delete().in("id", ids);
+      if (error) throw new Error(`supabase: ${error.message}`);
+      return ids.length;
     },
   };
 }

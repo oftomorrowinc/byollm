@@ -28,8 +28,12 @@ site_url = "http://127.0.0.1:3000"
 [analytics]
 enabled = false
 
+# On since byollm_021 §2: the adapter keeps blob ciphertext in a private
+# bucket (`20261104050000_blob_bucket.sql`), and without the storage service
+# the `storage` schema that migration writes to does not exist.
 [storage]
-enabled = false
+enabled = true
+file_size_limit = "50MiB"
 
 [edge_runtime]
 enabled = false

@@ -27,6 +27,8 @@ import type {
   RenewResult,
   ToolCallRecord,
   ToolResultsArgs,
+  DeleteBlobArgs,
+  StoredBlob,
   TouchArgs,
 } from "./store.js";
 
@@ -67,6 +69,8 @@ export class MemoryStore implements ByollmStore {
   readonly #jobs = new Map<string, JobRecord>();
   readonly #runners = new Map<string, RunnerRecord>();
   readonly #pairings = new Map<string, PairingRecord>();
+  /** Blobs by id — ciphertext, in memory, gone with the process. */
+  readonly #blobs = new Map<string, StoredBlob>();
   /** Job ids the app has asked to cancel, not yet acknowledged by a runner. */
   readonly #cancelRequests = new Set<string>();
   /**
@@ -858,7 +862,51 @@ export class MemoryStore implements ByollmStore {
     );
   }
 
+  // -- blobs (byollm_021 §2) ----------------------------------------------
+
+  putBlob(blob: StoredBlob): Promise<void> {
+    // A copy, so a caller reusing its buffer cannot change what was stored.
+    this.#blobs.set(blob.id, {
+      ...blob,
+      data: blob.data === null ? null : blob.data.slice(),
+    });
+    return Promise.resolve();
+  }
+
+  getBlob(blobId: string): Promise<StoredBlob | null> {
+    return Promise.resolve(this.#blobs.get(blobId) ?? null);
+  }
+
+  deleteBlob(args: DeleteBlobArgs): Promise<number> {
+    let deleted = 0;
+    for (const blob of [...this.#blobs.values()]) {
+      if ("due" in args) {
+        if (blob.deleteAt <= args.due) {
+          this.#blobs.delete(blob.id);
+          deleted += 1;
+        }
+        continue;
+      }
+      if (blob.jobId !== args.jobId || blob.direction !== args.direction) {
+        continue;
+      }
+      const deleteAt = Math.min(blob.deleteAt, args.notAfter);
+      if (deleteAt <= args.now) {
+        this.#blobs.delete(blob.id);
+        deleted += 1;
+      } else if (deleteAt !== blob.deleteAt) {
+        this.#blobs.set(blob.id, { ...blob, deleteAt });
+      }
+    }
+    return Promise.resolve(deleted);
+  }
+
   // -- test/demo helpers ---------------------------------------------------
+
+  /** Every stored blob, for assertions. Not part of the store interface. */
+  allBlobs(): StoredBlob[] {
+    return [...this.#blobs.values()];
+  }
 
   /** All jobs, for demos and assertions. Not part of the store interface. */
   allJobs(): JobRecord[] {

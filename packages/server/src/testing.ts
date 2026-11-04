@@ -9,6 +9,7 @@ import {
   seal,
   signRequest,
   type Endpoint,
+  type ImageJobOutcome,
   type JobOutcome,
   type StoredKeys,
 } from "@byollm/protocol";
@@ -122,7 +123,7 @@ export interface Harness<S extends ByollmStore = MemoryStore> {
   resultBody(input: {
     jobId: string;
     runner: PairedRunner;
-    outcome: JobOutcome;
+    outcome: JobOutcome | ImageJobOutcome;
     model?: string;
     backendClass?: "http" | "process";
     /** Sealed into `ran` — B260. */
@@ -269,6 +270,7 @@ export function createHarness<S extends ByollmStore = MemoryStore>(
     return handlers.handle(endpoint, body, {
       endpoint,
       rawBody,
+      mountUrl: "https://app.test/byollm",
       signature: signRequest(runner.keys, {
         endpoint,
         runnerId: runner.runnerId,
@@ -282,7 +284,7 @@ export function createHarness<S extends ByollmStore = MemoryStore>(
   async function resultBody(input: {
     jobId: string;
     runner: PairedRunner;
-    outcome: JobOutcome;
+    outcome: JobOutcome | ImageJobOutcome;
     model?: string;
     backendClass?: "http" | "process";
     /**

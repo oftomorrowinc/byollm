@@ -14,7 +14,7 @@ import { getStore } from "@/lib/byollm";
  * prose alone: it was true, documented, and unverified, and the pattern was
  * broken for three days before an integrator hit it.
  */
-export const { POST } = createHandler(() => ({
+export const { POST, GET, PUT } = createHandler(() => ({
   store: getStore(),
   siteKeys: siteKeysFromEnv("BYOLLM_SITE_KEYS"),
   verificationUrl: "https://your-app.com/settings/runners",

@@ -1,4 +1,10 @@
-import { SealedOutcome, type JobOutcome } from "@byollm/protocol";
+import {
+  SealedOutcome,
+  SealedOutcomeFor,
+  type ImageSealedOutcome,
+  type JobKind,
+  type JobOutcome,
+} from "@byollm/protocol";
 
 /**
  * Open a sealed outcome, once, for both lanes — B064 step 4's prerequisite.
@@ -23,7 +29,7 @@ import { SealedOutcome, type JobOutcome } from "@byollm/protocol";
  * Left to the callers it would be a step somebody forgets in the third lane.
  */
 export type OpenedOutcome =
-  | { readonly ok: true; readonly value: SealedOutcome }
+  | { readonly ok: true; readonly value: SealedOutcome | ImageSealedOutcome }
   | { readonly ok: false; readonly why: string };
 
 export function openSealedOutcome(input: {
@@ -36,6 +42,13 @@ export function openSealedOutcome(input: {
    * the one the device signed.
    */
   readonly disposition: JobOutcome["outcome"];
+  /**
+   * The job's kind, which owns what its answer may carry (byollm_021 R1):
+   * an `llm.image` answer carries image references and no other kind's may.
+   * Omitted means a text kind — the cloud lane, which carries no images
+   * until the hub's blob endpoints exist (byollm_021 §Rollout R2).
+   */
+  readonly kind?: JobKind;
 }): OpenedOutcome {
   let parsed: unknown;
   try {
@@ -44,7 +57,9 @@ export function openSealedOutcome(input: {
     return { ok: false, why: "the sealed result was not valid JSON" };
   }
 
-  const sealed = SealedOutcome.safeParse(parsed);
+  const schema =
+    input.kind === "llm.image" ? SealedOutcomeFor(input.kind) : SealedOutcome;
+  const sealed = schema.safeParse(parsed);
   if (!sealed.success) {
     return { ok: false, why: "the sealed result was not an outcome" };
   }

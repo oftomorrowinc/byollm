@@ -1,10 +1,11 @@
 import type {
+  BlobDirection,
   Capability,
-  JobOutcome,
   ResultProvenance,
   SealedEnvelope,
 } from "@byollm/protocol";
 import type {
+  StoredOutcome,
   StoredJobInput,
   JobRecord,
   PairingRecord,
@@ -311,7 +312,11 @@ export interface CompleteArgs {
   readonly runnerId: string;
   /** Who claims to hold this job. Both variants are checked, never trusted. */
   readonly holder: CompleteHolder;
-  readonly outcome: JobOutcome;
+  /**
+   * What the device sealed, as this site keeps it — for an `llm.image`
+   * answer, with each image's key wrapped ({@link StoredOutcome}).
+   */
+  readonly outcome: StoredOutcome;
   readonly provenance: ResultProvenance;
   readonly now: number;
 }
@@ -412,5 +417,75 @@ export interface TouchArgs {
   readonly now: number;
 }
 
-/** A store providing both halves. Most adapters implement one object. */
-export interface ByollmStore extends JobStore, RunnerStore {}
+/**
+ * One blob as a store keeps it — byollm_021 §2.
+ *
+ * Ciphertext, never an image: the bytes were encrypted by the endpoint that
+ * made them, under a key that exists only inside a sealed envelope
+ * ({@link MUSTS.BLOBS_SEALED}). Nothing in this record opens them.
+ */
+export interface StoredBlob {
+  /** The id a {@link BlobRef} names. */
+  readonly id: string;
+  readonly jobId: string;
+  /** `in` for a site's input image, `out` for a device's output image. */
+  readonly direction: BlobDirection;
+  /**
+   * The object size the slot was issued for — padded plus overhead
+   * (`blobObjectBytes`). What the stored bytes are checked against before a
+   * job is offered or a result accepted.
+   */
+  readonly slotBytes: number;
+  /**
+   * The stored object, or `null` for a slot nothing has been uploaded under
+   * yet. Stored as it arrived: an adapter never checks its size, because the
+   * check is the upstream's and has to read what was actually stored.
+   */
+  readonly data: Uint8Array | null;
+  /**
+   * When this blob is deleted whatever else happens — its job's deadline
+   * plus a day, or sooner. A blob past it is never served.
+   */
+  readonly deleteAt: number;
+  readonly createdAt: number;
+}
+
+/**
+ * Which blobs to delete — §2's deletion order, as two calls.
+ *
+ * - By job and direction, **no later than** `notAfter`: now if `notAfter` is
+ *   at or before `now`, otherwise at `notAfter` or at the blob's own
+ *   `deleteAt`, whichever comes first. A later call can only bring deletion
+ *   forward, never push it back, so "one hour after collection" counts from
+ *   the first collection however often the result is read.
+ * - `due`: the sweep, deleting every blob whose `deleteAt` has passed.
+ */
+export type DeleteBlobArgs =
+  | {
+      readonly jobId: string;
+      readonly direction: BlobDirection;
+      readonly notAfter: number;
+      readonly now: number;
+    }
+  | { readonly due: number };
+
+/**
+ * Where blobs live — byollm_021 §2, a breaking addition to the store
+ * contract in 0.1.5.
+ *
+ * Three methods, and none of them decides anything: the slot sizes, the
+ * size check, the lease scope and the deletion order are the handlers' and
+ * the app's, which is why every adapter gets them right by implementing
+ * these as plain reads and writes.
+ */
+export interface BlobStore {
+  /** Write one blob, or replace the one with its id. */
+  putBlob(blob: StoredBlob): Promise<void>;
+  /** One blob, with its bytes, or `null`. */
+  getBlob(blobId: string): Promise<StoredBlob | null>;
+  /** Delete per {@link DeleteBlobArgs}. Returns how many went now. */
+  deleteBlob(args: DeleteBlobArgs): Promise<number>;
+}
+
+/** A store providing every half. Most adapters implement one object. */
+export interface ByollmStore extends JobStore, RunnerStore, BlobStore {}

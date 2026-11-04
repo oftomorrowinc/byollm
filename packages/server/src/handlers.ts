@@ -1,6 +1,14 @@
 import { openSealedOutcome } from "./sealed-outcome.js";
 import {
+  BlobSlotRequest,
+  BlobSlotResponse,
+  BlobUrlRequest,
+  BlobUrlResponse,
+  isBlobObjectSize,
   FetchRequest,
+  type ImageJobOutcome,
+  type ImageSealedOutcome,
+  type JobOutcome,
   type SealedOutcome,
   keyId,
   open,
@@ -36,10 +44,21 @@ import {
   type ResultResponse,
   type WireErrorCode,
 } from "@byollm/protocol";
+import {
+  BLOB_URL_SEGMENT,
+  BLOB_URL_TTL_MS,
+  BLOBS_KEPT_AFTER_DEADLINE_MS,
+  blobFault,
+  openBlobUrl,
+  outputBlobIds,
+  servable,
+  signBlobUrl,
+  wrapBlobKey,
+} from "./blobs.js";
 import { generateDeviceCode, generateUserCode, hashSecret } from "./ids.js";
 import { resealForDevice } from "./reseal.js";
 import { deadlineFor } from "./records.js";
-import type { JobRecord, RunnerRecord } from "./records.js";
+import type { JobRecord, RunnerRecord, StoredOutcome } from "./records.js";
 import type { ByollmStore } from "./store.js";
 
 /** Everything a mount needs to serve the protocol. */
@@ -54,7 +73,19 @@ export interface AuthContext {
   readonly endpoint: string;
   readonly rawBody: string;
   readonly signature: unknown;
+  /**
+   * The absolute URL this mount serves, `<origin><basePath>` — where blob
+   * URLs point (byollm_021 §2). A transport that cannot say leaves it out,
+   * and the two blob endpoints refuse rather than mint a URL to nowhere.
+   */
+  readonly mountUrl?: string;
 }
+
+/** A blob served or stored by URL — what a transport turns into a response. */
+export type BlobTransfer =
+  | { readonly status: 200; readonly bytes: Uint8Array }
+  | { readonly status: 204 }
+  | { readonly status: 404 | 409 | 413 };
 
 export interface HandlerConfig {
   readonly store: ByollmStore;
@@ -221,7 +252,206 @@ export class ByollmHandlers {
           ToolResultsRequest,
           this.#toolResults.bind(this),
         );
+      case "blob-url":
+        return this.#authed(auth, body, BlobUrlRequest, (request, runner) =>
+          this.#blobUrl(request, runner, auth.mountUrl),
+        );
+      case "blob-slot":
+        return this.#authed(auth, body, BlobSlotRequest, (request, runner) =>
+          this.#blobSlot(request, runner, auth.mountUrl),
+        );
     }
+  }
+
+  // -- blobs — byollm_021 §2 ---------------------------------------------
+
+  /**
+   * The job this runner holds under `leaseId`, or `null` — the lease scope
+   * every blob call shares ({@link MUSTS.LEASE_SCOPED_BY_GRANT}).
+   *
+   * One answer for unknown, not yours and superseded, as `fetch` gives.
+   */
+  async #held(
+    jobId: string,
+    leaseId: string,
+    runnerId: string,
+  ): Promise<JobRecord | null> {
+    const job = await this.#store.get(jobId);
+    if (
+      !job ||
+      job.lease?.runnerId !== runnerId ||
+      job.lease.id !== leaseId ||
+      (job.state !== "claimed" && job.state !== "running")
+    ) {
+      return null;
+    }
+    return job;
+  }
+
+  /**
+   * A download URL for one input blob of a job this runner holds.
+   *
+   * No lease, no URL: the URL is minted for this lease and dies with it, and
+   * a blob that is not one of this job's stored inputs gets the same
+   * `not-found` as a lease that is not held.
+   */
+  async #blobUrl(
+    request: BlobUrlRequest,
+    runner: RunnerRecord,
+    mountUrl: string | undefined,
+  ): Promise<HandlerResult> {
+    if (request.runnerId !== runner.id) {
+      return fail("unauthorized", "runner id does not match the signing key");
+    }
+    const now = this.#now();
+    const job = await this.#held(request.jobId, request.leaseId, runner.id);
+    const blob = job === null ? null : await this.#store.getBlob(request.blob);
+    if (
+      job === null ||
+      blob?.jobId !== job.id ||
+      blob.direction !== "in" ||
+      blob.data === null ||
+      blob.deleteAt <= now
+    ) {
+      return fail("not-found", "no such blob under a lease you hold");
+    }
+    if (mountUrl === undefined) {
+      return fail("server-error", "this mount cannot serve blob URLs");
+    }
+    const expiresAt = now + BLOB_URL_TTL_MS;
+    const token = signBlobUrl(this.#siteKeys, {
+      blob: blob.id,
+      jobId: job.id,
+      leaseId: request.leaseId,
+      method: "GET",
+      expiresAt,
+    });
+    return ok(
+      BlobUrlResponse.parse({
+        url: `${mountUrl}/${BLOB_URL_SEGMENT}/${token}`,
+        expiresAt,
+      }),
+    );
+  }
+
+  /**
+   * An upload slot for one output image of an `llm.image` job this runner
+   * holds.
+   *
+   * The slot is issued for exactly `bytes`, which must be a size an object
+   * can have (whole padding buckets plus overhead), and at most
+   * {@link MAX_IMAGES_OUT} are issued under one lease. It is written as a
+   * row with no bytes and a deletion time of the job's deadline plus a day,
+   * so a slot the device never fills goes with the job like any blob.
+   */
+  async #blobSlot(
+    request: BlobSlotRequest,
+    runner: RunnerRecord,
+    mountUrl: string | undefined,
+  ): Promise<HandlerResult> {
+    if (request.runnerId !== runner.id) {
+      return fail("unauthorized", "runner id does not match the signing key");
+    }
+    const now = this.#now();
+    const job = await this.#held(request.jobId, request.leaseId, runner.id);
+    if (job === null) {
+      return fail("not-found", "no such lease on this job");
+    }
+    if (job.kind !== "llm.image") {
+      return fail("bad-request", "only an llm.image job uploads images");
+    }
+    if (!isBlobObjectSize(request.bytes)) {
+      return fail(
+        "bad-request",
+        "a slot is whole 256 KiB buckets plus 40 bytes, up to one image at the cap",
+      );
+    }
+    if (mountUrl === undefined) {
+      return fail("server-error", "this mount cannot serve blob URLs");
+    }
+    let id: string | undefined;
+    for (const candidate of outputBlobIds(
+      this.#siteKeys,
+      job.id,
+      request.leaseId,
+    )) {
+      if ((await this.#store.getBlob(candidate)) === null) {
+        id = candidate;
+        break;
+      }
+    }
+    if (id === undefined) {
+      return fail(
+        "bad-request",
+        "this lease has been issued every output slot an llm.image job may use",
+      );
+    }
+    await this.#store.putBlob({
+      id,
+      jobId: job.id,
+      direction: "out",
+      slotBytes: request.bytes,
+      data: null,
+      deleteAt: deadlineFor(job, now) + BLOBS_KEPT_AFTER_DEADLINE_MS,
+      createdAt: now,
+    });
+    const expiresAt = now + BLOB_URL_TTL_MS;
+    const token = signBlobUrl(this.#siteKeys, {
+      blob: id,
+      jobId: job.id,
+      leaseId: request.leaseId,
+      method: "PUT",
+      expiresAt,
+    });
+    return ok(
+      BlobSlotResponse.parse({
+        blob: id,
+        url: `${mountUrl}/${BLOB_URL_SEGMENT}/${token}`,
+        expiresAt,
+      }),
+    );
+  }
+
+  /**
+   * Serve one blob URL: `GET` an input's ciphertext, or `PUT` an output's.
+   *
+   * The token is this site's signature over one blob, one lease and one
+   * method, and it expires; on top of that the lease it names must still be
+   * the job's current one, so a URL dies the moment its grant does. A `PUT`
+   * fills an empty slot once, and a body longer than the slot is refused
+   * without being kept — reading stops one byte past it.
+   */
+  async transferBlob(input: {
+    readonly token: string;
+    readonly method: string;
+    readonly body?: ReadableStream<Uint8Array> | null;
+  }): Promise<BlobTransfer> {
+    const now = this.#now();
+    const grant = openBlobUrl(
+      publicIdentityOf(this.#siteKeys).identity,
+      input.token,
+      now,
+    );
+    if (grant?.method !== input.method) return { status: 404 };
+    const job = await this.#store.get(grant.jobId);
+    if (
+      job?.lease?.id !== grant.leaseId ||
+      (job.state !== "claimed" && job.state !== "running")
+    ) {
+      return { status: 404 };
+    }
+    const blob = await this.#store.getBlob(grant.blob);
+    if (blob === null) return { status: 404 };
+    if (!servable(blob, grant, now)) {
+      return { status: grant.method === "PUT" ? 409 : 404 };
+    }
+    if (grant.method === "GET") {
+      return { status: 200, bytes: blob.data ?? new Uint8Array() };
+    }
+    const data = await readAtMost(input.body ?? null, blob.slotBytes);
+    if (data === null) return { status: 413 };
+    await this.#store.putBlob({ ...blob, data });
+    return { status: 204 };
   }
 
   /**
@@ -559,8 +789,10 @@ export class ByollmHandlers {
     const job = await this.#store.get(request.jobId);
     if (!job) return fail("not-found", "unknown job");
 
-    const outcome = await this.#openResult(request, runner);
+    const outcome = await this.#openResult(request, runner, job);
     if (!outcome.ok) return outcome.failure;
+    const stored = await this.#storedOutcome(job, outcome.value.outcome, now);
+    if (!stored.ok) return stored.failure;
 
     // Provenance is built here, from the job's audience and the authenticated
     // runner — never from anything the daemon asserted
@@ -598,10 +830,22 @@ export class ByollmHandlers {
       // docstring already called the lease "the more exact check anyway";
       // this plane simply had no lease id to give it until now.
       holder: { by: "lease", leaseId: request.leaseId },
-      outcome: outcome.value.outcome,
+      outcome: stored.outcome,
       provenance,
       now,
     });
+
+    // byollm_021 §2: input blobs go when the result is accepted — nothing
+    // reads them after that. Only on acceptance: a refused or duplicate
+    // result leaves them for the device the job may still be offered to.
+    if (accepted && job.kind === "llm.vision") {
+      await this.#store.deleteBlob({
+        jobId: job.id,
+        direction: "in",
+        notAfter: now,
+        now,
+      });
+    }
 
     const response: ResultResponse = {
       accepted,
@@ -631,8 +875,10 @@ export class ByollmHandlers {
   async #openResult(
     request: ResultRequestType,
     runner: RunnerRecord,
+    job: JobRecord,
   ): Promise<
-    { ok: true; value: SealedOutcome } | { ok: false; failure: HandlerResult }
+    | { ok: true; value: SealedOutcome | ImageSealedOutcome }
+    | { ok: false; failure: HandlerResult }
   > {
     const refuse = (why: string) =>
       ({ ok: false as const, failure: fail("bad-request", why) }) as const;
@@ -657,6 +903,7 @@ export class ByollmHandlers {
     const outcome = openSealedOutcome({
       plaintext: opened.plaintext,
       disposition: request.disposition,
+      kind: job.kind,
     });
     if (!outcome.ok) return refuse(outcome.why);
     return { ok: true, value: outcome.value };
@@ -738,6 +985,47 @@ export class ByollmHandlers {
     );
   }
 
+  /**
+   * The outcome as this site keeps it — byollm_021 §2.
+   *
+   * A text answer is kept as sealed. An `llm.image` answer's references are
+   * checked first: every output blob must be stored, this job's, and exactly
+   * the size its slot was issued for, which is the declared size — the same
+   * check an input gets before its job is offered. Then each key is wrapped,
+   * so the store keeps the references and nothing that opens them.
+   */
+  async #storedOutcome(
+    job: JobRecord,
+    outcome: JobOutcome | ImageJobOutcome,
+    now: number,
+  ): Promise<
+    { ok: true; outcome: StoredOutcome } | { ok: false; failure: HandlerResult }
+  > {
+    if (!("images" in outcome)) return { ok: true, outcome };
+    for (const ref of outcome.images) {
+      const fault = await blobFault(this.#store, {
+        jobId: job.id,
+        direction: "out",
+        ref,
+        now,
+      });
+      if (fault !== null) {
+        return { ok: false, failure: fail("bad-request", fault) };
+      }
+    }
+    return {
+      ok: true,
+      outcome: {
+        outcome: "ok",
+        text: outcome.text,
+        images: outcome.images.map(({ key, ...ref }) => ({
+          ...ref,
+          wrappedKey: wrapBlobKey(this.#siteKeys, job.id, ref.blob, key),
+        })),
+      },
+    };
+  }
+
   // -- 5. release -----------------------------------------------------------
 
   async #release(
@@ -770,4 +1058,37 @@ function leaseOf(job: JobRecord): NonNullable<JobRecord["lease"]> {
     );
   }
   return job.lease;
+}
+
+/**
+ * Read a body, or `null` once it runs past `limit` bytes.
+ *
+ * Stops reading at the first byte over, so a device cannot make this
+ * process hold more than one slot's worth of anybody's upload.
+ */
+async function readAtMost(
+  body: ReadableStream<Uint8Array> | null,
+  limit: number,
+): Promise<Uint8Array | null> {
+  if (body === null) return new Uint8Array();
+  const reader = body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.length;
+    if (total > limit) {
+      await reader.cancel();
+      return null;
+    }
+    chunks.push(value);
+  }
+  const out = new Uint8Array(total);
+  let at = 0;
+  for (const chunk of chunks) {
+    out.set(chunk, at);
+    at += chunk.length;
+  }
+  return out;
 }

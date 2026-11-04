@@ -7,6 +7,7 @@ import {
   checkProtocolVersion,
   type Endpoint,
 } from "@byollm/protocol";
+import { BLOB_URL_SEGMENT } from "./blobs.js";
 import { ByollmHandlers, type HandlerConfig } from "./handlers.js";
 
 /**
@@ -142,6 +143,38 @@ export function createFetchHandler(
   const basePath = normalizeBasePath(config.basePath ?? PROTOCOL_PREFIX);
 
   return async function handle(request: Request): Promise<Response> {
+    const url = new URL(request.url);
+    // Blob URLs — byollm_021 §2. A `GET` or `PUT` of raw ciphertext, under a
+    // token this site signed; the daemon reaches the hub's presigned object
+    // storage the same way, so it has one code path for both lanes.
+    const blobPrefix = `${basePath}/${BLOB_URL_SEGMENT}/`;
+    if (url.pathname.startsWith(blobPrefix)) {
+      const token = url.pathname.slice(blobPrefix.length);
+      if (request.method !== "GET" && request.method !== "PUT") {
+        return new Response(null, { status: 405 });
+      }
+      const transfer = await handlers.transferBlob({
+        token,
+        method: request.method,
+        body: request.body,
+      });
+      if (transfer.status === 200) {
+        return new Response(transfer.bytes, {
+          status: 200,
+          headers: {
+            // Ciphertext, and never anything a browser should render.
+            "content-type": "application/octet-stream",
+            "x-content-type-options": "nosniff",
+            "cache-control": "no-store",
+          },
+        });
+      }
+      return new Response(null, {
+        status: transfer.status,
+        headers: { "cache-control": "no-store" },
+      });
+    }
+
     if (request.method !== "POST") {
       return json(405, {
         error: "bad-request",
@@ -149,7 +182,7 @@ export function createFetchHandler(
       });
     }
 
-    const endpoint = routeEndpoint(new URL(request.url).pathname, basePath);
+    const endpoint = routeEndpoint(url.pathname, basePath);
     if (endpoint === null) {
       return json(404, {
         error: "not-found",
@@ -201,6 +234,7 @@ export function createFetchHandler(
       // a signature over something the sender never sent.
       rawBody,
       signature: signatureFrom(request.headers),
+      mountUrl: `${url.origin}${basePath}`,
     });
 
     const headers: Record<string, string> = {

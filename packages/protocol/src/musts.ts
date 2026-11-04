@@ -775,9 +775,11 @@ export const MUSTS = Object.freeze({
       "travels only inside a sealed, signed envelope; a blob store and a " +
       "relay MUST NOT hold any key that opens one.",
     enforcedBy: "both",
-    verifiedBy: "pending",
+    // C048 (#7057): the kit reads every stored blob and every job record on
+    // the reference server after an input and an output have passed through
+    // it. The hub's half — R2 and the relay — is an operator claim.
+    verifiedBy: ["conformance", "operator"],
     source: "byollm_021 §10",
-    planned: { verifiedBy: ["operator", "conformance"], checks: ["C048"] },
   }),
   BLOB_BOUND_TO_JOB: must({
     id: "BLOB_BOUND_TO_JOB",
@@ -809,12 +811,13 @@ export const MUSTS = Object.freeze({
       "MUST stop at its declared size. An upstream MUST NOT offer a job whose " +
       "stored blobs differ from the sizes their slots were issued for.",
     enforcedBy: "both",
-    verifiedBy: "pending",
+    // The upstream's clause is C057 (#7057), conformance on the reference
+    // server and operator on the hub. The device's two — the budget from the
+    // declared sizes, and a download that stops at its declared size — are
+    // C051 and C052, card 6's (#7058), and `planned` until they land.
+    verifiedBy: ["conformance", "operator"],
     source: "byollm_021 §10",
-    planned: {
-      verifiedBy: ["conformance", "operator"],
-      checks: ["C051", "C052", "C057"],
-    },
+    planned: { verifiedBy: "conformance", checks: ["C051", "C052"] },
   }),
   BLOBS_GO_WITH_THE_JOB: must({
     id: "BLOBS_GO_WITH_THE_JOB",
@@ -823,12 +826,10 @@ export const MUSTS = Object.freeze({
       "when the site says it holds them, or one hour after collection; an " +
       "uncollected job's blobs 24 hours after its deadline.",
     enforcedBy: "server",
-    verifiedBy: "pending",
+    // C054 and C059 (#7057), conformance on the reference server; the hub's
+    // sweep and its R2 lifecycle floor are operator claims.
+    verifiedBy: ["conformance", "operator"],
     source: "byollm_021 §10",
-    planned: {
-      verifiedBy: ["conformance", "operator"],
-      checks: ["C054", "C059"],
-    },
   }),
   IMAGE_BYTES_NOT_URLS: must({
     id: "IMAGE_BYTES_NOT_URLS",

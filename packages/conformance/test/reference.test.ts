@@ -128,11 +128,15 @@ describe("pending MUSTs and their planned checks", () => {
     expect(stale, "planned checks the kit already has").toEqual([]);
   });
 
-  it("numbers planned checks after the kit's own, each once", () => {
-    const highest = Math.max(...built);
-    expect(Number.isFinite(highest)).toBe(true);
+  it("names each planned check once, by a number the kit has not used", () => {
+    // Not "after the kit's own": byollm_021 R8 builds cards 2-4 and 5-6 in
+    // parallel, so card 5's C048 can land while card 4's C040 is still
+    // planned (#7057). What the ordering was protecting is that a planned id
+    // never collides with a built one or with another planned one, and the
+    // test above and this one say exactly that.
     const numbers = planned.map(({ check }) => numberOf(check));
-    for (const n of numbers) expect(n).toBeGreaterThan(highest);
+    for (const n of numbers) expect(Number.isFinite(n)).toBe(true);
+    for (const n of numbers) expect(built.has(n)).toBe(false);
     expect(new Set(numbers).size).toBe(numbers.length);
   });
 

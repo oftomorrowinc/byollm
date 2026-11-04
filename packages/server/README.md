@@ -27,7 +27,7 @@ import { createHandler } from "@byollm/server/next";
 import { siteKeysFromEnv } from "@byollm/server";
 import { getStore } from "@/lib/byollm";
 
-export const { POST } = createHandler(() => ({
+export const { POST, GET, PUT } = createHandler(() => ({
   store: getStore(),
   siteKeys: siteKeysFromEnv("BYOLLM_SITE_KEYS"),
   verificationUrl: "https://your-app.com/settings/runners",
@@ -108,6 +108,64 @@ const { outcome, fallback } = await job.result({
 `result()` is sugar over your delivery channel with a timeout and a
 `noRunnerAvailable` path — never a bare promise that hangs forever. If nobody
 is online to run the job, you find out and can fall back.
+
+## Images — direct lane
+
+`llm.vision` (reading images) and `llm.image` (making them) carry images by
+reference (byollm_021 §2). Hand the SDK bytes; it never hands you a key.
+
+```ts
+const job = await getApp().enqueue({
+  kind: "llm.vision",
+  owner: ownerId,
+  payload: {
+    messages: [
+      {
+        role: "user",
+        content: [
+          { type: "text", text: "What is in this photo?" },
+          { type: "image", image: photoBytes }, // PNG, JPEG or WebP
+        ],
+      },
+    ],
+  },
+});
+```
+
+Before anything leaves your server the SDK reads the type and size from the
+header (SVG, GIF, HEIC and AVIF are refused — convert first), **strips the
+metadata** — a phone photo carries where it was taken, and a teammate's
+device should not learn that — pads it to 256 KiB, encrypts it under a fresh
+key, and stores the ciphertext. The key travels only inside the sealed
+payload. `{ bytes, keepMetadata: true }` uploads an image as given.
+
+An `llm.image` job's images come back through `images()`, never through the
+result:
+
+```ts
+const images = await job.images(); // [{ mediaType, width, height, bytes }]
+```
+
+Each one is decrypted and checked — it belongs to this job, its hash matches,
+and its header is the declared type and size — before you get it. Serve it
+only with its `mediaType` as `Content-Type` and `X-Content-Type-Options:
+nosniff`: it is a model's output, bytes and never a document.
+
+**What is kept, and for how long.** Input images are deleted when the result
+is accepted. Output images are deleted when `images()` has verified them (or
+`app.received(jobId)`), or one hour after the result was first read, and
+anything left goes a day after the job's deadline. Run `app.sweep()` on a
+schedule so that last rule fires.
+
+**The mount needs `GET` and `PUT`.** A device downloads input images and
+uploads output images through short-lived URLs under `/byollm/blobs/`, so
+export all three handlers, as above. Images are direct-lane only until the
+hub's blob endpoints are live.
+
+**Adapter authors:** the store contract gains `putBlob`, `getBlob` and
+`deleteBlob` — a breaking addition in 0.1.5. The Supabase adapter keeps blobs
+in a private Storage bucket (migration `20261104050000_blob_bucket.sql`, which
+needs Storage enabled).
 
 ## Who `owner` is — this differs by mode
 

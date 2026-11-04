@@ -29,7 +29,7 @@ import {
   createFetchHandler,
   generateSiteKeys,
 } from "@byollm/server";
-import { supabaseStore } from "@byollm/server/supabase";
+import { BLOB_BUCKET, supabaseStore } from "@byollm/server/supabase";
 
 const SUPABASE_URL = process.env["SUPABASE_URL"] ?? "http://127.0.0.1:54421";
 const SERVICE_KEY =
@@ -138,8 +138,85 @@ const target: ConformanceTarget = {
           }),
       ...(input.dependsOn === undefined ? {} : { dependsOn: input.dependsOn }),
       ...(input.ttlMs === undefined ? {} : { ttlMs: input.ttlMs }),
+      ...(input.deadlineAt === undefined
+        ? {}
+        : { deadlineAt: input.deadlineAt }),
+      ...(input.id === undefined ? {} : { id: input.id }),
     });
     return { id: handle.id };
+  },
+
+  blobs: {
+    enqueueVision: async (input) => {
+      const handle = await app.enqueue({
+        kind: "llm.vision",
+        owner: await ensureUser(input.owner),
+        payload: {
+          messages: [
+            {
+              role: "user",
+              content: [
+                { type: "text", text: input.text },
+                ...input.images.map((image) => ({
+                  type: "image" as const,
+                  image,
+                })),
+              ],
+            },
+          ],
+        },
+        ...(input.deadlineAt === undefined
+          ? {}
+          : { deadlineAt: input.deadlineAt }),
+      });
+      return { id: handle.id };
+    },
+    slot: (input) => app.blobSlot(input),
+    upload: (blob, data) => app.uploadBlob(blob, data),
+    collect: async (jobId) => ({
+      state: (await app.result(jobId))?.state ?? "unknown",
+    }),
+    images: (jobId, options) => app.images(jobId, options),
+    // Read the way the kit means it: every row, and every object's bytes as
+    // the bucket holds them — not through the adapter's own getBlob.
+    stored: async () => {
+      const { data, error } = await client.from("byollm_blobs").select();
+      if (error) throw new Error(`byollm_blobs: ${error.message}`);
+      const rows = data as {
+        id: string;
+        job_id: string;
+        direction: "in" | "out";
+        stored_bytes: number | null;
+        delete_at: string;
+        created_at: string;
+      }[];
+      return Promise.all(
+        rows.map(async (row) => {
+          let bytes: Uint8Array | null = null;
+          if (row.stored_bytes !== null) {
+            const file = await client.storage
+              .from(BLOB_BUCKET)
+              .download(row.id);
+            if (file.error)
+              throw new Error(`blob ${row.id}: ${file.error.message}`);
+            bytes = new Uint8Array(await file.data.arrayBuffer());
+          }
+          return {
+            id: row.id,
+            jobId: row.job_id,
+            direction: row.direction,
+            data: bytes,
+            deleteAt: Date.parse(row.delete_at),
+            createdAt: Date.parse(row.created_at),
+          };
+        }),
+      );
+    },
+    records: async () => {
+      const { data, error } = await client.from("byollm_jobs").select();
+      if (error) throw new Error(`byollm_jobs: ${error.message}`);
+      return JSON.stringify(data);
+    },
   },
 
   approvePairing: async (userCode, owner) => {
@@ -214,6 +291,17 @@ const target: ConformanceTarget = {
     for (const [table, key] of tables) {
       const { error } = await client.from(table).delete().not(key, "is", null);
       if (error) throw new Error(`reset ${table}: ${error.message}`);
+    }
+    // Blobs: the objects, then their rows.
+    const { data: rows } = await client.from("byollm_blobs").select("id");
+    const ids = ((rows ?? []) as { id: string }[]).map((row) => row.id);
+    if (ids.length > 0) {
+      await client.storage.from(BLOB_BUCKET).remove(ids);
+      const { error } = await client
+        .from("byollm_blobs")
+        .delete()
+        .in("id", ids);
+      if (error) throw new Error(`reset byollm_blobs: ${error.message}`);
     }
   },
 };

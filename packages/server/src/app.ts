@@ -1,6 +1,18 @@
 import {
+  BlobRef,
   ENVELOPE_MAX_AGE_MS,
   KindedPayload,
+  MAX_IMAGE_BYTES,
+  blobObjectBytes,
+  decryptBlob,
+  encryptBlob,
+  isBlobObjectSize,
+  newBlobId,
+  sniffImage,
+  visionImages,
+  withinImageCaps,
+  type ImageMediaType,
+  type VisionPayload,
   keyId,
   payloadTextLength,
   publicIdentityOf,
@@ -22,9 +34,24 @@ import {
   type ResultDelivery,
   type WaitOptions,
 } from "./delivery.js";
+import {
+  BLOBS_KEPT_AFTER_DEADLINE_MS,
+  OUTPUT_KEPT_AFTER_COLLECTION_MS,
+  blobFault,
+  wrapBlobKey,
+} from "./blobs.js";
 import { generateJobId, generateRunnerId } from "./ids.js";
+import { stripImageMetadata } from "./image-metadata.js";
 import { CloudLane, type CloudLaneOptions } from "./cloud.js";
-import type { EnqueueInput, JobRecord, RunnerRecord } from "./records.js";
+import { deadlineFor } from "./records.js";
+import type {
+  EnqueueInput,
+  JobRecord,
+  RunnerRecord,
+  SiteImage,
+  SiteVisionPayload,
+  StoredOutcome,
+} from "./records.js";
 import type { ByollmStore } from "./store.js";
 
 /**
@@ -122,8 +149,45 @@ export interface JobHandle {
   readonly record: JobRecord;
   /** Wait for a terminal outcome. */
   result(options?: WaitOptions): Promise<DeliveredResult>;
+  /**
+   * An `llm.image` job's images, opened and verified — see
+   * {@link ByollmApp.images}.
+   */
+  images(options?: ImagesOptions): Promise<SiteImageOutput[]>;
   /** Ask the runner to stop. */
   cancel(): Promise<void>;
+}
+
+/**
+ * One output image as the app receives it — bytes, type and size, and never
+ * a key (byollm_021 §2, §4).
+ *
+ * Verified before it is handed over: it decrypted under this job and this
+ * blob as an output, its hash is its reference's, and its header says the
+ * declared type and dimensions within the caps. It is still somebody's
+ * model's output: serve it only with `mediaType` as its `Content-Type` and
+ * `X-Content-Type-Options: nosniff` — bytes, never a document
+ * ({@link MUSTS.OUTPUT_INERT}).
+ */
+export interface SiteImageOutput {
+  readonly mediaType: ImageMediaType;
+  readonly width: number;
+  readonly height: number;
+  readonly bytes: Uint8Array;
+}
+
+export interface ImagesOptions {
+  /**
+   * Tell the store this site holds the images, so they are deleted now.
+   * Default `true`. `false` leaves them for a later read, until one hour
+   * after the result was first collected (§2).
+   */
+  readonly received?: boolean;
+}
+
+/** Why an image could not be enqueued or collected. */
+export class ImageRefused extends Error {
+  override readonly name = "ImageRefused";
 }
 
 /**
@@ -311,6 +375,31 @@ export class ByollmApp {
       );
     }
 
+    /**
+     * Images ride the cloud lane once the hub serves blobs — byollm_021
+     * §Rollout R2 step 2. Until then a blob uploaded here is one no relayed
+     * device can reach, so the job is refused rather than sent to fail.
+     */
+    if (
+      this.cloud !== undefined &&
+      (input.kind === "llm.vision" || input.kind === "llm.image")
+    ) {
+      throw new Error(
+        `enqueue does not take ${input.kind} on the cloud lane yet: images ` +
+          "travel by reference, and the hub's blob endpoints are not live. " +
+          "Use the direct lane for images until they are.",
+      );
+    }
+
+    // One id for the job, minted before anything is sealed or uploaded:
+    // the envelope binds it, and so does every input blob's associated data.
+    const jobId = input.id ?? generateJobId();
+    const createdAt = this.#now();
+    const payload =
+      input.kind === "llm.vision"
+        ? await this.#uploadImages(jobId, input.payload as SiteVisionPayload)
+        : input.payload;
+
     // Validate the payload against its kind before anything stores it.
     //
     // The schemas are `.strict()`, so this drops a payload carrying fields
@@ -326,13 +415,37 @@ export class ByollmApp {
     // error where the app can act on it.
     const parsed = KindedPayload.safeParse({
       kind: input.kind,
-      payload: input.payload,
+      payload,
     });
     if (!parsed.success) {
       const detail = parsed.error.issues
         .map((issue) => `${issue.path.join(".") || "(root)"}: ${issue.message}`)
         .join("; ");
       throw new Error(`invalid ${input.kind} payload — ${detail}`);
+    }
+
+    // **The size check, before the job exists to be offered** — byollm_021
+    // §2, {@link MUSTS.BLOB_BUDGET_BEFORE_DOWNLOAD}. Every referenced input
+    // is read back from the store and held to its slot: whatever uploaded
+    // it, what is offered is what was stored.
+    if (input.kind === "llm.vision") {
+      for (const ref of visionImages(parsed.data.payload as VisionPayload)) {
+        const fault = await blobFault(this.#store, {
+          jobId,
+          direction: "in",
+          ref,
+          now: createdAt,
+        });
+        if (fault !== null) {
+          await this.#store.deleteBlob({
+            jobId,
+            direction: "in",
+            notAfter: createdAt,
+            now: createdAt,
+          });
+          throw new ImageRefused(`enqueue refused: ${fault}`);
+        }
+      }
     }
 
     // Sealed before it is stored, to this site's own key. The app is the
@@ -358,14 +471,12 @@ export class ByollmApp {
     // record stored `createdAt` from the second, a millisecond later, so
     // nothing could be opened. A fixed clock returns the same number twice
     // and hides it completely.
-    const createdAt = this.#now();
     // Independent of the job's TTL, deliberately. Binding the envelope to
     // `createdAt + ttl` meant the app had to decide a TTL in order to seal —
     // which overrode the store's own default and broke every expiry test.
     // The two answer different questions: how long the work is worth doing,
     // and how long the ciphertext is worth keeping.
     const envelopeDeadlineAt = createdAt + ENVELOPE_MAX_AGE_MS;
-    const jobId = input.id ?? generateJobId();
     const senderKeyId = keyId(publicIdentityOf(this.#siteKeys).identity);
     const envelope = await seal({
       plaintext: JSON.stringify(parsed.data.payload),
@@ -420,9 +531,23 @@ export class ByollmApp {
     // relay that is down costs a routing delay rather than a lost job.
     await this.cloud?.publish(record);
 
+    // The inputs now go with the job: a day after its deadline, unless the
+    // result is accepted first. Not for a job still blocked on another,
+    // whose TTL clock has not started — its blobs keep the envelope's own
+    // bound, past which nothing could open the job anyway.
+    if (input.kind === "llm.vision" && record.claimableAt !== null) {
+      await this.#store.deleteBlob({
+        jobId: record.id,
+        direction: "in",
+        notAfter: deadlineFor(record, createdAt) + BLOBS_KEPT_AFTER_DEADLINE_MS,
+        now: createdAt,
+      });
+    }
+
     return {
       id: record.id,
       record,
+      images: (options?: ImagesOptions) => this.images(record.id, options),
       result: (options?: WaitOptions) =>
         this.#delivery.waitFor(record.id, options),
       cancel: async () => {
@@ -448,11 +573,227 @@ export class ByollmApp {
   async result(jobId: string): Promise<DeliveredResult | null> {
     const job = await this.job(jobId);
     if (!job) return null;
+    if (job.outcome !== null && "images" in job.outcome) {
+      // Collected: the output blobs now go within the hour, unless the site
+      // says sooner that it holds them (byollm_021 §2). **Not now** — the
+      // site downloads its images after it collects, and deleting them here
+      // is the order CW's finding 5 caught (C059). Only ever brought
+      // forward, so reading the result again does not extend it.
+      const now = this.#now();
+      await this.#store.deleteBlob({
+        jobId: job.id,
+        direction: "out",
+        notAfter: now + OUTPUT_KEPT_AFTER_COLLECTION_MS,
+        now,
+      });
+    }
     return {
       jobId: job.id,
       state: job.state,
-      ...(job.outcome === null ? {} : { outcome: job.outcome }),
+      ...(job.outcome === null ? {} : { outcome: deliverable(job.outcome) }),
       ...(job.provenance === null ? {} : { provenance: job.provenance }),
+    };
+  }
+
+  /**
+   * An `llm.image` job's images: downloaded, decrypted, verified, and handed
+   * over as bytes — byollm_021 §2 and §4.
+   *
+   * Each must be stored, this job's output and exactly its slot's size; open
+   * under this job, this blob and `out`; hash to its reference; and carry a
+   * header that says the declared type and dimensions within the caps
+   * ({@link MUSTS.BLOB_BOUND_TO_JOB}, {@link MUSTS.MEDIA_VERIFIED}). One
+   * failure refuses the lot, with {@link ImageRefused}.
+   *
+   * Then, unless `received: false`, it tells the store this site holds them,
+   * and they are deleted. Reading them counts as collecting the result, so
+   * without `received` they go one hour after the first read.
+   */
+  async images(
+    jobId: string,
+    options: ImagesOptions = {},
+  ): Promise<SiteImageOutput[]> {
+    const delivered = await this.result(jobId);
+    const job = await this.#store.get(jobId);
+    if (delivered === null || job === null) {
+      throw new ImageRefused(`no job ${jobId}`);
+    }
+    if (job.outcome === null || !("images" in job.outcome)) {
+      throw new ImageRefused(
+        `job ${jobId} has no images (state: ${job.state})`,
+      );
+    }
+    const now = this.#now();
+    const out: SiteImageOutput[] = [];
+    for (const stored of job.outcome.images) {
+      const { wrappedKey, ...rest } = stored;
+      const ref = BlobRef.parse({
+        ...rest,
+        key: wrapBlobKey(this.#siteKeys, job.id, stored.blob, wrappedKey),
+      });
+      const fault = await blobFault(this.#store, {
+        jobId: job.id,
+        direction: "out",
+        ref,
+        now,
+      });
+      const blob = await this.#store.getBlob(ref.blob);
+      if (fault !== null || blob?.data == null) {
+        throw new ImageRefused(fault ?? `blob ${ref.blob} is gone`);
+      }
+      const opened = await decryptBlob({
+        object: blob.data,
+        ref,
+        jobId: job.id,
+        direction: "out",
+      });
+      if (!opened.ok) throw new ImageRefused(opened.message);
+      out.push({
+        mediaType: ref.mediaType,
+        width: ref.width,
+        height: ref.height,
+        bytes: opened.bytes,
+      });
+    }
+    if (options.received !== false) await this.received(jobId);
+    return out;
+  }
+
+  /**
+   * Tell the store this site holds a job's output images, so they are
+   * deleted now — the direct lane's `POST /relay/blobs/received`.
+   * {@link ByollmApp.images} sends it after every image has verified.
+   */
+  async received(jobId: string): Promise<void> {
+    const now = this.#now();
+    await this.#store.deleteBlob({
+      jobId,
+      direction: "out",
+      notAfter: now,
+      now,
+    });
+  }
+
+  /**
+   * Issue an upload slot for one input image of a job not yet enqueued —
+   * the direct lane's `POST /relay/blobs`.
+   *
+   * `bytes` is the object's size, padded plus overhead (`blobObjectBytes`).
+   * `enqueue` does this itself for images given as bytes; this is for a
+   * caller that encrypts its own, and so holds a key by choice. What it
+   * uploads is held to `bytes` at enqueue, not here.
+   */
+  async blobSlot(input: {
+    readonly jobId: string;
+    readonly bytes: number;
+  }): Promise<{ readonly blob: string }> {
+    if (!isBlobObjectSize(input.bytes)) {
+      throw new ImageRefused(
+        "a slot is whole 256 KiB buckets plus 40 bytes, up to one image at the cap",
+      );
+    }
+    const now = this.#now();
+    const blob = newBlobId();
+    await this.#store.putBlob({
+      id: blob,
+      jobId: input.jobId,
+      direction: "in",
+      slotBytes: input.bytes,
+      data: null,
+      // Bounded before the job exists: past the envelope's own age nothing
+      // could open the job it is for. `enqueue` brings it forward to the
+      // job's deadline plus a day.
+      deleteAt: now + ENVELOPE_MAX_AGE_MS + BLOBS_KEPT_AFTER_DEADLINE_MS,
+      createdAt: now,
+    });
+    return { blob };
+  }
+
+  /**
+   * Upload ciphertext under a slot from {@link ByollmApp.blobSlot} — what
+   * the presigned `PUT` is on the hub. Once per slot. Stored as given: the
+   * size is checked at enqueue, against what was stored.
+   */
+  async uploadBlob(blobId: string, data: Uint8Array): Promise<void> {
+    const blob = await this.#store.getBlob(blobId);
+    if (blob?.direction !== "in" || blob.data !== null) {
+      throw new ImageRefused(`no empty input slot ${blobId}`);
+    }
+    await this.#store.putBlob({ ...blob, data });
+  }
+
+  /**
+   * Turn each image a site handed over as bytes into a reference: checked,
+   * stripped, encrypted, uploaded. A reference given as one is left alone
+   * and checked with the rest at enqueue.
+   */
+  async #uploadImages(
+    jobId: string,
+    payload: SiteVisionPayload,
+  ): Promise<VisionPayload> {
+    const messages = [];
+    for (const message of payload.messages) {
+      if (typeof message.content === "string") {
+        messages.push(message);
+        continue;
+      }
+      const content = [];
+      for (const part of message.content) {
+        content.push(
+          part.type === "image"
+            ? {
+                type: "image" as const,
+                image: await this.#upload(jobId, part.image),
+              }
+            : part,
+        );
+      }
+      messages.push({ role: "user" as const, content });
+    }
+    return { ...payload, messages } as VisionPayload;
+  }
+
+  async #upload(jobId: string, image: SiteImage): Promise<BlobRef> {
+    if (!(image instanceof Uint8Array) && "key" in image) return image;
+    const given = image instanceof Uint8Array ? image : image.bytes;
+    const keep = !(image instanceof Uint8Array) && image.keepMetadata === true;
+    const sniffed = sniffImage(given);
+    if (sniffed === null) {
+      throw new ImageRefused(
+        "an image must be PNG, JPEG or WebP; SVG, GIF, HEIC and AVIF are " +
+          "refused — convert it first",
+      );
+    }
+    const bytes = keep ? given : stripImageMetadata(given, sniffed.mediaType);
+    if (bytes === null) {
+      throw new ImageRefused(
+        `this ${sniffed.mediaType} could not be parsed to strip its metadata`,
+      );
+    }
+    if (bytes.length > MAX_IMAGE_BYTES || !withinImageCaps(sniffed)) {
+      throw new ImageRefused(
+        "an image is at most 20 MiB, 8,192 px a side and 40 megapixels",
+      );
+    }
+    const { blob } = await this.blobSlot({
+      jobId,
+      bytes: blobObjectBytes(bytes.length),
+    });
+    const sealed = await encryptBlob({
+      plaintext: bytes,
+      jobId,
+      blobId: blob,
+      direction: "in",
+    });
+    await this.uploadBlob(blob, sealed.object);
+    return {
+      blob,
+      mediaType: sniffed.mediaType,
+      bytes: bytes.length,
+      width: sniffed.width,
+      height: sniffed.height,
+      sha256: sealed.sha256,
+      key: sealed.key,
     };
   }
 
@@ -680,7 +1021,12 @@ export class ByollmApp {
 
   /** Run the expiry sweep. Idempotent; safe to call on a timer or a request. */
   async sweep(): Promise<JobRecord[]> {
-    return this.#store.expireDue(this.#now());
+    const now = this.#now();
+    const expired = await this.#store.expireDue(now);
+    // §2: every blob past its own deletion time — an uncollected job's a
+    // day after its deadline, an output an hour after collection.
+    await this.#store.deleteBlob({ due: now });
+    return expired;
   }
 
   // -- the site plane of the tool endpoints — byollm_012 §5.2 --------------
@@ -753,4 +1099,12 @@ export class ByollmApp {
 export function normalizeUserCode(input: string): string {
   const bare = input.toUpperCase().replace(/[^A-Z0-9]/g, "");
   return bare.length === 8 ? `${bare.slice(0, 4)}-${bare.slice(4)}` : bare;
+}
+
+/**
+ * An outcome as the app receives it. An `llm.image` answer's references
+ * stay behind — the app reads its images through `images()`, as bytes.
+ */
+function deliverable(outcome: StoredOutcome): DeliveredResult["outcome"] {
+  return "images" in outcome ? { outcome: "ok", text: outcome.text } : outcome;
 }

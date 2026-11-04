@@ -1,4 +1,6 @@
 import type {
+  BlobRef,
+  ChatMessage,
   PayloadFor,
   PublicIdentity,
   Audience,
@@ -88,10 +90,34 @@ export interface JobRecord {
   readonly refusedBy: readonly string[];
   /** How many times this job has been claimed, including lease-expiry retries. */
   readonly attempts: number;
-  readonly outcome: JobOutcome | null;
+  readonly outcome: StoredOutcome | null;
   readonly provenance: ResultProvenance | null;
   readonly updatedAt: number;
 }
+
+/**
+ * An output image's reference as this site keeps it — byollm_021 §2.
+ *
+ * {@link BlobRef} with its key wrapped under a pad only this site can
+ * compute (`wrapBlobKey`), so the store holds the reference and nothing that
+ * opens the blob it names ({@link MUSTS.BLOBS_SEALED}). The app never sees
+ * either form: `ByollmApp.images` opens the blobs and hands over bytes.
+ */
+export interface StoredImageRef extends Omit<BlobRef, "key"> {
+  readonly wrappedKey: string;
+}
+
+/**
+ * A job's outcome as stored: a {@link JobOutcome}, or an `llm.image` answer
+ * whose references are {@link StoredImageRef}s.
+ */
+export type StoredOutcome =
+  | JobOutcome
+  | {
+      readonly outcome: "ok";
+      readonly text: string;
+      readonly images: readonly StoredImageRef[];
+    };
 
 /** A paired daemon as the server stores it. */
 export interface RunnerRecord {
@@ -171,10 +197,51 @@ export interface PairingRecord {
  * permissive union — the conditional distributes — so nothing that was legal
  * and correct stops compiling.
  */
+/**
+ * An image a site hands to `enqueue` — byollm_021 §2 and §4.
+ *
+ * **Bytes, never a key.** The SDK reads the type and size from the header,
+ * strips the metadata (where the photo was taken, by default), pads and
+ * encrypts it under a fresh key, uploads the ciphertext, and puts the
+ * reference — key included — only inside the sealed payload. The app never
+ * holds the key and never needs to.
+ *
+ * `keepMetadata: true` uploads the image as given, for an app that has
+ * already decided what it carries. A {@link BlobRef} is accepted too, for a
+ * caller that uploaded and encrypted under its own slot; that caller holds a
+ * key by choice, and the SDK checks the stored object as it would its own.
+ */
+export type SiteImage =
+  | Uint8Array
+  | { readonly bytes: Uint8Array; readonly keepMetadata?: boolean }
+  | BlobRef;
+
+/** A part of a vision turn as a site writes it: text, or a {@link SiteImage}. */
+export type SiteVisionPart =
+  | { readonly type: "text"; readonly text: string }
+  | { readonly type: "image"; readonly image: SiteImage };
+
+/** An `llm.vision` payload as a site writes it, images as {@link SiteImage}. */
+export interface SiteVisionPayload {
+  readonly messages: readonly (
+    | ChatMessage
+    | { readonly role: "user"; readonly content: readonly SiteVisionPart[] }
+  )[];
+  readonly system?: string | undefined;
+}
+
+/** What `enqueue` takes for a kind: the protocol's payload, but images as bytes. */
+export type SitePayloadFor<K extends JobKind> = K extends "llm.vision"
+  ? SiteVisionPayload
+  : PayloadFor<K>;
+
 export interface EnqueueInput<K extends JobKind = JobKind> {
   readonly kind: K;
-  /** The work, in plaintext. The server seals it before it is stored. */
-  readonly payload: PayloadFor<K>;
+  /**
+   * The work, in plaintext. The server seals it before it is stored. An
+   * `llm.vision` job's images are bytes ({@link SiteImage}).
+   */
+  readonly payload: SitePayloadFor<K>;
   readonly owner: string;
   /**
    * Direct lane only. Refused on the cloud lane, where it is derived.

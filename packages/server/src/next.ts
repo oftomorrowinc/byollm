@@ -11,7 +11,7 @@ import type { HandlerConfig } from "./handlers.js";
  * import { siteKeysFromEnv } from "@byollm/server";
  * import { getStore } from "@/lib/byollm";
  *
- * export const { POST } = createHandler(() => ({
+ * export const { POST, GET, PUT } = createHandler(() => ({
  *   store: getStore(),
  *   siteKeys: siteKeysFromEnv("BYOLLM_SITE_KEYS"),
  *   verificationUrl: "https://your-app.com/settings/runners",
@@ -56,8 +56,13 @@ export function createHandler(
   config: NextHandlerConfig | (() => NextHandlerConfig),
 ): {
   POST: (request: Request) => Promise<Response>;
-  /** Present so a stray GET gets a clear 405 rather than a framework 404. */
+  /**
+   * Serves blob downloads (byollm_021 §2), and gives a stray GET a clear
+   * answer rather than a framework 404.
+   */
   GET: (request: Request) => Promise<Response>;
+  /** Serves a device's output-image uploads (byollm_021 §2). */
+  PUT: (request: Request) => Promise<Response>;
   /** Route handlers must not be cached — every call mutates lease state. */
   dynamic: "force-dynamic";
 } {
@@ -75,6 +80,7 @@ export function createHandler(
   return {
     POST: handler,
     GET: handler,
+    PUT: handler,
     dynamic: "force-dynamic",
   };
 }

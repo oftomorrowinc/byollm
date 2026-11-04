@@ -17,7 +17,10 @@
 
 export {
   ByollmApp,
+  ImageRefused,
   normalizeUserCode,
+  type ImagesOptions,
+  type SiteImageOutput,
   type AvailabilityQuery,
   type ByollmAppOptions,
   type JobHandle,
@@ -37,6 +40,7 @@ export {
 export {
   ByollmHandlers,
   SERVED_PROTOCOL_VERSION,
+  type BlobTransfer,
   type HandlerConfig,
   type HandlerResult,
 } from "./handlers.js";
@@ -63,6 +67,12 @@ export {
 
 export type {
   EnqueueInput,
+  SiteImage,
+  SitePayloadFor,
+  SiteVisionPart,
+  SiteVisionPayload,
+  StoredImageRef,
+  StoredOutcome,
   JobRecord,
   PairingRecord,
   RunnerRecord,
@@ -72,7 +82,10 @@ export type {
   AnswerToolCallArgs,
   AnswerToolCallResult,
   ApproveArgs,
+  BlobStore,
   ByollmStore,
+  DeleteBlobArgs,
+  StoredBlob,
   ClaimArgs,
   AdoptArgs,
   CompleteArgs,

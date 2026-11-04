@@ -92,6 +92,11 @@ export interface Harness<S extends ByollmStore = MemoryStore> {
     set(ms: number): void;
   };
   readonly store: S;
+  /**
+   * The site's keys — what a test playing a daemon seals a tool call to, and
+   * what a second `ByollmApp` over the same store needs to be the same site.
+   */
+  readonly siteKeys: StoredKeys;
   readonly app: ByollmApp;
   readonly handlers: ByollmHandlers;
   /** Pair a daemon end to end and return its ids and signing keys. */
@@ -338,5 +343,5 @@ export function createHarness<S extends ByollmStore = MemoryStore>(
     };
   }
 
-  return { clock, store, app, handlers, pair, call, resultBody };
+  return { clock, store, siteKeys, app, handlers, pair, call, resultBody };
 }

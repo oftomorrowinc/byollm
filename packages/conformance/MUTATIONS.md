@@ -838,6 +838,53 @@ refusal in the contract, the timeout, a requeue's calls out of reach but
 counted, deletion at `ok`, and `anon` unable to execute. It has no automated
 run in `verify`, as the rest of the adapter has none.
 
+## Verified 2026-11-03 — the site SDK's tool work (#6933 card 4, #7056)
+
+byollm_012 §12's C040 whole, and the site SDK's halves of C046 and C047,
+with this card's red-team case beside them. Each was run against its
+mutation, seen to fail, and reverted. The server mutations were run with
+`pnpm exec vitest run packages/server/src/site-tools.test.ts`; the relay
+ones with `pnpm exec vitest run packages/relay/test/site-sdk-tools.test.ts`,
+after `pnpm run build`, because the relay's suite imports `@byollm/server`
+from its build.
+
+| Check                               | File                                | Mutation                                                                                                | Result                                                                 |
+| ----------------------------------- | ----------------------------------- | ------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------- |
+| C040 the site SDK's budget          | `packages/server/src/site-tools.ts` | Drop the SDK's count: let a `budget` refusal from `chargeToolCall` fall through to the handler          | ✓ bites — both C040 cases                                              |
+| C040, across processes              | `packages/server/src/site-tools.ts` | Count in a `Map` on the `SiteTools` instance instead of in the store                                    | ✓ bites — only "keeps the count across pump cycles in fresh processes" |
+| Red-team: another purpose's handler | `packages/server/src/site-tools.ts` | Drop the check that the call names a tool the job's own payload declares                                | ✓ bites — only "never runs another purpose's handler for this job"     |
+| Arguments before the handler        | `packages/server/src/site-tools.ts` | Drop the `toolArgumentsRefusal` check                                                                   | ✓ bites — only "refuses arguments the declaration does not admit"      |
+| C047 SDK half: the digest           | `packages/server/src/app.ts`        | Digest over the job's budget instead of the purpose's limits                                            | ✓ bites — "sends the digest of exactly what it declares"               |
+| C047 SDK half: beside the stub      | `packages/server/src/cloud.ts`      | Send no `tools` beside the stub                                                                         | ✓ bites — the relay refuses every `llm.tools` enqueue; four cases fail |
+| C047 SDK half: the refusal          | `packages/server/src/cloud.ts`      | Read the hub's mismatch sentence as `RelayUnavailable`, not `EnqueueRefused("tools-manifest-mismatch")` | ✓ bites — only "is refused as tools-manifest-mismatch"                 |
+| C047 relay: the verdict             | `packages/relay/src/site-plane.ts`  | Ignore a `tools-mismatch` verdict, so the job is queued                                                 | ✓ bites — only "is refused as tools-manifest-mismatch"                 |
+| C046 SDK half                       | `packages/server/src/app.ts`        | Size an `llm.tools` job as `llm.chat`, by its prompt alone                                              | ✓ bites — only "classes the job by its prompt plus maxToolResultChars" |
+| 404 on `calls` (021 R2)             | `packages/server/src/cloud.ts`      | Drop the 404 reading, so `calls` 404 fails the cycle                                                    | ✓ bites — only "reads 404 on calls as no tools"                        |
+
+**C040 is whole and lives in the server's suite, not the kit's.** The brief's
+"the kit posts maxToolCalls + 1 valid sealed calls on the direct lane" is
+played by the server harness's signer, which signs the way a daemon does.
+The kit certifies a daemon-facing server and has no handle on a site's
+handlers, and the site's count is what is under test. `TOOLS_BUDGETED` stays
+`pending`: C038 is the daemon's (card 3), and C046's daemon half is too.
+`TOOLS_MATCH_CONSENT` stays `pending` for the same reason (C035 and C036 are
+the daemon's), and C047's hub half is byollm-cloud's `satisfiable` (card 9),
+which the relay now gives a verdict for: `tools-mismatch`.
+
+**The count is durable.** `chargeToolCall` is a store method because a
+serverless site runs each pump cycle in a fresh process. The second C040 case
+pumps from a second `ByollmApp` over the same store, and the in-memory
+mutation shows it is the case that tells the two apart.
+
+The Supabase SQL (`20261104010000_tool_charges.sql`) was exercised against
+the local stack with `packages/server/supabase/probes/tool-charges.sql`,
+inside a transaction that rolled back. It covered a charge counted once, the
+budget, a re-run of a charged call, an unknown job and a closed job, charges
+deleted at `canceled`, in-flight with a queued tool job and with only a chat
+job, and `anon` unable to execute either function. Every line matched its
+expectation. The adapter's TypeScript calling it has no automated run in
+`verify`, as the rest of the adapter has none.
+
 ## Verified 2026-11-04 — images by reference (byollm_021 §10, #7057)
 
 Card 5's checks, numbered as byollm_021 §10 numbers them after #7053's

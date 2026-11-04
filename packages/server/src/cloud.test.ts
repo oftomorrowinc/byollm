@@ -52,6 +52,12 @@ function fakeRelay(answers: {
     if (url.pathname === "/relay/site/pending") {
       return Promise.resolve(Response.json({ jobs: answers.pending ?? [] }));
     }
+    // The tool calls waiting on this site — byollm_012 §5.2. None here: these
+    // cases are about payloads and results, and a relay that carries tools
+    // says so with an empty list, not with another endpoint's shape.
+    if (url.pathname === "/relay/site/calls") {
+      return Promise.resolve(Response.json({ calls: [] }));
+    }
     return Promise.resolve(Response.json({ jobs: answers.results ?? [] }));
   };
   return { fetchImpl, posted };
@@ -295,6 +301,7 @@ describe("a relay that says ask me later — alpha.31", () => {
   function refusing(endpoint: string, status: number, error: string) {
     const bodies: Record<string, unknown> = {
       pending: { jobs: [] },
+      calls: { calls: [] },
       results: { jobs: [] },
       enqueue: { accepted: true },
       payload: { accepted: true },
@@ -320,7 +327,9 @@ describe("a relay that says ask me later — alpha.31", () => {
     return impl;
   }
 
-  for (const endpoint of ["pending", "results"]) {
+  // `calls` too — byollm_012 §5.2's step between the two. A drain there is
+  // the same polite answer, and only a 404 means "no tools here".
+  for (const endpoint of ["pending", "calls", "results"]) {
     it(`defers rather than crashing when ${endpoint} is draining`, async () => {
       const { app } = appWith(refusing(endpoint, 503, "not-ready"));
       const report = await app.cloud!.pump();
@@ -349,7 +358,7 @@ describe("a relay that says ask me later — alpha.31", () => {
         );
       }
       return Promise.resolve(
-        new Response(JSON.stringify({ jobs: [], accepted: true }), {
+        new Response(JSON.stringify({ jobs: [], calls: [], accepted: true }), {
           headers: { "content-type": "application/json" },
         }),
       );

@@ -16,6 +16,8 @@ import type {
   AnswerToolCallResult,
   ApproveArgs,
   ByollmStore,
+  ChargeToolCallArgs,
+  ChargeToolCallResult,
   ClaimArgs,
   AdoptArgs,
   CompleteArgs,
@@ -81,6 +83,13 @@ export class MemoryStore implements ByollmStore {
    * only; every read filters on the job's current lease.
    */
   readonly #toolCalls = new Map<string, ToolCallRecord[]>();
+  /**
+   * The call ids the site has charged to each job — the site SDK's count
+   * (byollm_012 §8). Separate from {@link #toolCalls}: on the cloud lane the
+   * relay holds the calls and this store has none of them, but the site's
+   * count is still the site's.
+   */
+  readonly #toolCharges = new Map<string, ReadonlySet<string>>();
   readonly #defaultTtlMs: number;
 
   constructor(options: MemoryStoreOptions = {}) {
@@ -414,7 +423,10 @@ export class MemoryStore implements ByollmStore {
     // Deleted with its job — byollm_021 R1. Here rather than at each path
     // that ends a job, for the reason this method exists: complete, expire,
     // cancel and whatever comes next all end a job through this line.
-    if (TERMINAL.has(record.state)) this.#toolCalls.delete(jobId);
+    if (TERMINAL.has(record.state)) {
+      this.#toolCalls.delete(jobId);
+      this.#toolCharges.delete(jobId);
+    }
     this.#notify(jobId);
   }
 
@@ -532,6 +544,33 @@ export class MemoryStore implements ByollmStore {
       if (row !== undefined && row.result !== null) out.push(row);
     }
     return Promise.resolve(out);
+  }
+
+  /** {@link JobStore.chargeToolCall}, with no `await` between count and write. */
+  chargeToolCall(args: ChargeToolCallArgs): Promise<ChargeToolCallResult> {
+    const job = this.#jobs.get(args.jobId);
+    if (!job || TERMINAL.has(job.state)) {
+      return Promise.resolve({ refused: "closed" });
+    }
+    const charged = this.#toolCharges.get(args.jobId) ?? new Set<string>();
+    if (charged.has(args.callId)) {
+      return Promise.resolve({ charged: charged.size });
+    }
+    if (charged.size >= args.maxToolCalls) {
+      return Promise.resolve({ refused: "budget" });
+    }
+    const next = new Set(charged).add(args.callId);
+    this.#toolCharges.set(args.jobId, next);
+    return Promise.resolve({ charged: next.size });
+  }
+
+  toolJobsInFlight(): Promise<boolean> {
+    for (const job of this.#jobs.values()) {
+      if (job.kind === "llm.tools" && !TERMINAL.has(job.state)) {
+        return Promise.resolve(true);
+      }
+    }
+    return Promise.resolve(false);
   }
 
   /**

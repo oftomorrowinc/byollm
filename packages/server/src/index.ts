@@ -50,6 +50,12 @@ export { createFetchHandler, routeEndpoint, signatureFrom } from "./http.js";
 export { formatSiteKeys, generateSiteKeys, siteKeysFromEnv } from "./keys.js";
 export { CloudLane, EnqueueRefused, RelayUnavailable } from "./cloud.js";
 export type { CloudLaneOptions, PumpReport } from "./cloud.js";
+export {
+  ToolError,
+  type ToolContext,
+  type ToolHandler,
+  type ToolsReport,
+} from "./site-tools.js";
 
 export {
   generateDeviceCode,
@@ -84,6 +90,8 @@ export type {
   ApproveArgs,
   BlobStore,
   ByollmStore,
+  ChargeToolCallArgs,
+  ChargeToolCallResult,
   DeleteBlobArgs,
   StoredBlob,
   ClaimArgs,

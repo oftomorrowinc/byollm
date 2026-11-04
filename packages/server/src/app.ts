@@ -26,7 +26,10 @@ import {
   type JobKind,
   type MatchRefusal,
   SiteToolCalls,
+  consentOfPayload,
+  toolsDigest,
   type SealedEnvelope,
+  type SiteEnqueueTools,
 } from "@byollm/protocol";
 import {
   PollingDelivery,
@@ -42,7 +45,8 @@ import {
 } from "./blobs.js";
 import { generateJobId, generateRunnerId } from "./ids.js";
 import { stripImageMetadata } from "./image-metadata.js";
-import { CloudLane, type CloudLaneOptions } from "./cloud.js";
+import { CloudLane, type CloudLaneOptions, type PumpReport } from "./cloud.js";
+import { SiteTools, type ToolHandler } from "./site-tools.js";
 import { deadlineFor } from "./records.js";
 import type {
   EnqueueInput,
@@ -227,6 +231,8 @@ export class ByollmApp {
   readonly #now: () => number;
   readonly #livenessMs: number;
   readonly #delivery: ResultDelivery;
+  /** The site's tool handlers — byollm_012 §5, §6. One set, both lanes. */
+  readonly #tools: SiteTools;
   /** Present only in the cloud lane; the site's side of the relay. */
   readonly cloud: CloudLane | undefined;
 
@@ -235,6 +241,11 @@ export class ByollmApp {
     this.#siteKeys = options.siteKeys;
     this.#now = options.now ?? Date.now;
     this.#livenessMs = options.livenessMs ?? DEFAULT_LIVENESS_MS;
+    this.#tools = new SiteTools({
+      store: options.store,
+      siteKeys: options.siteKeys,
+      now: this.#now,
+    });
     this.cloud =
       options.lane === undefined
         ? undefined
@@ -243,6 +254,7 @@ export class ByollmApp {
             store: options.store,
             siteKeys: options.siteKeys,
             now: this.#now,
+            tools: this.#tools,
           });
 
     /**
@@ -529,7 +541,7 @@ export class ByollmApp {
     // The lane's only intrusion into enqueue, and it is additive: the record
     // is already stored and sealed at rest before anything is published, so a
     // relay that is down costs a routing delay rather than a lost job.
-    await this.cloud?.publish(record);
+    await this.cloud?.publish(record, toolsAtEnqueue(parsed.data));
 
     // The inputs now go with the job: a day after its deadline, unless the
     // result is accepted first. Not for a job still blocked on another,
@@ -1029,6 +1041,67 @@ export class ByollmApp {
     return expired;
   }
 
+  // -- the site's tools — byollm_012 §5, §6, §8 (#6933, card 4) -----------
+
+  /**
+   * Register the handler for one of this site's tools, by the name its
+   * manifest declares.
+   *
+   * The handler runs on this site's servers, with the job's id, user and
+   * purpose (`ToolContext`), for a call that a device sealed to this
+   * site — and only for a job whose own payload declares that tool, within
+   * the job's call budget, with arguments that fit the declaration. Register
+   * every handler in every process that pumps: the request that waits on a
+   * job and the scheduled job that keeps the pump turning alike.
+   *
+   * ```ts
+   * app.tool("web_search", async ({ query }, job) => {
+   *   const hits = await search(String(query), { scope: job.jobId });
+   *   return hits.map((h) => `${h.title} — ${h.url}`).join("\n");
+   * });
+   * ```
+   */
+  tool(name: string, handler: ToolHandler): void {
+    this.#tools.register(name, handler);
+  }
+
+  /**
+   * One pump cycle, on whichever lane this site uses.
+   *
+   * On the cloud lane, {@link CloudLane.pump}: seal payloads for claimed
+   * jobs, answer tool calls, collect results. On the direct lane there are
+   * no payloads to seal or results to collect — the site is the upstream —
+   * so a cycle answers the tool calls waiting in the store, which a daemon
+   * collects at its next `tool-results` poll.
+   *
+   * Run it from the request that waits on a job *and*, while
+   * {@link toolJobsInFlight} is true, from a scheduled job: a serverless
+   * route dies at its platform ceiling, and a tool job can outlive the
+   * request that enqueued it (byollm_012 §5.3).
+   */
+  async pump(): Promise<PumpReport> {
+    if (this.cloud !== undefined) return this.cloud.pump();
+    const { calls } = await this.calls();
+    const tools = await this.#tools.answer(calls, async (answer) => {
+      const kept = await this.toolResult(answer);
+      return "accepted" in kept ? "accepted" : kept.refused;
+    });
+    return { sealed: [], completed: [], refused: [], tools };
+  }
+
+  /**
+   * Whether any of this site's tool jobs is still open — byollm_012 §5.3.
+   *
+   * For a scheduled pump: keep cycling while this is true. Open means
+   * queued, claimed or running, after expired jobs are swept. Queued counts,
+   * because on the cloud lane a job a device has claimed at the relay stays
+   * queued here until a pump adopts it.
+   */
+  async toolJobsInFlight(): Promise<boolean> {
+    await this.#store.expireDue(this.#now());
+    return this.#store.toolJobsInFlight();
+  }
+
   // -- the site plane of the tool endpoints — byollm_012 §5.2 --------------
   //
   // On the direct lane the site is the upstream, so the relay's `calls` and
@@ -1107,4 +1180,28 @@ export function normalizeUserCode(input: string): string {
  */
 function deliverable(outcome: StoredOutcome): DeliveredResult["outcome"] {
   return "images" in outcome ? { outcome: "ok", text: outcome.text } : outcome;
+}
+
+/**
+ * What an `llm.tools` enqueue sends beside its stub — byollm_012 §4, §8.
+ *
+ * `toolsDigest` is computed over exactly what the payload carries, with the
+ * same function the control plane signs into the grant and the device
+ * recomputes at admission, so the hub can refuse code that has drifted from
+ * the manifest of record before anything is queued (C047). `maxToolCalls` is
+ * the job's budget — the lower of the payload's number and its purpose's —
+ * which is what the relay counts against, since it cannot read the payload.
+ *
+ * Undefined for every other kind, so no other enqueue's bytes change.
+ */
+function toolsAtEnqueue(kinded: KindedPayload): SiteEnqueueTools | undefined {
+  if (kinded.kind !== "llm.tools") return undefined;
+  const { payload } = kinded;
+  return {
+    toolsDigest: toolsDigest(consentOfPayload(payload)),
+    maxToolCalls: Math.min(
+      payload.maxToolCalls ?? payload.purposeLimits.maxToolCalls,
+      payload.purposeLimits.maxToolCalls,
+    ),
+  };
 }

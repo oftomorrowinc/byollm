@@ -18,6 +18,8 @@ import type {
   AnswerToolCallResult,
   ApproveArgs,
   ByollmStore,
+  ChargeToolCallArgs,
+  ChargeToolCallResult,
   ClaimArgs,
   AdoptArgs,
   CompleteArgs,
@@ -665,6 +667,26 @@ export function supabaseStore(options: SupabaseStoreOptions): ByollmStore {
         }),
       );
       return rows.map(toToolCall);
+    },
+
+    async chargeToolCall(
+      args: ChargeToolCallArgs,
+    ): Promise<ChargeToolCallResult> {
+      // A job id that is not a uuid names no row here: closed, as on every
+      // other adapter, rather than a cast error.
+      if (!isUuid(args.jobId)) return { refused: "closed" };
+      return unwrap<ChargeToolCallResult>(
+        await db.rpc("byollm_charge_tool_call", {
+          p_job_id: args.jobId,
+          p_call_id: args.callId,
+          p_max_tool_calls: args.maxToolCalls,
+          p_now: iso(args.now),
+        }),
+      );
+    },
+
+    async toolJobsInFlight(): Promise<boolean> {
+      return unwrap<boolean>(await db.rpc("byollm_tool_jobs_in_flight"));
     },
 
     async listCancelRequests(runnerId: string): Promise<LeaseRef[]> {

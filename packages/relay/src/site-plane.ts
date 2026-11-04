@@ -10,6 +10,7 @@ import {
   SiteToolCalls,
   SiteToolResultRequest,
   SiteToolResultResponse,
+  toolsRefusalText,
   verifySiteRequest,
 } from "@byollm/protocol";
 import { z } from "zod";
@@ -195,7 +196,14 @@ export type Satisfiable = (query: {
    */
   readonly toolsDigest?: string;
 }) => Promise<{
-  readonly verdict: "ok" | "not-declared" | "unmapped" | "waiting";
+  /**
+   * `tools-mismatch` — the `toolsDigest` beside an `llm.tools` stub is not
+   * the digest of the manifest of record for its purpose (byollm_012 §4,
+   * C047). The relay answers it with `toolsRefusalText`'s sentence, so the
+   * hub and the site SDK say one thing.
+   */
+  readonly verdict:
+    "ok" | "not-declared" | "unmapped" | "waiting" | "tools-mismatch";
 }>;
 
 /** What `Relay.handle` reconstructs from the request, for signature checking. */
@@ -436,6 +444,28 @@ export class SitePlane {
             `this site does not declare ${request.stub.purpose ?? "that purpose"} — ` +
               "declare it on Developer Sites, and the people who have already " +
               "connected will each map the new slot before it routes",
+          );
+        }
+        if (answer?.verdict === "tools-mismatch") {
+          /**
+           * The site's code and its manifest of record disagree — byollm_012
+           * §4, `TOOLS_MATCH_CONSENT`'s enqueue clause, C047.
+           *
+           * Refused here, with nothing queued, because the alternative is
+           * every device refusing the job after claiming it and the site
+           * seeing only no-runner. `bad-request`, not a new code: a new value
+           * in the closed `WireErrorCode` is breaking on the side nobody
+           * upgraded (`ToolsRefusal`'s docstring), and the sentence is
+           * `toolsRefusalText`'s, which the site SDK reads back into
+           * `EnqueueRefused("tools-manifest-mismatch")`.
+           */
+          return fail(
+            400,
+            "bad-request",
+            toolsRefusalText("tools-manifest-mismatch", {
+              site: siteId,
+              purpose: request.stub.purpose ?? "its purpose",
+            }),
           );
         }
         if (answer?.verdict === "unmapped") {

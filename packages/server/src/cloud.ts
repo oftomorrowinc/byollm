@@ -9,7 +9,10 @@ import {
   publicIdentityOf,
   provenanceFor,
   signSiteRequest,
+  SiteToolCalls,
+  toolsRefusalText,
   type JobStub,
+  type SiteEnqueueTools,
   type PublicIdentity,
   type StoredKeys,
 } from "@byollm/protocol";
@@ -17,6 +20,7 @@ import { deadlineFor } from "./records.js";
 import type { JobRecord } from "./records.js";
 import { resealForDevice } from "./reseal.js";
 import type { ByollmStore } from "./store.js";
+import type { ListedCall, SiteTools, ToolsReport } from "./site-tools.js";
 
 /**
  * The cloud lane — cloud_004 §9.4.
@@ -129,7 +133,13 @@ export class RelayUnavailable extends Error {
  * what the relay can actually send.
  */
 export class EnqueueRefused extends Error {
-  /** `purpose-not-declared`, `slot-unsatisfiable` or `slot-waiting`. */
+  /**
+   * `purpose-not-declared`, `slot-unsatisfiable` or `slot-waiting` — or, for
+   * an `llm.tools` job, `tools-manifest-mismatch`: the tools this site
+   * declares in code for the purpose differ from its registered manifest
+   * (byollm_012 §4, C047). Register the manifest, or fix the declaration;
+   * retrying changes nothing.
+   */
   readonly code: string;
 
   constructor(message: string, code: string) {
@@ -184,8 +194,30 @@ export class EnqueueRefused extends Error {
  */
 const RETRYABLE_AT_ENQUEUE = new Set(["not-ready"]);
 
+/** An endpoint this relay does not have — see `#getUnlessAbsent`. */
+const ABSENT = Symbol("absent");
+
 /** The endpoint where a decline means the job was never queued. */
 const ENQUEUE_ENDPOINT = "enqueue";
+
+/**
+ * How the hub's `tools-manifest-mismatch` sentence ends — byollm_012 §4.
+ *
+ * The hub refuses a mismatch as `bad-request` with `toolsRefusalText`'s
+ * sentence, not with a new code, because a new value in the closed
+ * `WireErrorCode` is breaking on the side nobody upgraded (`ToolsRefusal`'s
+ * docstring). So the sentence is the signal, and this is its fixed tail,
+ * taken from the same function the relay writes it with — the two cannot
+ * drift without this file's test going red.
+ */
+const TOOLS_MISMATCH_TAIL = ((): string => {
+  const marker = "\u0000";
+  const parts = toolsRefusalText("tools-manifest-mismatch", {
+    site: marker,
+    purpose: marker,
+  }).split(marker);
+  return parts[parts.length - 1] ?? "";
+})();
 
 export interface PumpReport {
   /** Jobs sealed to a claiming device this cycle. */
@@ -214,6 +246,20 @@ export interface PumpReport {
    * must not look the same in a log.
    */
   readonly deferred?: string;
+  /**
+   * The tool calls this cycle answered — byollm_012 §5.2 (#6933, card 4).
+   *
+   * Absent when the relay carries no tools (see {@link toolsUnavailable}) or
+   * the cycle deferred before it got there.
+   */
+  readonly tools?: ToolsReport;
+  /**
+   * Why the `calls` step was skipped, when it was: a relay older than 0.1.5
+   * answers `calls` 404, and that is read as "this relay carries no tools",
+   * not as a failure (byollm_021 R2). The rest of the cycle still ran, so a
+   * site that upgrades before its relay keeps working.
+   */
+  readonly toolsUnavailable?: string;
 }
 
 export class CloudLane {
@@ -222,14 +268,18 @@ export class CloudLane {
   readonly #siteKeys: StoredKeys;
   readonly #now: () => number;
   readonly #fetch: typeof fetch;
+  readonly #tools: SiteTools | undefined;
 
   constructor(deps: {
     options: CloudLaneOptions;
     store: ByollmStore;
     siteKeys: StoredKeys;
     now: () => number;
+    /** The site's tool handlers, for the pump's `calls` step. */
+    tools?: SiteTools;
   }) {
     this.#options = deps.options;
+    this.#tools = deps.tools;
     this.#store = deps.store;
     this.#siteKeys = deps.siteKeys;
     this.#now = deps.now;
@@ -243,7 +293,7 @@ export class CloudLane {
    * construction, so this cannot leak a payload even by mistake: there is no
    * field on `JobStub` to put one in.
    */
-  async publish(record: JobRecord): Promise<void> {
+  async publish(record: JobRecord, tools?: SiteEnqueueTools): Promise<void> {
     const stub: JobStub = {
       id: record.id,
       kind: record.kind,
@@ -289,6 +339,12 @@ export class CloudLane {
     await this.#post("enqueue", {
       siteId: this.#options.siteId,
       stub,
+      // Beside the stub, never in it — byollm_012 §4, §8. `stub` is
+      // exhaustive by construction (`STUB_METADATA_EXHAUSTIVE`) and reaches
+      // devices; this reaches the relay and the hub only. Sent exactly for
+      // `llm.tools`, which a 0.1.4 relay refuses anyway, so no other
+      // enqueue's bytes change.
+      ...(tools === undefined ? {} : { tools }),
     });
   }
 
@@ -415,6 +471,12 @@ export class CloudLane {
       sealed.push(claim.jobId);
     }
 
+    // The tool calls waiting on this site — byollm_012 §5.2. Between the
+    // payloads and the results: a payload sealed above may be answered with
+    // a call within the same cycle on a fast device, and a call answered
+    // here may let a result be collected below.
+    const calls = await this.#calls();
+
     /* `ResultDisposition`, not `string` — B064 step 4's extraction surfaced
        this. A hand-written cast of a wire response retypes the shape at the
        consumer, and this field lost its union on the way: the relay declares
@@ -487,7 +549,69 @@ export class CloudLane {
       completed.push(done.jobId);
     }
 
-    return { sealed, completed, refused };
+    return { sealed, completed, refused, ...calls };
+  }
+
+  /**
+   * The pump's `calls` step: collect, run handlers, seal and post.
+   *
+   * **A 404 on `calls` is a relay that carries no tools** — byollm_021 R2,
+   * "0.1.5 site, 0.1.4 hub". It is not a failure: the cycle goes on to
+   * collect results, so a site that upgrades before its relay keeps working.
+   * Asked again every cycle, never remembered, so the cycle after the relay
+   * upgrades answers its calls.
+   *
+   * Only `calls` is read this way. A 404 on `tool-result` is a 0.1.5 relay
+   * saying that one call is not waiting any more, and is reported as late.
+   */
+  async #calls(): Promise<
+    { tools: ToolsReport } | { toolsUnavailable: string }
+  > {
+    const listed = await this.#getUnlessAbsent("calls");
+    if (listed === ABSENT) {
+      return {
+        toolsUnavailable:
+          "the relay carries no tools (404 on calls) — it predates byollm 0.1.5",
+      };
+    }
+    const { calls, unreadable } = readCalls(listed);
+    if (this.#tools === undefined) {
+      // A lane built without the app's handlers has nothing to run them
+      // with; the calls time out at the device, and the report says so.
+      return {
+        tools: {
+          answered: [],
+          errored: [],
+          refused: [],
+          dropped: [...unreadable, ...calls.map((call) => call.callId)],
+          late: [],
+        },
+      };
+    }
+    const tools = await this.#tools.answer(calls, async (answer) => {
+      try {
+        // A 2xx is the relay keeping the answer. Its body is not read: an
+        // answer already sealed and kept is not un-kept by a field this SDK
+        // does not know.
+        await this.#post("tool-result", {
+          siteId: this.#options.siteId,
+          ...answer,
+        });
+        return "accepted";
+      } catch (error) {
+        // `not-found` and `too-late` are about this call alone: it timed out
+        // or its grant ended while the handler ran. Anything else is the
+        // relay's, and the cycle's retry rules apply to it.
+        if (
+          error instanceof RelayUnavailable &&
+          (error.code === "not-found" || error.code === "too-late")
+        ) {
+          return error.code;
+        }
+        throw error;
+      }
+    });
+    return { tools: { ...tools, dropped: [...unreadable, ...tools.dropped] } };
   }
 
   /**
@@ -591,6 +715,19 @@ export class CloudLane {
 
     if (
       endpoint === ENQUEUE_ENDPOINT &&
+      response.status === 400 &&
+      code === "bad-request" &&
+      TOOLS_MISMATCH_TAIL !== "" &&
+      message.endsWith(TOOLS_MISMATCH_TAIL)
+    ) {
+      // The hub compared the `toolsDigest` beside the stub with its manifest
+      // of record and nothing was queued — byollm_012 §4, C047. A refusal,
+      // not an outage: retrying sends the same digest.
+      throw new EnqueueRefused(message, "tools-manifest-mismatch");
+    }
+
+    if (
+      endpoint === ENQUEUE_ENDPOINT &&
       response.status === 409 &&
       !RETRYABLE_AT_ENQUEUE.has(code)
     ) {
@@ -632,18 +769,76 @@ export class CloudLane {
     return this.#answer(response, endpoint);
   }
 
+  /**
+   * A read whose 404 means the relay has no such endpoint — {@link ABSENT}.
+   *
+   * Only for an endpoint added after the site plane first shipped, where a
+   * 404 from an older relay is the expected answer rather than a refusal.
+   */
+  async #getUnlessAbsent(endpoint: string): Promise<unknown> {
+    const response = await this.#fetch(this.#url(endpoint), {
+      headers: this.#headers(endpoint, ""),
+    });
+    if (response.status === 404) return ABSENT;
+    return this.#answer(response, endpoint);
+  }
+
+  /** A GET has no body, so the version rides in the query — `declaredVersion`. */
+  #url(endpoint: string): string {
+    return (
+      `${this.#options.relayOrigin}/relay/site/${endpoint}` +
+      `?siteId=${encodeURIComponent(this.#options.siteId)}` +
+      `&protocolVersion=${encodeURIComponent(PROTOCOL_VERSION)}`
+    );
+  }
+
   async #get(endpoint: string): Promise<unknown> {
     // A GET has no body, so the version rides in the query — the other half
     // of `declaredVersion`, and the reason that helper takes both.
-    const url =
-      `${this.#options.relayOrigin}/relay/site/${endpoint}` +
-      `?siteId=${encodeURIComponent(this.#options.siteId)}` +
-      `&protocolVersion=${encodeURIComponent(PROTOCOL_VERSION)}`;
     // A read signs an empty body: the site id is in the query and in the
     // signed caller slot, and the relay refuses the request unless they agree.
-    const response = await this.#fetch(url, {
+    const response = await this.#fetch(this.#url(endpoint), {
       headers: this.#headers(endpoint, ""),
     });
     return this.#answer(response, endpoint);
   }
+}
+
+/** One entry of the relay's `calls`, as this SDK reads it. */
+const ListedCallSchema = SiteToolCalls.shape.calls.element;
+
+/**
+ * The relay's `calls` answer, read entry by entry.
+ *
+ * Not one strict parse of the whole answer, because that would make one
+ * unreadable entry — or a field a newer relay added — fail the whole pump
+ * cycle, results and all. Each entry is read on its own; one this SDK cannot
+ * read is a call it cannot answer, reported as dropped by its id where it
+ * has one, and the rest are answered. An answer with no `calls` list at all
+ * is not a relay speaking this protocol, and is thrown.
+ */
+function readCalls(listed: unknown): {
+  calls: ListedCall[];
+  unreadable: string[];
+} {
+  const entries = (listed as { calls?: unknown } | null)?.calls;
+  if (!Array.isArray(entries)) {
+    throw new RelayUnavailable(
+      "calls: the relay's answer has no list of calls",
+      false,
+      "bad-response",
+    );
+  }
+  const calls: ListedCall[] = [];
+  const unreadable: string[] = [];
+  for (const entry of entries as unknown[]) {
+    const parsed = ListedCallSchema.safeParse(entry);
+    if (parsed.success) {
+      calls.push(parsed.data);
+      continue;
+    }
+    const callId = (entry as { callId?: unknown } | null)?.callId;
+    if (typeof callId === "string") unreadable.push(callId);
+  }
+  return { calls, unreadable };
 }

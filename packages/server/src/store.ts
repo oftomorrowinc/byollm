@@ -162,7 +162,55 @@ export interface JobStore {
    * named lease on the named job and the call was made under it.
    */
   toolResults(args: ToolResultsArgs): Promise<ToolCallRecord[]>;
+
+  // -- the site SDK's side of a tool job — byollm_012 §5.3, §8 ------------
+  //
+  // On both lanes, because the site's pump runs on both. On the cloud lane
+  // the relay holds the calls and this store holds none of them, so the two
+  // methods below are what the site itself knows: which calls it has run a
+  // handler for, and whether any of its tool jobs is still open.
+
+  /**
+   * Charge one call against its job's budget, before the site runs a handler
+   * for it — the site SDK's counter (§8, C040).
+   *
+   * MUST, in one atomic step: refuse with `closed` a job that does not
+   * exist or is terminal, writing nothing; count the distinct call ids already charged to
+   * the job; if `callId` is among them, answer `charged` with that count and
+   * write nothing (a call answered in an earlier cycle whose answer was lost
+   * may be run again, and is not counted twice); otherwise refuse with
+   * `budget` when the count is already `maxToolCalls`, and else record the
+   * charge and answer the new count. Charges go with their job: a job that
+   * reaches a terminal state, or is deleted, takes them with it.
+   *
+   * Durable on purpose. A serverless site runs each pump cycle in a fresh
+   * process, so a counter held in memory would start from zero every cycle
+   * and refuse nothing.
+   */
+  chargeToolCall(args: ChargeToolCallArgs): Promise<ChargeToolCallResult>;
+
+  /**
+   * Whether any `llm.tools` job of this site is still open — `queued`,
+   * `claimed` or `running` (§5.3, `toolJobsInFlight()`). The app sweeps
+   * expired jobs first, so this reads states and nothing else.
+   *
+   * `queued` counts. On the cloud lane a job a device has claimed at the
+   * relay is still `queued` here until a pump adopts it, and a scheduled pump
+   * that waited for `running` would never run the cycle that gets it there.
+   */
+  toolJobsInFlight(): Promise<boolean>;
 }
+
+export interface ChargeToolCallArgs {
+  readonly jobId: string;
+  readonly callId: string;
+  /** The job's budget: the lower of the payload's number and its purpose's. */
+  readonly maxToolCalls: number;
+  readonly now: number;
+}
+
+export type ChargeToolCallResult =
+  { readonly charged: number } | { readonly refused: "budget" | "closed" };
 
 /** One tool call in flight — a row of the store's tool-call table. */
 export interface ToolCallRecord {

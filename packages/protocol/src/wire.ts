@@ -7,6 +7,7 @@ import { ClaimedStub } from "./job.js";
 import { SealedEnvelope } from "./envelope.js";
 import { JobKind } from "./kinds.js";
 import { TOOL_LIMITS, ToolCallId, ToolsDigest } from "./tools.js";
+import { MAX_BLOB_OBJECT_BYTES } from "./blob.js";
 
 /**
  * Protocol version carried on every request; servers refuse what they can't
@@ -190,7 +191,8 @@ export const PROTOCOL_PREFIX = "/byollm" as const;
 
 /**
  * The endpoint names, in the order byollm_001 lists them, plus `fetch`, plus
- * byollm_012 §5.2's two daemon-plane tool endpoints.
+ * byollm_012 §5.2's two daemon-plane tool endpoints, plus byollm_021 §2's two
+ * daemon-plane blob endpoints.
  *
  * `fetch` is byollm_009 §6's second phase: a claim returns a stub, and the
  * payload is collected separately by the device that took it. Two steps
@@ -200,6 +202,10 @@ export const PROTOCOL_PREFIX = "/byollm" as const;
  * `tool-call` and `tool-results` are called only by a daemon running an
  * `llm.tools` job, which only a 0.1.5 daemon can claim, so a 0.1.4 daemon
  * never meets them and a 0.1.4 upstream answers them 404 (byollm_021 R2).
+ *
+ * `blob-url` and `blob-slot` are called only by a daemon holding the lease of
+ * an `llm.vision` or `llm.image` job, which only a 0.1.5 daemon can claim, so
+ * a 0.1.4 daemon never meets them and a 0.1.4 upstream answers them 404.
  */
 export const ENDPOINTS = Object.freeze([
   "pair",
@@ -210,6 +216,8 @@ export const ENDPOINTS = Object.freeze([
   "release",
   "tool-call",
   "tool-results",
+  "blob-url",
+  "blob-slot",
 ] as const);
 export type Endpoint = (typeof ENDPOINTS)[number];
 
@@ -1232,3 +1240,75 @@ export const SiteToolResultResponse = z
   .object({ jobId: z.string().min(1), callId: ToolCallId })
   .strict();
 export type SiteToolResultResponse = z.infer<typeof SiteToolResultResponse>;
+
+// ---------------------------------------------------------------------------
+// 7. The blob endpoints — byollm_021 §2
+// ---------------------------------------------------------------------------
+//
+// Images travel by reference. The bytes are an encrypted blob in object
+// storage; the reference, with the blob's key, travels only inside the sealed
+// envelope (`BLOBS_SEALED`). These two endpoints never carry a key or a byte
+// of an image: each answers with a short-lived URL, and the daemon moves the
+// ciphertext with a plain `GET` or `PUT` to it — to presigned object storage
+// on the hub, to the server itself on the direct lane. One shape, so a daemon
+// has one code path whichever upstream it is talking to.
+//
+// Both are lease-scoped (`LEASE_SCOPED_BY_GRANT`): no lease, no URL.
+
+/**
+ * `POST /byollm/blob-url` — a download URL for one input blob of a job whose
+ * lease this daemon holds.
+ */
+export const BlobUrlRequest = z
+  .object({
+    protocolVersion: z.literal(PROTOCOL_VERSION),
+    runnerId: z.string().min(1),
+    jobId: z.string().min(1),
+    /** The grant this daemon holds. A URL is issued for it and no other. */
+    leaseId: z.string().min(1),
+    /** The blob, by the id in the payload's reference. */
+    blob: z.string().regex(/^[A-Za-z0-9_-]{1,128}$/),
+  })
+  .strict();
+export type BlobUrlRequest = z.infer<typeof BlobUrlRequest>;
+
+export const BlobUrlResponse = z
+  .object({
+    /** `GET` this for the stored ciphertext. A capability; it expires. */
+    url: z.url(),
+    /** When `url` stops working, epoch ms. */
+    expiresAt: z.number().int(),
+  })
+  .strict();
+export type BlobUrlResponse = z.infer<typeof BlobUrlResponse>;
+
+/**
+ * `POST /byollm/blob-slot` — an upload slot for one output blob of an
+ * `llm.image` job whose lease this daemon holds.
+ *
+ * `bytes` is the size of the object the daemon will store: padded plus
+ * overhead (`blobObjectBytes`). The slot is issued for exactly that size,
+ * and the upstream checks the stored object against it before the result
+ * that references it is accepted.
+ */
+export const BlobSlotRequest = z
+  .object({
+    protocolVersion: z.literal(PROTOCOL_VERSION),
+    runnerId: z.string().min(1),
+    jobId: z.string().min(1),
+    leaseId: z.string().min(1),
+    bytes: z.number().int().min(1).max(MAX_BLOB_OBJECT_BYTES),
+  })
+  .strict();
+export type BlobSlotRequest = z.infer<typeof BlobSlotRequest>;
+
+export const BlobSlotResponse = z
+  .object({
+    /** The id the result's reference names. */
+    blob: z.string().regex(/^[A-Za-z0-9_-]{1,128}$/),
+    /** `PUT` exactly `bytes` of ciphertext here. A capability; it expires. */
+    url: z.url(),
+    expiresAt: z.number().int(),
+  })
+  .strict();
+export type BlobSlotResponse = z.infer<typeof BlobSlotResponse>;

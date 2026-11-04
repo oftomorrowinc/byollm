@@ -135,6 +135,27 @@ export {
 } from "./media.js";
 
 export {
+  BLOB_NONCE_BYTES,
+  BLOB_TAG_BYTES,
+  BlobDirection,
+  MAX_BLOB_OBJECT_BYTES,
+  blobAssociatedData,
+  blobObjectBytes,
+  checkImage,
+  decryptBlob,
+  encryptBlob,
+  isBlobObjectSize,
+  newBlobId,
+  sha256Hex,
+  sniffImage,
+  withinImageCaps,
+  type BlobRefusal,
+  type OpenedBlob,
+  type SealedBlob,
+  type SniffedImage,
+} from "./blob.js";
+
+export {
   SIZE_CLASSES,
   ClaimedJob,
   DeliveredResult,
@@ -292,6 +313,10 @@ export {
   ToolCallResponse,
   ToolResultsRequest,
   ToolResultsResponse,
+  BlobSlotRequest,
+  BlobSlotResponse,
+  BlobUrlRequest,
+  BlobUrlResponse,
   PROTOCOL_PREFIX,
   SUPPORTED_PROTOCOL_VERSIONS,
   checkProtocolVersion,

@@ -129,6 +129,14 @@ function responseShapes(): Record<string, string[]> {
  * paste the new list in.
  */
 const AGREED: Readonly<Record<string, readonly string[]>> = {
+  /**
+   * New schemas, not new keys — byollm_021 §2, #7057. A daemon meets them
+   * only by calling `blob-url` or `blob-slot`, which it does only for an
+   * `llm.vision` or `llm.image` job, which only a daemon that advertised the
+   * kind is offered. No daemon in the field parses either.
+   */
+  BlobSlotResponse: ["blob", "expiresAt", "url"],
+  BlobUrlResponse: ["expiresAt", "url"],
   ClaimResponse: [
     "jobs",
     "jobs[].audience",

@@ -136,6 +136,16 @@ export interface Harness<S extends ByollmStore = MemoryStore> {
     stopReported?: boolean;
     /** The grant the result was produced under — cloud_008 §1.4a. */
     leaseId?: string;
+    /** An `llm.tools` job's counts, sealed into `ran` (byollm_012 §3). */
+    tools?: {
+      toolCalls: number;
+      toolOutcomes: {
+        answered: number;
+        errored: number;
+        timedOut: number;
+        refused: number;
+      };
+    };
   }): Promise<Record<string, unknown>>;
 }
 
@@ -304,6 +314,19 @@ export function createHarness<S extends ByollmStore = MemoryStore>(
     /** Sealed into `ran` — B260. Absent by default, as on most results. */
     stop?: "end" | "length" | "stop-sequence" | "unknown";
     stopReported?: boolean;
+    /**
+     * An `llm.tools` job's counts, sealed into `ran` (byollm_012 §3). Its
+     * answer is read with `ToolsSealedOutcome`, which requires them.
+     */
+    tools?: {
+      toolCalls: number;
+      toolOutcomes: {
+        answered: number;
+        errored: number;
+        timedOut: number;
+        refused: number;
+      };
+    };
   }): Promise<Record<string, unknown>> {
     const envelope = await seal({
       // The sealed shape is `{ outcome, ran }` — cloud_008 §2.5. A daemon
@@ -318,6 +341,7 @@ export function createHarness<S extends ByollmStore = MemoryStore>(
           ...(input.stopReported === undefined
             ? {}
             : { stopReported: input.stopReported }),
+          ...(input.tools ?? {}),
         },
       }),
       senderKeys: input.runner.keys,

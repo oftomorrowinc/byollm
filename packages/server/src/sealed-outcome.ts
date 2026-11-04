@@ -44,9 +44,15 @@ export function openSealedOutcome(input: {
   readonly disposition: JobOutcome["outcome"];
   /**
    * The job's kind, which owns what its answer may carry (byollm_021 R1):
-   * an `llm.image` answer carries image references and no other kind's may.
-   * Omitted means a text kind — the cloud lane, which carries no images
-   * until the hub's blob endpoints exist (byollm_021 §Rollout R2).
+   * an `llm.image` answer carries image references, an `llm.tools` answer
+   * carries `toolCalls` and `toolOutcomes`, and a text kind's may carry
+   * neither. The cloud lane carries no images until the hub's blob endpoints
+   * exist (byollm_021 §Rollout R2).
+   *
+   * Without it every `llm.tools` result failed the strict `SealedOutcome`
+   * parse, on both lanes, so no site could read a tool job's answer — found
+   * by the kit's C033 the first time it played the site (#7116). Omitted
+   * means a text kind.
    */
   readonly kind?: JobKind;
 }): OpenedOutcome {
@@ -58,7 +64,9 @@ export function openSealedOutcome(input: {
   }
 
   const schema =
-    input.kind === "llm.image" ? SealedOutcomeFor(input.kind) : SealedOutcome;
+    input.kind === "llm.image" || input.kind === "llm.tools"
+      ? SealedOutcomeFor(input.kind)
+      : SealedOutcome;
   const sealed = schema.safeParse(parsed);
   if (!sealed.success) {
     return { ok: false, why: "the sealed result was not an outcome" };

@@ -998,3 +998,68 @@ building machine, 2026-11-04: `gemma3:4b` answered "red" and passed (1.3 s);
 `glm-5.2:cloud` answered "unknown" and was refused with "sent an image, the
 model answered \"unknown\" — it is not reading images". The image probe was
 not run live: nothing on that machine serves `/v1/images/generations`.
+
+## Verified 2026-11-04 — byollm_012's daemon checks, lifted into the kit (#7116)
+
+C033–C038, C041–C043 and C046 as kit checks (`src/tool-checks.ts`), against
+the reference target, with the kit playing the site (`src/tools.ts`,
+`ConformanceTarget.site`). The daemon's suites (`tools-at-the-site.test.ts`)
+stay; the mutations below are #7055's (above), applied to the same files and
+run against the **kit** instead: `python3` applied each by exact-string
+replacement, ran `vitest run --project conformance
+packages/conformance/test/reference.test.ts -t C0`, recorded which kit checks
+failed, and restored the file. "Also fails" names the other kit checks the
+same mutation failed.
+
+| Check             | File                                 | Mutation (#7055's unless marked)                                                                           | Result in the kit                                                                                                                                                                                                     |
+| ----------------- | ------------------------------------ | ---------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| C033              | `daemon/src/runner.ts`               | Send the call in the clear: the envelope's `ciphertext` replaced by the call's JSON, base64url             | ✓ bites. Also fails C034, C035, C037, C038, C041, C042, C046 — every check whose site must open a call (C035's control included)                                                                                      |
+| C034              | `daemon/src/tool-loop.ts`            | `spawn(asked.name)` before the send                                                                        | ✓ bites, alone                                                                                                                                                                                                        |
+| C035              | `daemon/src/runner.ts`               | Skip the digest compare: `toolsDigest: undefined`                                                          | ✗ does not bite, and cannot: the reference target is direct-lane and routes no grant, so there is no digest to skip. #7055's cases 1–3 are the cloud lane's and stay in the daemon's suite, where this mutation bites |
+| C035              | `protocol/src/tools.ts`              | Leave the limits out of the digest                                                                         | ✗ does not bite, for the same reason; bites the daemon suite's case 3                                                                                                                                                 |
+| C035              | `protocol/src/tools.ts`              | **New for the kit:** drop the `maxToolCalls > purposeLimits.maxToolCalls` compare in `toolsConsentRefusal` | ✓ bites, alone                                                                                                                                                                                                        |
+| C036              | `daemon/src/tool-loop.ts`            | Let unknown names through: `checkCall` returns `null` for an undeclared name                               | ✓ bites. Also fails C038 (its refused-last-call case calls the undeclared `shell`)                                                                                                                                    |
+| C037              | `daemon/src/tool-loop.ts`            | Drop the callId check: the label's `callId` and the sealed result's `callId`/`seq` compares                | ✓ bites, alone                                                                                                                                                                                                        |
+| C038              | `daemon/src/tool-loop.ts`            | Count after sending: `calls >= budget` → `calls > budget`                                                  | ✓ bites, alone                                                                                                                                                                                                        |
+| C038              | `daemon/src/tool-loop.ts`            | Delete the check at the charge                                                                             | ✓ bites, alone — after the fix below                                                                                                                                                                                  |
+| C038              | `daemon/src/tool-loop.ts`            | The check moved after the switch, where a refusal's `continue` skips it                                    | ✓ bites, alone                                                                                                                                                                                                        |
+| C038              | `daemon/src/tool-loop.ts`            | A check before each call only (the post-call check removed)                                                | ✓ bites, alone                                                                                                                                                                                                        |
+| C041              | `daemon/src/tool-loop.ts`            | Resolve the wait only at the deadline                                                                      | ✓ bites, alone                                                                                                                                                                                                        |
+| C041              | `daemon/src/tool-loop.ts`            | Count a timeout as answered                                                                                | ✓ bites, alone                                                                                                                                                                                                        |
+| C041              | `daemon/src/runner.ts`               | Stop renewing the lease while waiting: `#active.delete` before the loop                                    | ✓ bites. Also fails C034, C037, C038, C046: on a 2-second lease the reference target reclaims the job during any wait, and refuses its result                                                                         |
+| C042              | `daemon/src/tool-loop.ts`            | Log after sending: the `tool-call` line moved after `transport.send`                                       | ✓ bites, alone                                                                                                                                                                                                        |
+| C043              | `daemon/src/backends/openai-http.ts` | Send declarations on every request: `execute` adds a `tools` array                                         | ✓ bites, alone — the kit runs the shipped adapter, so its mutations reach it                                                                                                                                          |
+| C043              | `daemon/src/backends/openai-http.ts` | Read calls on every kind: `execute` passes `{ readsCalls: true }`                                          | ✗ does not bite, as #7055 recorded for its own C043: only `execute-ignores-tool-calls` bites, because the kit's model answers a chat job with text                                                                    |
+| C046              | `daemon/src/tool-loop.ts`            | Hand every result to the model: the cap compare replaced by `false`                                        | ✓ bites, alone                                                                                                                                                                                                        |
+| C046              | `protocol/src/kinds.ts`              | Size the job by its prompt alone: `payloadTextLength` drops `maxToolResultChars`                           | ✓ bites, alone — through the stub the target classed, since the kit's prompt is `small` alone and `medium` with the cap                                                                                               |
+| C033 (the server) | `server/src/sealed-outcome.ts`       | **New:** parse every sealed result as a text kind's (the bug below)                                        | ✓ bites: every tool check but C043                                                                                                                                                                                    |
+
+### The kit's first run found the site could not read a tool job's answer
+
+`@byollm/server` parsed every sealed result with the text kinds'
+`SealedOutcome`, which is strict and has no `toolCalls` or `toolOutcomes`. So
+on both lanes the site refused **every** `llm.tools` result with "the sealed
+result was not an outcome". Nothing caught it: the daemon's suites play their
+own upstream, and the server's tool tests stop at the call endpoints. The
+kit's C033 asserts the target accepted the job's genuine result, and failed on
+its first run. `openSealedOutcome` now takes the job's kind and parses an
+`llm.tools` answer with `SealedOutcomeFor` (the blob cards widen it the same
+way for `llm.image`); both lanes pass it.
+
+### C038's runaway model killed the run instead of failing the check
+
+With the budget check deleted, the kit's model "calls forever" as #7055's does,
+and the vitest worker died ("Worker exited unexpectedly") — red, but by
+crashing the whole certification rather than failing C038. The kit's scripted
+model now stops calling past `TOOL_LIMITS.maxToolCalls + 2` turns, so the run
+ends and C038 fails on its own assertion (`expected 3 calls sent, got …`).
+
+### What the kit does not prove
+
+The kit opens calls with keys the target hands it (`site.keys`), checking only
+that they are the identity the daemon pinned. On the direct lane the server is
+the site and holds them by right. On the cloud lane a relay that kept a copy
+could read every call and these checks would still pass: C033 proves the
+daemon sealed to the site and that the bytes the upstream stores and serves
+carry no plaintext, not that the upstream lacks the key. `RELAY_BLIND`'s own
+verification is where that belongs.

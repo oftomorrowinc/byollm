@@ -40,7 +40,7 @@ byollm conformance — my server
   ✓ C001_PAIRING_BINDS_ONE_USER  a runner token is bound to exactly the approving user  (279ms)
   ✓ C002_JOB_ROUND_TRIP  an enqueued job runs on the owner's daemon and the result comes back  (83ms)
   …
-  37 checks passed — my server is byollm-compatible.
+  47 checks passed — my server is byollm-compatible.
 ```
 
 ## What it actually does
@@ -82,6 +82,12 @@ export default function target(): ConformanceTarget {
     ownerId: (name) => myApp.userIdFor(name),
     // Optional: if you can fake time, the lease and TTL checks run instantly.
     advanceTime: (ms) => myClock.advance(ms),
+    // The site's side of a tool job, for the `llm.tools` checks (C033–C046).
+    site: {
+      keys: mySiteKeys,
+      calls: () => myApp.calls(),
+      toolResult: (input) => myApp.toolResult(input),
+    },
   };
 }
 ```
@@ -96,6 +102,18 @@ Two optional hooks worth knowing about:
   milliseconds. A real Postgres cannot fake its clock, so the kit waits for
   real instead — which is why such a target should declare a short `leaseMs`
   and `ttlMs`.
+
+- **`site`** lets the kit play the site for an `llm.tools` job. `calls` and
+  `toolResult` are your lane's own two site-plane endpoints (the relay's
+  `calls` and `tool-result`, or `ByollmApp.calls` and `ByollmApp.toolResult`
+  on the direct lane), and `keys` are the site's own: the kit opens each call
+  with them, verifying it against the device key the kit itself paired, and
+  seals each answer with them. For these checks the daemon's model is the
+  shipped `openai-http` adapter, answered in-process — no socket is opened and
+  nothing is started for it. Without `site`, every tool check fails and says
+  so. What the kit cannot prove from outside is that a cloud-lane relay does
+  not keep a copy of the site's keys; on the direct lane the server *is* the
+  site, and holds them by right.
 
 ## The checks
 
@@ -117,11 +135,26 @@ Two optional hooks worth knowing about:
 | `C014_RESULT_PROVENANCE`               | community results arrive marked untrusted                    |
 | `C015_INGRESS_BEFORE_EXECUTION`        | every executed prompt is logged                              |
 | `C016_UNAUTHENTICATED_REFUSED`         | endpoints refuse an unknown token                            |
+| …                                      | (C017–C032: see `src/checks.ts`)                             |
+| `C033_TOOL_CALL_LEAVES_SEALED`         | a tool call reaches the site sealed, and only the site opens it |
+| `C034_NOTHING_RUNS_ON_THE_DEVICE`      | a hostile site's tools start nothing and connect nowhere     |
+| `C035_TOOLS_MATCH_CONSENT`             | a payload asking more calls than its purpose is refused      |
+| `C036_UNDECLARED_OR_ILL_TYPED_CALLS`   | a bad call is a tool error to the model; nothing is sent     |
+| `C037_RESULT_BOUND_TO_ITS_CALL`        | a result not for an outstanding call is dropped and logged   |
+| `C038_THE_DAEMONS_TOOL_BUDGET`         | `maxToolCalls` sent, then one closing turn with no tools     |
+| `C041_SITE_THAT_DOES_NOT_ANSWER`       | an unanswered call times out; the lease is held throughout   |
+| `C042_TOOL_CALLS_LOGGED_FIRST`         | each call is in the ingress log before it reaches the upstream |
+| `C043_OTHER_KINDS_UNCHANGED`           | a chat job is sent no function declarations                  |
+| `C046_THE_CONTEXT_CAP`                 | a job is sized by its whole context; past the cap is not shown |
 | `C048_BLOBS_SEALED`                    | the store holds no image bytes and no blob key               |
 | `C053_BLOB_NEEDS_THE_LEASE`            | a blob URL needs the job's lease, and dies with it           |
 | `C054_BLOBS_GO_WITH_THE_JOB`           | inputs go at acceptance, outputs on received, the rest later |
 | `C057_BLOB_SIZE_CHECKED_BEFORE_OFFER`  | a blob not its slot's size is refused before it is offered   |
 | `C059_OUTPUT_OUTLIVES_COLLECTION`      | output images survive collection until received, or an hour  |
+
+C039, C040, C044, C045 and C047 are byollm_012's too, and are checked where
+their party lives: the relay's suite, the site SDK's, the daemon's and the
+control plane's.
 
 ## It reports its own gaps
 

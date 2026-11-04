@@ -36,6 +36,7 @@ import {
   type BackendRequest,
   type BackendResult,
   type LoadedConfig,
+  type RunnerEvent,
 } from "byollm";
 import type { ConformanceTarget } from "./target.js";
 
@@ -197,8 +198,28 @@ function daemonConfig(options: {
   offer: "private" | "team";
   subscription: boolean;
   metered?: MeteredOptions;
+  tools?: ToolService;
 }): LoadedConfig {
   const metered = options.metered;
+  if (options.tools !== undefined) {
+    // byollm_012: `llm.tools` is off by default and named per service, on an
+    // HTTP backend whose model passes the probe. The shipped `openai-http`
+    // adapter, so the function-calling wire is the real one.
+    return resolveConfig(
+      DaemonConfig.parse({
+        services: {
+          primary: {
+            model: "echo-model",
+            kinds: ["llm.generate", "llm.chat", "llm.tools"],
+            type: "openai-http",
+            baseUrl: options.tools.baseUrl,
+            offer: options.offer,
+          },
+        },
+        concurrency: 4,
+      }),
+    );
+  }
   const backendId = metered
     ? (metered.provider ?? "openai")
     : options.subscription
@@ -265,6 +286,22 @@ export interface MeteredOptions {
   readonly dailyCapCents?: number;
 }
 
+/**
+ * A daemon whose `llm.tools` service is the shipped `openai-http` adapter —
+ * byollm_012's checks (`tools.ts`).
+ *
+ * The model at `baseUrl` is answered in-process (`tools.ts` intercepts
+ * `fetch` for that base URL only), so nothing listens and nothing is spawned.
+ * The clock and the wait between tool polls are the check's, so a sixty-second
+ * `TOOL_CALL_TIMEOUT` costs no sixty seconds on a target that can fake time.
+ */
+export interface ToolService {
+  readonly baseUrl: string;
+  readonly now: () => number;
+  readonly toolWait: (ms: number) => Promise<void>;
+  readonly onEvent: (event: RunnerEvent) => void;
+}
+
 export async function pairDaemon(
   target: ConformanceTarget,
   options: {
@@ -283,6 +320,8 @@ export async function pairDaemon(
     subscription?: boolean;
     /** Use a paid backend, to exercise the cost rules. */
     metered?: MeteredOptions;
+    /** Serve `llm.tools` on the shipped HTTP adapter (`tools.ts`). */
+    tools?: ToolService;
   },
 ): Promise<HarnessDaemon> {
   const home = await mkdtemp(join(tmpdir(), "byollm-conformance-"));
@@ -290,6 +329,7 @@ export async function pairDaemon(
     offer: options.offer,
     subscription: options.subscription ?? false,
     ...(options.metered === undefined ? {} : { metered: options.metered }),
+    ...(options.tools === undefined ? {} : { tools: options.tools }),
   });
 
   const budgets = new Budgets(
@@ -404,7 +444,13 @@ export async function pairDaemon(
     budgets,
     spend,
     ingress,
-    backendFactory: () => backend,
+    ...(options.tools === undefined
+      ? { backendFactory: () => backend }
+      : {
+          now: options.tools.now,
+          toolWait: options.tools.toolWait,
+          onEvent: options.tools.onEvent,
+        }),
   });
 
   return {

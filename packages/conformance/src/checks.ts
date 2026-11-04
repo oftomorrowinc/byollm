@@ -29,6 +29,7 @@ import {
 } from "./harness.js";
 import type { ConformanceTarget } from "./target.js";
 import { BLOB_CHECKS } from "./blob-checks.js";
+import { TOOL_CHECKS } from "./tool-checks.js";
 
 /** One certification check. */
 export interface Check {
@@ -2144,6 +2145,9 @@ export const CHECKS: readonly Check[] = [
       }
     },
   },
+
+  // byollm_012's checks — the kit plays the site (#7116).
+  ...TOOL_CHECKS,
 
   // Images by reference — byollm_021 §10 (#7057). In their own file, which
   // says why they play the device over the raw wire.

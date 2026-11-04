@@ -17,9 +17,10 @@ them — a promise nothing verifies is a sentence, not a lock.
 | **Pairing**  | `@byollm/protocol` — `PairStartRequest`, `PairStartResponse`, `PairPollRequest`, `PairPollResponse` |
 | **Claim**    | `@byollm/protocol` — `ClaimRequest`, `ClaimResponse`, `ResultRequest`, `HeartbeatRequest`, and the job shapes they carry |
 
-The proof is the 37 checks in `@byollm/conformance` (`C001`–`C059`, numbered
+The proof is the 47 checks in `@byollm/conformance` (`C001`–`C059`, numbered
 by the specs that assigned them, so the range has gaps where a spec's check
-is still planned). An
+is still planned, or is byollm_012's check of another party and lives in that
+party's suite: C039, C040, C044 and C045). An
 implementation that passes them speaks this protocol; one that does not, does
 not. **If a change to a locked surface does not break at least one of those
 checks, the check set is the thing that is wrong** — that is the tell that a

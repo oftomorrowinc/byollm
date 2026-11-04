@@ -277,6 +277,21 @@ const target: ConformanceTarget = {
   // Owner ids here are `auth.users` uuids, not the names the checks use.
   ownerId: (name) => ensureUser(name),
 
+  // The direct lane's site plane, against the same store: the tool checks
+  // (C033–C046) play the site through these, never through the tables.
+  // `byollm_tool_calls` rows go with their job (`on delete cascade`), so
+  // `reset` needs no line for them.
+  site: {
+    keys: SITE_KEYS,
+    calls: () => app.calls(),
+    toolResult: async (input) => {
+      const answered = await app.toolResult(input);
+      return "accepted" in answered
+        ? { accepted: true as const }
+        : { refused: answered.refused };
+    },
+  },
+
   reset: async () => {
     // Truncate rather than drop: the migration is what is under test, and
     // re-running it between checks would be testing the migration instead.

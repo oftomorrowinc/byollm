@@ -642,23 +642,39 @@ the card that applies the cut line takes them out with `llm.tools` (Owl,
 
 | MUST | Statement | Verified | Checks, and the kind they verify it as |
 |---|---|---|---|
-| `TOOLS_RUN_AT_SITE` | A daemon never executes a tool. A tool call leaves the device only as an envelope signed by the device and sealed to the job's site. Daemon. | adversarial | C033, C034: the daemon's suites (card 3, #7055) |
-| `TOOLS_MATCH_CONSENT` | On the cloud lane, an `llm.tools` payload whose declarations or limits do not match the grant's `toolsDigest`, or whose `maxToolCalls` is above the purpose's, is refused before any backend sees it. An enqueue whose `toolsDigest` does not match the manifest of record is refused at the hub with nothing queued. A call to an undeclared tool, or with arguments that fail its schema, is a tool error to the model, and nothing is sent. Daemon and hub. | adversarial | C035, C036: the daemon's suites (card 3, #7055); C047: conformance, planned |
-| `TOOL_ENVELOPES_BOUND` | `tool-call` and `tool-result` are directions inside the signature, and a result is accepted only for an outstanding call of the same job. Daemon. | adversarial | C037: the daemon's suites (card 3, #7055) |
-| `TOOLS_BUDGETED` | §8's per-job call ceiling, enforced before the call that would exceed it, by the daemon, the relay and the site SDK; and the context cap, counted in the job's size class before it runs and enforced by the daemon before each result reaches the model. | adversarial | C038, C041, C046: the daemon's suites (card 3, #7055); C039, C040: conformance, planned |
+| `TOOLS_RUN_AT_SITE` | A daemon never executes a tool. A tool call leaves the device only as an envelope signed by the device and sealed to the job's site. Daemon. | conformance + adversarial | C033, C034: the kit (#7116) and the daemon's suites (card 3, #7055) |
+| `TOOLS_MATCH_CONSENT` | On the cloud lane, an `llm.tools` payload whose declarations or limits do not match the grant's `toolsDigest`, or whose `maxToolCalls` is above the purpose's, is refused before any backend sees it. An enqueue whose `toolsDigest` does not match the manifest of record is refused at the hub with nothing queued. A call to an undeclared tool, or with arguments that fail its schema, is a tool error to the model, and nothing is sent. Daemon and hub. | conformance + adversarial | C035, C036: the kit (#7116) and the daemon's suites (card 3, #7055); C035's grant-digest cases, the daemon's suites only; C047: conformance, planned |
+| `TOOL_ENVELOPES_BOUND` | `tool-call` and `tool-result` are directions inside the signature, and a result is accepted only for an outstanding call of the same job. Daemon. | conformance + adversarial | C037: the kit (#7116) and the daemon's suites (card 3, #7055) |
+| `TOOLS_BUDGETED` | §8's per-job call ceiling, enforced before the call that would exceed it, by the daemon, the relay and the site SDK; and the context cap, counted in the job's size class before it runs and enforced by the daemon before each result reaches the model. | conformance + adversarial | C038, C041, C046: the kit (#7116) and the daemon's suites (card 3, #7055); C039, C040: conformance, planned |
 
 **Card 3 (#7055) built the daemon's half as the daemon's own suites, not
 as kit checks.** This section planned them as `conformance`, and the kit could
-not carry them yet: its target has no tool endpoints (card 2, #7054) and
-`ConformanceTarget` gives the kit no way to open a call sealed to the site or
-to post a result as it. So C033–C038, C041, C042 and C046 drive the shipped
-daemon (`packages/daemon/src/tools-at-the-site.test.ts`) against an upstream
-that plays the site with the site's own keys, and the MUSTs they verify are
-`adversarial` — what the registry calls a property of *our* daemon proved by
-its own suites. The checks the relay, the site SDK and the hub owe (C039, C040,
-C047) stay `planned` on their MUSTs, and the cut gate refuses a stable release
-while any tool MUST has a planned check. Lifting the daemon's checks into the
-kit, once a target can play the site, is a later card's.
+not carry them then: its target had no tool endpoints (card 2, #7054) and
+`ConformanceTarget` gave the kit no way to open a call sealed to the site or
+to post a result as it. So C033–C038, C041, C042, C043 and C046 drove the
+shipped daemon (`packages/daemon/src/tools-at-the-site.test.ts`) against an
+upstream that played the site with the site's own keys, and the MUSTs they
+verify were `adversarial`.
+
+**#7116 lifted them into the kit.** `ConformanceTarget.site` gives the kit
+the lane's own two site-plane endpoints (`calls`, `tool-result`) and the
+site's keys; the kit opens each call verifying it against the device key it
+paired itself, and answers through the target. The daemon's `llm.tools`
+service is the shipped `openai-http` adapter, its model answered in-process,
+so no socket is opened and nothing is started for a tool. The ten checks keep
+#7055's assertions and run against any target; the MUSTs are `conformance`
+and `adversarial` both, and the daemon's suites stay. Two limits, stated:
+C035's three grant-digest cases need the cloud lane's grant, which a direct
+target does not route, so they stay the daemon suite's alone; and the kit
+cannot prove from outside that a cloud-lane relay keeps no copy of the
+site's keys — on the direct lane the server is the site and holds them by
+right. The checks the relay, the site SDK and the hub owe (C039, C040, C047)
+stay `planned` on their MUSTs, and the cut gate refuses a stable release
+while any tool MUST has a planned check.
+
+The first run of the kit's C033 found that `@byollm/server` parsed every
+sealed result as a text kind's, so it refused every `llm.tools` result on
+both lanes; it now parses by the job's kind (`sealed-outcome.ts`).
 
 Beside the table, and not rows of it:
 

@@ -1,4 +1,12 @@
-import type { Audience, JobKind, JobPayload, JobState } from "@byollm/protocol";
+import type {
+  Audience,
+  JobKind,
+  JobPayload,
+  JobState,
+  SealedEnvelope,
+  SiteToolCalls,
+  StoredKeys,
+} from "@byollm/protocol";
 
 /**
  * What a server implementation must expose to be certified.
@@ -96,6 +104,44 @@ export interface ConformanceTarget {
    * would be assuming away the very thing the `team` allowlist is about.
    */
   ownerId?(name: string): Promise<string>;
+
+  /**
+   * The site's side of a tool job — byollm_012 §5.2's site plane, so the kit
+   * can play the site for a job (C033–C038, C041–C043, C046).
+   *
+   * Optional, because a server that does not serve `llm.tools` has no site
+   * plane; every tool check fails on a target without it, naming this field.
+   *
+   * **Not a door into the store.** `calls` and `toolResult` are the lane's
+   * own two site-plane endpoints — the relay's `GET /relay/site/calls` and
+   * `POST /relay/site/tool-result`, or on the direct lane `ByollmApp.calls`
+   * and `ByollmApp.toolResult`, which serve the same shapes in-process — and
+   * the kit parses what `calls` answers with `@byollm/protocol`'s strict
+   * `SiteToolCalls`, so a target cannot hand over a call's plaintext beside
+   * its envelope.
+   *
+   * **`keys` are the site's own private keys** — what the kit opens each call
+   * with and seals each answer with. The kit checks that they are the
+   * identity the daemon pinned at pairing (a target that handed over some
+   * other pair would be testing a seal nobody uses), and opens every call
+   * against the device key the kit paired itself, never against the
+   * `device` a target's `calls` names. On the direct lane the target *is*
+   * the site, so it holds these by right. On the cloud lane they are the
+   * site's and the relay must never hold them (`RELAY_BLIND`): what the kit
+   * cannot prove from outside is that a target does not keep a copy, and
+   * the tool checks do not claim to.
+   */
+  readonly site?: {
+    readonly keys: StoredKeys;
+    /** The calls waiting on this site — the lane's `calls`. */
+    calls(): Promise<SiteToolCalls>;
+    /** Post one sealed answer as the site — the lane's `tool-result`. */
+    toolResult(input: {
+      readonly jobId: string;
+      readonly callId: string;
+      readonly envelope: SealedEnvelope;
+    }): Promise<{ readonly accepted: true } | { readonly refused: string }>;
+  };
 
   /** Return to a clean slate between checks. */
   reset(): Promise<void>;

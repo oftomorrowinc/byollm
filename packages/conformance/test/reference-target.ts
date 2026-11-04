@@ -174,6 +174,20 @@ export function referenceTarget(): ConformanceTarget {
       await app.sweep();
     },
 
+    // The direct lane's site plane: on this lane the server is the site, so
+    // `calls` and `toolResult` are `ByollmApp`'s in-process twins of the
+    // relay's two site endpoints, and the keys are the ones it seals with.
+    site: {
+      keys: SITE_KEYS,
+      calls: () => app.calls(),
+      toolResult: async (input) => {
+        const answered = await app.toolResult(input);
+        return "accepted" in answered
+          ? { accepted: true as const }
+          : { refused: answered.refused };
+      },
+    },
+
     advanceTime: (ms) => {
       clock.advance(ms);
       return Promise.resolve();

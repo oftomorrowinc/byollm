@@ -1,6 +1,7 @@
 import { openSealedOutcome } from "./sealed-outcome.js";
 import {
   PROTOCOL_VERSION,
+  type JobKind,
   type SealedOutcome,
   type ResultDisposition,
   type SealedEnvelope,
@@ -499,7 +500,7 @@ export class CloudLane {
       if (!record || record.state === "ok" || record.state === "error") {
         continue;
       }
-      const outcome = await this.#openResult(done);
+      const outcome = await this.#openResult({ ...done, kind: record.kind });
       if (!outcome) {
         refused.push(done.jobId);
         continue;
@@ -627,6 +628,7 @@ export class CloudLane {
     envelope: SealedEnvelope;
     disposition: ResultDisposition;
     device: PublicIdentity;
+    kind: JobKind;
   }): Promise<SealedOutcome | null> {
     const opened = await open({
       envelope: done.envelope,
@@ -648,6 +650,7 @@ export class CloudLane {
     const outcome = openSealedOutcome({
       plaintext: opened.plaintext,
       disposition: done.disposition,
+      kind: done.kind,
     });
     return outcome.ok ? outcome.value : null;
   }

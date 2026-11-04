@@ -332,6 +332,10 @@ describe("C037 a result is bound to its call — the server's half", () => {
         runner: w.runner,
         outcome: { outcome: "ok", text: "answered from memory" },
         leaseId: job.leaseId,
+        tools: {
+          toolCalls: 1,
+          toolOutcomes: { answered: 0, errored: 0, timedOut: 1, refused: 0 },
+        },
       }),
       w.runner,
     );
@@ -446,6 +450,10 @@ describe("C041 a site that does not answer — the server's half", () => {
         runner: w.runner,
         outcome: { outcome: "ok", text: "the site did not answer in time" },
         leaseId: job.leaseId,
+        tools: {
+          toolCalls: 1,
+          toolOutcomes: { answered: 0, errored: 0, timedOut: 1, refused: 0 },
+        },
       }),
       w.runner,
     );

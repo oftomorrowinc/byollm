@@ -1,13 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-  TOOL_ENDPOINTS,
-  ToolCallRef,
-  ToolCallRequest,
-  ToolCallResponse,
-  ToolResultsRequest,
-} from "./tool-wire.js";
 import { ToolParameters, toolArgumentsRefusal } from "./tools.js";
-import { ENDPOINTS, PROTOCOL_VERSION } from "./wire.js";
 
 /**
  * A call's arguments against its declaration — byollm_012 §3, C036's rule.
@@ -75,58 +67,5 @@ describe("toolArgumentsRefusal", () => {
     expect(refused({ toString: "x" })).toBe(
       '"toString" is not a parameter of this tool',
     );
-  });
-});
-
-describe("the daemon plane's tool endpoints", () => {
-  it("are their own list until a server serves them (card 2, #7054)", () => {
-    expect([...TOOL_ENDPOINTS]).toEqual(["tool-call", "tool-results"]);
-    for (const endpoint of TOOL_ENDPOINTS) {
-      expect(ENDPOINTS as readonly string[]).not.toContain(endpoint);
-    }
-  });
-
-  it("has #7054's fields, exactly — this file is a stand-in for its wire.ts", () => {
-    expect(Object.keys(ToolCallRequest.shape).sort()).toEqual([
-      "callId",
-      "envelope",
-      "jobId",
-      "leaseId",
-      "protocolVersion",
-      "runnerId",
-    ]);
-    expect(Object.keys(ToolCallResponse.shape).sort()).toEqual([
-      "callId",
-      "expiresAt",
-    ]);
-    expect(Object.keys(ToolResultsRequest.shape).sort()).toEqual([
-      "calls",
-      "protocolVersion",
-      "runnerId",
-    ]);
-    expect(Object.keys(ToolCallRef.shape).sort()).toEqual([
-      "callId",
-      "jobId",
-      "leaseId",
-    ]);
-  });
-
-  it("refuses a call with no lease, and a poll naming no call", () => {
-    expect(
-      ToolCallRequest.safeParse({
-        protocolVersion: PROTOCOL_VERSION,
-        runnerId: "r",
-        jobId: "j",
-        callId: "AAAAAAAAAAAAAAAAAAAAAA",
-        envelope: {},
-      }).success,
-    ).toBe(false);
-    expect(
-      ToolResultsRequest.safeParse({
-        protocolVersion: PROTOCOL_VERSION,
-        runnerId: "r",
-        calls: [],
-      }).success,
-    ).toBe(false);
   });
 });

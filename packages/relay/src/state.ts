@@ -1,10 +1,11 @@
-import type {
-  CapabilityMatrix,
-  ClaimedStub,
-  JobStub,
-  PublicIdentity,
-  SealedEnvelope,
-  WithheldKind,
+import {
+  TOOL_LIMITS,
+  type CapabilityMatrix,
+  type ClaimedStub,
+  type JobStub,
+  type PublicIdentity,
+  type SealedEnvelope,
+  type WithheldKind,
 } from "@byollm/protocol";
 import { randomUUID } from "node:crypto";
 import type { Grant, RoutingStore } from "./store.js";
@@ -240,7 +241,103 @@ export interface RoutedJob {
    * decision, not a security property.
    */
   disposition?: "ok" | "error" | "canceled";
+  /**
+   * How many tool calls this job may make — byollm_012 §8, the relay's
+   * counter.
+   *
+   * The site's number, sent beside the stub at enqueue for `llm.tools` only:
+   * the lower of the payload's `maxToolCalls` and the purpose's. The relay
+   * cannot read the payload, so it takes the site's word, and that is safe in
+   * the one direction this counter exists for: it protects the site's tools
+   * from a modified daemon, and a site that overstates its own budget spends
+   * only its own. Absent, the protocol ceiling applies.
+   */
+  maxToolCalls?: number;
+  /**
+   * Tool calls this job has made, under any grant.
+   *
+   * Monotonic and never reset, so it is not a tally that a missed decrement
+   * can corrupt. It survives `#requeue` on purpose: a budget that restarted
+   * with every grant would let a modified daemon release, re-claim and spend
+   * the site's tools again — the counter exists to stop exactly that. The
+   * cost is that a job reclaimed after a lapse runs on what is left, which
+   * an honest daemon reads as the site refusing a call.
+   */
+  toolCallsMade?: number;
+  /**
+   * The calls in flight under the CURRENT grant — byollm_012 §5.2.
+   *
+   * Short-lived: cleared when the grant ends (`#requeue`), when the job
+   * finishes, and with the job. So a result can only ever be bound to a call
+   * made under the lease that is running now, and a late answer for a grant
+   * that ended has nothing to land on.
+   */
+  toolCalls?: ToolCallRow[];
 }
+
+/** One tool call the relay is carrying. Ciphertext and ids, nothing else. */
+export interface ToolCallRow {
+  readonly callId: string;
+  /** The grant it was made under, which is the one it can be answered for. */
+  readonly leaseId: string;
+  /** Sealed to the site by the device. Opaque here. */
+  readonly envelope: SealedEnvelope;
+  /** When the relay stops holding it open: `TOOL_LIMITS.callTimeoutMs` on. */
+  readonly expiresAt: number;
+  /** Sealed to the device by the site, once answered. Opaque here. */
+  result?: SealedEnvelope;
+}
+
+/**
+ * The sub-state of a running job — byollm_012 §5.3.
+ *
+ * A job waiting on a tool result is still `running` and still holds its
+ * lease. `waiting-on-site` says why nothing is moving, so that a reader
+ * asking "is anything running this?" (`NO_RUNNER_SIGNAL`) can tell a device
+ * at work from a site that has not answered. Derived rather than stored: it
+ * is true exactly while a call made under the current grant is unanswered
+ * and inside its timeout, and a stored flag would be a second answer to that.
+ */
+export type RunningSubState = "waiting-on-site";
+
+export function subStateOf(
+  job: RoutedJob,
+  now: number,
+): RunningSubState | undefined {
+  if (job.state !== "running") return undefined;
+  const lease = job.claimedBy?.leaseId;
+  const waiting = (job.toolCalls ?? []).some(
+    (call) =>
+      call.leaseId === lease &&
+      call.result === undefined &&
+      call.expiresAt > now,
+  );
+  return waiting ? "waiting-on-site" : undefined;
+}
+
+/** Why a tool call was refused, beyond the holder refusals. */
+export type ToolCallRefusal =
+  | HolderRefusal
+  /** The job is not `llm.tools`, so it has no tools to call. */
+  | "not-tools"
+  /** The call past the job's budget — byollm_012 §8. */
+  | "budget"
+  /** A call id this grant already used, for a different envelope. */
+  | "call-conflict";
+
+/** A call waiting on a site, with the device the answer is sealed to. */
+export interface OutstandingToolCall {
+  readonly jobId: string;
+  readonly leaseId: string;
+  readonly callId: string;
+  readonly envelope: SealedEnvelope;
+  readonly device: PublicIdentity;
+  readonly expiresAt: number;
+}
+
+/** Two envelopes are one when every field is — a replay, not a new call. */
+const sameEnvelope = (a: SealedEnvelope, b: SealedEnvelope): boolean =>
+  JSON.stringify(a) === JSON.stringify(b);
 
 /** A device the relay has seen recently. */
 export interface Presence {
@@ -649,6 +746,7 @@ export class RelayState implements RoutingStore {
     id: string;
     siteId: string;
     stub: JobStub;
+    maxToolCalls?: number;
   }): Promise<RoutedJob> {
     // Idempotent by (site, id). The refusal that used to live here went with
     // the collision it refused — cloud_009 §3.
@@ -660,6 +758,9 @@ export class RelayState implements RoutingStore {
       stub: input.stub,
       state: "queued",
       refusedBy: [],
+      ...(input.maxToolCalls === undefined
+        ? {}
+        : { maxToolCalls: input.maxToolCalls }),
     };
     this.#jobs.set(keyOf(job.siteId, job.id), job);
     this.#index(job);
@@ -912,6 +1013,9 @@ export class RelayState implements RoutingStore {
     job.result = input.envelope;
     job.disposition = input.disposition;
     job.state = "done";
+    // The job ended, so every call made under it did too — byollm_012 §5.2.
+    // A site answering one now has nothing to land on.
+    delete job.toolCalls;
     return Promise.resolve({ accepted: true, state: job.state });
   }
 
@@ -1084,6 +1188,186 @@ export class RelayState implements RoutingStore {
     return { renewed, lost };
   }
 
+  /**
+   * {@link RoutingStore.recordToolCall} — one sealed call, counted and kept.
+   *
+   * The holder checks are `takePayload`'s, in the same order, because a
+   * tool call is the same claim ("this grant, held by me") made mid-job.
+   * Then the two only this endpoint has: the job must be `llm.tools`, and
+   * the call must fit the budget. Counted **before** it is written, so the
+   * call that would exceed the budget is the one refused (`TOOLS_BUDGETED`).
+   */
+  async recordToolCall(input: {
+    jobId: string;
+    runnerId: string;
+    leaseId: string;
+    callId: string;
+    envelope: SealedEnvelope;
+  }): Promise<
+    | { callId: string; expiresAt: number; duplicate?: true }
+    | { refused: ToolCallRefusal }
+  > {
+    const now = await this.now();
+    const job = this.#grantFor(input.jobId, input.runnerId, input.leaseId);
+    if (!job) return { refused: "not-found" };
+    if (job.claimedBy?.runnerId !== input.runnerId) {
+      return { refused: "not-holder" };
+    }
+    // Terminal before holder, as `complete` orders it: a finished or
+    // withdrawn job makes no more calls, whoever is asking.
+    if (job.state === "done" || job.cancelled === true) {
+      return { refused: "terminal" };
+    }
+    if (job.claimedBy.leaseId !== input.leaseId) {
+      return { refused: "stale-lease" };
+    }
+    // A call is made by a device that has its payload. Before that it is a
+    // daemon calling tools for a prompt it has not read.
+    if (job.state !== "running") return { refused: "not-ready" };
+    if (job.stub.kind !== "llm.tools") return { refused: "not-tools" };
+
+    const calls = job.toolCalls ?? [];
+    const known = calls.find((call) => call.callId === input.callId);
+    if (known) {
+      // A replayed request is the call it replays — byollm_009 §4.2's
+      // argument for signed requests needs every write idempotent per the
+      // instance it names, and this one must not be counted twice.
+      return sameEnvelope(known.envelope, input.envelope)
+        ? { callId: known.callId, expiresAt: known.expiresAt, duplicate: true }
+        : { refused: "call-conflict" };
+    }
+    const limit = job.maxToolCalls ?? TOOL_LIMITS.maxToolCalls;
+    if ((job.toolCallsMade ?? 0) >= limit) return { refused: "budget" };
+
+    const row: ToolCallRow = {
+      callId: input.callId,
+      leaseId: input.leaseId,
+      envelope: input.envelope,
+      expiresAt: now + TOOL_LIMITS.callTimeoutMs,
+    };
+    job.toolCalls = [...calls, row];
+    job.toolCallsMade = (job.toolCallsMade ?? 0) + 1;
+    return { callId: row.callId, expiresAt: row.expiresAt };
+  }
+
+  /**
+   * {@link RoutingStore.toolCalls} — what is waiting on this site.
+   *
+   * Outstanding only: the current grant's, unanswered, inside the timeout.
+   * A call that timed out is gone from here because the daemon has already
+   * told the model the site did not answer, and running the tool now would
+   * spend the site's tools on an answer nobody will read.
+   */
+  async toolCalls(siteId: string): Promise<OutstandingToolCall[]> {
+    const now = await this.now();
+    const out: OutstandingToolCall[] = [];
+    for (const job of this.#jobs.values()) {
+      if (job.siteId !== siteId || job.state !== "running") continue;
+      const held = job.claimedBy;
+      if (!held || job.cancelled === true) continue;
+      for (const call of job.toolCalls ?? []) {
+        if (call.leaseId !== held.leaseId) continue;
+        if (call.result !== undefined || call.expiresAt <= now) continue;
+        out.push({
+          jobId: job.id,
+          leaseId: call.leaseId,
+          callId: call.callId,
+          envelope: call.envelope,
+          device: held.device,
+          expiresAt: call.expiresAt,
+        });
+      }
+    }
+    return out;
+  }
+
+  /**
+   * {@link RoutingStore.answerToolCall} — a site's sealed answer, bound to
+   * its call (`TOOL_ENVELOPES_BOUND`, the relay's half).
+   *
+   * Found by **(site, job, call)**, so a result posted for job A can only
+   * ever land on a call of job A: another job's call id is not found here,
+   * and so is a call of A's that belonged to a grant that has ended. The
+   * daemon holds the other half — it opens the envelope and checks the job
+   * and the call inside the signature.
+   */
+  async answerToolCall(input: {
+    siteId: string;
+    jobId: string;
+    callId: string;
+    envelope: SealedEnvelope;
+  }): Promise<{ accepted: true } | { refused: "not-found" | "too-late" }> {
+    const now = await this.now();
+    const job = this.#jobs.get(keyOf(input.siteId, input.jobId));
+    if (job?.siteId !== input.siteId) return { refused: "not-found" };
+    const lease = job.claimedBy?.leaseId;
+    const call = (job.toolCalls ?? []).find(
+      (row) => row.callId === input.callId && row.leaseId === lease,
+    );
+    if (!call) return { refused: "not-found" };
+    if (call.result !== undefined) {
+      // The same answer again is the replay of a signed write; a different
+      // one is a second answer to a call that already has one.
+      return sameEnvelope(call.result, input.envelope)
+        ? { accepted: true }
+        : { refused: "too-late" };
+    }
+    if (call.expiresAt <= now || job.state !== "running") {
+      return { refused: "too-late" };
+    }
+    call.result = input.envelope;
+    return { accepted: true };
+  }
+
+  /**
+   * {@link RoutingStore.toolResults} — answers, to the holder that asked.
+   *
+   * Each named call is looked up through the caller's grant, exactly as
+   * `takePayload` looks up a job: the lease must be current and held by this
+   * runner, and the call must have been made under it. Anything else is
+   * absent rather than refused, so a poll tells a stranger nothing.
+   */
+  toolResults(input: {
+    runnerId: string;
+    calls: readonly { jobId: string; leaseId: string; callId: string }[];
+  }): Promise<
+    {
+      jobId: string;
+      leaseId: string;
+      callId: string;
+      envelope: SealedEnvelope;
+    }[]
+  > {
+    const out: {
+      jobId: string;
+      leaseId: string;
+      callId: string;
+      envelope: SealedEnvelope;
+    }[] = [];
+    for (const ref of input.calls) {
+      const job = this.#grantFor(ref.jobId, input.runnerId, ref.leaseId);
+      const held = job?.claimedBy;
+      if (
+        !job ||
+        held?.runnerId !== input.runnerId ||
+        held.leaseId !== ref.leaseId
+      ) {
+        continue;
+      }
+      const call = (job.toolCalls ?? []).find(
+        (row) => row.callId === ref.callId && row.leaseId === ref.leaseId,
+      );
+      if (call?.result === undefined) continue;
+      out.push({
+        jobId: job.id,
+        leaseId: call.leaseId,
+        callId: call.callId,
+        envelope: call.result,
+      });
+    }
+    return Promise.resolve(out);
+  }
+
   async seen(presence: Omit<Presence, "lastSeenAt">): Promise<Presence> {
     const lastSeenAt = await this.now();
     const existing = this.#presence.get(presence.runnerId);
@@ -1144,6 +1428,9 @@ export class RelayState implements RoutingStore {
     delete job.claimedBy;
     delete job.awaitingUntil;
     delete job.payload;
+    /* The grant's calls end with the grant. `toolCallsMade` deliberately
+       stays: it is the job's budget, not the grant's (see its docstring). */
+    delete job.toolCalls;
     /* `sealAttempts` is deliberately NOT cleared. It counts how many devices
        have waited on this job, and a requeue is exactly the event it counts —
        clearing it here would reset the counter on every tick and the job

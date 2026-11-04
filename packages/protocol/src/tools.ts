@@ -356,6 +356,10 @@ export function toolsConsentRefusal(input: {
 /**
  * The daemon's id for one call: random, single-use, recorded with the job
  * (§5.1). Bounded so a relay can store it without trusting its length.
+ *
+ * Exported because it travels in the clear too: the four tool endpoints name
+ * a call beside its envelope, so an upstream that cannot open the envelope
+ * can still bind a result to the call it answers (byollm_012 §5.2).
  */
 export const ToolCallId = z.string().regex(/^[A-Za-z0-9_-]{16,128}$/, {
   message: "a callId is 16 to 128 base64url characters",

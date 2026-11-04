@@ -9,6 +9,10 @@ import {
   ReleaseRequest,
   ResultRequest,
   RequestSignature,
+  ToolCallRequest,
+  ToolCallResponse,
+  ToolResultsRequest,
+  ToolResultsResponse,
   envelopeBytes,
   keyId,
   verifyRequest,
@@ -33,7 +37,11 @@ import {
   type PendingPairing,
 } from "./pairing-codes.js";
 import { tooLargeRefusal } from "./refusals.js";
-import { RETRY_AFTER_MS, type HolderRefusal } from "./state.js";
+import {
+  RETRY_AFTER_MS,
+  type HolderRefusal,
+  type ToolCallRefusal,
+} from "./state.js";
 import { clockSkewRefusal } from "./refusals.js";
 import type { RoutingStore } from "./store.js";
 
@@ -113,6 +121,29 @@ const fail = (status: number, error: string, message: string): PlaneResult => ({
   status,
   body: { error, message },
 });
+
+/**
+ * A tool call's refusals: the holder's, and three only a tool call can earn.
+ *
+ * `budget` is `forbidden` rather than a code of its own. An honest daemon
+ * counts its own calls and never sends the one past the budget (byollm_012
+ * §8), so the only caller who reads this is one that was modified to ignore
+ * that count — and it needs no vocabulary to be told no.
+ */
+const TOOL_CALL_REFUSALS: Record<ToolCallRefusal, PlaneResult> = {
+  ...REFUSALS,
+  "not-tools": fail(400, "bad-request", "this job does not carry tools"),
+  budget: fail(
+    403,
+    "forbidden",
+    "this job has made every tool call it is allowed",
+  ),
+  "call-conflict": fail(
+    400,
+    "bad-request",
+    "that call id already names a different call",
+  ),
+};
 
 /**
  * What the relay asks a control plane, as one named shape.
@@ -788,6 +819,67 @@ export class DaemonPlane {
       if ("refused" in recorded) return REFUSALS[recorded.refused];
       return ok(recorded);
     });
+  }
+
+  /**
+   * One sealed tool call, from the device holding the job — byollm_012 §5.2.
+   *
+   * What the relay can check without opening anything, and nothing more: the
+   * signature (above), the grant, the kind, the per-job count and the size.
+   * The envelope goes to the site as it arrived.
+   */
+  toolCall(
+    auth: { endpoint: string; rawBody: string; signature: unknown },
+    body: unknown,
+  ): Promise<PlaneResult> {
+    return this.#authed(
+      auth,
+      body,
+      ToolCallRequest,
+      async (request, device) => {
+        if (request.runnerId !== device.runnerId) {
+          return fail(403, "forbidden", "runner id does not match the key");
+        }
+        const bytes = envelopeBytes(request.envelope);
+        if (bytes > MAX_ENVELOPE_BYTES) return tooLargeRefusal(bytes);
+        const recorded = await this.#deps.state.recordToolCall({
+          jobId: request.jobId,
+          runnerId: device.runnerId,
+          leaseId: request.leaseId,
+          callId: request.callId,
+          envelope: request.envelope,
+        });
+        if ("refused" in recorded) return TOOL_CALL_REFUSALS[recorded.refused];
+        return ok(
+          ToolCallResponse.parse({
+            callId: recorded.callId,
+            expiresAt: recorded.expiresAt,
+          }),
+        );
+      },
+    );
+  }
+
+  /** The site's answers to the calls this device names — byollm_012 §5.2. */
+  toolResults(
+    auth: { endpoint: string; rawBody: string; signature: unknown },
+    body: unknown,
+  ): Promise<PlaneResult> {
+    return this.#authed(
+      auth,
+      body,
+      ToolResultsRequest,
+      async (request, device) => {
+        if (request.runnerId !== device.runnerId) {
+          return fail(403, "forbidden", "runner id does not match the key");
+        }
+        const results = await this.#deps.state.toolResults({
+          runnerId: device.runnerId,
+          calls: request.calls,
+        });
+        return ok(ToolResultsResponse.parse({ results }));
+      },
+    );
   }
 
   heartbeat(

@@ -21,6 +21,11 @@ import {
   PROTOCOL_VERSION,
   ReleaseRequest,
   ResultRequest,
+  TOOL_LIMITS,
+  ToolCallRequest,
+  ToolCallResponse,
+  ToolResultsRequest,
+  ToolResultsResponse,
   provenanceFor,
   type ClaimResponse,
   type Endpoint,
@@ -117,7 +122,8 @@ function ok(body: unknown): HandlerResult {
 }
 
 /**
- * The five protocol endpoints, over any {@link ByollmStore}.
+ * The protocol endpoints, over any {@link ByollmStore}: byollm_001's five,
+ * `fetch`, and byollm_012 §5.2's two daemon-plane tool endpoints.
  *
  * Transport-free on purpose: a mount adapts `Request`/`Response` (or Express,
  * or whatever) onto {@link ByollmHandlers.handle}, and everything the
@@ -200,6 +206,20 @@ export class ByollmHandlers {
           body,
           ReleaseRequest,
           this.#release.bind(this),
+        );
+      case "tool-call":
+        return this.#authed(
+          auth,
+          body,
+          ToolCallRequest,
+          this.#toolCall.bind(this),
+        );
+      case "tool-results":
+        return this.#authed(
+          auth,
+          body,
+          ToolResultsRequest,
+          this.#toolResults.bind(this),
         );
     }
   }
@@ -640,6 +660,82 @@ export class ByollmHandlers {
     });
     if (!outcome.ok) return refuse(outcome.why);
     return { ok: true, value: outcome.value };
+  }
+
+  // -- 6. tool-call and tool-results — byollm_012 §5.2 ----------------------
+  //
+  // The daemon's two tool endpoints, on the site's own handlers. The site is
+  // the upstream on this lane, so the call it records is the one its own
+  // pump answers through `ByollmApp.calls` and `ByollmApp.toolResult` — one
+  // shape on both lanes, with nothing in between.
+
+  async #toolCall(
+    request: ToolCallRequest,
+    runner: RunnerRecord,
+  ): Promise<HandlerResult> {
+    if (request.runnerId !== runner.id) {
+      return fail("unauthorized", "runner id does not match the signing key");
+    }
+    const recorded = await this.#store.recordToolCall({
+      jobId: request.jobId,
+      runnerId: runner.id,
+      leaseId: request.leaseId,
+      callId: request.callId,
+      envelope: request.envelope,
+      // The protocol ceiling. The job's own budget is the site SDK's count
+      // on this lane (byollm_012 §8, C040); the store's is the backstop.
+      maxToolCalls: TOOL_LIMITS.maxToolCalls,
+      timeoutMs: TOOL_LIMITS.callTimeoutMs,
+      now: this.#now(),
+    });
+    if ("refused" in recorded) {
+      switch (recorded.refused) {
+        case "not-found":
+          // One answer for unknown, not yours and stale, as `fetch` gives.
+          return fail("not-found", "no such lease on this job");
+        case "not-tools":
+          return fail("bad-request", "this job does not carry tools");
+        case "budget":
+          return fail(
+            "forbidden",
+            "this job has made every tool call it is allowed",
+          );
+        case "call-conflict":
+          return fail(
+            "bad-request",
+            "that call id already names a different call",
+          );
+      }
+    }
+    return ok(
+      ToolCallResponse.parse({
+        callId: recorded.recorded.callId,
+        expiresAt: recorded.recorded.expiresAt,
+      }),
+    );
+  }
+
+  async #toolResults(
+    request: ToolResultsRequest,
+    runner: RunnerRecord,
+  ): Promise<HandlerResult> {
+    if (request.runnerId !== runner.id) {
+      return fail("unauthorized", "runner id does not match the signing key");
+    }
+    const answered = await this.#store.toolResults({
+      runnerId: runner.id,
+      calls: request.calls,
+    });
+    return ok(
+      ToolResultsResponse.parse({
+        results: answered.map((row) => ({
+          jobId: row.jobId,
+          leaseId: row.leaseId,
+          callId: row.callId,
+          envelope: row.result,
+        })),
+      }),
+    );
   }
 
   // -- 5. release -----------------------------------------------------------

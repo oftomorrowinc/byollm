@@ -1,5 +1,5 @@
 import { fingerprintOf } from "./daemon-plane.js";
-import type { RoutedJob } from "./state.js";
+import { subStateOf, type RoutedJob } from "./state.js";
 import type { RoutingStore } from "./store.js";
 
 /**
@@ -32,10 +32,12 @@ const STATE_COLOUR: Record<string, string> = {
 
 function jobRow(job: RoutedJob, now: number): string {
   const claimed = job.claimedBy;
+  /* byollm_012 §5.3: a running job waiting on a tool result says so, so
+     "running" and "the site has not answered" read differently here. */
   const waiting =
     job.state === "awaiting-payload" && job.awaitingUntil !== undefined
       ? `${String(Math.max(0, job.awaitingUntil - now))}ms left`
-      : "";
+      : (subStateOf(job, now) ?? "");
   return `<tr>
     <td><code>${escape(job.id)}</code></td>
     <td>${escape(job.stub.kind)}</td>

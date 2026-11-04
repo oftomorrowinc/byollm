@@ -6,6 +6,7 @@ import { BackendClass, BackendIdSchema } from "./backends.js";
 import { ClaimedStub } from "./job.js";
 import { SealedEnvelope } from "./envelope.js";
 import { JobKind } from "./kinds.js";
+import { TOOL_LIMITS, ToolCallId, ToolsDigest } from "./tools.js";
 
 /**
  * Protocol version carried on every request; servers refuse what they can't
@@ -188,12 +189,17 @@ export const UPGRADE_COMMAND = "npm i -g byollm@latest" as const;
 export const PROTOCOL_PREFIX = "/byollm" as const;
 
 /**
- * The endpoint names, in the order byollm_001 lists them, plus `fetch`.
+ * The endpoint names, in the order byollm_001 lists them, plus `fetch`, plus
+ * byollm_012 §5.2's two daemon-plane tool endpoints.
  *
  * `fetch` is byollm_009 §6's second phase: a claim returns a stub, and the
  * payload is collected separately by the device that took it. Two steps
  * rather than one because a payload can only be sealed once its recipient is
  * known — which is also what makes multi-device free.
+ *
+ * `tool-call` and `tool-results` are called only by a daemon running an
+ * `llm.tools` job, which only a 0.1.5 daemon can claim, so a 0.1.4 daemon
+ * never meets them and a 0.1.4 upstream answers them 404 (byollm_021 R2).
  */
 export const ENDPOINTS = Object.freeze([
   "pair",
@@ -202,6 +208,8 @@ export const ENDPOINTS = Object.freeze([
   "heartbeat",
   "result",
   "release",
+  "tool-call",
+  "tool-results",
 ] as const);
 export type Endpoint = (typeof ENDPOINTS)[number];
 
@@ -1059,3 +1067,168 @@ export const FetchResponse = z
   })
   .strict();
 export type FetchResponse = z.infer<typeof FetchResponse>;
+
+// ---------------------------------------------------------------------------
+// 6. The tool endpoints — byollm_012 §5.2
+// ---------------------------------------------------------------------------
+//
+// Four, all outbound and polled. Two on the daemon plane, here and under
+// `/byollm/`: the daemon holding a job's lease posts one sealed `tool-call`
+// and polls `tool-results` for the answers. Two on the site plane: the site's
+// pump reads `calls` and posts one sealed `tool-result`. A relay serves all
+// four from its routing store; `@byollm/server` serves the daemon's two over
+// HTTP and the site's two in-process, because on the direct lane the site is
+// the upstream.
+//
+// Every envelope stays sealed end to end. What an upstream reads in the clear
+// is the job, the lease and the call id — enough to bind a result to the
+// call it answers and to count calls per job, and nothing else
+// (`RELAY_BLIND`).
+
+/**
+ * The job's tools, sent by the site beside an `llm.tools` stub at enqueue —
+ * byollm_012 §8, byollm_021 R1.
+ *
+ * Present exactly when the stub's kind is `llm.tools`. `maxToolCalls` is the
+ * job's budget as the site computed it — the lower of the payload's number
+ * and its purpose's — and is what a relay counts calls against, since it
+ * cannot read the payload. `toolsDigest` is the consent digest of the
+ * payload's declarations and limits, for a hub to compare against the
+ * manifest of record before anything is queued.
+ */
+export const SiteEnqueueTools = z
+  .object({
+    toolsDigest: ToolsDigest,
+    maxToolCalls: z.number().int().min(1).max(TOOL_LIMITS.maxToolCalls),
+  })
+  .strict();
+export type SiteEnqueueTools = z.infer<typeof SiteEnqueueTools>;
+
+/** One call, named by the job, the grant and the daemon's call id. */
+export const ToolCallRef = z
+  .object({
+    jobId: z.string().min(1),
+    /**
+     * The grant the call was made under. A call outlives nothing: when the
+     * lease ends, so does every call made under it, and a result for one is
+     * answered to nobody.
+     */
+    leaseId: z.string().min(1),
+    callId: ToolCallId,
+  })
+  .strict();
+export type ToolCallRef = z.infer<typeof ToolCallRef>;
+
+/** POST /byollm/tool-call — one sealed call, from the lease's holder. */
+export const ToolCallRequest = z
+  .object({
+    protocolVersion: z.literal(PROTOCOL_VERSION),
+    runnerId: z.string().min(1),
+    jobId: z.string().min(1),
+    leaseId: z.string().min(1),
+    /**
+     * In the clear as well as inside the envelope, so an upstream that cannot
+     * open it can bind the site's answer to this call. The daemon accepts a
+     * result only if the id inside the sealed result matches too.
+     */
+    callId: ToolCallId,
+    /** A `tool-call` envelope, signed by the device, sealed to the site. */
+    envelope: SealedEnvelope,
+  })
+  .strict();
+export type ToolCallRequest = z.infer<typeof ToolCallRequest>;
+
+export const ToolCallResponse = z
+  .object({
+    callId: ToolCallId,
+    /**
+     * When the upstream stops holding this call open: the moment it was
+     * recorded plus `TOOL_LIMITS.callTimeoutMs`, on the upstream's clock. A
+     * result after it is refused, and the site's `calls` no longer lists it.
+     * The daemon keeps its own timer; this says when the two agree.
+     */
+    expiresAt: z.number().int().positive(),
+  })
+  .strict();
+export type ToolCallResponse = z.infer<typeof ToolCallResponse>;
+
+/**
+ * POST /byollm/tool-results — the answers to calls this daemon is waiting on.
+ *
+ * The daemon names each call it waits on, rather than asking for "whatever is
+ * mine". That keeps the read lease-scoped like every other holder call: a
+ * result comes back only to a request naming its job, the grant it was made
+ * under, and its call. It is also what makes the read idempotent — an
+ * answered result is returned on every poll that names it until the job
+ * ends, so a response lost on the way back costs a poll, not the answer.
+ */
+export const ToolResultsRequest = z
+  .object({
+    protocolVersion: z.literal(PROTOCOL_VERSION),
+    runnerId: z.string().min(1),
+    /**
+     * At most 64 in one poll. A daemon waits on the calls of the jobs it
+     * holds, a model turn rarely asks for more than a few at once, and a
+     * bound is what lets an upstream answer without trusting the length.
+     */
+    calls: z.array(ToolCallRef).min(1).max(64),
+  })
+  .strict();
+export type ToolResultsRequest = z.infer<typeof ToolResultsRequest>;
+
+export const ToolResultsResponse = z
+  .object({
+    /**
+     * The named calls the site has answered, each with its sealed
+     * `tool-result` envelope. A call not answered yet, timed out, or not this
+     * caller's is simply absent: the daemon's own clock decides when to stop
+     * waiting, and an absent answer tells a stranger nothing.
+     */
+    results: z.array(ToolCallRef.extend({ envelope: SealedEnvelope }).strict()),
+  })
+  .strict();
+export type ToolResultsResponse = z.infer<typeof ToolResultsResponse>;
+
+/**
+ * GET /relay/site/calls — the calls waiting on this site.
+ *
+ * Only calls still outstanding: made under the job's current grant, not yet
+ * answered, and inside `TOOL_LIMITS.callTimeoutMs`. With the device's public
+ * identity, which the site verifies the call's signature against and seals
+ * its answer to — the same directory role `pending` plays for payloads.
+ */
+export const SiteToolCalls = z
+  .object({
+    calls: z.array(
+      z
+        .object({
+          jobId: z.string().min(1),
+          leaseId: z.string().min(1),
+          callId: ToolCallId,
+          envelope: SealedEnvelope,
+          device: PublicIdentity,
+          expiresAt: z.number().int().positive(),
+        })
+        .strict(),
+    ),
+  })
+  .strict();
+export type SiteToolCalls = z.infer<typeof SiteToolCalls>;
+
+/** POST /relay/site/tool-result — one sealed answer, for one call. */
+export const SiteToolResultRequest = z
+  .object({
+    protocolVersion: z.literal(PROTOCOL_VERSION),
+    siteId: z.string().min(1),
+    jobId: z.string().min(1),
+    callId: ToolCallId,
+    /** A `tool-result` envelope, signed by the site, sealed to the device. */
+    envelope: SealedEnvelope,
+  })
+  .strict();
+export type SiteToolResultRequest = z.infer<typeof SiteToolResultRequest>;
+
+export const SiteToolResultResponse = z
+  .object({ jobId: z.string().min(1), callId: ToolCallId })
+  .strict();
+export type SiteToolResultResponse = z.infer<typeof SiteToolResultResponse>;

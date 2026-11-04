@@ -422,6 +422,14 @@ export class Relay {
         ),
       );
     }
+    if (path === "/relay/site/calls") {
+      return json(
+        await this.#site.calls(siteAuth, url.searchParams.get("siteId") ?? ""),
+      );
+    }
+    if (path === "/relay/site/tool-result") {
+      return json(await this.#site.toolResult(siteAuth, body));
+    }
     if (path === "/relay/site/results") {
       return json(
         await this.#site.results(
@@ -448,6 +456,10 @@ export class Relay {
         return json(await this.#daemon.heartbeat(auth, body));
       case "release":
         return json(await this.#daemon.release(auth, body));
+      case "tool-call":
+        return json(await this.#daemon.toolCall(auth, body));
+      case "tool-results":
+        return json(await this.#daemon.toolResults(auth, body));
       default:
         return json({ status: 404, body: { error: "not-found" } });
     }
@@ -552,11 +564,18 @@ export type {
   ClaimInput,
   UnsealedChurn,
   HolderRefusal,
+  OutstandingToolCall,
   Presence,
   ReleaseReason,
   RoutedJob,
   RoutedState,
+  RunningSubState,
+  ToolCallRefusal,
+  ToolCallRow,
 } from "./state.js";
+
+/** byollm_012 §5.3's sub-state, derived the one way every reader derives it. */
+export { subStateOf } from "./state.js";
 
 /** The grant a lease-scoped answer names — V1-3. */
 export type { Grant } from "./store.js";

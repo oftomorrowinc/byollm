@@ -2,6 +2,7 @@ import type {
   Capability,
   JobOutcome,
   ResultProvenance,
+  SealedEnvelope,
 } from "@byollm/protocol";
 import type {
   StoredJobInput,
@@ -105,6 +106,114 @@ export interface JobStore {
 
   /** Jobs awaiting cancellation that a given runner holds. */
   listCancelRequests(runnerId: string): Promise<LeaseRef[]>;
+
+  // -- tool calls — byollm_012 §5.2, byollm_021 R1 ------------------------
+  //
+  // **A short-lived row per call in flight, deleted with its job.** On the
+  // direct lane this store is the upstream, so the daemon's `tool-call` and
+  // `tool-results` and the site's `calls` and `tool-result` all meet here.
+  // Every envelope stays sealed: a call is sealed by the device to the site,
+  // a result by the site to the device, and this store only keeps them.
+  //
+  // A row is bound to the grant it was made under. A grant that ends takes
+  // its calls out of reach — nothing lists them and nothing can answer them —
+  // and a job that reaches a terminal state, or is deleted, takes its rows
+  // with it. They are kept across a requeue only to be counted, because the
+  // job's call budget is the job's, not the grant's.
+
+  /**
+   * Record one sealed call from the holder of the job's current lease.
+   *
+   * MUST, in one atomic step: find the job held by `runnerId` under
+   * `leaseId` in `claimed` or `running` (`not-found` otherwise — one answer
+   * for unknown, not yours and stale, as `fetch` gives); refuse a job that is
+   * not `llm.tools` (`not-tools`); count every call the job has made, under
+   * any grant, and refuse the one that would make it more than `maxToolCalls`
+   * (`budget`, `TOOLS_BUDGETED`). A call id is single-use for the job: the
+   * same call replayed under the same grant returns its row with
+   * `duplicate`, and any other use of the id — a different envelope, or a
+   * later grant — is refused (`call-conflict`); neither is counted again.
+   *
+   * The row expires `timeoutMs` after it is written: past it, it is no
+   * longer outstanding and an answer is `too-late`.
+   */
+  recordToolCall(args: RecordToolCallArgs): Promise<RecordToolCallResult>;
+
+  /**
+   * Every outstanding call: under its job's current grant, unanswered and
+   * unexpired at `now`. What the site's `calls` lists.
+   */
+  outstandingToolCalls(now: number): Promise<ToolCallRecord[]>;
+
+  /**
+   * Keep the site's sealed answer, only for an outstanding call of the same
+   * job (`TOOL_ENVELOPES_BOUND`, the upstream's half).
+   *
+   * `not-found` for a call id the job never made under its current grant
+   * (another job's call, a grant that ended, a job that ended); `too-late`
+   * for one past its expiry or already answered with a different envelope.
+   * The same answer twice is accepted and written once.
+   */
+  answerToolCall(args: AnswerToolCallArgs): Promise<AnswerToolCallResult>;
+
+  /**
+   * The answered calls among those named, each only if `runnerId` holds the
+   * named lease on the named job and the call was made under it.
+   */
+  toolResults(args: ToolResultsArgs): Promise<ToolCallRecord[]>;
+}
+
+/** One tool call in flight — a row of the store's tool-call table. */
+export interface ToolCallRecord {
+  readonly jobId: string;
+  /** The grant it was made under, which is the only one it can be answered for. */
+  readonly leaseId: string;
+  readonly callId: string;
+  /** Sealed by the device to the site, direction `tool-call`. */
+  readonly envelope: SealedEnvelope;
+  /** Sealed by the site to the device, direction `tool-result`, once answered. */
+  readonly result: SealedEnvelope | null;
+  readonly createdAt: number;
+  /** When it stops being outstanding: `createdAt` plus the call timeout. */
+  readonly expiresAt: number;
+}
+
+export interface RecordToolCallArgs {
+  readonly jobId: string;
+  readonly runnerId: string;
+  readonly leaseId: string;
+  readonly callId: string;
+  readonly envelope: SealedEnvelope;
+  /** The job's budget. The protocol ceiling when the caller knows no lower. */
+  readonly maxToolCalls: number;
+  /** How long the call stays outstanding — `TOOL_LIMITS.callTimeoutMs`. */
+  readonly timeoutMs: number;
+  readonly now: number;
+}
+
+export type RecordToolCallResult =
+  | { readonly recorded: ToolCallRecord; readonly duplicate?: true }
+  | {
+      readonly refused: "not-found" | "not-tools" | "budget" | "call-conflict";
+    };
+
+export interface AnswerToolCallArgs {
+  readonly jobId: string;
+  readonly callId: string;
+  readonly envelope: SealedEnvelope;
+  readonly now: number;
+}
+
+export type AnswerToolCallResult =
+  { readonly accepted: true } | { readonly refused: "not-found" | "too-late" };
+
+export interface ToolResultsArgs {
+  readonly runnerId: string;
+  readonly calls: readonly {
+    readonly jobId: string;
+    readonly leaseId: string;
+    readonly callId: string;
+  }[];
 }
 
 export interface ClaimArgs {

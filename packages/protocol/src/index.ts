@@ -119,16 +119,6 @@ export {
   type ToolsConsent,
 } from "./tools.js";
 
-export {
-  TOOL_ENDPOINTS,
-  ToolCallRef,
-  ToolCallRequest,
-  ToolCallResponse,
-  ToolResultsRequest,
-  ToolResultsResponse,
-  type ToolEndpoint,
-} from "./tool-wire.js";
-
 export { canonicalJson } from "./jcs.js";
 
 export {
@@ -293,6 +283,15 @@ export {
   MIN_PROTOCOL_VERSION,
   FetchRequest,
   FetchResponse,
+  SiteEnqueueTools,
+  SiteToolCalls,
+  SiteToolResultRequest,
+  SiteToolResultResponse,
+  ToolCallRef,
+  ToolCallRequest,
+  ToolCallResponse,
+  ToolResultsRequest,
+  ToolResultsResponse,
   PROTOCOL_PREFIX,
   SUPPORTED_PROTOCOL_VERSIONS,
   checkProtocolVersion,

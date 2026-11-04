@@ -3,8 +3,8 @@
  *
  * Two surfaces, deliberately separate:
  *
- * - {@link ByollmHandlers} / {@link createFetchHandler} serve the five
- *   protocol endpoints to daemons.
+ * - {@link ByollmHandlers} / {@link createFetchHandler} serve the protocol
+ *   endpoints to daemons, the two tool endpoints included.
  * - {@link ByollmApp} is what your own code calls: enqueue, approve a
  *   pairing, read a result, revoke a runner.
  *
@@ -69,6 +69,8 @@ export type {
 } from "./records.js";
 
 export type {
+  AnswerToolCallArgs,
+  AnswerToolCallResult,
   ApproveArgs,
   ByollmStore,
   ClaimArgs,
@@ -77,9 +79,13 @@ export type {
   CompleteHolder,
   CompleteResult,
   JobStore,
+  RecordToolCallArgs,
+  RecordToolCallResult,
   ReleaseArgs,
   RenewArgs,
   RenewResult,
   RunnerStore,
+  ToolCallRecord,
+  ToolResultsArgs,
   TouchArgs,
 } from "./store.js";

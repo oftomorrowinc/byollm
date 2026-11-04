@@ -780,3 +780,48 @@ server refuses the first heartbeat, the one that advertised `llm.tools`, with
 a 400. It also derives the guard's list of newer kinds from the published
 0.1.4 `JOB_KINDS`, so the list cannot drift from what a 0.1.4 upstream
 actually refuses.
+
+## Verified 2026-11-03 — the tool endpoints' upstream halves (#6933 card 2, #7054)
+
+byollm_012 §12's C037, C039, C041 and C042, as far as an upstream holds them.
+Each was run against its mutation, seen to fail, and reverted; the relay and
+server mutations were run with `npx vitest run <file>`, the kit's with the
+kit's own test file.
+
+| Check                                     | File                                  | Mutation                                                                                                                                                                                               | Result                                                              |
+| ----------------------------------------- | ------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------- |
+| C037 a result bound to its call (relay)   | `packages/relay/src/state.ts`         | Drop `row.callId === input.callId` from `answerToolCall`'s lookup, leaving the lease match                                                                                                             | ✓ bites — only "refuses an unknown call id, and another job's call" |
+| C037 a result bound to its call (server)  | `packages/server/src/memory.ts`       | Drop `row.callId === callId` from `#currentCall`, leaving the lease match                                                                                                                              | ✓ bites — only its twin in `tool-calls.test.ts`                     |
+| C039 the relay's budget                   | `packages/relay/src/state.ts`         | Drop the count: `if ((job.toolCallsMade ?? 0) >= limit) return { refused: "budget" }` in `recordToolCall`                                                                                              | ✓ bites — the three C039 cases, and the replay case                 |
+| C041 a site that does not answer (relay)  | `packages/relay/src/state.ts`         | Two, both verified: stop renewing a lease whose job has an unanswered call (`renewLeases`); and drop `call.expiresAt <= now` from `answerToolCall` and `toolCalls`, so only the deadline ends the wait | ✓ bites (both)                                                      |
+| C041 a site that does not answer (server) | `packages/server/src/memory.ts`       | Two, both verified: the same two, in `renewLeases` and in `outstandingToolCalls` / `answerToolCall`                                                                                                    | ✓ bites (both)                                                      |
+| C042 calls logged first (upstream half)   | `packages/conformance/src/harness.ts` | In `observeArrivals`, forward the request to the target before awaiting `observe`                                                                                                                      | ✓ bites — the ordering case and the refusal case                    |
+
+**Halves, and named as halves.** None of the four is a whole check yet, and
+the MUSTs they serve stay `pending`. C037's MUST is the daemon's
+(`TOOL_ENVELOPES_BOUND`): the relay is blind, so it cannot see a direction
+or a job id inside a signature, and the `payload`-direction case is carried
+through and refused only where the envelope is opened — the relay file shows
+that, with a real envelope, as its last step. C041's third mutation ("count
+a timeout as answered") is `toolOutcomes`, which the daemon writes. C042's
+ingress line is the daemon's to write; what is proved here is that the kit
+can stand at the upstream's door at the instant a call arrives, which is the
+only moment the check can tell "logged before sending" from "after". Card 3
+builds the daemon halves and promotes the MUSTs.
+
+**C039 is whole, and lives in the relay's suite rather than the kit's.** The
+kit certifies a direct server, which has no relay; on the direct lane the
+budget is the site SDK's (C040, card 4). So C039 sits where the relay's
+device gate does, for the same reason (above, 2026-08-16). `TOOLS_BUDGETED`
+lists it as planned `conformance`; whoever promotes that MUST should read
+this paragraph first.
+
+**The replay case also fails under the C039 mutation**, and should: it shows
+a replayed call is not counted twice by leaning on the count. A shared
+chokepoint, not a broad mutation.
+
+The Supabase adapter's SQL (`20261103230000_tool_calls.sql`) was exercised
+by hand against the local stack inside a transaction that rolled back: every
+refusal in the contract, the timeout, a requeue's calls out of reach but
+counted, deletion at `ok`, and `anon` unable to execute. It has no automated
+run in `verify`, as the rest of the adapter has none.

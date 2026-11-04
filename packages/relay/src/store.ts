@@ -2,10 +2,12 @@ import type { ClaimedStub, JobStub, SealedEnvelope } from "@byollm/protocol";
 import type {
   ClaimInput,
   HolderRefusal,
+  OutstandingToolCall,
   Presence,
   ReleaseReason,
   RoutedJob,
   RoutedState,
+  ToolCallRefusal,
 } from "./state.js";
 
 /**
@@ -90,6 +92,11 @@ export interface RoutingStore {
     id: string;
     siteId: string;
     stub: JobStub;
+    /**
+     * The job's tool-call budget, from the site, for `llm.tools` only —
+     * byollm_012 §8. Kept with the job; absent means the protocol ceiling.
+     */
+    maxToolCalls?: number;
   }): Promise<RoutedJob>;
 
   /**
@@ -220,6 +227,74 @@ export interface RoutingStore {
    * result nobody would accept, on somebody's own machine, at their expense.
    */
   cancelRequests(runnerId: string): Promise<Grant[]>;
+
+  // -- tool calls — byollm_012 §5.2 ----------------------------------------
+  //
+  // A short-lived row per call in flight, bound to the grant it was made
+  // under and gone when that grant ends or the job does. Four operations, one
+  // per endpoint, and each is a decision plus its write, as everything above.
+
+  /**
+   * Keep one sealed call from the lease's holder, counted against the job.
+   *
+   * MUST refuse, in this order: an unknown grant (`not-found`), another
+   * runner's (`not-holder`), a finished or withdrawn job (`terminal`), a grant
+   * that ended (`stale-lease`), a job whose payload was not collected
+   * (`not-ready`), a job that is not `llm.tools` (`not-tools`), and the call
+   * past the job's budget (`budget`) — counted before the write, over every
+   * grant the job has had. A call id already recorded under this grant
+   * returns that call with `duplicate` if the envelope is the same, and is
+   * refused (`call-conflict`) if it is not; neither is counted again.
+   */
+  recordToolCall(input: {
+    jobId: string;
+    runnerId: string;
+    leaseId: string;
+    callId: string;
+    envelope: SealedEnvelope;
+  }): Promise<
+    | { callId: string; expiresAt: number; duplicate?: true }
+    | { refused: ToolCallRefusal }
+  >;
+
+  /**
+   * This site's outstanding calls: made under a job's current grant, not
+   * answered, and not past `TOOL_LIMITS.callTimeoutMs` on this store's clock.
+   */
+  toolCalls(siteId: string): Promise<OutstandingToolCall[]>;
+
+  /**
+   * Keep a site's sealed answer — only for an outstanding call of the same
+   * job (`TOOL_ENVELOPES_BOUND`, the upstream's half).
+   *
+   * `not-found` for a call this job never made, made under a grant that has
+   * ended, or of a job that has; `too-late` for one that timed out or was
+   * already answered differently. The same answer twice is accepted twice
+   * and written once.
+   */
+  answerToolCall(input: {
+    siteId: string;
+    jobId: string;
+    callId: string;
+    envelope: SealedEnvelope;
+  }): Promise<{ accepted: true } | { refused: "not-found" | "too-late" }>;
+
+  /**
+   * The answered calls among those named, for the runner holding each one's
+   * current grant. A call not answered, not this runner's, or under a grant
+   * that ended is left out rather than refused.
+   */
+  toolResults(input: {
+    runnerId: string;
+    calls: readonly { jobId: string; leaseId: string; callId: string }[];
+  }): Promise<
+    {
+      jobId: string;
+      leaseId: string;
+      callId: string;
+      envelope: SealedEnvelope;
+    }[]
+  >;
 
   /** Record a device as present. The store stamps when. */
   seen(presence: Omit<Presence, "lastSeenAt">): Promise<Presence>;

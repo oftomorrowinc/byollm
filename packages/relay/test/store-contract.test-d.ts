@@ -6,11 +6,13 @@ import type {
   PutResult,
   Grant,
   HolderRefusal,
+  OutstandingToolCall,
   Presence,
   ReleaseReason,
   RoutedJob,
   RoutedState,
   RoutingStore,
+  ToolCallRefusal,
 } from "../src/index.js";
 
 /**
@@ -70,6 +72,17 @@ declare const _renew: (input: {
   lost: readonly Grant[];
 }>;
 declare const _cancelRequests: (runnerId: string) => Promise<Grant[]>;
+declare const _recordToolCall: (input: {
+  jobId: string;
+  runnerId: string;
+  leaseId: string;
+  callId: string;
+  envelope: SealedEnvelope;
+}) => Promise<
+  | { callId: string; expiresAt: number; duplicate?: true }
+  | { refused: ToolCallRefusal }
+>;
+declare const _toolCalls: (siteId: string) => Promise<OutstandingToolCall[]>;
 
 export type Contract = typeof _contract &
   typeof _claim &
@@ -78,7 +91,9 @@ export type Contract = typeof _contract &
   typeof _seen &
   typeof _sweep &
   typeof _renew &
-  typeof _cancelRequests;
+  typeof _cancelRequests &
+  typeof _recordToolCall &
+  typeof _toolCalls;
 
 /**
  * `RelayOptions` is satisfiable from the package's public surface too.

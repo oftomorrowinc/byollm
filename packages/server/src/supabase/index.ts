@@ -13,6 +13,8 @@ import type {
   RunnerRecord,
 } from "../records.js";
 import type {
+  AnswerToolCallArgs,
+  AnswerToolCallResult,
   ApproveArgs,
   ByollmStore,
   ClaimArgs,
@@ -20,9 +22,13 @@ import type {
   CompleteArgs,
   CompleteResult,
   LeaseRef,
+  RecordToolCallArgs,
+  RecordToolCallResult,
   ReleaseArgs,
   RenewArgs,
   RenewResult,
+  ToolCallRecord,
+  ToolResultsArgs,
   TouchArgs,
 } from "../store.js";
 
@@ -114,6 +120,40 @@ interface PairingRow {
   expires_at: string;
   created_at: string;
 }
+
+/** Row shape of `byollm_tool_calls` — byollm_012 §5.2. */
+interface ToolCallRow {
+  job_id: string;
+  call_id: string;
+  lease_id: string;
+  envelope: unknown;
+  result: unknown;
+  created_at: string;
+  expires_at: string;
+  answered_at: string | null;
+}
+
+function toToolCall(row: ToolCallRow): ToolCallRecord {
+  return {
+    jobId: row.job_id,
+    leaseId: row.lease_id,
+    callId: row.call_id,
+    envelope: row.envelope as ToolCallRecord["envelope"],
+    result: (row.result ?? null) as ToolCallRecord["result"],
+    createdAt: Date.parse(row.created_at),
+    expiresAt: Date.parse(row.expires_at),
+  };
+}
+
+/**
+ * Whether a caller-supplied id can name a row at all.
+ *
+ * Job, lease and runner ids are `uuid` columns here. A daemon may send any
+ * string, and handing a non-uuid to Postgres is a cast error — a 500 for
+ * what is, on every other adapter, simply "no such job".
+ */
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const isUuid = (value: string): boolean => UUID.test(value);
 
 const ms = (iso: string | null): number | null =>
   iso === null ? null : Date.parse(iso);
@@ -536,6 +576,74 @@ export function supabaseStore(options: SupabaseStoreOptions): ByollmStore {
         await db.from("byollm_jobs").select().eq("lease_runner", runnerId),
       );
       return rows.map(toJob);
+    },
+
+    // -- tool calls — byollm_012 §5.2 --------------------------------------
+    //
+    // Each is one RPC from the tool-calls migration, so every decision and
+    // its write are one transaction, as `claim` is.
+
+    async recordToolCall(
+      args: RecordToolCallArgs,
+    ): Promise<RecordToolCallResult> {
+      if (![args.jobId, args.runnerId, args.leaseId].every(isUuid)) {
+        return { refused: "not-found" };
+      }
+      const answer = unwrap<
+        | { refused: "not-found" | "not-tools" | "budget" | "call-conflict" }
+        | { row: ToolCallRow; duplicate: boolean }
+      >(
+        await db.rpc("byollm_record_tool_call", {
+          p_job_id: args.jobId,
+          p_runner_id: args.runnerId,
+          p_lease_id: args.leaseId,
+          p_call_id: args.callId,
+          p_envelope: args.envelope,
+          p_max_tool_calls: args.maxToolCalls,
+          p_timeout_ms: args.timeoutMs,
+          p_now: iso(args.now),
+        }),
+      );
+      if ("refused" in answer) return { refused: answer.refused };
+      const recorded = toToolCall(answer.row);
+      return answer.duplicate ? { recorded, duplicate: true } : { recorded };
+    },
+
+    async outstandingToolCalls(now: number): Promise<ToolCallRecord[]> {
+      const rows = unwrap<ToolCallRow[]>(
+        await db.rpc("byollm_outstanding_tool_calls", { p_now: iso(now) }),
+      );
+      return rows.map(toToolCall);
+    },
+
+    async answerToolCall(
+      args: AnswerToolCallArgs,
+    ): Promise<AnswerToolCallResult> {
+      if (!isUuid(args.jobId)) return { refused: "not-found" };
+      const answer = unwrap<"accepted" | "not-found" | "too-late">(
+        await db.rpc("byollm_answer_tool_call", {
+          p_job_id: args.jobId,
+          p_call_id: args.callId,
+          p_envelope: args.envelope,
+          p_now: iso(args.now),
+        }),
+      );
+      return answer === "accepted" ? { accepted: true } : { refused: answer };
+    },
+
+    async toolResults(args: ToolResultsArgs): Promise<ToolCallRecord[]> {
+      if (!isUuid(args.runnerId) || args.calls.length === 0) return [];
+      const rows = unwrap<ToolCallRow[]>(
+        await db.rpc("byollm_tool_results", {
+          p_runner_id: args.runnerId,
+          p_calls: args.calls.map((call) => ({
+            jobId: call.jobId,
+            leaseId: call.leaseId,
+            callId: call.callId,
+          })),
+        }),
+      );
+      return rows.map(toToolCall);
     },
 
     async listCancelRequests(runnerId: string): Promise<LeaseRef[]> {

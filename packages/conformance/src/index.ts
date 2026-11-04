@@ -36,6 +36,7 @@ export {
 export {
   EchoBackend,
   advance,
+  observeArrivals,
   ownerIdFor,
   pairDaemon,
   sleep,

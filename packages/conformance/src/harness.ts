@@ -34,6 +34,50 @@ import {
 import type { ConformanceTarget } from "./target.js";
 
 /**
+ * A target whose door holds each request to one endpoint until `observe`
+ * has looked at it — the upstream half of C042 (byollm_012 §12 row 10).
+ *
+ * "Calls logged first" is a statement about an instant: the moment a tool
+ * call reaches the upstream, its ingress line must already exist. A check can
+ * only ask that if something stands at the upstream at that moment, before
+ * the call is answered — afterwards a daemon that logged after sending looks
+ * exactly like one that logged before, because it has had its response and
+ * written the line. So the observer runs **before** the request reaches the
+ * target, and the caller's `fetch` does not resolve until it has finished.
+ * An observer that throws refuses the request, which is how a check fails
+ * the call it caught.
+ *
+ * The body is handed over parsed, and the request travels on untouched: the
+ * signature covers the exact bytes, so the target must see those.
+ */
+export function observeArrivals(
+  target: ConformanceTarget,
+  endpoint: string,
+  observe: (body: unknown) => Promise<void> | void,
+): ConformanceTarget {
+  const path = `/byollm/${endpoint}`;
+  const fetch = async (request: Request): Promise<Response> => {
+    if (new URL(request.url).pathname !== path) return target.fetch(request);
+    const rawBody = await request.clone().text();
+    await observe(
+      rawBody === "" ? undefined : (JSON.parse(rawBody) as unknown),
+    );
+    return target.fetch(request);
+  };
+  // A proxy rather than a copy: a target may be a class with private state,
+  // and everything but `fetch` must still be the target's own, called on it.
+  return new Proxy(target, {
+    get(inner, property) {
+      if (property === "fetch") return fetch;
+      const value: unknown = Reflect.get(inner, property, inner);
+      return typeof value === "function"
+        ? (value as (...args: unknown[]) => unknown).bind(inner)
+        : value;
+    },
+  });
+}
+
+/**
  * A model that answers instantly and predictably.
  *
  * The conformance kit certifies the *protocol*, not anyone's model. Using a

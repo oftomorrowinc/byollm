@@ -6,6 +6,10 @@ import {
   JobStub,
   RequestSignature,
   SealedEnvelope,
+  SiteEnqueueTools,
+  SiteToolCalls,
+  SiteToolResultRequest,
+  SiteToolResultResponse,
   verifySiteRequest,
 } from "@byollm/protocol";
 import { z } from "zod";
@@ -79,8 +83,23 @@ const EnqueueRequest = z
      * the schema, not by a reviewer.
      */
     stub: JobStub,
+    /**
+     * The job's tools, beside the stub — byollm_012 §8, byollm_021 R1.
+     *
+     * Exactly when the stub is `llm.tools`, and never otherwise, so no other
+     * enqueue's bytes change (a field a 0.1.4 relay's `.strict()` would
+     * refuse rides only on a kind it refuses anyway). `maxToolCalls` is the
+     * relay's per-job budget; `toolsDigest` is handed to `satisfiable`, where
+     * a deployment holding the manifest of record compares it.
+     */
+    tools: SiteEnqueueTools.optional(),
   })
-  .strict();
+  .strict()
+  .refine(
+    (request) =>
+      (request.stub.kind === "llm.tools") === (request.tools !== undefined),
+    { message: "an enqueue carries tools exactly when its kind is llm.tools" },
+  );
 
 const PayloadRequest = z
   .object({
@@ -167,6 +186,14 @@ export type Satisfiable = (query: {
   readonly owner: string;
   readonly purpose: string | undefined;
   readonly kind: string;
+  /**
+   * The digest of the job's tools, on `llm.tools` only — byollm_012 §4.
+   *
+   * The relay does not hold the manifest of record and cannot compare it; a
+   * deployment that does refuses a mismatch here, before anything is queued
+   * (`TOOLS_MATCH_CONSENT`'s enqueue clause, C047).
+   */
+  readonly toolsDigest?: string;
 }) => Promise<{
   readonly verdict: "ok" | "not-declared" | "unmapped" | "waiting";
 }>;
@@ -389,6 +416,9 @@ export class SitePlane {
             owner: request.stub.owner,
             purpose: request.stub.purpose,
             kind: request.stub.kind,
+            ...(request.tools === undefined
+              ? {}
+              : { toolsDigest: request.tools.toolsDigest }),
           });
         } catch {
           // The reason stays here. A site learns that we could not answer,
@@ -451,6 +481,9 @@ export class SitePlane {
           id: request.stub.id,
           siteId,
           stub: request.stub,
+          ...(request.tools === undefined
+            ? {}
+            : { maxToolCalls: request.tools.maxToolCalls }),
         });
         // Idempotent by id **within a site** — cloud_008 finding 58. A known
         // id from the same site is that site's republish and returns what is
@@ -587,6 +620,60 @@ export class SitePlane {
               );
         }
         return ok({ jobId: request.jobId, state: sealed.state });
+      },
+    );
+  }
+
+  /**
+   * The tool calls waiting on this site — byollm_012 §5.2.
+   *
+   * With each device's public identity, which the site verifies the call
+   * against and seals its answer to. A directory again, as `pending` is.
+   */
+  calls(auth: SiteAuth, siteId: string): Promise<PlaneResult> {
+    return this.#authed(
+      auth,
+      { siteId },
+      QueryRequest,
+      (request) => request.siteId,
+      async (_request, site) => {
+        await this.#deps.state.sweep();
+        const calls = await this.#deps.state.toolCalls(site);
+        return ok(SiteToolCalls.parse({ calls }));
+      },
+    );
+  }
+
+  /**
+   * One sealed answer — accepted only for an outstanding call of the same
+   * job (`TOOL_ENVELOPES_BOUND`, the relay's half).
+   */
+  toolResult(auth: SiteAuth, body: unknown): Promise<PlaneResult> {
+    return this.#authed(
+      auth,
+      body,
+      SiteToolResultRequest,
+      (request) => request.siteId,
+      async (request, siteId) => {
+        const bytes = envelopeBytes(request.envelope);
+        if (bytes > MAX_ENVELOPE_BYTES) return tooLargeRefusal(bytes);
+        const answered = await this.#deps.state.answerToolCall({
+          siteId,
+          jobId: request.jobId,
+          callId: request.callId,
+          envelope: request.envelope,
+        });
+        if ("refused" in answered) {
+          return answered.refused === "not-found"
+            ? fail(404, "not-found", "no such call is waiting on this job")
+            : fail(409, "too-late", "that call is no longer waiting");
+        }
+        return ok(
+          SiteToolResultResponse.parse({
+            jobId: request.jobId,
+            callId: request.callId,
+          }),
+        );
       },
     );
   }

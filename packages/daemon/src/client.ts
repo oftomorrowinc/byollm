@@ -16,7 +16,6 @@ import {
   type Endpoint,
   ToolCallResponse,
   ToolResultsResponse,
-  type ToolEndpoint,
 } from "@byollm/protocol";
 import { type z } from "zod";
 
@@ -327,7 +326,7 @@ export class ProtocolClient {
   }
 
   async #post<T>(
-    endpoint: Endpoint | ToolEndpoint,
+    endpoint: Endpoint,
     schema: z.ZodType<T>,
     body: unknown,
   ): Promise<T> {

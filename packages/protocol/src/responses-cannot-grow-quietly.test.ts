@@ -221,6 +221,10 @@ const AGREED: Readonly<Record<string, readonly string[]>> = {
   ],
   ReleaseResponse: ["released"],
   ResultResponse: ["accepted", "duplicate", "state"],
+  /* byollm_012 §5.2's tool endpoints (#6933 card 2). Agreed new: no daemon
+     before 0.1.5 calls them, so this is the promise starting, not a key
+     added to one already made. The site one is parsed by the site SDK. */
+  SiteToolResultResponse: ["callId", "jobId"],
   /**
    * The two tool endpoints' answers — byollm_012 §5.2, as card 2 (#7054)
    * shapes them.

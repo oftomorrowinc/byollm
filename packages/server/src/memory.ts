@@ -12,15 +12,21 @@ import type {
   RunnerRecord,
 } from "./records.js";
 import type {
+  AnswerToolCallArgs,
+  AnswerToolCallResult,
   ApproveArgs,
   ByollmStore,
   ClaimArgs,
   AdoptArgs,
   CompleteArgs,
   CompleteResult,
+  RecordToolCallArgs,
+  RecordToolCallResult,
   ReleaseArgs,
   RenewArgs,
   RenewResult,
+  ToolCallRecord,
+  ToolResultsArgs,
   TouchArgs,
 } from "./store.js";
 
@@ -31,6 +37,18 @@ export interface MemoryStoreOptions {
 }
 
 const DEFAULT_TTL_MS = 15 * 60_000;
+
+/** The states a job does not leave. Its tool calls end with it. */
+const TERMINAL: ReadonlySet<JobRecord["state"]> = new Set([
+  "ok",
+  "error",
+  "canceled",
+  "expired",
+]);
+
+/** Two envelopes are one when every field is — a replay, not a new message. */
+const sameEnvelope = (a: unknown, b: unknown): boolean =>
+  JSON.stringify(a) === JSON.stringify(b);
 
 /**
  * The reference store: everything in one process, no persistence.
@@ -51,6 +69,14 @@ export class MemoryStore implements ByollmStore {
   readonly #pairings = new Map<string, PairingRecord>();
   /** Job ids the app has asked to cancel, not yet acknowledged by a runner. */
   readonly #cancelRequests = new Set<string>();
+  /**
+   * Tool calls by job id, every grant's — byollm_012 §5.2.
+   *
+   * Kept per job so they go with it: {@link #write} drops a job's rows the
+   * moment it reaches a terminal state. A requeue keeps them, for the count
+   * only; every read filters on the job's current lease.
+   */
+  readonly #toolCalls = new Map<string, ToolCallRecord[]>();
   readonly #defaultTtlMs: number;
 
   constructor(options: MemoryStoreOptions = {}) {
@@ -381,7 +407,116 @@ export class MemoryStore implements ByollmStore {
    */
   #write(jobId: string, record: JobRecord): void {
     this.#jobs.set(jobId, record);
+    // Deleted with its job — byollm_021 R1. Here rather than at each path
+    // that ends a job, for the reason this method exists: complete, expire,
+    // cancel and whatever comes next all end a job through this line.
+    if (TERMINAL.has(record.state)) this.#toolCalls.delete(jobId);
     this.#notify(jobId);
+  }
+
+  // -- tool calls ----------------------------------------------------------
+
+  /** {@link JobStore.recordToolCall}, with no `await` between decide and write. */
+  recordToolCall(args: RecordToolCallArgs): Promise<RecordToolCallResult> {
+    const job = this.#jobs.get(args.jobId);
+    if (
+      !job ||
+      job.lease?.runnerId !== args.runnerId ||
+      job.lease.id !== args.leaseId ||
+      (job.state !== "claimed" && job.state !== "running")
+    ) {
+      return Promise.resolve({ refused: "not-found" });
+    }
+    if (job.kind !== "llm.tools") {
+      return Promise.resolve({ refused: "not-tools" });
+    }
+    const rows = this.#toolCalls.get(args.jobId) ?? [];
+    // By call id across every grant, as the SQL's primary key has it: an id
+    // is single-use for the job, and only the same call replayed under the
+    // same grant is a duplicate.
+    const known = rows.find((row) => row.callId === args.callId);
+    if (known) {
+      return Promise.resolve(
+        known.leaseId === args.leaseId &&
+          sameEnvelope(known.envelope, args.envelope)
+          ? { recorded: known, duplicate: true }
+          : { refused: "call-conflict" },
+      );
+    }
+    // Counted before the write, over every grant — `TOOLS_BUDGETED`.
+    if (rows.length >= args.maxToolCalls) {
+      return Promise.resolve({ refused: "budget" });
+    }
+    const recorded: ToolCallRecord = {
+      jobId: args.jobId,
+      leaseId: args.leaseId,
+      callId: args.callId,
+      envelope: args.envelope,
+      result: null,
+      createdAt: args.now,
+      expiresAt: args.now + args.timeoutMs,
+    };
+    this.#toolCalls.set(args.jobId, [...rows, recorded]);
+    return Promise.resolve({ recorded });
+  }
+
+  /** The current grant's row for a call, or nothing. */
+  #currentCall(jobId: string, callId: string): ToolCallRecord | undefined {
+    const lease = this.#jobs.get(jobId)?.lease?.id;
+    if (lease === undefined) return undefined;
+    return (this.#toolCalls.get(jobId) ?? []).find(
+      (row) => row.callId === callId && row.leaseId === lease,
+    );
+  }
+
+  outstandingToolCalls(now: number): Promise<ToolCallRecord[]> {
+    const out: ToolCallRecord[] = [];
+    for (const [jobId, rows] of this.#toolCalls) {
+      const lease = this.#jobs.get(jobId)?.lease?.id;
+      for (const row of rows) {
+        if (row.leaseId !== lease) continue;
+        if (row.result !== null || row.expiresAt <= now) continue;
+        out.push(row);
+      }
+    }
+    return Promise.resolve(out);
+  }
+
+  answerToolCall(args: AnswerToolCallArgs): Promise<AnswerToolCallResult> {
+    const row = this.#currentCall(args.jobId, args.callId);
+    if (!row) return Promise.resolve({ refused: "not-found" });
+    if (row.result !== null) {
+      return Promise.resolve(
+        sameEnvelope(row.result, args.envelope)
+          ? { accepted: true }
+          : { refused: "too-late" },
+      );
+    }
+    if (row.expiresAt <= args.now) {
+      return Promise.resolve({ refused: "too-late" });
+    }
+    const rows = this.#toolCalls.get(args.jobId) ?? [];
+    this.#toolCalls.set(
+      args.jobId,
+      rows.map((it) => (it === row ? { ...row, result: args.envelope } : it)),
+    );
+    return Promise.resolve({ accepted: true });
+  }
+
+  toolResults(args: ToolResultsArgs): Promise<ToolCallRecord[]> {
+    const out: ToolCallRecord[] = [];
+    for (const ref of args.calls) {
+      const job = this.#jobs.get(ref.jobId);
+      if (
+        job?.lease?.runnerId !== args.runnerId ||
+        job.lease.id !== ref.leaseId
+      ) {
+        continue;
+      }
+      const row = this.#currentCall(ref.jobId, ref.callId);
+      if (row !== undefined && row.result !== null) out.push(row);
+    }
+    return Promise.resolve(out);
   }
 
   /**

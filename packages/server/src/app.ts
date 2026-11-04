@@ -13,6 +13,8 @@ import {
   type DeliveredResult,
   type JobKind,
   type MatchRefusal,
+  SiteToolCalls,
+  type SealedEnvelope,
 } from "@byollm/protocol";
 import {
   PollingDelivery,
@@ -679,6 +681,67 @@ export class ByollmApp {
   /** Run the expiry sweep. Idempotent; safe to call on a timer or a request. */
   async sweep(): Promise<JobRecord[]> {
     return this.#store.expireDue(this.#now());
+  }
+
+  // -- the site plane of the tool endpoints — byollm_012 §5.2 --------------
+  //
+  // On the direct lane the site is the upstream, so the relay's `calls` and
+  // `tool-result` are these two methods: the same shapes, read and written
+  // in-process against the store the daemon's `tool-call` wrote to. The site
+  // SDK's pump runs its handlers between them.
+
+  /**
+   * The tool calls waiting on this site, each with the device to verify it
+   * against and seal the answer to — the relay's `calls`, in-process.
+   *
+   * Direct lane only. On the cloud lane the relay holds the calls and this
+   * store has none, so an empty answer here would be a confident wrong one;
+   * it refuses instead, and the lane's own pump reads the relay.
+   */
+  async calls(): Promise<SiteToolCalls> {
+    this.#directOnly("calls");
+    const rows = await this.#store.outstandingToolCalls(this.#now());
+    const calls: SiteToolCalls["calls"] = [];
+    for (const row of rows) {
+      const job = await this.#store.get(row.jobId);
+      const runnerId = job?.lease?.runnerId;
+      const runner =
+        runnerId === undefined ? null : await this.#store.getRunner(runnerId);
+      // A call whose holder this site cannot name has nobody to seal to.
+      if (runner?.revokedAt !== null) continue;
+      calls.push({
+        jobId: row.jobId,
+        leaseId: row.leaseId,
+        callId: row.callId,
+        envelope: row.envelope,
+        device: runner.device,
+        expiresAt: row.expiresAt,
+      });
+    }
+    return SiteToolCalls.parse({ calls });
+  }
+
+  /**
+   * Keep the site's sealed answer to one call — the relay's `tool-result`,
+   * in-process. Accepted only for an outstanding call of the same job
+   * (`TOOL_ENVELOPES_BOUND`, the upstream's half).
+   */
+  async toolResult(input: {
+    readonly jobId: string;
+    readonly callId: string;
+    readonly envelope: SealedEnvelope;
+  }): Promise<{ accepted: true } | { refused: "not-found" | "too-late" }> {
+    this.#directOnly("toolResult");
+    return this.#store.answerToolCall({ ...input, now: this.#now() });
+  }
+
+  #directOnly(method: string): void {
+    if (this.cloud !== undefined) {
+      throw new Error(
+        `ByollmApp.${method} serves the direct lane; on the cloud lane the ` +
+          "relay holds tool calls and the lane's pump reads them there",
+      );
+    }
   }
 }
 

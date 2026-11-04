@@ -1,4 +1,9 @@
-import { generateKeys, publicIdentityOf, type JobStub } from "@byollm/protocol";
+import {
+  TOOL_LIMITS,
+  generateKeys,
+  publicIdentityOf,
+  type JobStub,
+} from "@byollm/protocol";
 import { describe, expect, it } from "vitest";
 import { AWAITING_PAYLOAD_MS, routeKey } from "./state.js";
 import type { RoutingStore } from "./store.js";
@@ -73,6 +78,15 @@ const ENVELOPE = {
   direction: "payload" as const,
   deadlineAt: 4_102_444_800_000,
 };
+
+/** An `llm.tools` stub, for the tool-call cases — byollm_012 §5.2. */
+const toolsStub = (id: string): JobStub => ({ ...stub(id), kind: "llm.tools" });
+
+/** A call id the protocol accepts: 16+ base64url characters. */
+const callId = (n: number): string => `call_${String(n).padStart(12, "0")}`;
+
+const CALL = { ...ENVELOPE, direction: "tool-call" as const };
+const ANSWER = { ...ENVELOPE, direction: "tool-result" as const };
 
 /**
  * A claim, with its routes written out — cloud_009 §3.
@@ -1196,5 +1210,234 @@ export function describeStoreContract(
       expect(granted!.lease.expiresAt).toBeLessThanOrEqual(after + 45_000);
       await done();
     });
+
+    // -- tool calls — byollm_012 §5.2 (#6933 card 2) -----------------------
+
+    /** Enqueue, claim, seal and fetch one `llm.tools` job: running. */
+    const runningTools = async (
+      store: RoutingStore,
+      id: string,
+      maxToolCalls?: number,
+    ) => {
+      await store.enqueue({
+        id,
+        siteId: SITE,
+        stub: toolsStub(id),
+        ...(maxToolCalls === undefined ? {} : { maxToolCalls }),
+      });
+      const granted = await store.claim(
+        claimArgs({ kinds: new Set(["llm.tools"]) }),
+      );
+      const leaseId = granted.find((job) => job.id === id)?.lease.id;
+      if (leaseId === undefined) throw new Error(`${id} was not claimed`);
+      await store.seal({ jobId: id, siteId: SITE, envelope: ENVELOPE });
+      await store.takePayload({ jobId: id, runnerId: "runner_1", leaseId });
+      return { jobId: id, leaseId };
+    };
+
+    it("carries a tool call from the holder to the site and its answer back", async () => {
+      const { store, done } = await make();
+      const job = await runningTools(store, "t");
+      const recorded = await store.recordToolCall({
+        ...job,
+        runnerId: "runner_1",
+        callId: callId(1),
+        envelope: CALL,
+      });
+      expect(recorded).toMatchObject({ callId: callId(1) });
+      const [waiting] = await store.toolCalls(SITE);
+      expect(waiting).toMatchObject({ ...job, callId: callId(1) });
+      expect(
+        await store.answerToolCall({
+          siteId: SITE,
+          jobId: "t",
+          callId: callId(1),
+          envelope: ANSWER,
+        }),
+      ).toEqual({ accepted: true });
+      expect(await store.toolCalls(SITE)).toEqual([]);
+      expect(
+        await store.toolResults({
+          runnerId: "runner_1",
+          calls: [{ ...job, callId: callId(1) }],
+        }),
+      ).toEqual([{ ...job, callId: callId(1), envelope: ANSWER }]);
+      await done();
+    });
+
+    it("binds an answer to its own job's call, and to no other", async () => {
+      const { store, done } = await make();
+      const a = await runningTools(store, "ta");
+      const b = await runningTools(store, "tb");
+      await store.recordToolCall({
+        ...b,
+        runnerId: "runner_1",
+        callId: callId(2),
+        envelope: CALL,
+      });
+      // B's call id, named against job A.
+      expect(
+        await store.answerToolCall({
+          siteId: SITE,
+          jobId: "ta",
+          callId: callId(2),
+          envelope: ANSWER,
+        }),
+      ).toEqual({ refused: "not-found" });
+      // And under another site's name, the same call is not found either.
+      expect(
+        await store.answerToolCall({
+          siteId: "site_other",
+          jobId: "tb",
+          callId: callId(2),
+          envelope: ANSWER,
+        }),
+      ).toEqual({ refused: "not-found" });
+      expect(
+        await store.toolResults({
+          runnerId: "runner_1",
+          calls: [{ ...a, callId: callId(2) }],
+        }),
+      ).toEqual([]);
+      await done();
+    });
+
+    it("refuses the call past a job's budget, counted across grants", async () => {
+      const { store, done } = await make();
+      const job = await runningTools(store, "tbudget", 1);
+      expect(
+        await store.recordToolCall({
+          ...job,
+          runnerId: "runner_1",
+          callId: callId(3),
+          envelope: CALL,
+        }),
+      ).not.toHaveProperty("refused");
+      expect(
+        await store.recordToolCall({
+          ...job,
+          runnerId: "runner_1",
+          callId: callId(4),
+          envelope: CALL,
+        }),
+      ).toEqual({ refused: "budget" });
+      await store.releaseLeases({ runnerId: "runner_1", leases: [job] });
+      const again = await runningTools(store, "tbudget");
+      expect(
+        await store.recordToolCall({
+          ...again,
+          runnerId: "runner_1",
+          callId: callId(5),
+          envelope: CALL,
+        }),
+      ).toEqual({ refused: "budget" });
+      await done();
+    });
+
+    it("defaults a job's budget to the protocol ceiling", async () => {
+      const { store, done } = await make();
+      const job = await runningTools(store, "tceiling");
+      for (let n = 1; n <= TOOL_LIMITS.maxToolCalls; n += 1) {
+        const recorded = await store.recordToolCall({
+          ...job,
+          runnerId: "runner_1",
+          callId: callId(100 + n),
+          envelope: CALL,
+        });
+        expect(recorded).not.toHaveProperty("refused");
+      }
+      expect(
+        await store.recordToolCall({
+          ...job,
+          runnerId: "runner_1",
+          callId: callId(199),
+          envelope: CALL,
+        }),
+      ).toEqual({ refused: "budget" });
+      await done();
+    });
+
+    it("refuses a call on a job without tools, or before its payload was taken", async () => {
+      const { store, done } = await make();
+      await store.enqueue({ id: "plain", siteId: SITE, stub: stub("plain") });
+      const [granted] = await store.claim(claimArgs());
+      const lease = { jobId: "plain", leaseId: granted!.lease.id };
+      expect(
+        await store.recordToolCall({
+          ...lease,
+          runnerId: "runner_1",
+          callId: callId(6),
+          envelope: CALL,
+        }),
+      ).toEqual({ refused: "not-ready" });
+      await store.seal({ jobId: "plain", siteId: SITE, envelope: ENVELOPE });
+      await store.takePayload({ ...lease, runnerId: "runner_1" });
+      expect(
+        await store.recordToolCall({
+          ...lease,
+          runnerId: "runner_1",
+          callId: callId(6),
+          envelope: CALL,
+        }),
+      ).toEqual({ refused: "not-tools" });
+      await done();
+    });
+
+    it("ends a job's calls with the job", async () => {
+      const { store, done } = await make();
+      const job = await runningTools(store, "tend");
+      await store.recordToolCall({
+        ...job,
+        runnerId: "runner_1",
+        callId: callId(7),
+        envelope: CALL,
+      });
+      await store.complete({
+        ...job,
+        runnerId: "runner_1",
+        envelope: ENVELOPE,
+        disposition: "ok",
+      });
+      expect(await store.toolCalls(SITE)).toEqual([]);
+      expect(
+        await store.answerToolCall({
+          siteId: SITE,
+          jobId: "tend",
+          callId: callId(7),
+          envelope: ANSWER,
+        }),
+      ).toEqual({ refused: "not-found" });
+      await done();
+    });
+
+    it.skipIf(advance === undefined)(
+      "stops holding a call open at the call timeout",
+      async () => {
+        const { store, done } = await make();
+        const job = await runningTools(store, "tlate");
+        await store.recordToolCall({
+          ...job,
+          runnerId: "runner_1",
+          callId: callId(8),
+          envelope: CALL,
+        });
+        await advance!(store, TOOL_LIMITS.callTimeoutMs + 1);
+        await store.renewLeases({
+          runnerId: "runner_1",
+          leases: [job],
+          leaseMs: 60_000,
+        });
+        expect(await store.toolCalls(SITE)).toEqual([]);
+        expect(
+          await store.answerToolCall({
+            siteId: SITE,
+            jobId: "tlate",
+            callId: callId(8),
+            envelope: ANSWER,
+          }),
+        ).toEqual({ refused: "too-late" });
+        await done();
+      },
+    );
   });
 }

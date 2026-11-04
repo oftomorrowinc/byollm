@@ -794,9 +794,17 @@ export const MUSTS = Object.freeze({
       "plaintext hash does not match its reference, MUST be refused at both " +
       "endpoints.",
     enforcedBy: "both",
-    verifiedBy: "pending",
+    // One check per party (cloud_008 Tier 3), each with the other end honest
+    // or absent. The device's end is C049 (#7136), in the daemon's own suite
+    // (`packages/daemon/src/images.test.ts`) the way card 3 built the tool
+    // checks: a shipped Runner opens blobs sealed by the protocol's own
+    // `encryptBlob` for another job, under swapped ids, as `out`, with a
+    // flipped byte and with a hash that is not its plaintext's, and a
+    // recording backend is asked nothing. The site's end is the server's
+    // suite (`packages/server/src/blobs.test.ts`, #7057). Neither is a kit
+    // check: the device's end certifies our daemon, not a target server.
+    verifiedBy: "adversarial",
     source: "byollm_021 §10",
-    planned: { verifiedBy: "conformance", checks: ["C049"] },
   }),
   MEDIA_VERIFIED: must({
     id: "MEDIA_VERIFIED",
@@ -805,9 +813,14 @@ export const MUSTS = Object.freeze({
       "dimensions MUST be within the caps, checked at both endpoints before " +
       "a backend or an app sees the bytes.",
     enforcedBy: "both",
-    verifiedBy: "pending",
+    // The device's end is C050 (#7136), in `packages/daemon/src/images.test.ts`:
+    // a PNG declared over JPEG bytes, an SVG and a 50,000 × 50,000 PNG header,
+    // each sealed honestly so only the media check can refuse it, and a
+    // recording backend with zero calls. The site's end is the server's suite
+    // (`packages/server/src/blobs.test.ts`, #7057). Both ends run the one
+    // check, the protocol's `decryptBlob` → `checkImage`.
+    verifiedBy: "adversarial",
     source: "byollm_021 §10",
-    planned: { verifiedBy: ["conformance", "adversarial"], checks: ["C050"] },
   }),
   BLOB_BUDGET_BEFORE_DOWNLOAD: must({
     id: "BLOB_BUDGET_BEFORE_DOWNLOAD",

@@ -1063,3 +1063,55 @@ could read every call and these checks would still pass: C033 proves the
 daemon sealed to the site and that the bytes the upstream stores and serves
 carry no plaintext, not that the upstream lacks the key. `RELAY_BLIND`'s own
 verification is where that belongs.
+
+## Verified 2026-11-04 — the device ends of C049 and C050 (#7136)
+
+byollm 0.1.5, #6933. §10 rows 2 and 3 are refused "before the backend", so
+their checks are the device's, and card 5's section above left them for the
+daemon. They are in `packages/daemon/src/images.test.ts`, driving the shipped
+`Runner` over card 6's harness: payloads sealed with the site's keys, blobs
+sealed by the protocol's own `encryptBlob` (the site's encoder, not a copy),
+and a recording backend whose job calls are counted apart from its probes.
+Every refusal case asserts the backend was asked **zero** times and saw no
+byte, that the site was told `image_refused`, and that the device's own log
+names the reason. The reason is asserted so that a refusal for another cause
+(a missing blob, a payload that did not parse) cannot stand in for the check.
+
+The device opens blobs with `decryptBlob` and nothing else, the function the
+site's SDK opens outputs with. So each mutation below is to the one shared
+check, `packages/protocol/src/blob.ts`. Each was applied by script, its diff
+printed to confirm it took, `images.test.ts` run, and the file restored and
+confirmed clean with `git diff --quiet`.
+
+| Check                      | File                   | Mutation                                                                                         | Result                                                                                                                                |
+| -------------------------- | ---------------------- | ------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------- |
+| C049 blob bound to its job | `protocol/src/blob.ts` | Drop the associated data: `blobAssociatedData` returns the domain tag alone                      | ✓ bites: another job's blob, two ids swapped in the store, `out` passed as `in`, a bad second input; also card 6's "another job" case |
+| C049, the hash clause      | `protocol/src/blob.ts` | Drop the `sha256Hex(bytes) !== ref.sha256` comparison                                            | ✓ bites: "a plaintext that is not the one its reference hashes", alone                                                                |
+| C050 media verified        | `protocol/src/blob.ts` | Trust the declared type: `checkImage` takes the declared type and dimensions as the sniffed ones | ✓ bites: PNG over JPEG bytes, an SVG, a 50,000 × 50,000 PNG header — all three, nothing else                                          |
+
+**What survives each mutation, and why that is right.** Under "drop the
+associated data" the flipped byte is still refused. Poly1305 catches it
+whatever the associated data is, so the case proves the tag is checked, not
+the binding. The hash case is still refused too, by the hash. Under "trust
+the declared type", a reference that _declares_ 50,000 × 50,000 is still
+refused, before any download, because `BlobRef` caps the declared dimensions
+when the payload is parsed. That is a second layer the mutation does not
+touch, and the header case is the one that proves the sniff.
+
+**The red team's three paths.** A retry calls `#runImageKind` again, which
+downloads and opens again. Nothing on the device caches a blob. A second
+input on the same job is opened on its own, and the backend call waits for
+every input: the "bad second input" case downloads both, refuses, and the
+model never hears of the good first one. The vision probe sends its embedded
+red square, which is not a blob. `llm.vision` is the only kind whose payload
+carries an image reference, and `#runImageKind` is its only path to a
+backend. The app's end is the site's: `ByollmApp.images()` opens outputs with
+the same `decryptBlob` (#7057).
+
+**`adversarial`, not `conformance`.** §10 planned C049 as conformance. Both
+ends are now in this repo's own suites, and neither is a kit check. The
+device's end certifies our daemon, not the server under test, and card 5 put
+the site's end in the server's suite. So both MUSTs are registered as
+`adversarial`, with no `planned` record left. A kit check of the site's end,
+driving `target.blobs.images()` over a mis-bound output, would make them
+`conformance`. It is not built.

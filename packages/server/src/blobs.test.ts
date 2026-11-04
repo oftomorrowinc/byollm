@@ -27,9 +27,10 @@ import {
  * The site's half of byollm_021 §2 and §4 on the direct lane (#7057).
  *
  * `BLOB_BOUND_TO_JOB` and `MEDIA_VERIFIED` hold "at both endpoints". The
- * device's end is C049 and C050, card 6's (#7058), and those MUSTs stay
- * `pending` until it lands; these are the site's end — what the SDK refuses
- * before an image is uploaded, and before an output reaches the app.
+ * device's end is C049 and C050 in the daemon's suite
+ * (`packages/daemon/src/images.test.ts`, #7136); these are the site's end —
+ * what the SDK refuses before an image is uploaded, and before an output
+ * reaches the app. Both ends call the protocol's one `decryptBlob`.
  */
 
 function chunk(type: string, data: Uint8Array): Buffer {

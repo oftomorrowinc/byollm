@@ -395,8 +395,8 @@ and the card that builds one promotes its MUST and edits its "Verified" cell.
 | MUST | Statement | Verified | Checks, and the kind they verify it as |
 |---|---|---|---|
 | `BLOBS_SEALED` | Blob bytes leave an endpoint only encrypted under a key that travels only inside a sealed, signed envelope; a blob store and a relay hold no key that opens one. It extends `RELAY_BLIND` to media. | conformance + **operator** | C048: conformance on the reference server (card 5, #7057); operator on the hub |
-| `BLOB_BOUND_TO_JOB` | A blob that fails to decrypt under its job's associated data, or whose plaintext hash does not match its reference, is refused at both endpoints. | pending | C049: conformance |
-| `MEDIA_VERIFIED` | Declared type matches the magic bytes, and the dimensions are within the caps, checked at both endpoints before a backend or an app sees the bytes. | pending | C050: conformance + adversarial |
+| `BLOB_BOUND_TO_JOB` | A blob that fails to decrypt under its job's associated data, or whose plaintext hash does not match its reference, is refused at both endpoints. | adversarial | C049: the daemon's suite (`images.test.ts`, #7136) for the device's end; the server's (`blobs.test.ts`, #7057) for the site's |
+| `MEDIA_VERIFIED` | Declared type matches the magic bytes, and the dimensions are within the caps, checked at both endpoints before a backend or an app sees the bytes. | adversarial | C050: the daemon's suite (`images.test.ts`, #7136) for the device's end; the server's (`blobs.test.ts`, #7057) for the site's |
 | `BLOB_BUDGET_BEFORE_DOWNLOAD` | A non-owner's images are charged against `community.maxImageBytes` from the declared sizes before any blob is fetched, and a download stops at its declared size. An upstream offers no job whose stored blobs differ from the sizes their slots were issued for (§2). | conformance + **operator** + adversarial | C057: conformance on the reference server (card 5, #7057); operator on the hub; C051, C052: the daemon's suites (card 6, #7058) |
 | `BLOBS_GO_WITH_THE_JOB` | Input blobs are deleted when the result is accepted; output blobs when the site says it holds them, or one hour after collection; an uncollected job's blobs 24 hours after its deadline. | conformance + **operator** | C054, C059: conformance on the reference server (card 5, #7057); operator on the hub |
 | `IMAGE_BYTES_NOT_URLS` | A daemon never fetches a URL a backend returned in place of image bytes. | adversarial | C056: the http-class adversarial corpus (card 6, #7058) |
@@ -416,7 +416,13 @@ seen there. C051, C052, C055 and C058 are the daemon's suites too
 (`images.test.ts`, `served-kinds.test.ts`, and C055 again in the http-class
 corpus against the real adapter), for the reason card 3 gave for the tool
 checks: the kit's target cannot yet hold a teammate's blobs or a process
-backend.
+backend. C049 and C050's device ends are the daemon's suite as well
+(`images.test.ts`, #7136), and for a plainer reason: the party refusing is
+the daemon, so a kit check of that end would certify our daemon and say
+nothing about the server under test. Their site ends are the server's suite
+(`blobs.test.ts`, #7057). Both MUSTs are therefore `adversarial`, not the
+`conformance` first planned here; a kit check of the site's end, driven
+through the target's own SDK, is what would make them `conformance`.
 
 The ids are assigned after byollm_012's C033 to C047, in this table's order,
 with guard (b)'s check last. Each was proposed as: C048 (C057), C049 (C058),

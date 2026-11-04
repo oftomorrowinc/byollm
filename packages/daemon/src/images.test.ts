@@ -486,6 +486,217 @@ describe("llm.vision, end to end", () => {
   });
 });
 
+/**
+ * Run a vision job for `job_1` whose payload names `refs` and whose store
+ * holds `store`, and hold it to §10's "refused before the backend": the
+ * model was never asked and saw no byte, and the site was told
+ * `image_refused`, and the device's log says `why`. The reason is asserted so a
+ * refusal for some other cause (a missing blob, a parse failure) cannot
+ * stand in for the check under test.
+ */
+async function refusedBeforeTheBackend(
+  refs: readonly BlobRef[],
+  store: Map<string, Uint8Array>,
+  why: RegExp,
+): Promise<Harness> {
+  const model = seen();
+  const h = await harness({
+    kind: "llm.vision",
+    owner: "me",
+    payload: visionPayload(refs),
+    store,
+    backend: new ImageBackend(model),
+  });
+  await h.cycle();
+  expect(model.calls, "the model was asked").toBe(0);
+  expect(model.images, "the model saw bytes").toEqual([]);
+  const outcome = SealedOutcome.parse(await h.result()).outcome;
+  expect(outcome).toMatchObject({
+    outcome: "error",
+    code: "image_refused",
+    retryable: false,
+  });
+  /* The site hears only `image_refused`; the device's own log keeps why. */
+  const logged = (await h.ingress.read()).filter((e) => e.type === "outcome");
+  expect(logged).toHaveLength(1);
+  expect(JSON.stringify(logged[0])).toMatch(why);
+  return h;
+}
+
+/** 16×16 baseline JPEG header, SOF0 first: enough for the sniffer to measure. */
+const JPEG_16 = new Uint8Array([
+  0xff, 0xd8, 0xff, 0xc0, 0x00, 0x11, 0x08, 0x00, 0x10, 0x00, 0x10, 0x03, 0x01,
+  0x22, 0x00, 0x02, 0x11, 0x01, 0x03, 0x11, 0x01, 0xff, 0xd9,
+]);
+
+/** An input blob of `plaintext` that declares itself a 16×16 PNG regardless. */
+async function declaredPng(
+  blob: string,
+  plaintext: Uint8Array,
+): Promise<{ ref: BlobRef; object: Uint8Array }> {
+  return inputBlob("job_1", blob, plaintext);
+}
+
+describe("C049 — a blob is bound to its job, its id and its direction, on the device [BLOB_BOUND_TO_JOB]", () => {
+  /* byollm_021 §10 row 2, the device's end. The site's end is
+     packages/server/src/blobs.test.ts. Each blob below is sealed by the
+     protocol's own encryptBlob — the site's encoder — and opened by the
+     daemon's shipped path (Runner → openInputImages → decryptBlob). */
+
+  it("control: an honest blob reaches the model, so the refusals below are about the blob", async () => {
+    const blob = await inputBlob("job_1", "in1", RED_PNG);
+    const model = seen();
+    const h = await harness({
+      kind: "llm.vision",
+      owner: "me",
+      payload: visionPayload([blob.ref]),
+      store: new Map([["in1", blob.object]]),
+      backend: new ImageBackend(model),
+    });
+    await h.cycle();
+    expect(model.calls).toBe(1);
+    expect(model.images).toHaveLength(1);
+  });
+
+  it("refuses another job's blob, named by its own id and key", async () => {
+    /* Two jobs' blob ids swapped: job_1's payload names job_2's blob. */
+    const theirs = await inputBlob("job_2", "in2", RED_PNG);
+    await refusedBeforeTheBackend(
+      [theirs.ref],
+      new Map([["in2", theirs.object]]),
+      /did not decrypt/,
+    );
+  });
+
+  it("refuses two of this job's blobs stored under each other's ids", async () => {
+    const first = await inputBlob("job_1", "in1", RED_PNG);
+    const second = await inputBlob("job_1", "in2", RED_PNG);
+    /* The references keep their own keys; the store swapped the objects. */
+    await refusedBeforeTheBackend(
+      [
+        { ...first.ref, key: second.ref.key },
+        { ...second.ref, key: first.ref.key },
+      ],
+      new Map([
+        ["in1", second.object],
+        ["in2", first.object],
+      ]),
+      /did not decrypt/,
+    );
+  });
+
+  it("refuses an output passed off as an input", async () => {
+    const sealed = await encryptBlob({
+      plaintext: RED_PNG,
+      jobId: "job_1",
+      blobId: "in1",
+      direction: "out",
+    });
+    const { ref } = await inputBlob("job_1", "in1", RED_PNG);
+    await refusedBeforeTheBackend(
+      [{ ...ref, key: sealed.key }],
+      new Map([["in1", sealed.object]]),
+      /did not decrypt/,
+    );
+  });
+
+  it("refuses a blob with one byte flipped in the store", async () => {
+    const blob = await inputBlob("job_1", "in1", RED_PNG);
+    const flipped = new Uint8Array(blob.object);
+    const at = 24 + 10; // past the nonce, inside the ciphertext
+    flipped[at] = (flipped[at] ?? 0) ^ 0x01;
+    await refusedBeforeTheBackend(
+      [blob.ref],
+      new Map([["in1", flipped]]),
+      /did not decrypt/,
+    );
+  });
+
+  it("refuses a blob whose plaintext is not the one its reference hashes", async () => {
+    /* Sealed honestly for this job, id and direction, so it decrypts: only
+       the hash is wrong. */
+    const blob = await inputBlob("job_1", "in1", RED_PNG);
+    await refusedBeforeTheBackend(
+      [{ ...blob.ref, sha256: sha256Hex(JPEG_16) }],
+      new Map([["in1", blob.object]]),
+      /does not match its reference/,
+    );
+  });
+
+  it("refuses the job when only its second input is bad, and the good first one reaches nothing", async () => {
+    /* The red-team's "a second input on the same job": the check is per
+       blob, and the backend call waits for all of them. */
+    const good = await inputBlob("job_1", "in1", RED_PNG);
+    const theirs = await inputBlob("job_2", "in2", RED_PNG);
+    const h = await refusedBeforeTheBackend(
+      [good.ref, theirs.ref],
+      new Map([
+        ["in1", good.object],
+        ["in2", theirs.object],
+      ]),
+      /did not decrypt/,
+    );
+    expect(h.blobGets).toEqual(["in1", "in2"]);
+  });
+});
+
+describe("C050 — an input image is the type and size it declares, on the device [MEDIA_VERIFIED]", () => {
+  /* byollm_021 §10 row 3, the device's end: "each one refused; backend saw
+     nothing". Each blob is sealed honestly for this job and its hash is its
+     plaintext's, so decrypting and hashing pass and only the media check is
+     left to refuse it. */
+
+  it("refuses a PNG declared over JPEG bytes", async () => {
+    const blob = await declaredPng("in1", JPEG_16);
+    await refusedBeforeTheBackend(
+      [blob.ref],
+      new Map([["in1", blob.object]]),
+      /the bytes are not image\/png \(they are image\/jpeg\)/,
+    );
+  });
+
+  it("refuses an SVG", async () => {
+    const svg = new TextEncoder().encode(
+      '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16">' +
+        "<script>alert(1)</script></svg>",
+    );
+    const blob = await declaredPng("in1", svg);
+    await refusedBeforeTheBackend(
+      [blob.ref],
+      new Map([["in1", blob.object]]),
+      /the bytes are not image\/png"/,
+    );
+  });
+
+  it("refuses a 50,000 × 50,000 PNG header from the header, declared as 16 × 16", async () => {
+    const bomb = new Uint8Array(RED_PNG);
+    const view = new DataView(bomb.buffer, bomb.byteOffset);
+    view.setUint32(16, 50_000);
+    view.setUint32(20, 50_000);
+    const blob = await declaredPng("in1", bomb);
+    await refusedBeforeTheBackend(
+      [blob.ref],
+      new Map([["in1", blob.object]]),
+      /dimensions are not the declared ones, or are over the caps/,
+    );
+  });
+
+  it("refuses a reference that declares 50,000 × 50,000 before downloading anything", async () => {
+    const blob = await inputBlob("job_1", "in1", RED_PNG);
+    const model = seen();
+    const h = await harness({
+      kind: "llm.vision",
+      owner: "me",
+      payload: visionPayload([{ ...blob.ref, width: 50_000, height: 50_000 }]),
+      store: new Map([["in1", blob.object]]),
+      backend: new ImageBackend(model),
+    });
+    await h.cycle();
+    expect(model.calls).toBe(0);
+    expect(h.blobGets).toEqual([]);
+  });
+});
+
 describe("C051 — a teammate's images are budgeted before they are downloaded [BLOB_BUDGET_BEFORE_DOWNLOAD]", () => {
   /* §10 row 4: 3 × 10 MiB against the 16 MiB default. */
   const refs = [

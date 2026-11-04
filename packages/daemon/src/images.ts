@@ -126,8 +126,10 @@ export interface OpenedImage {
  * a store holding more than its reference declares costs this device the
  * declared size and no more (C052's daemon half). Then `decryptBlob` refuses
  * the wrong job, blob or direction, a hash mismatch, and a type or size the
- * bytes do not bear out (`BLOB_BOUND_TO_JOB`, `MEDIA_VERIFIED`). Nothing
- * reaches a backend until every image has passed.
+ * bytes do not bear out (`BLOB_BOUND_TO_JOB` C049, `MEDIA_VERIFIED` C050 —
+ * the device's ends, in `images.test.ts`). Nothing reaches a backend until
+ * every image has passed. This is the only way an input blob reaches a
+ * backend: nothing is cached, so a retried job downloads and opens again.
  *
  * Sequential on purpose: the first refusal stops the downloads after it.
  */

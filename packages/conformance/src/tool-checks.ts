@@ -109,6 +109,66 @@ function resulted(run: ToolRun): ToolsSealedOutcome {
 const outcomeOf = (o: ToolsSealedOutcome): Record<string, unknown> => o.outcome;
 const ranOf = (o: ToolsSealedOutcome): Record<string, unknown> => o.ran;
 
+/**
+ * C041's lease promise: from the claim to the result, the lease named in the
+ * claim was never left a whole lease-length without a heartbeat naming it.
+ *
+ * Coverage, not a count. A floor of "one beat a second" assumed a tick costs
+ * nothing; a daemon's beat is its sleep plus its heartbeat and claim round
+ * trips, ~1.06s against PostgREST, and Supabase failed on 57 beats in 60.6s
+ * (#7265) while its lease was never at risk. What the target promises is
+ * here instead, and is the same on any backend: the first beat inside a
+ * lease of the claim, the last inside a lease of the result, no gap a lease
+ * long, and every beat naming the lease.
+ *
+ * And a wait long enough to need it. On a target whose lease outlasts the
+ * hold, one beat anywhere satisfies all of that and the claim's own lease
+ * would have carried the job anyway: C041 would prove the timeout and that
+ * the result was accepted, not that the lease was renewed. So the hold must
+ * span two leases, which no daemon covers without beating at least twice,
+ * once well inside the hold; a target that cannot give that fails here, the
+ * way a deadline too close to the timeout does in C041, rather than certify
+ * a renewal nothing exercised.
+ */
+export function heldThroughout(input: {
+  readonly beats: readonly { at: number; leases: readonly string[] }[];
+  readonly leaseId: string;
+  readonly claimedAt: number;
+  readonly resultAt: number;
+  readonly leaseMs: number;
+}): void {
+  const { leaseId, claimedAt, resultAt, leaseMs } = input;
+  const held = resultAt - claimedAt;
+  assert(
+    held >= 2 * leaseMs,
+    `the job was held ${String(held)}ms on a ${String(leaseMs)}ms lease, too short to show it was renewed`,
+  );
+  const during = input.beats.filter((b) => b.at > claimedAt && b.at < resultAt);
+  for (const beat of during) {
+    expectSame(beat.leases, [leaseId], "the leases a heartbeat named");
+  }
+  const first = during[0];
+  const last = during.at(-1);
+  assert(
+    first !== undefined && last !== undefined,
+    `no heartbeat in the ${String(held)}ms the job was held`,
+  );
+  assert(
+    first.at - claimedAt < leaseMs,
+    `the first heartbeat came ${String(first.at - claimedAt)}ms after the claim, past the ${String(leaseMs)}ms lease`,
+  );
+  assert(
+    resultAt - last.at < leaseMs,
+    `the last heartbeat came ${String(resultAt - last.at)}ms before the result, longer than the ${String(leaseMs)}ms lease`,
+  );
+  const gaps = during.slice(1).map((b, i) => b.at - (during[i]?.at ?? b.at));
+  const widest = Math.max(0, ...gaps);
+  assert(
+    widest < leaseMs,
+    `heartbeats ${String(widest)}ms apart, longer than the ${String(leaseMs)}ms lease`,
+  );
+}
+
 /** Call `lookup` on the first `n` turns, then answer. */
 const callsThenAnswers =
   (n: number, answer = "done"): ModelScript =>
@@ -685,32 +745,17 @@ export const TOOL_CHECKS: readonly ToolCheck[] = [
           },
           "ran",
         );
-        // Renewed while waiting: every heartbeat during the wait named the
-        // lease, and none was further apart than this target's lease is long.
-        // The result above was accepted (status 200) under the lease the job
-        // was claimed with, so it was never reclaimed.
-        // From the claim to the result: the beats while the job was held.
-        const during = run.beats.filter(
-          (b) => b.at > run.claimedAt && b.at < run.resultAt,
-        );
-        assert(
-          during.length >= TOOL_LIMITS.callTimeoutMs / 1_000 - 1,
-          `only ${String(during.length)} heartbeats during a ${String(waited)}ms wait`,
-        );
-        for (const beat of during) {
-          expectSame(
-            beat.leases,
-            [run.leaseId],
-            "the leases a heartbeat named",
-          );
-        }
-        const gaps = during
-          .slice(1)
-          .map((b, i) => b.at - (during[i]?.at ?? b.at));
-        assert(
-          Math.max(...gaps) < target.leaseMs,
-          `heartbeats ${String(Math.max(...gaps))}ms apart, longer than the ${String(target.leaseMs)}ms lease`,
-        );
+        // Renewed while waiting: the lease never went a whole lease-length
+        // without a heartbeat naming it, from the claim to the result. The
+        // result above was accepted (status 200) under the lease the job was
+        // claimed with, so it was never reclaimed.
+        heldThroughout({
+          beats: run.beats,
+          leaseId: run.leaseId,
+          claimedAt: run.claimedAt,
+          resultAt: run.resultAt,
+          leaseMs: target.leaseMs,
+        });
       });
     },
   },

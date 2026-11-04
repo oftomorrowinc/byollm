@@ -2,7 +2,9 @@ import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+  BLOB_PADDING_BYTES,
   ImageSealedOutcome,
+  MAX_IMAGES_IN,
   SealedOutcome,
   blobObjectBytes,
   decryptBlob,
@@ -29,6 +31,7 @@ import type {
 import { Budgets } from "./budgets.js";
 import { ProtocolClient } from "./client.js";
 import { DaemonConfig, resolveConfig } from "./config.js";
+import { imageBudgetRefusal, imageDownloadCeiling } from "./images.js";
 import { IngressLog } from "./ingress.js";
 import { Runner } from "./runner.js";
 import { SpendLedger } from "./spend.js";
@@ -544,6 +547,85 @@ describe("C051 — a teammate's images are budgeted before they are downloaded [
        fake store has none, so it ends there, refused by the store. */
     expect(h.refusals).toEqual([]);
     expect(h.blobUrlCalls).toEqual(["a"]);
+  });
+});
+
+describe("C051's bound — what an admitted teammate's job can make this device download [BLOB_BUDGET_BEFORE_DOWNLOAD]", () => {
+  /* Owl #56114: the budget charges declared plaintext, and each GET is
+     allowed the padded object. The worst case puts every image one byte
+     into a fresh 256 KiB bucket: seven of 2 MiB + 1 and one shaved so the
+     declared sum is exactly the 16 MiB default, which is admitted. */
+  const MAX = 16 * MiB;
+  const sizes = [
+    ...Array.from({ length: MAX_IMAGES_IN - 1 }, () => 2 * MiB + 1),
+    2 * MiB - (MAX_IMAGES_IN - 1),
+  ];
+
+  /** RED_PNG, zero-filled to `bytes`: a real image the site could send. */
+  const imageOf = (bytes: number) => {
+    const plaintext = new Uint8Array(bytes);
+    plaintext.set(RED_PNG);
+    return plaintext;
+  };
+
+  it("is admitted, downloads more than maxImageBytes, and never more than imageDownloadCeiling", async () => {
+    expect(MAX_IMAGES_IN).toBe(8);
+    expect(sizes.reduce((a, b) => a + b, 0)).toBe(MAX);
+    const blobs = await Promise.all(
+      sizes.map((bytes, i) =>
+        inputBlob("job_1", `in${String(i)}`, imageOf(bytes)),
+      ),
+    );
+    const store = new Map(blobs.map((b) => [b.ref.blob, b.object]));
+    const model = seen();
+    const h = await harness({
+      kind: "llm.vision",
+      owner: "a-teammate",
+      payload: visionPayload(blobs.map((b) => b.ref)),
+      store,
+      backend: new ImageBackend(model),
+    });
+    await h.cycle();
+    expect(h.refusals).toEqual([]);
+    expect(h.blobGets).toHaveLength(MAX_IMAGES_IN);
+    const downloaded = h.blobGets.reduce(
+      (sum, id) => sum + (store.get(id)?.length ?? 0),
+      0,
+    );
+    /* The overage is real — about 2 MiB at the default — and it is what
+       the comments on imageBudgetRefusal and the runner's admission say. */
+    expect(downloaded).toBeGreaterThan(MAX + 7 * BLOB_PADDING_BYTES);
+    expect(downloaded).toBeLessThanOrEqual(
+      imageDownloadCeiling(MAX_IMAGES_IN, MAX),
+    );
+    expect(imageDownloadCeiling(MAX_IMAGES_IN, MAX)).toBe(
+      MAX + MAX_IMAGES_IN * (BLOB_PADDING_BYTES + 40),
+    );
+  });
+
+  it("holds for every admitted split: no admitted refs exceed the ceiling", () => {
+    /* The ceiling is per reference, so the worst shapes are 1..8 refs each
+       one byte into a bucket, plus the remainder. */
+    for (let n = 1; n <= MAX_IMAGES_IN; n++) {
+      for (const each of [1, BLOB_PADDING_BYTES + 1, 2 * MiB + 1, MAX / n]) {
+        const refs = Array.from({ length: n - 1 }, () => Math.floor(each));
+        const rest = MAX - refs.reduce((a, b) => a + b, 0);
+        if (rest < 1) continue;
+        refs.push(rest);
+        if (
+          imageBudgetRefusal(
+            refs.map((b, i) => declaredRef(String(i), b)),
+            MAX,
+          ) !== undefined
+        )
+          continue;
+        const objects = refs.reduce((sum, b) => sum + blobObjectBytes(b), 0);
+        expect(
+          objects,
+          `${String(n)} refs of ${String(each)}`,
+        ).toBeLessThanOrEqual(imageDownloadCeiling(n, MAX));
+      }
+    }
   });
 });
 

@@ -3893,9 +3893,14 @@ export class Runner {
      * size, type and dimensions, held to the caps by `BlobRef`. A teammate's
      * are then charged against `community.maxImageBytes` from those declared
      * sizes **before any blob is fetched** (C051), and each download stops
-     * at its declared size (C052, `getBlob`). So the most a teammate's job
-     * can make this device download before it is refused is the sealed
-     * payload itself.
+     * at its declared size (C052, `getBlob`). A job over the budget is
+     * refused having cost this device the sealed payload and no blob. A job
+     * within it can still make this device download more than
+     * `maxImageBytes`: each GET is allowed `blobObjectBytes(ref.bytes)`, the
+     * plaintext padded to its 256 KiB bucket plus nonce and tag, so the
+     * ceiling is `imageDownloadCeiling` — `maxImageBytes + refs ×
+     * (BLOB_PADDING_BYTES + 40)`, about 18 MiB for eight images under the
+     * 16 MiB default. C051's bound case pins it.
      */
     if (job.kind === "llm.vision" || job.kind === "llm.image") {
       const parsed =

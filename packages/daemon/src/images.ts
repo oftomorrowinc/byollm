@@ -1,4 +1,7 @@
 import {
+  BLOB_NONCE_BYTES,
+  BLOB_PADDING_BYTES,
+  BLOB_TAG_BYTES,
   MAX_IMAGE_BYTES,
   blobObjectBytes,
   decryptBlob,
@@ -36,9 +39,18 @@ function mib(bytes: number): string {
  *
  * From the `bytes` each reference declares in the opened payload, which is
  * all this device has fetched so far: the sealed payload, at most 6 MiB of
- * text and references. The download that follows stops at each declared size
- * ({@link BlobDownloader}), so the declared sum is a ceiling on what the job
- * can make this device fetch — not an estimate of it.
+ * text and references. This charges the declared **plaintext**, as §3 says,
+ * not the stored object.
+ *
+ * The declared sum is not the ceiling on what the job can make this device
+ * fetch. Each download stops at `blobObjectBytes(ref.bytes)`, the plaintext
+ * padded up to its 256 KiB bucket plus nonce and tag, because that is the
+ * only size a stored object can be. So an admitted job can cost up to
+ * {@link imageDownloadCeiling}: `maxImageBytes` plus, per reference, one
+ * bucket and the 40 bytes of nonce and tag. For eight images under the 16 MiB
+ * default, that is about 18 MiB (C051's bound case pins it). Charging the
+ * object size instead would refuse a single 16 MiB image at the 16 MiB
+ * default.
  *
  * The refusal names the setting and the size the job needed (byollm_013's
  * rule), so the remedy is in the sentence.
@@ -55,6 +67,26 @@ export function imageBudgetRefusal(
     `community.maxImageBytes is ${mib(maxImageBytes)} — raise ` +
     `community.maxImageBytes in ${configPath} to at least ` +
     `${String(declared)} to accept it`
+  );
+}
+
+/**
+ * The most a job admitted by {@link imageBudgetRefusal} can make this device
+ * download in blob objects: `maxImageBytes + refs × (BLOB_PADDING_BYTES +
+ * nonce + tag)`.
+ *
+ * Each reference declares at least one byte, and padding adds less than one
+ * bucket to it, so each object exceeds its declared plaintext by less than
+ * `BLOB_PADDING_BYTES + BLOB_NONCE_BYTES + BLOB_TAG_BYTES`. The sum of the
+ * declared plaintext is at most `maxImageBytes`, or the job was refused.
+ */
+export function imageDownloadCeiling(
+  refs: number,
+  maxImageBytes: number,
+): number {
+  return (
+    maxImageBytes +
+    refs * (BLOB_PADDING_BYTES + BLOB_NONCE_BYTES + BLOB_TAG_BYTES)
   );
 }
 

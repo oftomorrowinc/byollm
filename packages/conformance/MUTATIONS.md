@@ -966,6 +966,20 @@ restored.
 | C056 image bytes, not URLs          | `daemon/src/backends/openai-http.ts` | Follow the URL: fetch it before returning the error                                          | ✓ bites: both URL cases (the fetch reaches the corpus's server)           |
 | C058 no images on a process backend | `daemon/src/config.ts`               | Advertise it: `httpOnlyKind` never objects                                                   | ✓ bites: all four config cases and both runner cases                      |
 
+### C051's bound: the budget charges plaintext, the store serves objects
+
+Owl #56114. `community.maxImageBytes` is charged from the declared plaintext,
+as §3 says, but each GET is allowed `blobObjectBytes(ref.bytes)`: the
+plaintext padded to its 256 KiB bucket plus 40 bytes of nonce and tag. An
+admitted job can therefore make the device download more than the setting,
+up to `imageDownloadCeiling` = `maxImageBytes + refs × (BLOB_PADDING_BYTES +
+40)`. The case in `images.test.ts` admits eight images (seven of 2 MiB + 1,
+one shaved to make exactly 16 MiB), counts what the store served, and asserts
+it is over `maxImageBytes + 7 buckets` and within the ceiling: about 17.75
+MiB at the 16 MiB default. A second case walks admitted splits of 1–8
+references and holds each to the ceiling. Mutating the ceiling to drop the
+per-reference bucket (`maxImageBytes + refs × 40`) fails both cases.
+
 ### What C052's end-to-end case does not prove
 
 The runner-level C052 case (one real image stored with 12 MiB appended) is

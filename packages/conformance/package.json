@@ -37,7 +37,9 @@
   },
   "devDependencies": {
     "@byollm/server": "workspace:*",
-    "@supabase/supabase-js": "^2.112.2"
+    "@supabase/supabase-js": "^2.112.2",
+    "byollm-protocol-0.1.4": "npm:@byollm/protocol@0.1.4",
+    "byollm-server-0.1.4": "npm:@byollm/server@0.1.4"
   },
   "publishConfig": {
     "access": "public"

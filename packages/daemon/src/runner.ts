@@ -35,8 +35,13 @@ import {
   /* A VALUE, not only a type — B304. `satisfies SealedOutcome` at the seal
      read like a guarantee and checked nothing: TypeScript excess-property-
      checks a fresh literal, and `ran` arrives as a variable from another
-     method whose return type is inferred. */
-  SealedOutcome,
+     method whose return type is inferred. Chosen per kind since 0.1.5. */
+  SealedOutcomeFor,
+  ToolsPayload,
+  toolsConsentRefusal,
+  toolsRefusalText,
+  ToolCall,
+  type ToolOutcomes,
   type BackendId,
   type JobOutcome,
   CLOCK_ATTRIBUTION_MS,
@@ -62,6 +67,9 @@ import { writeHealth } from "./health.js";
 import { writeHeartbeat } from "./heartbeat.js";
 import type { IngressLog } from "./ingress.js";
 import { estimateCents, type SpendLedger } from "./spend.js";
+import { runToolLoop, type ToolLoopRun } from "./tool-loop.js";
+import { probeTools, type ToolsProbe } from "./tools-probe.js";
+import { isAfter014, predatesMessage } from "./upstream-predates.js";
 
 /** What the daemon is currently doing, for `byollm status`. */
 export interface RunnerStatus {
@@ -228,6 +236,13 @@ export interface RunnerOptions {
    */
   readonly onPath?: (binary: string) => Promise<boolean>;
 
+  /**
+   * How a tool call waits between polls — byollm_012 §5.3.
+   *
+   * A real sleep by default. A test passes one that moves its clock, so that
+   * a sixty-second `TOOL_CALL_TIMEOUT` is exercised without sixty seconds.
+   */
+  readonly toolWait?: (ms: number) => Promise<void>;
   readonly readMemory?: () => Promise<{
     readonly memory: MemoryReading;
     readonly pressure: MemoryPressure;
@@ -283,6 +298,26 @@ export type RunnerEvent =
       readonly type: "now-serving";
       readonly site: string;
       readonly fingerprint: string;
+      /**
+       * The first `llm.tools` job from this site — byollm_012 §6: the line
+       * gains "with its tools". Said again the first time a site already
+       * served asks with its tools, because that is new too.
+       */
+      readonly withTools?: boolean;
+    }
+  /**
+   * The upstream refused a heartbeat that advertised a kind newer than it,
+   * and took the same heartbeat without — guard (b), byollm_021 §R2.
+   *
+   * Said once a session. The kinds stay off the advertisement to this
+   * upstream for the rest of it, and everything else keeps running.
+   */
+  | {
+      readonly type: "upstream-predates-kinds";
+      readonly upstream: string;
+      readonly kinds: readonly string[];
+      readonly services: readonly string[];
+      readonly message: string;
     }
   /**
    * A site this machine has never approved arrived on the heartbeat. Nothing
@@ -666,8 +701,26 @@ function sameKey(a: PublicIdentity, b: PublicIdentity): boolean {
  */
 export interface RanJob {
   readonly outcome: JobOutcome;
-  readonly ran?: RunMetadata;
+  /** With `toolCalls` and `toolOutcomes` on an `llm.tools` job (§3). */
+  readonly ran?: RunMetadata | ToolsRan;
 }
+
+/** `ran` for an `llm.tools` job: how many calls, and how each ended. */
+type ToolsRan = RunMetadata & {
+  readonly toolCalls: number;
+  readonly toolOutcomes: ToolOutcomes;
+};
+
+/** A tool job that made no calls — the honest zero, not an absent count. */
+const NO_TOOL_CALLS = Object.freeze({
+  toolCalls: 0,
+  toolOutcomes: Object.freeze({
+    answered: 0,
+    errored: 0,
+    timedOut: 0,
+    refused: 0,
+  }),
+});
 
 export class Runner {
   readonly #options: RunnerOptions;
@@ -1333,6 +1386,12 @@ export class Runner {
       }
       if (!usable) continue;
 
+      /* `llm.tools` needs more than a healthy server: a model that calls a
+         function and reads what it returns (byollm_012 §7). */
+      if (route.kind === "llm.tools" && !(await this.#callsTools(route))) {
+        continue;
+      }
+
       capabilities.push({
         kind: route.kind,
         service: route.service,
@@ -1360,6 +1419,34 @@ export class Runner {
        from writing a file every heartbeat. */
     this.#writeServiceStates();
     return capabilities;
+  }
+
+  /**
+   * The tool probe's verdict for each `llm.tools` service, for the surfaces
+   * that must say why it is not advertised (`byollm services`).
+   */
+  get toolsProbes(): ReadonlyMap<string, ToolsProbe> {
+    return this.#toolsProbes;
+  }
+
+  readonly #toolsProbes = new Map<string, ToolsProbe>();
+
+  /**
+   * Ask the probe, once a session for each answer that will not change.
+   *
+   * A verdict from a model that answered is held: the probe costs a model
+   * call (and, on a hosted service, money), and the same model asked again
+   * gives the same answer. A service that did not answer is asked again on
+   * the next pass, because that is about the server, not the model.
+   */
+  async #callsTools(route: ResolvedRoute): Promise<boolean> {
+    const held = this.#toolsProbes.get(route.service);
+    if (held !== undefined && held.kind !== "unanswered") {
+      return held.kind === "calls-tools";
+    }
+    const verdict = await probeTools(this.#backendFor(route), route.model);
+    this.#toolsProbes.set(route.service, verdict);
+    return verdict.kind === "calls-tools";
   }
 
   #backendFor(route: ResolvedRoute): Backend {
@@ -1897,13 +1984,17 @@ export class Runner {
      * evidence rather than a guess: a site the relay merely mentioned has not
      * asked this device for anything yet.
      */
-    if (!this.#served.has(job.site)) {
+    const withTools = job.kind === "llm.tools";
+    const servedKey = withTools ? `${job.site} tools` : job.site;
+    if (!this.#served.has(servedKey)) {
+      this.#served.add(servedKey);
       this.#served.add(job.site);
       const site = this.#sites.get(job.site);
       this.#options.onEvent?.({
         type: "now-serving",
         site: job.site,
         fingerprint: site ? fingerprint(site.identity) : job.site,
+        ...(withTools ? { withTools: true } : {}),
       });
     }
 
@@ -2129,6 +2220,158 @@ export class Runner {
     });
   }
 
+  /**
+   * Run an `llm.tools` job's loop — byollm_012 §5, §7, §8, §9.
+   *
+   * The budget is the lowest of the payload's `maxToolCalls`, the purpose's
+   * (which admission has already held the payload to) and the protocol's
+   * ceiling. The context cap is the purpose's `maxToolResultChars`. Each call
+   * is logged, then sealed to the job's own site — the pin the payload was
+   * opened against — and sent under the job's lease.
+   */
+  async #runTools(
+    job: ClaimedJob,
+    route: ResolvedRoute,
+    backend: Backend,
+    prompt: string,
+    context: {
+      community: boolean;
+      limits: LoadedConfig["config"];
+      signal: AbortSignal;
+      deadlineAt: number;
+    },
+  ): Promise<ToolLoopRun> {
+    await this.#ensureLocalServer(route, backend);
+    const payload = job.payload as ToolsPayload;
+    const identity = this.#options.identity;
+    if (!identity) {
+      throw new Error("this daemon has no keys, so it cannot seal a tool call");
+    }
+    const site = job.site;
+    if (site === undefined) {
+      /* A call is sealed to the job's site, so a job that names none has
+         nowhere its calls could go. Every claimed stub names one. */
+      throw new Error(`job ${job.id} names no site to send its tool calls to`);
+    }
+    const keys = await identity.keys();
+    const pinned = this.#pinFor({ id: job.id, site });
+    const { community, limits } = context;
+    const siteField = { site };
+    const client = this.#options.client;
+    const lease = { jobId: job.id, leaseId: job.lease.id };
+    const ingress = this.#options.ingress;
+    const at = () => this.#now();
+    const toolWait =
+      this.#options.toolWait ??
+      ((ms: number) =>
+        new Promise<void>((resolve) => {
+          setTimeout(resolve, ms);
+        }));
+
+    return runToolLoop({
+      backend,
+      model: route.model,
+      jobId: job.id,
+      prompt,
+      declarations: payload.tools,
+      budget: Math.min(
+        payload.maxToolCalls ?? payload.purposeLimits.maxToolCalls,
+        payload.purposeLimits.maxToolCalls,
+      ),
+      maxResultChars: payload.purposeLimits.maxToolResultChars,
+      turnCeilingMs: community
+        ? Math.min(
+            limits.community.maxWallClockMs,
+            limits.limits.maxWallClockMs,
+          )
+        : limits.limits.maxWallClockMs,
+      maxOutputBytes: community
+        ? Math.min(
+            limits.community.maxOutputBytes,
+            limits.limits.maxOutputBytes,
+          )
+        : limits.limits.maxOutputBytes,
+      deadlineAt: context.deadlineAt,
+      signal: context.signal,
+      now: at,
+      wait: toolWait,
+      transport: {
+        send: async ({ callId, envelope }) => {
+          await client.toolCall({
+            runnerId: this.#options.runnerId,
+            ...lease,
+            callId,
+            envelope,
+          });
+        },
+        poll: async (callId) =>
+          (
+            await client.toolResults({
+              runnerId: this.#options.runnerId,
+              calls: [{ ...lease, callId }],
+            })
+          ).results,
+      },
+      seal: (call: ToolCall) =>
+        seal({
+          /* Parsed before it is sealed, like everything this daemon seals:
+             the site parses it strictly, and an extra key would be refused
+             there rather than here. */
+          plaintext: JSON.stringify(ToolCall.parse(call)),
+          senderKeys: keys,
+          // The job's own site, by the stub — never "the" site: a device that
+          // serves two would otherwise send one site's call to the other.
+          recipientEncryptionPublic: pinned.encryption,
+          context: {
+            jobId: job.id,
+            senderKeyId: keyId(publicIdentityOf(keys).identity),
+            recipientKeyId: keyId(pinned.identity),
+            deadlineAt: this.#now() + ENVELOPE_MAX_AGE_MS,
+            direction: "tool-call",
+          },
+        }),
+      open: async (envelope) => {
+        if (envelope.senderKeyId !== site) return null;
+        const opened = await open({
+          envelope,
+          recipientKeys: keys,
+          senderIdentityPublic: pinned.identity,
+          expected: {
+            jobId: job.id,
+            senderKeyId: keyId(pinned.identity),
+            recipientKeyId: keyId(publicIdentityOf(keys).identity),
+            direction: "tool-result",
+          },
+        });
+        return opened.ok ? opened.plaintext : null;
+      },
+      log: {
+        call: (entry) =>
+          ingress.recordToolCall({
+            at: at(),
+            jobId: job.id,
+            ...siteField,
+            audience: job.audience,
+            ...entry,
+          }),
+        outcome: (entry) =>
+          ingress.recordToolOutcome({
+            at: at(),
+            jobId: job.id,
+            ...siteField,
+            ...entry,
+          }),
+        dropped: (entry) =>
+          ingress.recordToolDropped({
+            at: at(),
+            jobId: job.id,
+            ...siteField,
+            ...entry,
+          }),
+      },
+    });
+  }
+
   async #ensureLocalServer(
     route: ResolvedRoute,
     backend: Backend,
@@ -2252,6 +2495,19 @@ export class Runner {
        * run, and the reason belongs to this machine.
        */
       const gate = await this.#memoryDecision(route, job.id);
+      const refusedForMemory = gate !== undefined && !gate.admit;
+      /* `llm.tools` runs as a loop of turns rather than one call — byollm_012
+         §7. Everything around it is the same: the memory gate before, the
+         outcome, the log and the seal after. */
+      const toolRun =
+        job.kind === "llm.tools" && !refusedForMemory
+          ? await this.#runTools(job, route, backend, prompt, {
+              community,
+              limits,
+              signal: controller.signal,
+              deadlineAt: job.deadlineAt ?? Number.POSITIVE_INFINITY,
+            })
+          : undefined;
       const result: BackendResult =
         gate !== undefined && !gate.admit
           ? {
@@ -2260,14 +2516,16 @@ export class Runner {
               message: gate.why,
               durationMs: 0,
             }
-          : await this.#runOnBackend(route, backend, prompt, {
-              community,
-              limits,
-              signal: controller.signal,
-              /* Absent means unclamped, which is what happened before B199.
+          : toolRun !== undefined
+            ? toolRun.result
+            : await this.#runOnBackend(route, backend, prompt, {
+                community,
+                limits,
+                signal: controller.signal,
+                /* Absent means unclamped, which is what happened before B199.
                  The stub always carries it, so on the real path it is set. */
-              deadlineAt: job.deadlineAt ?? Number.POSITIVE_INFINITY,
-            });
+                deadlineAt: job.deadlineAt ?? Number.POSITIVE_INFINITY,
+              });
 
       /**
        * A service that cannot authenticate stops being advertised, after one
@@ -2431,11 +2689,26 @@ export class Runner {
       // Community work on a metered backend spends the owner's money, so it
       // goes on the ledger the ceiling is checked against. Own work is not
       // counted: their machine, their key, their call.
+      /* A tool job's later turns are model work like its first — byollm_012
+         §8: "the daily budgets count every turn, not every job". The first
+         was recorded at the start, with every job's. */
+      if (
+        toolRun !== undefined &&
+        community &&
+        this.#countsTowardJobCaps(job, route)
+      ) {
+        for (let turn = 1; turn < toolRun.turns; turn += 1) {
+          await this.#options.budgets.record(this.#now());
+        }
+      }
+
       if (community && route.cost === "metered") {
         await this.#options.spend.record(
           route.service,
           estimateCents(
-            prompt.length,
+            /* Every turn re-sends the conversation so far, and that is what
+               the provider bills. */
+            toolRun?.inputChars ?? prompt.length,
             result.ok ? result.text.length : 0,
             route.spendCentsPerMillionTokens,
           ),
@@ -2461,6 +2734,15 @@ export class Runner {
           /* The measured one. This was the literal `0` at the seal — see
              `runJob`'s note. */
           durationMs: result.durationMs,
+          /* How many calls, and how each ended — on `llm.tools` only (§3). */
+          ...(job.kind === "llm.tools"
+            ? toolRun === undefined
+              ? NO_TOOL_CALLS
+              : {
+                  toolCalls: toolRun.toolCalls,
+                  toolOutcomes: toolRun.toolOutcomes,
+                }
+            : {}),
           /**
            * **`result.timing` is NOT sealed — B304, and it was for months.**
            *
@@ -2804,28 +3086,9 @@ export class Runner {
   }
 
   async #tick(): Promise<number> {
-    const capabilities = await this.#capabilitiesForTick();
-
-    const heartbeat = await this.#options.client.heartbeat({
-      runnerId: this.#options.runnerId,
-      daemonVersion: this.#options.daemonVersion,
-      capabilities,
-      // What this device could serve and is not, so the surfaces that must
-      // explain a missing kind are not all on this machine. The hub decides
-      // who is told what; the device only reports.
-      withheld: this.#options.loaded.withheld.map((held) => ({
-        kind: held.kind,
-        claimants: held.services.map((service) => ({
-          service,
-          offer:
-            this.#options.loaded.config.services[service]?.offer ?? "private",
-        })),
-      })),
-      activeLeases: [...this.#active.entries()].map(([leaseId, held]) => ({
-        jobId: held.jobId,
-        leaseId,
-      })),
-    });
+    const { heartbeat, capabilities } = await this.#heartbeat(
+      await this.#capabilitiesForTick(),
+    );
 
     this.#noteClockSkew(heartbeat.serverTime);
 
@@ -2995,6 +3258,102 @@ export class Runner {
    * `"go"` records the attempt; `"wait"` and `"poison"` do not, so a job
    * refused inside its backoff does not burn one of its own chances.
    */
+  /**
+   * The heartbeat, with guard (b) — byollm_021 §Rollout R2.
+   *
+   * A 0.1.4 upstream parses `Capability.kind` as a closed enum, so one kind it
+   * has never heard of refuses the WHOLE heartbeat and the device goes dark
+   * for everything. Its refusal names no field — a fixed `400 bad-request` —
+   * and a newer upstream's may, but must not be depended on. So this decides
+   * by a differential retry and **never by the body**:
+   *
+   * - refused as a 400 while advertising a kind newer than 0.1.4: send the
+   *   same heartbeat once more with only those kinds taken out;
+   * - only if THAT succeeds, remember for the session that this upstream
+   *   predates them, keep them off every later heartbeat and claim, and say
+   *   so, naming the upstream;
+   * - if the retry is refused too, the new kinds were not the cause: report
+   *   the original refusal as today, and blame no version.
+   *
+   * Returns the capabilities actually sent, which are the ones the claim
+   * must send too: a claim carries the same matrix and the same enum.
+   */
+  async #heartbeat(all: readonly Capability[]): Promise<{
+    heartbeat: Awaited<ReturnType<ProtocolClient["heartbeat"]>>;
+    capabilities: Capability[];
+  }> {
+    const without = (caps: readonly Capability[]) =>
+      caps.filter((capability) => !isAfter014(capability.kind));
+    const withheldOf = (dropNew: boolean) =>
+      this.#options.loaded.withheld
+        .filter((held) => !dropNew || !isAfter014(held.kind))
+        .map((held) => ({
+          kind: held.kind,
+          claimants: held.services.map((service) => ({
+            service,
+            offer:
+              this.#options.loaded.config.services[service]?.offer ?? "private",
+          })),
+        }));
+    const send = (caps: readonly Capability[], dropNew: boolean) =>
+      this.#options.client.heartbeat({
+        runnerId: this.#options.runnerId,
+        daemonVersion: this.#options.daemonVersion,
+        capabilities: caps,
+        // What this device could serve and is not, so the surfaces that must
+        // explain a missing kind are not all on this machine. The hub decides
+        // who is told what; the device only reports.
+        withheld: withheldOf(dropNew),
+        activeLeases: [...this.#active.entries()].map(([leaseId, held]) => ({
+          jobId: held.jobId,
+          leaseId,
+        })),
+      });
+
+    const predates = this.#upstreamPredates;
+    const capabilities = predates ? without(all) : [...all];
+    try {
+      return { heartbeat: await send(capabilities, predates), capabilities };
+    } catch (refused) {
+      const newer = capabilities.filter((c) => isAfter014(c.kind));
+      if (
+        predates ||
+        newer.length === 0 ||
+        !(refused instanceof ClientError) ||
+        refused.status !== 400
+      ) {
+        throw refused;
+      }
+      const retried = without(capabilities);
+      let heartbeat: Awaited<ReturnType<ProtocolClient["heartbeat"]>>;
+      try {
+        heartbeat = await send(retried, true);
+      } catch {
+        /* Refused without them too, so they were not why. The first refusal
+           is the one that describes this heartbeat. */
+        throw refused;
+      }
+      this.#upstreamPredates = true;
+      const kinds = [...new Set(newer.map((c) => c.kind))];
+      const services = [...new Set(newer.map((c) => c.service))];
+      this.#options.onEvent?.({
+        type: "upstream-predates-kinds",
+        upstream: this.#options.client.origin,
+        kinds,
+        services,
+        message: predatesMessage({
+          upstream: this.#options.client.origin,
+          kinds,
+          services,
+        }),
+      });
+      return { heartbeat, capabilities: retried };
+    }
+  }
+
+  /** Guard (b)'s memory: this session's upstream refuses the newer kinds. */
+  #upstreamPredates = false;
+
   #attemptVerdict(key: string): "go" | "wait" | "poison" {
     /* Pruned here because this is the only place that learns time has
        passed for these entries — the same reasoning as the give-up map, and
@@ -3213,6 +3572,35 @@ export class Runner {
     const resolved = job.grant?.service;
     const route = this.#routeFor(job.kind, resolved);
 
+    /**
+     * The tools are the ones the person consented to — byollm_012 §4, C035.
+     *
+     * After the grant's own checks (in `admit`) and before anything reaches a
+     * backend. The payload's declarations and limits, canonicalised, must
+     * digest to the grant's `toolsDigest`, and its `maxToolCalls` must not
+     * exceed the purpose's. Either failure is `tools-not-consented`, and the
+     * payload goes no further. On the direct lane there is no grant, so only
+     * the budget comparison applies (§4, "The direct lane").
+     */
+    if (job.kind === "llm.tools") {
+      const parsed = ToolsPayload.safeParse(payload);
+      const refusal = !parsed.success
+        ? `this ${job.site} job's tools payload is malformed`
+        : toolsConsentRefusal({
+              payload: parsed.data,
+              toolsDigest: job.grant?.toolsDigest,
+            }) === null
+          ? undefined
+          : toolsRefusalText("tools-not-consented", {
+              site: job.site,
+              purpose: job.purpose ?? RESERVED_PURPOSE,
+            });
+      if (refusal !== undefined) {
+        await this.#refuseOnOurOwnRules(job, refusal);
+        return;
+      }
+    }
+
     if (job.owner !== this.#options.owner) {
       const refusal = this.#withinCommunityBudget(job, payload, route);
       if (refusal !== undefined) {
@@ -3269,6 +3657,7 @@ export class Runner {
         model: route?.model ?? "unknown",
         backendClass: route?.backendClass ?? "http",
         durationMs: 0,
+        ...(job.kind === "llm.tools" ? NO_TOOL_CALLS : {}),
       },
     );
 
@@ -3302,7 +3691,7 @@ export class Runner {
   async #sealOutcome(
     job: ClaimedStub,
     outcome: JobOutcome,
-    ran: RunMetadata,
+    ran: RunMetadata | ToolsRan,
   ): Promise<SealedEnvelope> {
     const identity = this.#options.identity;
     if (!identity) {
@@ -3314,6 +3703,9 @@ export class Runner {
       throw new Error("this daemon has no keys, so it cannot seal a result");
     }
     const keys = await identity.keys();
+    /* Per kind (byollm_021 §R1): `toolCalls` and `toolOutcomes` belong on an
+       `llm.tools` result and are refused on any other. */
+    const Sealed = SealedOutcomeFor(job.kind);
     return seal({
       // The outcome **and how it was produced**, as one signed statement —
       // cloud_008 §2.5. Sealing only the outcome would leave the site
@@ -3331,7 +3723,7 @@ export class Runner {
        * is better than one that succeeds here and hangs forever on somebody
        * else's page — which is exactly the trade B304 turned out to be.
        */
-      plaintext: JSON.stringify(SealedOutcome.parse({ outcome, ran })),
+      plaintext: JSON.stringify(Sealed.parse({ outcome, ran })),
       senderKeys: keys,
       // Back to the site that sent it, which is not necessarily the only
       // site this machine serves. Sealing to `sitePinned` would send site B's
@@ -3941,7 +4333,7 @@ export class Runner {
     this.#options.onEvent?.({ type: "site-refused", site: id, reason });
   }
 
-  #pinFor(job: ClaimedStub): PublicIdentity {
+  #pinFor(job: Pick<ClaimedStub, "id" | "site">): PublicIdentity {
     const identity = this.#options.identity;
     if (!identity) {
       throw new Error("this daemon has no keys, so it has no site to pin");

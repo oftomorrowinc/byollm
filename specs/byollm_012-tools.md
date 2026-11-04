@@ -642,17 +642,31 @@ the card that applies the cut line takes them out with `llm.tools` (Owl,
 
 | MUST | Statement | Verified | Checks, and the kind they verify it as |
 |---|---|---|---|
-| `TOOLS_RUN_AT_SITE` | A daemon never executes a tool. A tool call leaves the device only as an envelope signed by the device and sealed to the job's site. Daemon. | pending | C033, C034: conformance |
-| `TOOLS_MATCH_CONSENT` | On the cloud lane, an `llm.tools` payload whose declarations or limits do not match the grant's `toolsDigest`, or whose `maxToolCalls` is above the purpose's, is refused before any backend sees it. An enqueue whose `toolsDigest` does not match the manifest of record is refused at the hub with nothing queued. A call to an undeclared tool, or with arguments that fail its schema, is a tool error to the model, and nothing is sent. Daemon and hub. | pending | C035, C036, C047: conformance |
-| `TOOL_ENVELOPES_BOUND` | `tool-call` and `tool-result` are directions inside the signature, and a result is accepted only for an outstanding call of the same job. Daemon. | pending | C037: conformance |
-| `TOOLS_BUDGETED` | §8's per-job call ceiling, enforced before the call that would exceed it, by the daemon, the relay and the site SDK; and the context cap, counted in the job's size class before it runs and enforced by the daemon before each result reaches the model. | pending | C038, C039, C040, C046: conformance |
+| `TOOLS_RUN_AT_SITE` | A daemon never executes a tool. A tool call leaves the device only as an envelope signed by the device and sealed to the job's site. Daemon. | adversarial | C033, C034: the daemon's suites (card 3, #7055) |
+| `TOOLS_MATCH_CONSENT` | On the cloud lane, an `llm.tools` payload whose declarations or limits do not match the grant's `toolsDigest`, or whose `maxToolCalls` is above the purpose's, is refused before any backend sees it. An enqueue whose `toolsDigest` does not match the manifest of record is refused at the hub with nothing queued. A call to an undeclared tool, or with arguments that fail its schema, is a tool error to the model, and nothing is sent. Daemon and hub. | adversarial | C035, C036: the daemon's suites (card 3, #7055); C047: conformance, planned |
+| `TOOL_ENVELOPES_BOUND` | `tool-call` and `tool-result` are directions inside the signature, and a result is accepted only for an outstanding call of the same job. Daemon. | adversarial | C037: the daemon's suites (card 3, #7055) |
+| `TOOLS_BUDGETED` | §8's per-job call ceiling, enforced before the call that would exceed it, by the daemon, the relay and the site SDK; and the context cap, counted in the job's size class before it runs and enforced by the daemon before each result reaches the model. | adversarial | C038, C041, C046: the daemon's suites (card 3, #7055); C039, C040: conformance, planned |
+
+**Card 3 (#7055) built the daemon's half as the daemon's own suites, not
+as kit checks.** This section planned them as `conformance`, and the kit could
+not carry them yet: its target has no tool endpoints (card 2, #7054) and
+`ConformanceTarget` gives the kit no way to open a call sealed to the site or
+to post a result as it. So C033–C038, C041, C042 and C046 drive the shipped
+daemon (`packages/daemon/src/tools-at-the-site.test.ts`) against an upstream
+that plays the site with the site's own keys, and the MUSTs they verify are
+`adversarial` — what the registry calls a property of *our* daemon proved by
+its own suites. The checks the relay, the site SDK and the hub owe (C039, C040,
+C047) stay `planned` on their MUSTs, and the cut gate refuses a stable release
+while any tool MUST has a planned check. Lifting the daemon's checks into the
+kit, once a target can play the site, is a later card's.
 
 Beside the table, and not rows of it:
 
 - **`INGRESS_LOGGED_BEFORE_EXECUTION`**, amended: each tool call is logged
   before it is sent. Its row is byollm_001's, since a MUST has one home. The
-  registry's statement gains the clause, its source names §9, and C042 is
-  planned against it. Daemon; conformance (check 10).
+  registry's statement gains the clause, its source names §9, and C042 holds
+  it in the daemon's suites. Daemon; conformance (check 10, the prompt
+  clause) + adversarial (C042, the tool-call clause).
 - **byollm_004 §2's "No prompt-driven tools"** becomes: "The daemon exposes
   no tools, functions, retrieval or MCP to the model, **except the
   declarations of a site's own tools on an `llm.tools` job, which the daemon

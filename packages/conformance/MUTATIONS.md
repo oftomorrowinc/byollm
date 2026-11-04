@@ -690,3 +690,67 @@ go. Three explicit branches replaced it.
 **Both are the same question:** what does this value mean when it is absent?
 Answer it in the code and in the assertion, or the two will disagree exactly
 once, in the direction of looking fine.
+
+## Verified 2026-11-03 — byollm_012's daemon half and guard (b) (#7055)
+
+byollm 0.1.5 card 3. These checks drive the **shipped daemon**, not the kit:
+`packages/daemon/src/tools-at-the-site.test.ts` (a real `Runner`, a real
+`ProtocolClient`, the real `openai-http` backend over loopback HTTP, an
+upstream that plays the site with the site's keys and parses every request
+and response with `@byollm/protocol`'s own schemas — Owl, #55956 point 1),
+`tools-off-by-default.test.ts`, `tool-loop-reaches-nothing.test.ts`, the
+hostile-site corpus in `packages/daemon/test/adversarial/hostile-site.test.ts`,
+and C060 in `packages/conformance/test/guard-b-against-0.1.4.test.ts` against
+`@byollm/server@0.1.4` **as published on npm**. Why the kit does not carry
+the first set yet is in byollm_012 §12.
+
+Each mutation was applied by script, the suite run, and the file restored;
+"also fails" is what the same mutation failed when the whole check file ran,
+not only its own case.
+
+| Check                              | File                                     | Mutation                                                                                                                                                                                | Result                                                                                                                                                                                |
+| ---------------------------------- | ---------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| C033 a call leaves sealed          | `daemon/src/runner.ts`                   | Send the call in the clear: replace the envelope's `ciphertext` with the call's JSON, base64url                                                                                         | ✓ bites. Also fails C034, C037, C038, C041, C042, C046 — every case that needs the site to answer a call, which a call nobody can open never gets. A chokepoint, not a broad mutation |
+| C034 nothing runs on the device    | `daemon/src/tool-loop.ts`                | A helper that runs a declared tool locally: `spawn(asked.name)` before the send                                                                                                         | ✓ bites. Also fails `tool-loop-reaches-nothing` (the dynamic import), as intended: one watches the running daemon, the other the module that would have to change                     |
+| `tool-loop-reaches-nothing`        | `daemon/src/tool-loop.ts`                | `import { spawn } from "node:child_process"`                                                                                                                                            | ✓ bites, alone                                                                                                                                                                        |
+| C035 tools match consent           | `daemon/src/runner.ts`                   | Skip the digest compare: pass `toolsDigest: undefined` to `toolsConsentRefusal`                                                                                                         | ✓ bites: cases 1–3 fail; case 4 (`maxToolCalls` above its limits) still refused, because that compare is separate — as it should be                                                   |
+| C035                               | `protocol/src/tools.ts`                  | Leave the limits out of the digest: `canonicalJson({ tools })`                                                                                                                          | ✓ bites: case 3 (limits raised from 8 to 20) fails, alone                                                                                                                             |
+| C036 undeclared or ill-typed calls | `daemon/src/tool-loop.ts`                | Let unknown names through: `checkCall` returns `null` for an undeclared name                                                                                                            | ✓ bites, alone                                                                                                                                                                        |
+| C037 a result is bound to its call | `daemon/src/tool-loop.ts`                | Drop the callId check: both the label's and the sealed result's `callId`/`seq` compare                                                                                                  | ✓ bites, alone                                                                                                                                                                        |
+| C038 the daemon's budget           | `daemon/src/tool-loop.ts`                | Count after sending: `calls >= budget` → `calls > budget`, at both places the loop checks it                                                                                            | ✓ bites, alone — **after strengthening**, below                                                                                                                                       |
+| C041 a site that does not answer   | `daemon/src/tool-loop.ts`                | Three, all verified: resolve the wait only at the deadline; count a timeout as answered; and (`runner.ts`) stop renewing the lease while waiting — `#active.delete` at the loop's start | ✓ bites (all three), alone                                                                                                                                                            |
+| C042 calls logged first            | `daemon/src/tool-loop.ts`                | Log after sending: the `tool-call` line moved after `transport.send`                                                                                                                    | ✓ bites, alone                                                                                                                                                                        |
+| C043 other kinds unchanged         | `daemon/src/backends/openai-http.ts`     | Send declarations on every request: `execute` adds a `tools` array                                                                                                                      | ✓ bites, alone                                                                                                                                                                        |
+| C044 off by default                | `daemon/src/config.ts`                   | Default it on: every HTTP service gains `llm.tools` in `resolveConfig`                                                                                                                  | ✓ bites: both C044 cases                                                                                                                                                              |
+| C046 the context cap               | `daemon/src/tool-loop.ts`                | Hand every result to the model: the cap compare replaced by `false`                                                                                                                     | ✓ bites, alone                                                                                                                                                                        |
+| C046                               | `protocol/src/kinds.ts`                  | Size the job by its prompt alone: `payloadTextLength` drops `maxToolResultChars`                                                                                                        | ✓ bites: the sizing case, alone                                                                                                                                                       |
+| C060 guard (b)                     | `daemon/src/runner.ts`                   | Re-send unchanged: the retry carries the same capabilities                                                                                                                              | ✓ bites: both cases (the second asserts the retry dropped the new kind)                                                                                                               |
+| C060                               | `daemon/src/runner.ts`                   | Blame the version when the retry is refused too                                                                                                                                         | ✓ bites: the malformed-heartbeat case, alone                                                                                                                                          |
+| hostile-site corpus                | `daemon/src/tool-loop.ts`                | Hand a site's result to the model as a `user` turn instead of a tool turn                                                                                                               | ✓ bites: all four `RESULT_*` rows                                                                                                                                                     |
+| `pending-musts-hold-the-cut`       | `scripts/pending-musts-hold-the-cut.mjs` | Ignore `planned`: `owing = []`                                                                                                                                                          | ✓ bites: the two planned-check cases                                                                                                                                                  |
+
+### C038: a budget checked in two places passed a mutation of one
+
+The first run of "count after sending" — the pre-call check made `>` — left
+C038 green. The loop checks the budget twice: before each call (the call that
+would exceed it is not made), and after each call (so a turn that spent the
+last call goes straight to the closing turn instead of asking the model once
+more with tools offered). The test's model asked for one call a turn, so the
+second check stopped it every time and the first was never reached.
+
+Strengthened by having the model ask for **two calls a turn**, so the third
+and fourth arrive together and only the pre-call check stands between the
+fourth and the site. The mutation now changes both comparisons, which is what
+"count after sending" means for this loop; a mutation of either one alone is
+still caught by the other, by design, like `C007`'s two guards.
+
+### What C060 runs against
+
+`byollm-server-0.1.4` and `byollm-protocol-0.1.4` are npm aliases of the
+published packages, in `@byollm/conformance`'s devDependencies, so a server we
+wrote this week cannot stand in for the one in the field (Owl, #55956 point
+2). The test observes the precondition rather than assuming it: the published
+server refuses the first heartbeat, the one that advertised `llm.tools`, with
+a 400. It also derives the guard's list of newer kinds from the published
+0.1.4 `JOB_KINDS`, so the list cannot drift from what a 0.1.4 upstream
+actually refuses.

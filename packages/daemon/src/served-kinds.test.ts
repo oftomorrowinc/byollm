@@ -16,8 +16,11 @@ import { DaemonConfig, loadConfig, resolveConfig } from "./config.js";
  * reverse of that run.
  */
 
-/** Named, not derived: a test per new kind, as the review asked. */
-const UNSERVED = ["llm.tools", "llm.vision", "llm.image"] as const;
+/**
+ * Named, not derived: a test per new kind, as the review asked. `llm.tools`
+ * left this list in card 3 of #6933 (#7055), with its loop.
+ */
+const UNSERVED = ["llm.vision", "llm.image"] as const;
 
 const service = (kinds: readonly string[]) => ({
   services: {
@@ -31,8 +34,12 @@ const service = (kinds: readonly string[]) => ({
 });
 
 describe("the daemon's one list of served kinds", () => {
-  it("is generate and chat in this build", () => {
-    expect([...SERVED_KINDS]).toEqual(["llm.generate", "llm.chat"]);
+  it("is generate, chat and tools in this build", () => {
+    expect([...SERVED_KINDS]).toEqual([
+      "llm.generate",
+      "llm.chat",
+      "llm.tools",
+    ]);
   });
 
   it("leaves exactly the named kinds unserved, so a new protocol kind lands here", () => {
@@ -105,10 +112,36 @@ describe.each(UNSERVED)("a service listing %s", (kind) => {
   });
 });
 
+describe("llm.tools is served on HTTP services only — byollm_012 §7", () => {
+  it("gets a route on an HTTP service", () => {
+    const loaded = resolveConfig(DaemonConfig.parse(service(["llm.tools"])));
+    expect(loaded.routes.map((route) => route.kind)).toEqual(["llm.tools"]);
+    expect(loaded.problems).toEqual([]);
+  });
+
+  it.each(["claude-cli", "codex-cli"])(
+    "gets no route on %s, and a problem naming the fix",
+    (type) => {
+      const loaded = resolveConfig(
+        DaemonConfig.parse({
+          services: {
+            cli: { type, model: "default", kinds: ["llm.chat", "llm.tools"] },
+          },
+        }),
+      );
+      expect(loaded.routes.map((route) => route.kind)).toEqual(["llm.chat"]);
+      expect(loaded.problems).toHaveLength(1);
+      expect(loaded.problems[0]?.where).toBe("services.cli.kinds");
+      expect(loaded.problems[0]?.message).toContain("needs an HTTP service");
+    },
+  );
+});
+
 describe("composePrompt and the list agree", () => {
   const payloads: Record<(typeof SERVED_KINDS)[number], unknown> = {
     "llm.generate": { prompt: "hi" },
     "llm.chat": { messages: [{ role: "user", content: "hi" }] },
+    "llm.tools": { messages: [{ role: "user", content: "hi" }] },
   };
 
   it.each([...SERVED_KINDS])("composes %s", (kind: JobKind) => {

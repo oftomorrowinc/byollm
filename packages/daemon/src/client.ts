@@ -14,6 +14,9 @@ import {
   type Capability,
   type WithheldKind,
   type Endpoint,
+  ToolCallResponse,
+  ToolResultsResponse,
+  type ToolEndpoint,
 } from "@byollm/protocol";
 import { type z } from "zod";
 
@@ -96,6 +99,14 @@ export class ClientError extends Error {
     message: string,
     /** Seconds the server asked us to wait, when it said. */
     readonly retryAfter?: number,
+    /**
+     * The HTTP status the upstream answered with, when it answered at all.
+     *
+     * Guard (b) decides on this and on nothing in the body (byollm_021 §R2):
+     * a 0.1.4 upstream's refusal names no path, and a 0.1.5 one that does
+     * must not be depended on, so the status is the whole of what is read.
+     */
+    readonly status?: number,
   ) {
     super(message);
   }
@@ -280,8 +291,43 @@ export class ProtocolClient {
     });
   }
 
+  /**
+   * Send one tool call, sealed to the job's site — byollm_012 §5.2.
+   *
+   * Lease-scoped: only the device holding the job may call for it.
+   */
+  async toolCall(input: {
+    runnerId: string;
+    jobId: string;
+    leaseId: string;
+    callId: string;
+    envelope: SealedEnvelope;
+  }): Promise<ToolCallResponse> {
+    return this.#post("tool-call", ToolCallResponse, {
+      protocolVersion: PROTOCOL_VERSION,
+      ...input,
+    });
+  }
+
+  /**
+   * What the site has answered, for the calls named — byollm_012 §5.2.
+   *
+   * Each call by job, lease and id, so the read is lease-scoped like every
+   * other holder call.
+   */
+  async toolResults(input: {
+    runnerId: string;
+    calls: readonly { jobId: string; leaseId: string; callId: string }[];
+  }): Promise<ToolResultsResponse> {
+    return this.#post("tool-results", ToolResultsResponse, {
+      protocolVersion: PROTOCOL_VERSION,
+      runnerId: input.runnerId,
+      calls: input.calls,
+    });
+  }
+
   async #post<T>(
-    endpoint: Endpoint,
+    endpoint: Endpoint | ToolEndpoint,
     schema: z.ZodType<T>,
     body: unknown,
   ): Promise<T> {
@@ -331,11 +377,19 @@ export class ProtocolClient {
       throw new ClientError(
         "malformed-response",
         `${this.#origin} returned HTTP ${String(response.status)} with a body that is not JSON`,
+        undefined,
+        response.status,
       );
     }
 
     if (!response.ok) {
-      throw this.#toError(response, parsed);
+      const error = this.#toError(response, parsed);
+      throw new ClientError(
+        error.kind,
+        error.message,
+        error.retryAfter,
+        response.status,
+      );
     }
 
     const result = schema.safeParse(parsed);

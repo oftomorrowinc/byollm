@@ -84,4 +84,6 @@ export type {
   BackendInit,
   BackendRequest,
   BackendResult,
+  ConverseRequest,
+  ConverseResult,
 } from "./types.js";

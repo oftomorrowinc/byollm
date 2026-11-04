@@ -357,7 +357,7 @@ export function toolsConsentRefusal(input: {
  * The daemon's id for one call: random, single-use, recorded with the job
  * (§5.1). Bounded so a relay can store it without trusting its length.
  */
-const CallId = z.string().regex(/^[A-Za-z0-9_-]{16,128}$/, {
+export const ToolCallId = z.string().regex(/^[A-Za-z0-9_-]{16,128}$/, {
   message: "a callId is 16 to 128 base64url characters",
 });
 
@@ -372,7 +372,7 @@ const CallSeq = z.number().int().min(1).max(TOOL_LIMITS.maxToolCalls);
  */
 export const ToolCall = z
   .object({
-    callId: CallId,
+    callId: ToolCallId,
     seq: CallSeq,
     name: ToolName,
     arguments: z
@@ -389,6 +389,97 @@ export const ToolCall = z
 export type ToolCall = z.infer<typeof ToolCall>;
 
 /**
+ * Whether a call's arguments fit its tool's declaration — byollm_012 §3,
+ * C036. `null` when they do; otherwise the reason, in words the model reads.
+ *
+ * Complete, not sampled: §3 keeps the schema subset small precisely so that
+ * this can check every rule it states — no unknown key (a declaration never
+ * allows `additionalProperties`), every required key present, every value of
+ * its declared type, a string within its `maxLength` and its `enum`, a number
+ * within its bounds, an array within `maxItems` with every item of its type.
+ *
+ * One function for both ends: the daemon runs it before it seals a call, and
+ * the site SDK after it opens one, so the two cannot disagree about which
+ * calls a declaration admits.
+ */
+export function toolArgumentsRefusal(
+  parameters: ToolParameters,
+  args: Readonly<Record<string, unknown>>,
+): string | null {
+  for (const name of Object.keys(args)) {
+    if (!Object.hasOwn(parameters.properties, name)) {
+      return `"${name}" is not a parameter of this tool`;
+    }
+  }
+  for (const name of parameters.required ?? []) {
+    if (!Object.hasOwn(args, name)) return `"${name}" is required`;
+  }
+  for (const [name, value] of Object.entries(args)) {
+    const parameter = parameters.properties[name];
+    if (parameter === undefined) continue;
+    const refusal =
+      parameter.type === "array"
+        ? arrayRefusal(parameter, value)
+        : scalarRefusal(parameter, value);
+    if (refusal !== null) return `"${name}" ${refusal}`;
+  }
+  return null;
+}
+
+type ScalarSpec = Exclude<
+  ToolParameters["properties"][string],
+  { type: "array" }
+>;
+
+function scalarRefusal(parameter: ScalarSpec, value: unknown): string | null {
+  switch (parameter.type) {
+    case "string": {
+      if (typeof value !== "string") return "must be a string";
+      if (value.length > parameter.maxLength) {
+        return `must be at most ${String(parameter.maxLength)} characters`;
+      }
+      if (parameter.enum !== undefined && !parameter.enum.includes(value)) {
+        return `must be one of ${parameter.enum.map((v) => JSON.stringify(v)).join(", ")}`;
+      }
+      return null;
+    }
+    case "integer":
+    case "number": {
+      if (typeof value !== "number" || !Number.isFinite(value)) {
+        return `must be a ${parameter.type}`;
+      }
+      if (parameter.type === "integer" && !Number.isInteger(value)) {
+        return "must be an integer";
+      }
+      if (parameter.minimum !== undefined && value < parameter.minimum) {
+        return `must be at least ${String(parameter.minimum)}`;
+      }
+      if (parameter.maximum !== undefined && value > parameter.maximum) {
+        return `must be at most ${String(parameter.maximum)}`;
+      }
+      return null;
+    }
+    case "boolean":
+      return typeof value === "boolean" ? null : "must be true or false";
+  }
+}
+
+function arrayRefusal(
+  parameter: Extract<ToolParameters["properties"][string], { type: "array" }>,
+  value: unknown,
+): string | null {
+  if (!Array.isArray(value)) return "must be an array";
+  if (value.length > parameter.maxItems) {
+    return `must have at most ${String(parameter.maxItems)} items`;
+  }
+  for (const [index, item] of value.entries()) {
+    const refusal = scalarRefusal(parameter.items, item);
+    if (refusal !== null) return `item ${String(index)} ${refusal}`;
+  }
+  return null;
+}
+
+/**
  * A tool's answer, sealed site → device in a `tool-result` envelope (§5.1).
  *
  * Accepted only if it names an outstanding `callId` of the same job with its
@@ -398,7 +489,7 @@ export type ToolCall = z.infer<typeof ToolCall>;
 export const ToolResult = z.discriminatedUnion("ok", [
   z
     .object({
-      callId: CallId,
+      callId: ToolCallId,
       seq: CallSeq,
       ok: z.literal(true),
       content: z
@@ -410,7 +501,7 @@ export const ToolResult = z.discriminatedUnion("ok", [
     .strict(),
   z
     .object({
-      callId: CallId,
+      callId: ToolCallId,
       seq: CallSeq,
       ok: z.literal(false),
       error: z

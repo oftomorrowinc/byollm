@@ -618,6 +618,24 @@ export function resolveConfig(config: DaemonConfig): LoadedConfig {
         });
         continue;
       }
+      /* A site's tools need a backend whose model the daemon can hand
+         function declarations to — the `http` class (byollm_012 §7). A CLI
+         would have to call out mid-generation, and v1 has no bridge for
+         that, so `llm.tools` on one is withheld with its fix named. */
+      if (
+        kind === "llm.tools" &&
+        backendDescriptor(service.type).class !== "http"
+      ) {
+        problems.push({
+          where: `services.${name}.kinds`,
+          message:
+            `llm.tools needs an HTTP service (Ollama, LM Studio, llama.cpp or ` +
+            `an OpenAI-compatible API) — ${service.type} cannot use the ` +
+            `site's tools yet, so ${name} does not advertise it. Add ` +
+            `"llm.tools" to an HTTP service's kinds instead.`,
+        });
+        continue;
+      }
       claimants.set(kind, [...(claimants.get(kind) ?? []), name]);
     }
   }
@@ -742,6 +760,7 @@ export function resolveConfig(config: DaemonConfig): LoadedConfig {
     for (const kind of service.kinds) {
       // Reported once, above, where claimants are counted.
       if (!isServedKind(kind)) continue;
+      if (kind === "llm.tools" && descriptor.class !== "http") continue;
       // **Every claimant is a route now** — byollm_016 Phase B.
       //
       // This read `if (serves.get(kind) !== name) continue;` under a comment

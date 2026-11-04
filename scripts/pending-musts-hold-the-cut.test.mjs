@@ -6,6 +6,7 @@ import {
   isStable,
   mustBlocksIn,
   pendingMustsIn,
+  plannedMustsIn,
   refusal,
 } from "./pending-musts-hold-the-cut.mjs";
 
@@ -91,6 +92,48 @@ describe("what the gate decides", () => {
     expect(refusal("0.1.5-beta.1", [])).toBeNull();
     expect(isStable("0.1.5")).toBe(true);
     expect(isStable("0.1.5-beta.1")).toBe(false);
+  });
+});
+
+describe("what a promoted MUST still owes — #7055", () => {
+  it("reads the planned checks of a verified tool or image MUST", () => {
+    const text =
+      '\n  X_HALF: must({\n    verifiedBy: "adversarial",\n' +
+      '    source: "byollm_012 §12",\n' +
+      '    planned: { verifiedBy: "conformance", checks: ["C039", "C040"] },\n  }),' +
+      '\n  X_PENDING: must({\n    verifiedBy: "pending",\n' +
+      '    source: "byollm_021 §10",\n' +
+      '    planned: { verifiedBy: "conformance", checks: ["C049"] },\n  }),' +
+      '\n  X_ELSEWHERE: must({\n    verifiedBy: "conformance",\n' +
+      '    source: "byollm_001 §MUSTs",\n' +
+      '    planned: { verifiedBy: "conformance", checks: ["C099"] },\n  }),';
+    // The pending one is the pending reader's; the unrelated spec's is not
+    // this gate's business.
+    expect(plannedMustsIn(text)).toEqual([
+      { id: "X_HALF", tool: true, checks: ["C039", "C040"] },
+    ]);
+  });
+
+  it("finds the halves card 3 left to cards 2 and 4 in the registry as built", () => {
+    expect(plannedMustsIn(source).map((m) => m.id)).toEqual(
+      expect.arrayContaining(["TOOLS_BUDGETED", "TOOLS_MATCH_CONSENT"]),
+    );
+  });
+
+  it("refuses a stable cut while a tool MUST owes a planned check", () => {
+    const owing = [{ id: "TOOLS_BUDGETED", tool: true, checks: ["C039"] }];
+    const why = refusal("0.1.5", [], owing);
+    expect(why).toContain("TOOLS_BUDGETED (C039)");
+  });
+
+  it("lets a beta carry it, as it may carry a pending tool MUST", () => {
+    const owing = [{ id: "TOOLS_BUDGETED", tool: true, checks: ["C039"] }];
+    expect(refusal("0.1.5-beta.1", [], owing)).toBeNull();
+  });
+
+  it("refuses a beta while an image MUST owes one", () => {
+    const owing = [{ id: "BLOBS_SEALED", tool: false, checks: ["C048"] }];
+    expect(refusal("0.1.5-beta.1", [], owing)).toContain("BLOBS_SEALED");
   });
 });
 

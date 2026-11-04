@@ -894,7 +894,9 @@ describe("what the daemon seals is what the protocol accepts — B304", () => {
       new URL("./runner.ts", import.meta.url),
       "utf8",
     );
-    expect(runner).toContain("SealedOutcome.parse({ outcome, ran })");
+    /* Chosen per kind since 0.1.5 (byollm_021 §R1), and still parsed. */
+    expect(runner).toContain("const Sealed = SealedOutcomeFor(job.kind);");
+    expect(runner).toContain("Sealed.parse({ outcome, ran })");
     expect(
       runner.includes("{ outcome, ran } satisfies SealedOutcome"),
       "the seal is back to a type assertion that cannot see a variable's " +

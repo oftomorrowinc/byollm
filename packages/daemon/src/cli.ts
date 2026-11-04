@@ -2537,6 +2537,12 @@ function report(origin: string, event: RunnerEvent, io: CliIo): void {
               `. It will be offered again on its own.\n`),
       );
       break;
+    case "upstream-predates-kinds":
+      /* Guard (b), byollm_021 §R2: said once a session, and only after the
+         retry without the newer kinds was accepted — so it is a finding, not
+         a guess. Everything else keeps running. */
+      io.err(`${at} ${host} ${stripControlChars(event.message)}\n`);
+      break;
     case "now-serving":
       /**
        * The mitigation for site policy moving to the account — Amendment K.
@@ -2549,7 +2555,9 @@ function report(origin: string, event: RunnerEvent, io: CliIo): void {
        * notice with nothing to do about it is just noise.
        */
       io.out(
-        `${at} ${host} now serving ${event.site}, enabled from your ` +
+        `${at} ${host} now serving ${event.site}` +
+          /* byollm_012 §6: the first-job line for a site gains this. */
+          `${event.withTools === true ? " with its tools" : ""}, enabled from your ` +
           `dashboard.\n    fingerprint: ${event.fingerprint}\n` +
           `    Not expected? \`byollm stop\` stops all work, and ` +
           `\`byollm forget\` drops the pairing.\n`,
@@ -3421,6 +3429,43 @@ async function commandLog(
      * the question the 2 GB floor needs answered is how close the admits ran,
      * and a log of refusals alone cannot answer it.
      */
+    /**
+     * A job's tool calls, nested under it — byollm_012 §9: "an owner can read
+     * every request their model made of any site". The arguments are the
+     * model's words and the site's tool name is the site's, so both are
+     * stripped of control characters like a prompt.
+     */
+    if (entry.type === "tool-call") {
+      io.out(
+        `             tool call ${String(entry.seq)} ${stripControlChars(entry.name)}` +
+          (entry.arguments === undefined
+            ? `  arguments not retained (${String(entry.argumentsChars)} chars, ` +
+              `sha256 ${entry.argumentsHash.slice(0, 16)}…)`
+            : `  ${stripControlChars(full ? entry.arguments : entry.arguments.slice(0, 90))}`) +
+          "\n",
+      );
+      continue;
+    }
+    if (entry.type === "tool-outcome") {
+      io.out(
+        `             tool call ${String(entry.seq)} ${entry.outcome}` +
+          (entry.chars === undefined
+            ? ""
+            : `  ${String(entry.chars)} chars, sha256 ${(entry.contentHash ?? "").slice(0, 16)}…`) +
+          (entry.detail === undefined
+            ? ""
+            : `  ${stripControlChars(entry.detail)}`) +
+          "\n",
+      );
+      continue;
+    }
+    if (entry.type === "tool-dropped") {
+      io.out(
+        `             tool result DROPPED  ${stripControlChars(entry.why)}\n`,
+      );
+      continue;
+    }
+
     if (entry.type === "memory") {
       const gb = gigabytes;
       io.out(
@@ -4304,7 +4349,16 @@ async function commandServices(
     // Why, and what to do about it — cloud_002's detection-first ruling.
     // "0 of 2 routes are healthy" is a true sentence that leaves the reader
     // exactly as stuck as before it was printed.
-    if (!ok) {
+    /* A tool service the daemon reached but whose model failed the probe:
+       the probe's own words, which say what the model did instead
+       (byollm_012 §7, "sees why in `byollm services`"). */
+    const toolsProbe =
+      route.kind === "llm.tools"
+        ? runner.toolsProbes.get(route.service)
+        : undefined;
+    if (!ok && toolsProbe !== undefined && toolsProbe.kind !== "calls-tools") {
+      io.out(`      ${stripControlChars(toolsProbe.why)}\n`);
+    } else if (!ok) {
       /**
        * Everything the probe learned, handed to the thing that explains it —
        * B098.
@@ -4328,6 +4382,23 @@ async function commandServices(
       });
       if (hint !== undefined) io.out(`      ${hint}\n`);
     }
+  }
+  /**
+   * Off by default, and this is where an owner learns how to turn it on —
+   * byollm_012 §7, byollm_021 §R2 guard (a). A plain upgrade advertises
+   * nothing new, so the line says what to add rather than leaving the kind
+   * to be discovered by reading a release note.
+   */
+  for (const [name, service] of Object.entries(loaded.config.services)) {
+    if (service.kinds.includes("llm.tools")) continue;
+    if (backendDescriptor(service.type).class !== "http") continue;
+    io.out(
+      `  i llm.tools      ${name} does not use sites' tools (off by default)\n` +
+        `      to turn them on, add "llm.tools" to services.${name}.kinds in ` +
+        `${paths.config}\n` +
+        `      the tools run on the site; ${name}'s model reads what they ` +
+        `return\n`,
+    );
   }
   // **Withheld is shown, never merely absent** — the same obligation `status`
   // carries, in the command an owner runs when they are asking exactly this

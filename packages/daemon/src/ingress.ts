@@ -160,10 +160,84 @@ const MemoryEntry = z
   .strict();
 type MemoryEntry = z.infer<typeof MemoryEntry>;
 
+/**
+ * A tool call the model asked for — byollm_012 §9, written **before** the call
+ * is sealed and sent ({@link MUSTS.INGRESS_LOGGED_BEFORE_EXECUTION}).
+ *
+ * One line per call: the job, the site, the tool and its arguments. A call the
+ * daemon refused before sending (an undeclared name, arguments that fail the
+ * schema) has its line too, because it is still a request the model made of
+ * that site, and the owner can read every one.
+ *
+ * **Arguments follow the job's prompt retention**, because an argument is the
+ * model's rendering of the prompt: kept as prompts are for the owner's own
+ * work, and reduced to their hash after `communityPromptDays` for anybody
+ * else's. That is why `audience` is on the line.
+ */
+const ToolCallEntry = z
+  .object({
+    type: z.literal("tool-call"),
+    at: z.number().int().positive(),
+    jobId: z.string().min(1),
+    site: z.string().min(1).optional(),
+    audience: z.string().min(1),
+    callId: z.string().min(1),
+    seq: z.number().int().positive(),
+    name: z.string(),
+    argumentsHash: z.string().length(64),
+    argumentsChars: z.number().int().nonnegative(),
+    arguments: z.string().optional(),
+  })
+  .strict();
+
+/**
+ * How a call ended — the second line §9 asks for.
+ *
+ * The result's **size and hash, never its content**: what a site's tool said
+ * is the site's, and the owner can prove what the model read without this
+ * disk keeping it.
+ */
+const ToolOutcomeEntry = z
+  .object({
+    type: z.literal("tool-outcome"),
+    at: z.number().int().positive(),
+    jobId: z.string().min(1),
+    site: z.string().min(1).optional(),
+    callId: z.string().min(1),
+    seq: z.number().int().positive(),
+    outcome: z.enum(["answered", "errored", "timedOut", "refused"]),
+    chars: z.number().int().nonnegative().optional(),
+    contentHash: z.string().length(64).optional(),
+    detail: z.string().optional(),
+  })
+  .strict();
+
+/**
+ * A `tool-result` the daemon would not hand the model — C037.
+ *
+ * An unknown call, another job's call, a replay of one already answered, an
+ * envelope that does not open as this job's result from its site. Logged so
+ * the owner can see that somebody tried, and dropped so the model never sees
+ * it ({@link MUSTS.TOOL_ENVELOPES_BOUND}).
+ */
+const ToolDroppedEntry = z
+  .object({
+    type: z.literal("tool-dropped"),
+    at: z.number().int().positive(),
+    jobId: z.string().min(1),
+    site: z.string().min(1).optional(),
+    callId: z.string().optional(),
+    why: z.string().min(1),
+  })
+  .strict();
+
 export const IngressEntry = z.discriminatedUnion("type", [
   PromptEntry,
   OutcomeEntry,
   MemoryEntry,
+  ToolCallEntry,
+  ToolOutcomeEntry,
+  ToolDroppedEntry,
 ]);
 export type IngressEntry = z.infer<typeof IngressEntry>;
 
@@ -265,6 +339,82 @@ export class IngressLog {
   }
 
   /** Record what the memory guard decided — B080. */
+  /** A tool call, before it is sealed — see {@link ToolCallEntry}. */
+  async recordToolCall(input: {
+    at: number;
+    jobId: string;
+    site?: string;
+    audience: Audience;
+    callId: string;
+    seq: number;
+    name: string;
+    arguments: string;
+  }): Promise<void> {
+    const keepText =
+      input.audience === "private" ? this.#options.keepSelfPrompts : true;
+    await this.#append({
+      type: "tool-call",
+      at: input.at,
+      jobId: input.jobId,
+      ...(input.site === undefined ? {} : { site: input.site }),
+      audience: input.audience,
+      callId: input.callId,
+      seq: input.seq,
+      name: input.name,
+      argumentsHash: hashText(input.arguments),
+      argumentsChars: input.arguments.length,
+      ...(keepText ? { arguments: input.arguments } : {}),
+    });
+  }
+
+  /** How a tool call ended — see {@link ToolOutcomeEntry}. */
+  async recordToolOutcome(input: {
+    at: number;
+    jobId: string;
+    site?: string;
+    callId: string;
+    seq: number;
+    outcome: "answered" | "errored" | "timedOut" | "refused";
+    /** The text the site returned, hashed and measured here, never stored. */
+    content?: string;
+    detail?: string;
+  }): Promise<void> {
+    await this.#append({
+      type: "tool-outcome",
+      at: input.at,
+      jobId: input.jobId,
+      ...(input.site === undefined ? {} : { site: input.site }),
+      callId: input.callId,
+      seq: input.seq,
+      outcome: input.outcome,
+      ...(input.content === undefined
+        ? {}
+        : {
+            chars: input.content.length,
+            contentHash: hashText(input.content),
+          }),
+      ...(input.detail === undefined ? {} : { detail: input.detail }),
+    });
+  }
+
+  /** A result the model never saw — see {@link ToolDroppedEntry}. */
+  async recordToolDropped(input: {
+    at: number;
+    jobId: string;
+    site?: string;
+    callId?: string;
+    why: string;
+  }): Promise<void> {
+    await this.#append({
+      type: "tool-dropped",
+      at: input.at,
+      jobId: input.jobId,
+      ...(input.site === undefined ? {} : { site: input.site }),
+      ...(input.callId === undefined ? {} : { callId: input.callId }),
+      why: input.why,
+    });
+  }
+
   async recordMemory(input: {
     at: number;
     jobId?: string;
@@ -343,6 +493,20 @@ export class IngressLog {
     let reduced = 0;
 
     const kept = entries.map((entry) => {
+      /* A tool call's arguments are the model's rendering of the prompt, so
+         they go when the prompt does — byollm_012 §9. */
+      if (entry.type === "tool-call") {
+        if (
+          entry.audience === "private" ||
+          entry.arguments === undefined ||
+          entry.at >= cutoff
+        ) {
+          return entry;
+        }
+        reduced += 1;
+        const { arguments: _dropped, ...rest } = entry;
+        return rest;
+      }
       if (entry.type !== "prompt") return entry;
       /**
        * Not-private, rather than a list of the sharing scopes.

@@ -101,6 +101,7 @@ export {
 export {
   TOOL_LIMITS,
   ToolCall,
+  ToolCallId,
   ToolDeclaration,
   ToolLimits,
   ToolName,
@@ -111,11 +112,22 @@ export {
   ToolsDigest,
   ToolsRefusal,
   consentOfPayload,
+  toolArgumentsRefusal,
   toolsConsentRefusal,
   toolsDigest,
   toolsRefusalText,
   type ToolsConsent,
 } from "./tools.js";
+
+export {
+  TOOL_ENDPOINTS,
+  ToolCallRef,
+  ToolCallRequest,
+  ToolCallResponse,
+  ToolResultsRequest,
+  ToolResultsResponse,
+  type ToolEndpoint,
+} from "./tool-wire.js";
 
 export { canonicalJson } from "./jcs.js";
 

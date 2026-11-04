@@ -221,6 +221,28 @@ const AGREED: Readonly<Record<string, readonly string[]>> = {
   ],
   ReleaseResponse: ["released"],
   ResultResponse: ["accepted", "duplicate", "state"],
+  /**
+   * The two tool endpoints' answers — byollm_012 §5.2, as card 2 (#7054)
+   * shapes them.
+   *
+   * New schemas, not new keys on old ones: only a daemon that sends a tool
+   * call parses them, and no 0.1.4 daemon can, because it never advertises
+   * `llm.tools` and so never holds a tool job. From here on they are
+   * promises like every other row.
+   */
+  ToolCallResponse: ["callId", "expiresAt"],
+  ToolResultsResponse: [
+    "results",
+    "results[].callId",
+    "results[].envelope",
+    "results[].envelope.ciphertext",
+    "results[].envelope.deadlineAt",
+    "results[].envelope.direction",
+    "results[].envelope.recipientKeyId",
+    "results[].envelope.senderKeyId",
+    "results[].jobId",
+    "results[].leaseId",
+  ],
 };
 
 describe("what a daemon parses", () => {

@@ -8,6 +8,10 @@ import type {
   BackendInit,
   BackendRequest,
   BackendResult,
+  ConverseMessage,
+  ConverseRequest,
+  ConverseResult,
+  ModelToolCall,
 } from "./types.js";
 
 /**
@@ -43,8 +47,9 @@ import type {
  * not carry. `"end"` is what we can honestly say.
  *
  * `tool_calls` and `content_filter` are OpenAI's and unmapped here on
- * purpose: this daemon sends no tools, and a filtered response is a refusal
- * rather than a stop reason. Anything unlisted resolves to `"unknown"`, which
+ * purpose: a turn that ends in tool calls is not an answer whose stop means
+ * anything (the tool loop asks again, byollm_012 §7), and a filtered response
+ * is a refusal rather than a stop reason. Anything unlisted resolves to `"unknown"`, which
  * is the honest answer rather than the flattering one.
  */
 const FINISH_REASONS = Object.freeze({
@@ -135,6 +140,81 @@ export class OpenAiHttpBackend implements Backend {
   }
 
   async execute(request: BackendRequest): Promise<BackendResult> {
+    const turn = await this.#complete(request, {
+      messages: [{ role: "user", content: request.prompt }],
+    });
+    if (!turn.ok) return turn;
+    if (turn.message.content === null) {
+      return this.#fail(
+        "backend-error",
+        "the model server's response was not in OpenAI chat-completion shape",
+        turn.started,
+      );
+    }
+    return {
+      ok: true,
+      text: turn.message.content,
+      durationMs: Date.now() - turn.started,
+      stop: turn.message.stop,
+    };
+  }
+
+  /**
+   * One turn of a function-calling conversation — byollm_012 §7.
+   *
+   * The declarations go to the model as OpenAI `tools`; the calls it asks for
+   * come back as text. Nothing here runs one, opens anything or reaches
+   * anywhere but this service's own configured `chat/completions` — the tool
+   * loop seals each call to the site that declared it.
+   */
+  async converse(request: ConverseRequest): Promise<ConverseResult> {
+    const turn = await this.#complete(request, {
+      messages: request.messages.map(wireMessage),
+      ...(request.tools === undefined || request.tools.length === 0
+        ? {}
+        : {
+            tools: request.tools.map((tool) => ({
+              type: "function",
+              function: {
+                name: tool.name,
+                description: tool.description,
+                parameters: tool.parameters,
+              },
+            })),
+          }),
+    });
+    if (!turn.ok) return turn;
+    const { content, toolCalls, stop } = turn.message;
+    if (content === null && toolCalls.length === 0) {
+      return this.#fail(
+        "backend-error",
+        "the model server's response was not in OpenAI chat-completion shape",
+        turn.started,
+      );
+    }
+    return {
+      ok: true,
+      text: content ?? "",
+      toolCalls,
+      stop,
+      durationMs: Date.now() - turn.started,
+    };
+  }
+
+  /**
+   * POST one chat completion and read the first choice.
+   *
+   * The body is this adapter's own construction: `model` from owner config,
+   * `stream: false`, and the conversation the caller assembled. Nothing in a
+   * payload is parsed as configuration.
+   */
+  async #complete(
+    request: Omit<BackendRequest, "prompt">,
+    conversation: { messages: unknown[]; tools?: unknown[] },
+  ): Promise<
+    | { ok: true; started: number; message: CompletionMessage }
+    | (BackendResult & { ok: false })
+  > {
     // A call with no time limit is a caller bug, and running it unbounded is a
     // worse answer than refusing it. Guarded here rather than trusted to the
     // type: the message this replaces read "did not answer within undefinedms",
@@ -164,7 +244,7 @@ export class OpenAiHttpBackend implements Backend {
         // configuration, and `model` comes from owner config.
         body: JSON.stringify({
           model: request.model,
-          messages: [{ role: "user", content: request.prompt }],
+          ...conversation,
           stream: false,
         }),
         redirect: "error",
@@ -204,20 +284,15 @@ export class OpenAiHttpBackend implements Backend {
         );
       }
 
-      const answer = extractContent(text);
-      if (answer === null) {
+      const message = extractMessage(text);
+      if (message === null) {
         return this.#fail(
           "backend-error",
           "the model server's response was not in OpenAI chat-completion shape",
           started,
         );
       }
-      return {
-        ok: true,
-        text: answer.content,
-        durationMs: Date.now() - started,
-        stop: answer.stop,
-      };
+      return { ok: true, started, message };
     } catch (error) {
       if (request.signal.aborted) {
         return this.#fail("canceled", "the job was canceled", started);
@@ -251,7 +326,7 @@ export class OpenAiHttpBackend implements Backend {
     code: Exclude<BackendResult & { ok: false }, never>["code"],
     message: string,
     started: number,
-  ): BackendResult {
+  ): BackendResult & { ok: false } {
     return {
       ok: false,
       code,
@@ -310,10 +385,16 @@ function concat(chunks: readonly Uint8Array[], total: number): Uint8Array {
   return out;
 }
 
-/** Pull the assistant text out of an OpenAI chat-completion response. */
-function extractContent(
-  raw: string,
-): { content: string; stop: StopReason } | null {
+/** The first choice's message, as far as this daemon reads it. */
+interface CompletionMessage {
+  /** `null` when the server sent none — a pure tool-call turn may not. */
+  readonly content: string | null;
+  readonly toolCalls: readonly ModelToolCall[];
+  readonly stop: StopReason;
+}
+
+/** Pull the assistant turn out of an OpenAI chat-completion response. */
+function extractMessage(raw: string): CompletionMessage | null {
   let parsed: unknown;
   try {
     parsed = JSON.parse(raw);
@@ -326,10 +407,16 @@ function extractContent(
   const message = (choices[0] as { message?: unknown }).message;
   if (typeof message !== "object" || message === null) return null;
   const content = (message as { content?: unknown }).content;
-  if (typeof content !== "string") return null;
+  if (typeof content !== "string" && content !== null && content !== undefined)
+    return null;
+  const toolCalls = extractToolCalls(
+    (message as { tool_calls?: unknown }).tool_calls,
+  );
+  if (toolCalls === null) return null;
   const finish = (choices[0] as { finish_reason?: unknown }).finish_reason;
   return {
-    content,
+    content: typeof content === "string" ? content : null,
+    toolCalls,
     /* Absent, or a value we have not mapped, is `unknown` — never `end`. An
        adapter that cannot tell must not be able to claim completion. */
     stop:
@@ -337,6 +424,69 @@ function extractContent(
         ? (FINISH_REASONS[finish] ?? "unknown")
         : "unknown",
   };
+}
+
+/**
+ * The calls a turn asked for, as text — or `null` when the field is there and
+ * not in OpenAI's shape, which is a malformed response, not "no calls".
+ */
+function extractToolCalls(raw: unknown): ModelToolCall[] | null {
+  if (raw === undefined || raw === null) return [];
+  if (!Array.isArray(raw)) return null;
+  const calls: ModelToolCall[] = [];
+  for (const [index, entry] of raw.entries()) {
+    if (typeof entry !== "object" || entry === null) return null;
+    const fn = (entry as { function?: unknown }).function;
+    if (typeof fn !== "object" || fn === null) return null;
+    const name = (fn as { name?: unknown }).name;
+    if (typeof name !== "string") return null;
+    const args = (fn as { arguments?: unknown }).arguments;
+    const id = (entry as { id?: unknown }).id;
+    calls.push({
+      /* Some local servers leave the id out. The tool turn has to name one,
+         and the position is unique within the turn. */
+      id: typeof id === "string" && id !== "" ? id : `call_${String(index)}`,
+      name,
+      /* OpenAI sends a JSON string; some local servers send the object. The
+         loop parses either way, so the object is put back into text rather
+         than trusted as already parsed. */
+      arguments:
+        typeof args === "string"
+          ? args
+          : args === undefined
+            ? "{}"
+            : JSON.stringify(args),
+    });
+  }
+  return calls;
+}
+
+/** A conversation turn in OpenAI's shape. */
+function wireMessage(message: ConverseMessage): Record<string, unknown> {
+  switch (message.role) {
+    case "user":
+      return { role: "user", content: message.content };
+    case "assistant":
+      return {
+        role: "assistant",
+        content: message.content,
+        ...(message.toolCalls === undefined || message.toolCalls.length === 0
+          ? {}
+          : {
+              tool_calls: message.toolCalls.map((call) => ({
+                id: call.id,
+                type: "function",
+                function: { name: call.name, arguments: call.arguments },
+              })),
+            }),
+      };
+    case "tool":
+      return {
+        role: "tool",
+        tool_call_id: message.toolCallId,
+        content: message.content,
+      };
+  }
 }
 
 /** Model ids from an OpenAI `/v1/models` response. */

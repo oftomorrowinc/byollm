@@ -94,6 +94,12 @@ importers:
       '@supabase/supabase-js':
         specifier: ^2.112.2
         version: 2.112.2
+      byollm-protocol-0.1.4:
+        specifier: npm:@byollm/protocol@0.1.4
+        version: '@byollm/protocol@0.1.4'
+      byollm-server-0.1.4:
+        specifier: npm:@byollm/server@0.1.4
+        version: '@byollm/server@0.1.4(@supabase/supabase-js@2.112.2)'
 
   packages/control-plane:
     dependencies:
@@ -187,6 +193,20 @@ packages:
   '@bcoe/v8-coverage@1.0.2':
     resolution: {integrity: sha512-6zABk/ECA/QYSCQ1NGiVwwbQerUCZ+TQbp64Q3AgmfNvurHH0j8TtXa1qbShXA6qqkpAj4V5W8pP6mLe1mcMqA==}
     engines: {node: '>=18'}
+
+  '@byollm/protocol@0.1.4':
+    resolution: {integrity: sha512-3g76t6WxfzFZMZpOdxHiI2apuT746TcBDWwf7Yt5F0mFDm3iZyqKrTiTuh2q9M4uQvBuCzMZUQ/rY2t4+mw1Mw==}
+    engines: {node: '>=22.14'}
+
+  '@byollm/server@0.1.4':
+    resolution: {integrity: sha512-ruBXHcQ2DLP9sq0HrZANppsNd8I/Pajz7R6YABELnmVbxX4C+F1Ae3/nJZ1BMcqrLsYAfrHfq736JrIMp/sQfQ==}
+    engines: {node: '>=22.14'}
+    hasBin: true
+    peerDependencies:
+      '@supabase/supabase-js': ^2.58.0
+    peerDependenciesMeta:
+      '@supabase/supabase-js':
+        optional: true
 
   '@changesets/apply-release-plan@7.1.1':
     resolution: {integrity: sha512-9qPCm/rLx/xoOFXIHGB229+4GOL76S4MC+7tyOuTsR6+1jYlfFDQORdvwR5hDA6y4FL2BPt3qpbcQIS+dW85LA==}
@@ -2518,6 +2538,17 @@ snapshots:
       '@babel/helper-validator-identifier': 7.29.7
 
   '@bcoe/v8-coverage@1.0.2': {}
+
+  '@byollm/protocol@0.1.4':
+    dependencies:
+      libsodium-wrappers: 0.8.4
+      zod: 4.4.3
+
+  '@byollm/server@0.1.4(@supabase/supabase-js@2.112.2)':
+    dependencies:
+      '@byollm/protocol': 0.1.4
+    optionalDependencies:
+      '@supabase/supabase-js': 2.112.2
 
   '@changesets/apply-release-plan@7.1.1':
     dependencies:

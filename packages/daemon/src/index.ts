@@ -38,7 +38,11 @@ export {
   type BackendInit,
   type BackendRequest,
   type BackendResult,
+  type ConverseRequest,
+  type ConverseResult,
 } from "./backends/index.js";
+
+export { KINDS_AFTER_0_1_4 } from "./upstream-predates.js";
 
 export { Budgets, type BudgetDecision, type BudgetRefusal } from "./budgets.js";
 

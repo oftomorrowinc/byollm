@@ -292,6 +292,18 @@ export interface Backend {
 
   /** Run one model call. The only thing a job is permitted to cause. */
   execute(request: BackendRequest): Promise<BackendResult>;
+
+  /**
+   * One turn of a function-calling conversation — byollm_012 §7.
+   *
+   * Present only on a backend that can carry a site's tool declarations to
+   * its model, which is the `http` class: an `llm.tools` route on a backend
+   * without it is never advertised. **It never runs a tool.** It hands the
+   * model the declarations, and hands back whatever calls the model asked
+   * for, as text; the daemon's loop seals each one to the site
+   * ({@link MUSTS.TOOLS_RUN_AT_SITE}).
+   */
+  converse?(request: ConverseRequest): Promise<ConverseResult>;
 }
 
 /** Everything a backend instance needs from the owner's config. */
@@ -301,3 +313,58 @@ export interface BackendInit {
   /** Name of the env var holding an API key, if the server needs one. */
   readonly apiKeyEnv?: string | undefined;
 }
+
+/**
+ * A call the model asked for, exactly as it wrote it.
+ *
+ * `arguments` is the model's text, unparsed: the loop parses and validates it
+ * against the declaration (C036), because a backend adapter that "helped" by
+ * coercing it would be deciding what the model meant.
+ */
+export interface ModelToolCall {
+  /** The model server's id for the call, which its tool turn answers. */
+  readonly id: string;
+  readonly name: string;
+  readonly arguments: string;
+}
+
+/** A turn of the conversation the tool loop keeps — daemon-side only. */
+export type ConverseMessage =
+  | { readonly role: "user"; readonly content: string }
+  | {
+      readonly role: "assistant";
+      readonly content: string;
+      readonly toolCalls?: readonly ModelToolCall[];
+    }
+  | {
+      readonly role: "tool";
+      readonly toolCallId: string;
+      readonly content: string;
+    };
+
+/** A declaration as the model is shown it: the site's words, nothing more. */
+export interface ConverseTool {
+  readonly name: string;
+  readonly description: string;
+  readonly parameters: unknown;
+}
+
+export interface ConverseRequest extends Omit<BackendRequest, "prompt"> {
+  readonly messages: readonly ConverseMessage[];
+  /**
+   * The tools offered on this turn. Absent offers none, which is how the
+   * closing turn at the budget is asked (§8): "answer from what you have".
+   */
+  readonly tools?: readonly ConverseTool[];
+}
+
+export type ConverseResult =
+  | {
+      readonly ok: true;
+      readonly text: string;
+      /** Empty when the model answered rather than calling. */
+      readonly toolCalls: readonly ModelToolCall[];
+      readonly stop: StopReason;
+      readonly durationMs: number;
+    }
+  | (BackendResult & { readonly ok: false });

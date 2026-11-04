@@ -515,11 +515,12 @@ export const MUSTS = Object.freeze({
       "execution begins, and every tool call MUST be appended to it before " +
       "it is sealed and sent.",
     enforcedBy: "daemon",
-    // The prompt clause is what the kit checks today. The tool-call clause is
-    // byollm_012 §9's amendment, and C042 is the check that will hold it.
-    verifiedBy: "conformance",
+    // The prompt clause is what the kit checks (C015). The tool-call clause is
+    // byollm_012 §9's amendment, held by C042 in the daemon's own suites
+    // (`tools-at-the-site.test.ts`, #7055) — the kit cannot yet play the site
+    // a call goes to, so that half is the daemon's suite's, and says so.
+    verifiedBy: ["conformance", "adversarial"],
     source: "byollm_001 §MUSTs; byollm_012 §9",
-    planned: { verifiedBy: "conformance", checks: ["C042"] },
   }),
 
   // ---- Execution isolation (byollm_004) ---------------------------------
@@ -704,18 +705,24 @@ export const MUSTS = Object.freeze({
 
   // ---- Site-executed tools (byollm_012, #6933) --------------------------
   //
-  // All `pending`: registered by card 1 so cards 2-4 build against ids that
-  // exist, and promoted by the card that builds each check. See
+  // Registered `pending` by card 1 so cards 2-4 build against ids that exist,
+  // and promoted by the card that builds each check. See
   // {@link MustVerification} for what holds `pending` to that.
+  //
+  // Card 3 (#7055) built the daemon's checks — C033–C038, C041, C042, C046 —
+  // as the daemon's own suites, `adversarial`: the kit's target cannot yet
+  // open a call sealed to its site or post a result as it (card 2, #7054,
+  // serves the endpoints). What the other parties' checks still owe is
+  // `planned`, and `pending-musts-hold-the-cut.mjs` refuses a stable cut
+  // while a tool MUST has any.
   TOOLS_RUN_AT_SITE: must({
     id: "TOOLS_RUN_AT_SITE",
     statement:
       "A daemon MUST NOT execute a tool. A tool call MUST leave the device " +
       "only as an envelope signed by the device and sealed to the job's site.",
     enforcedBy: "daemon",
-    verifiedBy: "pending",
+    verifiedBy: "adversarial",
     source: "byollm_012 §12",
-    planned: { verifiedBy: "conformance", checks: ["C033", "C034"] },
   }),
   TOOLS_MATCH_CONSENT: must({
     id: "TOOLS_MATCH_CONSENT",
@@ -728,9 +735,11 @@ export const MUSTS = Object.freeze({
       "or with arguments that fail its schema, MUST be a tool error to the " +
       "model, and nothing MUST be sent.",
     enforcedBy: "both",
-    verifiedBy: "pending",
+    // The device's half: C035 (the digest at admission) and C036 (undeclared
+    // or ill-typed calls). The hub's half is C047, at enqueue.
+    verifiedBy: "adversarial",
     source: "byollm_012 §12",
-    planned: { verifiedBy: "conformance", checks: ["C035", "C036", "C047"] },
+    planned: { verifiedBy: "conformance", checks: ["C047"] },
   }),
   TOOL_ENVELOPES_BOUND: must({
     id: "TOOL_ENVELOPES_BOUND",
@@ -739,9 +748,8 @@ export const MUSTS = Object.freeze({
       "signature, and a tool result MUST be accepted only for an outstanding " +
       "call of the same job.",
     enforcedBy: "daemon",
-    verifiedBy: "pending",
+    verifiedBy: "adversarial",
     source: "byollm_012 §12",
-    planned: { verifiedBy: "conformance", checks: ["C037"] },
   }),
   TOOLS_BUDGETED: must({
     id: "TOOLS_BUDGETED",
@@ -751,12 +759,12 @@ export const MUSTS = Object.freeze({
       "cap MUST be counted in the job's size class before it runs and " +
       "enforced by the daemon before each result reaches the model.",
     enforcedBy: "both",
-    verifiedBy: "pending",
+    // The daemon's counter and the context cap: C038, C041, C046. The relay's
+    // counter is C039 and the site SDK's C040 — "three counters, on purpose"
+    // (§8), and one checked is a gap, not coverage, until all three are.
+    verifiedBy: "adversarial",
     source: "byollm_012 §12",
-    planned: {
-      verifiedBy: "conformance",
-      checks: ["C038", "C039", "C040", "C046"],
-    },
+    planned: { verifiedBy: "conformance", checks: ["C039", "C040"] },
   }),
 
   // ---- Images by reference (byollm_021, #6933) --------------------------

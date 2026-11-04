@@ -16,6 +16,7 @@ import type { ClaimedJob, JobKind } from "@byollm/protocol";
 export const SERVED_KINDS = Object.freeze([
   "llm.generate",
   "llm.chat",
+  "llm.tools",
 ] as const satisfies readonly JobKind[]);
 export type ServedKind = (typeof SERVED_KINDS)[number];
 
@@ -46,6 +47,11 @@ export function composePrompt(job: ClaimedJob): string {
       const payload = job.payload as { prompt: string; system?: string };
       return joinSections([systemSection(payload.system), payload.prompt]);
     }
+    /* `llm.tools` opens as chat does — byollm_012 §3: its payload IS chat's,
+       plus the declarations, which travel to the model as functions and
+       never as prompt text (the tool loop, `tool-loop.ts`). Composed the same
+       way so the ingress log records the same prompt for either kind. */
+    case "llm.tools":
     case "llm.chat": {
       const payload = job.payload as {
         messages: { role: string; content: string }[];
@@ -62,7 +68,6 @@ export function composePrompt(job: ClaimedJob): string {
        against its grant (TOOLS_MATCH_CONSENT). A route for one cannot exist
        ({@link SERVED_KINDS}), so reaching here is a bug — and it throws
        rather than guessing. */
-    case "llm.tools":
     case "llm.vision":
     case "llm.image":
       throw new Error(`this daemon does not compose ${kind} jobs`);

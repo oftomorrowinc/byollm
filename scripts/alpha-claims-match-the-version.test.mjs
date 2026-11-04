@@ -383,6 +383,35 @@ describe("at a prerelease", () => {
   });
 });
 
+describe("at a beta after a clean release — #7060", () => {
+  /**
+   * `0.1.5-beta.1` follows `0.1.4`. The gate read every `-` as "alpha", so it
+   * refused the real tree for having no alpha warning — and the only way to
+   * satisfy it was `@alpha` install lines, which resolve to
+   * `0.1.0-alpha.103`, a protocol-1 build. A beta is held to the clean rule.
+   */
+  it("passes a beta whose documents claim no alpha", () => {
+    const root = tree("0.1.5-beta.1", {
+      "README.md": "# byollm\n\n> **`0.1.5-beta.1` — early.** Calm.\n",
+    });
+    const { code, out } = run(root);
+    expect(code, out).toBe(0);
+    expect(out).toContain("is not an alpha");
+  });
+
+  it("refuses an install line pinned to the alpha tag at a beta", () => {
+    /* The mutation this case kills: `/-alpha\./` widened back to `-`, which
+       passes this tree (it has a claim) and refuses the one above. */
+    const root = tree("0.1.5-beta.1", {
+      "README.md": "# byollm\n\nRun `npm install @byollm/protocol@alpha`.\n",
+    });
+    const { code, out } = run(root);
+    expect(code).toBe(1);
+    expect(out).toContain("README.md:3");
+    expect(out).toContain("not an alpha");
+  });
+});
+
 describe("invoked through a symlinked path", () => {
   it("still runs, instead of exiting 0 having read nothing", () => {
     /**

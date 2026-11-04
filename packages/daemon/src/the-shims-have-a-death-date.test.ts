@@ -26,7 +26,16 @@ import { removeTemp } from "./test-support.js";
  * The failure message is the instruction, because the person who reads it
  * will be mid-release and will not have this context.
  */
-const PRERELEASE = DAEMON_VERSION.includes("-");
+/*
+ * **Before 0.1.0, not "any prerelease" — found cutting `0.1.5-beta.1` (#7060).**
+ *
+ * This read `DAEMON_VERSION.includes("-")`, written while every prerelease
+ * was an alpha of 0.1.0. A beta after 0.1.4 is a prerelease too, and it
+ * swapped the arms back: four failures demanding shims that 0.1.0 deleted.
+ * The death date is 0.1.0, so the question is which side of it a version
+ * sits on, and only `0.0.x` and `0.1.0-*` are before it.
+ */
+const PRERELEASE = /^0\.(?:0\.\d+|1\.0-)/u.test(DAEMON_VERSION);
 
 const SHIMS = ["install", "uninstall", "models"] as const;
 

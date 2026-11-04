@@ -514,7 +514,18 @@ const main = () => {
       file: repoPath(root, hit.file),
     })),
   ];
-  const prerelease = version.includes("-");
+  /**
+   * **An ALPHA, not any prerelease — found cutting `0.1.5-beta.1` (#7060).**
+   *
+   * This read `version.includes("-")`, written while every prerelease was an
+   * alpha and came before 0.1.0. A beta after a clean release is neither: the
+   * claims this file looks for are alpha claims, and the `@alpha` dist-tag
+   * still names `0.1.0-alpha.103`, a protocol-1 build. Demanding those claims
+   * at a beta would have meant putting back install lines that send a reader
+   * to a daemon today's hub refuses. So a beta or rc is held to the clean
+   * rule: no document may say alpha.
+   */
+  const prerelease = /-alpha\./u.test(version);
   /**
    * One row of the hand-edit list, showing WHAT MATCHED rather than the first
    * 96 characters of the line.
@@ -558,7 +569,7 @@ const main = () => {
 
   if (found.length > 0) {
     console.error(
-      `alpha-claims: the version is ${version} — not a prerelease — and ${String(found.length)} document line(s) still say alpha.\n` +
+      `alpha-claims: the version is ${version} — not an alpha — and ${String(found.length)} document line(s) still say alpha.\n` +
         `${found.map(show).join("\n")}\n\n` +
         `These are the HAND EDITS — B252, B269.\n` +
         `\`bump-version.mjs\` removed the banner LINE and dropped every\n` +
@@ -588,7 +599,7 @@ const main = () => {
      named — the same correction B269 made when this file claimed completeness
      for one release while six warning bodies stood behind it. */
   console.log(
-    `alpha-claims: ${version} is not a prerelease and no document IN THIS ` +
+    `alpha-claims: ${version} is not an alpha and no document IN THIS ` +
       `REPOSITORY claims otherwise.\n` +
       crossRepoNotice(),
   );

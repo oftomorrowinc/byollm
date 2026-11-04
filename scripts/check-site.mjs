@@ -620,7 +620,20 @@ for (const rel of READMES) {
    *      because comparing releases is what a release note is for.
    */
   const PRERELEASE = /(?<![\d.])0\.\d+\.\d+-(?:alpha|beta|rc)\.\d+(?![\d.])/gu;
-  const cited = [...new Set(text.match(PRERELEASE) ?? [])];
+  /*
+   * **Except the one being shipped — found cutting `0.1.5-beta.1` (#7060).**
+   *
+   * Rule 1 was written while every prerelease came BEFORE 0.1.0, so "a
+   * prerelease of ours" and "a version the reader never saw" were the same
+   * set. A beta after a clean release splits them: rule 2 makes the banner
+   * name `0.1.5-beta.1`, and rule 1 then refused that banner on all seven
+   * READMEs. The version in package.json is the one in the reader's hands —
+   * this README ships inside it — so it is not a citation of history. Any
+   * OTHER prerelease still is, `0.1.5-beta.0` beside a `beta.1` included.
+   */
+  const cited = [...new Set(text.match(PRERELEASE) ?? [])].filter(
+    (version) => version !== manifest.version,
+  );
   check(
     `${name}: cites no prerelease`,
     cited.length === 0,

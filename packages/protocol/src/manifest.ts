@@ -1,5 +1,13 @@
 import { z } from "zod";
 import { JOB_KINDS, JobKind } from "./kinds.js";
+import { renderable } from "./renderable.js";
+import {
+  TOOL_LIMITS,
+  ToolName,
+  ToolSpec,
+  toolsDigest,
+  type ToolLimits,
+} from "./tools.js";
 
 /**
  * What a site says it needs — byollm_016 Amendment L.
@@ -43,63 +51,6 @@ import { JOB_KINDS, JobKind } from "./kinds.js";
  * what a single-purpose site's one purpose actually is.
  */
 export const RESERVED_PURPOSE = "default";
-
-/**
- * The characters a string may contain when a person will read it to decide.
- *
- * The purpose **key** got a strict slug regex the day it was written, because
- * it travels. The **label** got a length cap and nothing else — and it is the
- * field the whole consent decision rests on: the module below says it is "the
- * only thing a consent screen renders", and it reaches notification emails and
- * daemon logs too.
- *
- * Three classes are refused, each because it makes rendered text mean
- * something other than what was declared:
- *
- * - **Control characters.** A newline lets one label spoof the rows around it
- *   on a consent screen or in an email; ANSI escapes corrupt a terminal when a
- *   CLI prints the purpose; NUL truncates in whatever reads it next.
- * - **Bidi controls.** `U+202E` and its relatives reorder what follows, so
- *   "Read your files‮ — tnatsissa gnitirW" renders as something the site did
- *   not write. This is the attack that matters here: it changes the sentence a
- *   person consents to, invisibly, with every character individually innocent.
- * - **Zero-width characters.** They pad a label past nothing visible, which is
- *   how two purposes come to look identical on the screen where telling them
- *   apart is the point.
- *
- * Refused at parse rather than escaped at render. There are four renderers
- * already — consent screen, email, CLI, logs — and an escaping rule has to be
- * right in all of them; a parse rule is right once.
- *
- * ## What this costs, said plainly
- *
- * `\p{Cf}` takes zero-width joiners with it, so a multi-person emoji in a
- * label is refused. That is a real cost and it is the right trade here: the
- * same codepoint that joins an emoji family pads two labels into looking
- * identical, and this is the field where telling them apart is the decision.
- *
- * `\p{Cn}` — unassigned — is deliberately **not** refused, though it looks
- * like it belongs. Which codepoints are unassigned depends on the Unicode
- * version of whatever engine is parsing, so including it would make a manifest
- * valid on one deployment and refused on another, drifting silently as
- * runtimes update. A rule whose answer depends on the reader is not a rule.
- */
-const RENDERABLE = /^[^\p{Cc}\p{Cf}\p{Cs}\p{Co}]+$/u;
-
-const renderable = (max: number, what: string) =>
-  z
-    .string()
-    .min(1)
-    .max(max)
-    .regex(
-      RENDERABLE,
-      `a ${what} is text a person reads — no control characters, ` +
-        "direction overrides or zero-width padding",
-    )
-    // A label of spaces passes every rule above and renders as an empty row.
-    .refine((value) => value.trim() !== "", {
-      message: `a ${what} cannot be blank`,
-    });
 
 /**
  * A purpose key: a slug, and stable for the life of the purpose.
@@ -236,9 +187,106 @@ export const Purpose = z
      * place "not stated" is answered.
      */
     routing: PurposeRouting.optional(),
+    /**
+     * The site's tools for this purpose, by name — byollm_012 §4.
+     *
+     * Required when `kinds` lists `llm.tools` and refused otherwise. 1 to 16.
+     * Each description is what the consent screen lists on the purpose's
+     * `llm.tools` row (§10), so it follows the renderable rules a label does.
+     * The tools run on the site, never on the device
+     * ({@link MUSTS.TOOLS_RUN_AT_SITE}).
+     */
+    tools: z
+      .record(ToolName, ToolSpec)
+      .refine(
+        (tools) => {
+          const count = Object.keys(tools).length;
+          return count >= 1 && count <= TOOL_LIMITS.maxTools;
+        },
+        {
+          message: `a purpose declares 1 to ${String(TOOL_LIMITS.maxTools)} tools`,
+        },
+      )
+      .optional(),
+    /**
+     * The purpose's call budget, 1 to 20 — the number the consent screen
+     * states (§10). Unset means {@link TOOL_LIMITS.defaultMaxToolCalls}, applied
+     * where it is used ({@link toolLimitsOf}) rather than at parse, for the
+     * reason {@link DEFAULT_ROUTING} gives. Only with `llm.tools`.
+     */
+    maxToolCalls: z
+      .number()
+      .int()
+      .min(1)
+      .max(TOOL_LIMITS.maxToolCalls)
+      .optional(),
+    /**
+     * How much tool-result text one job of this purpose may read, 1 to
+     * 256,000 — what makes the context cap part of the job's size before it
+     * runs (§8). Unset means {@link TOOL_LIMITS.defaultMaxToolResultChars}.
+     * Only with `llm.tools`.
+     */
+    maxToolResultChars: z
+      .number()
+      .int()
+      .min(1)
+      .max(TOOL_LIMITS.maxToolResultChars)
+      .optional(),
   })
-  .strict();
+  .strict()
+  .superRefine((purpose, ctx) => {
+    const tools = purpose.kinds.includes("llm.tools");
+    if (tools && purpose.tools === undefined) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["tools"],
+        message: "a purpose that lists llm.tools declares its tools",
+      });
+    }
+    if (!tools) {
+      for (const field of [
+        "tools",
+        "maxToolCalls",
+        "maxToolResultChars",
+      ] as const) {
+        if (purpose[field] !== undefined) {
+          ctx.addIssue({
+            code: "custom",
+            path: [field],
+            message: `${field} belongs to a purpose that lists llm.tools`,
+          });
+        }
+      }
+    }
+  });
 export type Purpose = z.infer<typeof Purpose>;
+
+/**
+ * A purpose's two tool limits, defaulted — byollm_012 §4.
+ *
+ * The one place "not stated" is answered, so the consent screen's number,
+ * the payload's `purposeLimits` and the digest the device compares are the
+ * same number.
+ */
+export function toolLimitsOf(purpose: Purpose): ToolLimits {
+  return {
+    maxToolCalls: purpose.maxToolCalls ?? TOOL_LIMITS.defaultMaxToolCalls,
+    maxToolResultChars:
+      purpose.maxToolResultChars ?? TOOL_LIMITS.defaultMaxToolResultChars,
+  };
+}
+
+/**
+ * The `toolsDigest` of a purpose as the manifest of record declares it, or
+ * `undefined` for a purpose without `llm.tools` — byollm_012 §4.
+ *
+ * What the control plane signs into an `llm.tools` grant, and what the hub
+ * compares an enqueue's digest with (`tools-manifest-mismatch`).
+ */
+export function purposeToolsDigest(purpose: Purpose): string | undefined {
+  if (purpose.tools === undefined) return undefined;
+  return toolsDigest({ tools: purpose.tools, ...toolLimitsOf(purpose) });
+}
 
 /**
  * Everything a site needs, by purpose key.

@@ -224,6 +224,12 @@ ask("6. the docs stop saying alpha", () =>
   }),
 );
 
+ask("6b. no MUST is pending that this cut cannot carry", () =>
+  /* Asked of the bumped copy, whose musts.ts is the one the tag would carry.
+     #7053: an image MUST pending refuses any cut, a stable cut carries none. */
+  node("pending-musts-hold-the-cut.mjs", [target]),
+);
+
 /**
  * Which names this cut would claim for the first time — reported, not asked.
  *

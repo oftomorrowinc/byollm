@@ -11,7 +11,13 @@ import {
 
 describe("job kinds", () => {
   it("recognises exactly the v1 kinds", () => {
-    expect([...JOB_KINDS]).toEqual(["llm.generate", "llm.chat"]);
+    expect([...JOB_KINDS]).toEqual([
+      "llm.generate",
+      "llm.chat",
+      "llm.tools",
+      "llm.vision",
+      "llm.image",
+    ]);
     expect(isJobKind("llm.generate")).toBe(true);
     expect(isJobKind("llm.exec")).toBe(false);
     expect(isJobKind("")).toBe(false);

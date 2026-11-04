@@ -348,10 +348,10 @@ What exists: a large test suite, an adversarial corpus wired as a blocking CI ga
 
 Things we know are limiting right now:
 
-- Tool use
+- Tools that run on your device — a site's own tools run on its servers, and not yet on Claude or Codex subscriptions
 - Access to your local files
 - Streaming — a result comes back whole
-- Job kinds beyond llm.generate and llm.chat — no embeddings or images yet
+- Job kinds beyond llm.generate, llm.chat, llm.tools, llm.vision and llm.image — no embeddings or audio yet
 - Jobs while your device is offline — your device has to be online for your jobs to run
 
 We have plans for every one of these, and we are building in public — follow and join them on the [issues page](https://github.com/oftomorrowinc/byollm/issues).

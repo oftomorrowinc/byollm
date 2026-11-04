@@ -51,9 +51,24 @@ export type MustEnforcer = "daemon" | "server" | "both";
  *   by audit or by reading source. The honest category, and the one that
  *   exists so a property nobody can check from outside is *labelled* as such
  *   rather than laundered by association with the checkable ones.
+ * - `pending` — adjudicated and not yet verified by anything, because what
+ *   would verify it is not built. Its {@link Must.planned} record says how it
+ *   will be verified and by which assigned check ids. The honest kind for a
+ *   MUST registered ahead of its feature, as byollm_012 §12 and byollm_021
+ *   §10's are (#6933, card 1): calling those `conformance` would fail the
+ *   kit's coverage count until the checks exist, and calling them
+ *   `construction` would certify a property by the absence of the code that
+ *   could break it.
+ *
+ *   It is held to two things, so it cannot become a resting place. A check
+ *   that claims a `pending` MUST is a miscovered check (the kit's
+ *   `miscoveredMusts`), so the card that builds the check has to promote the
+ *   MUST in the same commit; so is a daemon test that cites one. And
+ *   `scripts/pending-musts-hold-the-cut.mjs` refuses to tag any release
+ *   while an image MUST is `pending`, and a stable one while any MUST is.
  */
 export type MustVerification =
-  "conformance" | "adversarial" | "construction" | "operator";
+  "conformance" | "adversarial" | "construction" | "operator" | "pending";
 
 /**
  * How a MUST is verified — one kind, or several.
@@ -96,6 +111,21 @@ export interface Must {
   readonly verifiedBy: MustVerifiedBy;
   /** Spec section this was adjudicated in. */
   readonly source: string;
+  /**
+   * Checks assigned to this MUST and not yet built, with the kinds they will
+   * verify it as — byollm_012 §12, byollm_021 §10.
+   *
+   * Required on a `pending` MUST, which has no other account of how it will
+   * ever be verified. Allowed on any other, for a clause added to a verified
+   * MUST ahead of its check (`INGRESS_LOGGED_BEFORE_EXECUTION`'s tool-call
+   * clause). An id here is one the kit does not have yet; the kit's suite
+   * fails once it does, so the record is removed with the check that
+   * replaces it.
+   */
+  readonly planned?: {
+    readonly verifiedBy: MustVerifiedBy;
+    readonly checks: readonly string[];
+  };
 }
 
 const must = (m: Must): Must => Object.freeze(m);
@@ -482,10 +512,14 @@ export const MUSTS = Object.freeze({
     id: "INGRESS_LOGGED_BEFORE_EXECUTION",
     statement:
       "Every executed prompt MUST be appended to the local ingress log before " +
-      "execution begins.",
+      "execution begins, and every tool call MUST be appended to it before " +
+      "it is sealed and sent.",
     enforcedBy: "daemon",
+    // The prompt clause is what the kit checks today. The tool-call clause is
+    // byollm_012 §9's amendment, and C042 is the check that will hold it.
     verifiedBy: "conformance",
-    source: "byollm_001 §MUSTs",
+    source: "byollm_001 §MUSTs; byollm_012 §9",
+    planned: { verifiedBy: "conformance", checks: ["C042"] },
   }),
 
   // ---- Execution isolation (byollm_004) ---------------------------------
@@ -666,6 +700,137 @@ export const MUSTS = Object.freeze({
     enforcedBy: "server",
     verifiedBy: "operator",
     source: "byollm_009 §11",
+  }),
+
+  // ---- Site-executed tools (byollm_012, #6933) --------------------------
+  //
+  // All `pending`: registered by card 1 so cards 2-4 build against ids that
+  // exist, and promoted by the card that builds each check. See
+  // {@link MustVerification} for what holds `pending` to that.
+  TOOLS_RUN_AT_SITE: must({
+    id: "TOOLS_RUN_AT_SITE",
+    statement:
+      "A daemon MUST NOT execute a tool. A tool call MUST leave the device " +
+      "only as an envelope signed by the device and sealed to the job's site.",
+    enforcedBy: "daemon",
+    verifiedBy: "pending",
+    source: "byollm_012 §12",
+    planned: { verifiedBy: "conformance", checks: ["C033", "C034"] },
+  }),
+  TOOLS_MATCH_CONSENT: must({
+    id: "TOOLS_MATCH_CONSENT",
+    statement:
+      "On the cloud lane, an llm.tools payload whose declarations or limits " +
+      "do not match the grant's toolsDigest, or whose maxToolCalls is above " +
+      "the purpose's, MUST be refused before any backend sees it. An enqueue " +
+      "whose toolsDigest does not match the manifest of record MUST be " +
+      "refused at the hub with nothing queued. A call to an undeclared tool, " +
+      "or with arguments that fail its schema, MUST be a tool error to the " +
+      "model, and nothing MUST be sent.",
+    enforcedBy: "both",
+    verifiedBy: "pending",
+    source: "byollm_012 §12",
+    planned: { verifiedBy: "conformance", checks: ["C035", "C036", "C047"] },
+  }),
+  TOOL_ENVELOPES_BOUND: must({
+    id: "TOOL_ENVELOPES_BOUND",
+    statement:
+      "tool-call and tool-result MUST be directions inside the envelope " +
+      "signature, and a tool result MUST be accepted only for an outstanding " +
+      "call of the same job.",
+    enforcedBy: "daemon",
+    verifiedBy: "pending",
+    source: "byollm_012 §12",
+    planned: { verifiedBy: "conformance", checks: ["C037"] },
+  }),
+  TOOLS_BUDGETED: must({
+    id: "TOOLS_BUDGETED",
+    statement:
+      "A job's tool-call ceiling MUST be enforced before the call that would " +
+      "exceed it, by the daemon, the relay and the site SDK; and the context " +
+      "cap MUST be counted in the job's size class before it runs and " +
+      "enforced by the daemon before each result reaches the model.",
+    enforcedBy: "both",
+    verifiedBy: "pending",
+    source: "byollm_012 §12",
+    planned: {
+      verifiedBy: "conformance",
+      checks: ["C038", "C039", "C040", "C046"],
+    },
+  }),
+
+  // ---- Images by reference (byollm_021, #6933) --------------------------
+  BLOBS_SEALED: must({
+    id: "BLOBS_SEALED",
+    statement:
+      "Blob bytes MUST leave an endpoint only encrypted under a key that " +
+      "travels only inside a sealed, signed envelope; a blob store and a " +
+      "relay MUST NOT hold any key that opens one.",
+    enforcedBy: "both",
+    verifiedBy: "pending",
+    source: "byollm_021 §10",
+    planned: { verifiedBy: ["operator", "conformance"], checks: ["C048"] },
+  }),
+  BLOB_BOUND_TO_JOB: must({
+    id: "BLOB_BOUND_TO_JOB",
+    statement:
+      "A blob that fails to decrypt under its job's associated data, or whose " +
+      "plaintext hash does not match its reference, MUST be refused at both " +
+      "endpoints.",
+    enforcedBy: "both",
+    verifiedBy: "pending",
+    source: "byollm_021 §10",
+    planned: { verifiedBy: "conformance", checks: ["C049"] },
+  }),
+  MEDIA_VERIFIED: must({
+    id: "MEDIA_VERIFIED",
+    statement:
+      "An image's declared type MUST match its magic bytes and its " +
+      "dimensions MUST be within the caps, checked at both endpoints before " +
+      "a backend or an app sees the bytes.",
+    enforcedBy: "both",
+    verifiedBy: "pending",
+    source: "byollm_021 §10",
+    planned: { verifiedBy: ["conformance", "adversarial"], checks: ["C050"] },
+  }),
+  BLOB_BUDGET_BEFORE_DOWNLOAD: must({
+    id: "BLOB_BUDGET_BEFORE_DOWNLOAD",
+    statement:
+      "A non-owner's images MUST be charged against community.maxImageBytes " +
+      "from the declared sizes before any blob is fetched, and a download " +
+      "MUST stop at its declared size. An upstream MUST NOT offer a job whose " +
+      "stored blobs differ from the sizes their slots were issued for.",
+    enforcedBy: "both",
+    verifiedBy: "pending",
+    source: "byollm_021 §10",
+    planned: {
+      verifiedBy: ["conformance", "operator"],
+      checks: ["C051", "C052", "C057"],
+    },
+  }),
+  BLOBS_GO_WITH_THE_JOB: must({
+    id: "BLOBS_GO_WITH_THE_JOB",
+    statement:
+      "Input blobs MUST be deleted when the result is accepted; output blobs " +
+      "when the site says it holds them, or one hour after collection; an " +
+      "uncollected job's blobs 24 hours after its deadline.",
+    enforcedBy: "server",
+    verifiedBy: "pending",
+    source: "byollm_021 §10",
+    planned: {
+      verifiedBy: ["conformance", "operator"],
+      checks: ["C054", "C059"],
+    },
+  }),
+  IMAGE_BYTES_NOT_URLS: must({
+    id: "IMAGE_BYTES_NOT_URLS",
+    statement:
+      "A daemon MUST NOT fetch a URL a backend returned in place of image " +
+      "bytes.",
+    enforcedBy: "daemon",
+    verifiedBy: "pending",
+    source: "byollm_021 §10",
+    planned: { verifiedBy: "adversarial", checks: ["C056"] },
   }),
 } as const satisfies Record<string, Must>);
 

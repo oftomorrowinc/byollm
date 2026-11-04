@@ -64,3 +64,33 @@ describe("the adversarial kind, counted", () => {
     expect(uncited, "adversarial MUSTs no test names").toEqual([]);
   });
 });
+
+/**
+ * A `pending` MUST cited by a daemon test is a MUST somebody forgot to
+ * promote — Owl, #55886 point 2 (#7053).
+ *
+ * The kit forces promotion for its own checks: one that claims a `pending`
+ * MUST is miscovered. Nothing forced it here. Card 3 writes the daemon test
+ * for a MUST planned as `adversarial`, cites it, and goes green with the MUST
+ * still saying nothing verifies it — and the first anyone hears is the tag
+ * gate, in somebody else's hands. So a citation is the moment to move it.
+ */
+describe("the pending kind, cited", () => {
+  it("has no daemon test naming a MUST that is still pending", () => {
+    const sources = testSources();
+    const pending = Object.values(MUSTS)
+      .filter((must) => kindsOf(must).includes("pending"))
+      .map((must) => must.id);
+    // No floor on `pending`: it is meant to empty, and the release gate
+    // requires it to. The floor that matters is that sources were read.
+    expect(sources.length).toBeGreaterThan(0);
+    const cited = pending.filter((id) =>
+      sources.some((source) => source.includes(id)),
+    );
+    expect(
+      cited,
+      "pending MUSTs a daemon test names — promote each in musts.ts (and " +
+        "its spec table's Verified cell) in the same commit",
+    ).toEqual([]);
+  });
+});

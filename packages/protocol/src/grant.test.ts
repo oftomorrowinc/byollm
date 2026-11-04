@@ -230,3 +230,80 @@ describe("the wire shape", () => {
     expect(parsed.success).toBe(false);
   });
 });
+
+/**
+ * `toolsDigest` — byollm_012 §4, check C045's protocol half.
+ *
+ * On `llm.tools` grants and absent on every other, because a 0.1.4 daemon
+ * parses grants strictly and must never meet the key.
+ */
+describe("the grant field stays home", () => {
+  const DIGEST = "a".repeat(64);
+  const sign = (over: Partial<GrantClaims>) => signGrant(plane, claims(over));
+
+  it("is carried, signed, by an llm.tools grant", () => {
+    const grant = sign({ kind: "llm.tools", toolsDigest: DIGEST });
+    expect(SignedGrant.safeParse(grant).success).toBe(true);
+    expect(check(grant)).toBeNull();
+    expect(GRANT_SIGNED_FIELDS).toContain("toolsDigest");
+    // Signed like every other field: a rewritten digest breaks the signature.
+    expect(check({ ...grant, toolsDigest: "b".repeat(64) })).toBe(
+      "bad-signature",
+    );
+  });
+
+  it("is refused on an llm.chat grant, and on every kind but llm.tools", () => {
+    for (const kind of [
+      "llm.chat",
+      "llm.generate",
+      "llm.vision",
+      "llm.image",
+    ]) {
+      const grant = sign({ kind, toolsDigest: DIGEST });
+      expect(SignedGrant.safeParse(grant).success, kind).toBe(false);
+    }
+  });
+
+  it("is required on an llm.tools grant", () => {
+    // Absent, the device would have nothing to compare the payload with, and
+    // an llm.tools job would run whatever tools the payload declared.
+    expect(SignedGrant.safeParse(sign({ kind: "llm.tools" })).success).toBe(
+      false,
+    );
+  });
+
+  it("is a SHA-256 in lowercase hex, and nothing else", () => {
+    for (const bad of ["A".repeat(64), "a".repeat(63), "z".repeat(64), ""]) {
+      const grant = sign({ kind: "llm.tools", toolsDigest: bad });
+      expect(SignedGrant.safeParse(grant).success, bad).toBe(false);
+    }
+  });
+
+  it("leaves every other grant's signed bytes exactly as 0.1.4 wrote them", () => {
+    // The other end's encoder, written out: this is the statement 0.1.4's
+    // `grantStatement` produced for this grant — the context and the nine
+    // fields in sorted order, and no tenth. A `null` where `toolsDigest`
+    // sorts would change these bytes, and a 0.1.5 daemon would refuse every
+    // grant a 0.1.4 control plane signed, and the other way round.
+    const c = claims({ kind: "llm.chat" });
+    const v014 = JSON.stringify([
+      "byollm/v1/grant",
+      c.grantId,
+      c.issuedAt,
+      c.jobId,
+      c.kind,
+      c.owner,
+      c.purpose,
+      c.service,
+      c.site,
+      c.user,
+    ]);
+    expect(Buffer.from(grantStatement(c)).toString("utf8")).toBe(v014);
+  });
+
+  it("cannot make a grant with it share a statement with one without", () => {
+    const withIt = claims({ kind: "llm.tools", toolsDigest: DIGEST });
+    const without = claims({ kind: "llm.tools" });
+    expect(grantStatement(withIt)).not.toEqual(grantStatement(without));
+  });
+});

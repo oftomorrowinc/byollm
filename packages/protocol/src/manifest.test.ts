@@ -275,8 +275,22 @@ describe("what a manifest may not be", () => {
     it("accepts every kind there is, because that is the honest ceiling", () => {
       // The bound is derived from the vocabulary rather than chosen, so it
       // grows with the protocol instead of becoming a number to remember.
+      // `llm.tools` brings its tools with it (byollm_012 §4), so a purpose
+      // listing every kind declares one.
       const all = Manifest.safeParse({
-        books: { label: "Books", kinds: [...JOB_KINDS] },
+        books: {
+          label: "Books",
+          kinds: [...JOB_KINDS],
+          tools: {
+            lookup: {
+              description: "Look up a book in the catalogue",
+              parameters: {
+                type: "object",
+                properties: { title: { type: "string", maxLength: 200 } },
+              },
+            },
+          },
+        },
       });
       expect(all.success).toBe(true);
     });
@@ -416,5 +430,97 @@ describe("routing — reserved, validated, not acted on", () => {
     expect(routingOf(only ?? { label: "x", kinds: ["llm.chat"] })).toBe(
       DEFAULT_ROUTING,
     );
+  });
+});
+
+/**
+ * A purpose's tools — byollm_012 §4.
+ *
+ * Required when `kinds` lists `llm.tools`, refused otherwise, so a consent
+ * screen never shows a tools row without its tools, nor tools under a
+ * purpose that cannot call them.
+ */
+describe("Purpose.tools and its two limits", () => {
+  const tools = {
+    web_search: {
+      description: "Search the web for a claim",
+      parameters: {
+        type: "object",
+        properties: { query: { type: "string", maxLength: 400 } },
+      },
+    },
+  };
+  const purpose = (over: Record<string, unknown>) =>
+    Manifest.safeParse({ "fact-checker": { label: "Fact Checker", ...over } });
+
+  it("declares tools beside llm.tools, with limits or without", () => {
+    expect(purpose({ kinds: ["llm.tools"], tools }).success).toBe(true);
+    expect(
+      purpose({
+        kinds: ["llm.chat", "llm.tools"],
+        tools,
+        maxToolCalls: 20,
+        maxToolResultChars: 256_000,
+      }).success,
+    ).toBe(true);
+  });
+
+  it("requires tools when the purpose lists llm.tools", () => {
+    expect(purpose({ kinds: ["llm.tools"] }).success).toBe(false);
+    expect(purpose({ kinds: ["llm.tools"], tools: {} }).success).toBe(false);
+  });
+
+  it("refuses all three on a purpose that does not list llm.tools", () => {
+    for (const extra of [
+      { tools },
+      { maxToolCalls: 8 },
+      { maxToolResultChars: 32_000 },
+    ]) {
+      expect(purpose({ kinds: ["llm.chat"], ...extra }).success).toBe(false);
+    }
+  });
+
+  it("holds the limits to 1..20 and 1..256,000, and tools to 16", () => {
+    for (const [field, bad] of [
+      ["maxToolCalls", 0],
+      ["maxToolCalls", 21],
+      ["maxToolResultChars", 0],
+      ["maxToolResultChars", 256_001],
+    ] as const) {
+      expect(
+        purpose({ kinds: ["llm.tools"], tools, [field]: bad }).success,
+        `${field} ${String(bad)}`,
+      ).toBe(false);
+    }
+    const seventeen = Object.fromEntries(
+      Array.from({ length: 17 }, (_, i) => [`t${String(i)}`, tools.web_search]),
+    );
+    expect(purpose({ kinds: ["llm.tools"], tools: seventeen }).success).toBe(
+      false,
+    );
+  });
+
+  it("holds a tool's description to the renderable rules a label follows", () => {
+    // The consent screen lists tools by description (§10), so a newline or a
+    // direction override there spoofs the sentence a person consents to.
+    for (const description of ["a\nb", "Search‮", "​", "   "]) {
+      expect(
+        purpose({
+          kinds: ["llm.tools"],
+          tools: { web_search: { ...tools.web_search, description } },
+        }).success,
+        JSON.stringify(description),
+      ).toBe(false);
+    }
+  });
+
+  it("does not add the defaults at parse", () => {
+    // For the reason DEFAULT_ROUTING gives: a hub that stores and serves a
+    // manifest back would hand keys to readers that predate them.
+    const parsed = Manifest.parse({
+      "fact-checker": { label: "Fact Checker", kinds: ["llm.tools"], tools },
+    });
+    expect(parsed["fact-checker"]).not.toHaveProperty("maxToolCalls");
+    expect(parsed["fact-checker"]).not.toHaveProperty("maxToolResultChars");
   });
 });

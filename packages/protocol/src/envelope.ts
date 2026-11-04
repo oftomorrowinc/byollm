@@ -68,8 +68,22 @@ export async function cryptoReady(): Promise<void> {
  */
 export const ENVELOPE_MAX_AGE_MS = 24 * 60 * 60_000;
 
-/** Which leg an envelope belongs to. Bound into the signature. */
-export const EnvelopeDirection = z.enum(["payload", "result"]);
+/**
+ * Which leg an envelope belongs to. Bound into the signature.
+ *
+ * `tool-call` (device → site) and `tool-result` (site → device) are
+ * byollm_012 §5.1's. Because the direction is inside the signature, a tool
+ * result can never be replayed as a payload, and a call can never be passed
+ * off as a result ({@link MUSTS.TOOL_ENVELOPES_BOUND}). They travel only on
+ * the four tool endpoints, which a 0.1.4 party never calls, so no 0.1.4
+ * parser meets either value.
+ */
+export const EnvelopeDirection = z.enum([
+  "payload",
+  "result",
+  "tool-call",
+  "tool-result",
+]);
 export type EnvelopeDirection = z.infer<typeof EnvelopeDirection>;
 
 export const SealedEnvelope = z

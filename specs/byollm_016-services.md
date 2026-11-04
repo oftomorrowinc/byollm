@@ -205,9 +205,14 @@ it lands as a stanza, not a redesign.
 
 **Kept out, deliberately:** per-site ACLs on services (person-level =
 allowlist, site-level = site approval; a third axis would re-implement
-both); payload-influenced request fields, ever; verification stanzas
-in config (the differential check is walk/detection discipline);
-generation params in payloads.
+both); payload-influenced request fields, ever — except a site's tool
+declarations and call budget on an `llm.tools` job (byollm_012), which on
+the cloud lane are bound by the grant's `toolsDigest` to what the person
+consented to, and on the direct lane are the paired site's own; they never
+name a model, a parameter of the model or anything that runs on the device;
+verification stanzas in config (the differential check is walk/detection
+discipline); generation params in payloads. *(The "except" clause is
+byollm_012 §12's amendment, ruled on #6933, 2026-11-03.)*
 
 **Open question 5 (added):** config format. JSON's commentlessness is
 half of why `enabled` exists. JSONC (comments stripped at load) vs

@@ -149,6 +149,15 @@ node scripts/pins-checked.mjs "$version" --manifests-only --committed --before-p
 # and the one moment somebody is in a hurry.
 node scripts/alpha-claims-match-the-version.mjs || exit 1
 
+# 6b. No MUST is `pending` that this cut cannot carry — #7053, Owl #55886.
+#
+# byollm_012 and byollm_021's MUSTs were registered ahead of their checks, as
+# `pending`. Only byollm_012's tool MUSTs may ride on a prerelease (the cut
+# line); an image MUST refuses any cut, and a stable cut carries none. The kit
+# forces the promotion when a check is built; this catches the check that
+# never was.
+node scripts/pending-musts-hold-the-cut.mjs "$version" || exit 1
+
 # 7. Windows and macOS have seen this tree — B344.
 #
 # A push to `main` runs the daemon suite on ubuntu only; the three-OS matrix

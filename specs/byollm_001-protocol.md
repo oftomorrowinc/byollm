@@ -76,7 +76,7 @@ the check gets is a list it can compare against the registry.
 | `CLAIM_ATOMIC` | §Endpoints.2 |
 | `CLAIM_REQUIRES_CAPABILITY` | §MUSTs |
 | `DEPENDS_ON_GATING` | Rev 1 §E |
-| `INGRESS_LOGGED_BEFORE_EXECUTION` | §MUSTs |
+| `INGRESS_LOGGED_BEFORE_EXECUTION` | §MUSTs; its tool-call clause, byollm_012 §9 |
 | `KIND_NO_CODE` | §Jobs are typed data, and byollm_004 §1 |
 | `KIND_TYPED_ONLY` | §Jobs are typed data |
 | `LEASE_HONORED` | §MUSTs |

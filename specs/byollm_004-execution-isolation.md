@@ -44,9 +44,11 @@ configuration and never a command.
   OS allows, drop further (documented per-platform; not a false
   promise where it can't).
 - **No prompt-driven tools.** The daemon exposes no tools, functions,
-  retrieval, or MCP to the model. If a future kind needs tools, that
-  is a new kind with its own spec and its own threat review — not a
-  payload flag.
+  retrieval or MCP to the model, except the declarations of a site's own
+  tools on an `llm.tools` job, which the daemon never executes: a call is
+  sealed to the site. Any tool that would run on the device is a new kind
+  with its own spec and its own threat review, not a payload flag.
+  *(Amended by byollm_012 §12, ruled on #6933, 2026-11-03.)*
 - **Output is inert.** Returned text is treated as bytes: never
   eval'd, never written to a path the payload names, never logged in
   a way that interpolates it into a shell. Result goes back over the

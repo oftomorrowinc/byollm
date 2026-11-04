@@ -181,7 +181,51 @@ const PINNED = {
   },
 };
 
+/**
+ * Members added under version `"2"` by ruling, and why each is not the
+ * hazard this file exists for — byollm_021 §Rollout R1 (#6933, 2026-11-03).
+ *
+ * The rule above is that a member added is a body some old receiver cannot
+ * parse, so the version moves. #6933 ruled that `PROTOCOL_VERSION` stays
+ * `"2"` for the three 0.1.5 kinds, and gave the reason: each is a new value
+ * that reaches only a party that advertised or declared it. A 0.1.4 daemon
+ * never advertises one and so is never offered one
+ * (`CLAIM_REQUIRES_CAPABILITY`); a 0.1.4 site never enqueues one. The one
+ * direction that still breaks — a 0.1.5 daemon advertising a new kind to a
+ * 0.1.4 upstream — is held by R2: the new kinds are off until an owner turns
+ * one on, and the daemon's differential heartbeat retry (C060) keeps the
+ * device serving everything else.
+ *
+ * Listed here rather than folded into `PINNED`, so the snapshot still says
+ * what every version-2 party knows and this says what was added beside it,
+ * with the ruling that allowed it. A member added here without a ruling is
+ * the same mistake as editing `PINNED` alone.
+ */
+const ADDED_UNDER_VERSION_2 = {
+  jobKind: {
+    "llm.tools": "#6933 — byollm_021 §Rollout R1, byollm_012 §3",
+    "llm.vision": "#6933 — byollm_021 §Rollout R1, byollm_021 §1",
+    "llm.image": "#6933 — byollm_021 §Rollout R1, byollm_021 §1",
+  },
+} as const;
+
 describe("the wire vocabulary and the version that describes it", () => {
+  it("adds members under version 2 only by ruling, and only beside the pin", () => {
+    // The control on the list itself: a member listed here that is ALSO in
+    // the pin would be an addition nobody can see, and one listed here that
+    // the enum does not have is a ruling about nothing.
+    for (const [vocabulary, added] of Object.entries(ADDED_UNDER_VERSION_2)) {
+      const pinned = PINNED.enums[vocabulary as keyof typeof PINNED.enums];
+      const live = VOCABULARY.enums[vocabulary as keyof typeof PINNED.enums];
+      for (const [member, ruling] of Object.entries(added)) {
+        expect(pinned, member).not.toContain(member);
+        expect(live, member).toContain(member);
+        expect(ruling, member).toMatch(/^#\d+ — /);
+      }
+    }
+    expect(PINNED.version).toBe("2");
+  });
+
   it("has not changed without the version changing", () => {
     /**
      * If this fails, read the diff before touching anything.
@@ -195,7 +239,15 @@ describe("the wire vocabulary and the version that describes it", () => {
      * handshake does the rest. Updating `PINNED` alone puts this back exactly
      * where byollm_016 left it.
      */
-    expect(VOCABULARY).toEqual(PINNED);
+    const expected = structuredClone(PINNED);
+    for (const [vocabulary, added] of Object.entries(ADDED_UNDER_VERSION_2)) {
+      const key = vocabulary as keyof typeof PINNED.enums;
+      expected.enums[key] = [
+        ...expected.enums[key],
+        ...Object.keys(added),
+      ].sort();
+    }
+    expect(VOCABULARY).toEqual(expected);
   });
 
   it("watches every vocabulary the promotion gate asks the hub about", () => {

@@ -3,7 +3,16 @@ import { Audience } from "./audience.js";
 import { SignedGrant } from "./grant.js";
 import { jsonLength } from "./json-size.js";
 import { BackendClass } from "./backends.js";
-import { ChatPayload, GeneratePayload, JobKind } from "./kinds.js";
+import {
+  ChatPayload,
+  GeneratePayload,
+  ImagePayload,
+  JobKind,
+  ToolsPayload,
+  VisionPayload,
+} from "./kinds.js";
+import { BlobRef, MAX_IMAGES_OUT } from "./media.js";
+import { TOOL_LIMITS, ToolOutcomes } from "./tools.js";
 
 /**
  * The job lifecycle, made explicit by byollm_001 Rev 1 §D because the most
@@ -95,7 +104,13 @@ export const Lease = z
 export type Lease = z.infer<typeof Lease>;
 
 /** Payload union as it appears on a job record. */
-export const JobPayload = z.union([GeneratePayload, ChatPayload]);
+export const JobPayload = z.union([
+  GeneratePayload,
+  ChatPayload,
+  ToolsPayload,
+  VisionPayload,
+  ImagePayload,
+]);
 export type JobPayload = z.infer<typeof JobPayload>;
 
 /**
@@ -180,6 +195,7 @@ export const StopReasonSchema = z.enum([
   "length",
   "stop-sequence",
   "unknown",
+  "tool-budget",
 ]);
 
 export type StopReason =
@@ -202,7 +218,16 @@ export type StopReason =
    * cannot tell, guess toward silence rather than toward a claim. "We do not
    * know" is a thing a site can act on; "it finished" when it did not is not.
    */
-  | "unknown";
+  | "unknown"
+  /**
+   * An `llm.tools` job reached its call budget or its context cap, and the
+   * model answered once more with no tools offered — byollm_012 §8.
+   *
+   * The job finished rather than failed, and this is how a site tells a
+   * short answer from a complete one. **`llm.tools` only**: no other kind has
+   * a tool budget to reach, and {@link SealedOutcomeFor} refuses it on them.
+   */
+  | "tool-budget";
 /* Asserted rather than assumed: the hand-written union above carries the
    documentation and this keeps it identical to the schema. If somebody adds a
    fifth reason to one and not the other, this line stops compiling. */
@@ -309,49 +334,87 @@ export function provenanceFor(input: {
  * already compares clear-text against ciphertext extends to cover them.
  */
 
+const runMetadataShape = {
+  /** Which model actually served it. */
+  model: z.string().min(1),
+  backendClass: BackendClass,
+  /** Wall-clock milliseconds the backend call took. */
+  durationMs: z.number().int().nonnegative(),
+  /**
+   * Why generation stopped — B064 step 4.
+   *
+   * Here rather than on {@link JobResultOk} because the outcome is the
+   * ANSWER and this is the daemon's signed account of how it was produced.
+   * Why generation ended is the same kind of fact as how long it took.
+   *
+   * **Optional because it is meaningless, not because it is new.** A
+   * cancelled job has no model to have stopped and an error has no
+   * generation to have ended, and `ran` travels on those arms too.
+   * Instruction 10 forbids optionality bought for compatibility — a
+   * version gate wearing a question mark — and this is not that: it is
+   * absent exactly where it would be a fact about nothing. Present on
+   * every `ok` result, always, because the whole value is the difference
+   * between `end`, `length` and `unknown` and that difference only exists
+   * if it is always there.
+   */
+  stop: StopReasonSchema.optional(),
+  /**
+   * Whether the adapter could read a stop signal at all — B105's lesson,
+   * carried to the wire.
+   *
+   * Without this the site re-commits the defect B064's third mapping kind
+   * was introduced to fix. `unknown` is TWO facts: an adapter that cannot
+   * report one, and an adapter that reported a word we do not map — and
+   * `openai-http` maps `stop` and `length` and nothing else, so the second
+   * is the common case rather than the corner.
+   *
+   * A site told only `unknown` would say "we do not know why this stopped"
+   * for a `claude-cli` job forever, which is true, and for a
+   * `content_filter` result, which is not the same thing at all.
+   */
+  stopReported: z.boolean().optional(),
+};
+
 export const RunMetadata = z
-  .object({
-    /** Which model actually served it. */
-    model: z.string().min(1),
-    backendClass: BackendClass,
-    /** Wall-clock milliseconds the backend call took. */
-    durationMs: z.number().int().nonnegative(),
-    /**
-     * Why generation stopped — B064 step 4.
-     *
-     * Here rather than on {@link JobResultOk} because the outcome is the
-     * ANSWER and this is the daemon's signed account of how it was produced.
-     * Why generation ended is the same kind of fact as how long it took.
-     *
-     * **Optional because it is meaningless, not because it is new.** A
-     * cancelled job has no model to have stopped and an error has no
-     * generation to have ended, and `ran` travels on those arms too.
-     * Instruction 10 forbids optionality bought for compatibility — a
-     * version gate wearing a question mark — and this is not that: it is
-     * absent exactly where it would be a fact about nothing. Present on
-     * every `ok` result, always, because the whole value is the difference
-     * between `end`, `length` and `unknown` and that difference only exists
-     * if it is always there.
-     */
-    stop: StopReasonSchema.optional(),
-    /**
-     * Whether the adapter could read a stop signal at all — B105's lesson,
-     * carried to the wire.
-     *
-     * Without this the site re-commits the defect B064's third mapping kind
-     * was introduced to fix. `unknown` is TWO facts: an adapter that cannot
-     * report one, and an adapter that reported a word we do not map — and
-     * `openai-http` maps `stop` and `length` and nothing else, so the second
-     * is the common case rather than the corner.
-     *
-     * A site told only `unknown` would say "we do not know why this stopped"
-     * for a `claude-cli` job forever, which is true, and for a
-     * `content_filter` result, which is not the same thing at all.
-     */
-    stopReported: z.boolean().optional(),
-  })
-  .strict();
+  .object(runMetadataShape)
+  .strict()
+  // `tool-budget` is a fact about a tool loop, and this is the `ran` of every
+  // kind without one. {@link ToolsRunMetadata} is the one that carries it.
+  .refine((ran) => ran.stop !== "tool-budget", {
+    message: "only an llm.tools job stops at its tool budget",
+  });
 export type RunMetadata = z.infer<typeof RunMetadata>;
+
+/**
+ * `ran` for an `llm.tools` job — byollm_012 §3.
+ *
+ * Present on every arm, like the rest of `ran`: an errored tool job may have
+ * made calls, and a site needs to know how many and how they ended.
+ *
+ * - `toolCalls` — the calls the job made, which is what the budget counts.
+ *   Refused and timed-out calls count: each was a call the model made.
+ * - `toolOutcomes` — how each of them ended. They sum to `toolCalls`,
+ *   because every call ended exactly one way; a breakdown that could leave
+ *   calls out is one a site cannot use to tell "answered from search" from
+ *   "every call timed out".
+ */
+export const ToolsRunMetadata = z
+  .object({
+    ...runMetadataShape,
+    toolCalls: z.number().int().min(0).max(TOOL_LIMITS.maxToolCalls),
+    toolOutcomes: ToolOutcomes,
+  })
+  .strict()
+  .refine(
+    (ran) =>
+      ran.toolOutcomes.answered +
+        ran.toolOutcomes.errored +
+        ran.toolOutcomes.timedOut +
+        ran.toolOutcomes.refused ===
+      ran.toolCalls,
+    { message: "toolOutcomes account for every one of toolCalls" },
+  );
+export type ToolsRunMetadata = z.infer<typeof ToolsRunMetadata>;
 
 /** Successful outcome. */
 export const JobResultOk = z
@@ -513,6 +576,75 @@ export const SealedOutcome = z
   .object({ outcome: JobOutcome, ran: RunMetadata })
   .strict();
 export type SealedOutcome = z.infer<typeof SealedOutcome>;
+
+/**
+ * An `llm.image` job's answer — byollm_021 §1.
+ *
+ * `text` is empty, or the backend's revised prompt where it returns one.
+ * `images` are references to the output blobs, uploaded before the result
+ * was posted (§2), 1 to {@link MAX_IMAGES_OUT}. Bytes, never URLs
+ * ({@link MUSTS.IMAGE_BYTES_NOT_URLS}): `artifactUrl` is not on this arm.
+ */
+export const ImageResultOk = z
+  .object({
+    outcome: z.literal("ok"),
+    text: z.string(),
+    images: z.array(BlobRef).min(1).max(MAX_IMAGES_OUT),
+  })
+  .strict();
+export type ImageResultOk = z.infer<typeof ImageResultOk>;
+
+/** The outcomes an `llm.image` job can seal. */
+export const ImageJobOutcome = z.discriminatedUnion("outcome", [
+  ImageResultOk,
+  JobResultError,
+  JobResultCanceled,
+]);
+export type ImageJobOutcome = z.infer<typeof ImageJobOutcome>;
+
+/** What an `llm.tools` job seals. */
+export const ToolsSealedOutcome = z
+  .object({ outcome: JobOutcome, ran: ToolsRunMetadata })
+  .strict();
+export type ToolsSealedOutcome = z.infer<typeof ToolsSealedOutcome>;
+
+/** What an `llm.image` job seals. */
+export const ImageSealedOutcome = z
+  .object({ outcome: ImageJobOutcome, ran: RunMetadata })
+  .strict();
+export type ImageSealedOutcome = z.infer<typeof ImageSealedOutcome>;
+
+/**
+ * The sealed outcome a job of `kind` may carry — each addition on its own
+ * kind only (byollm_021 §Rollout R1).
+ *
+ * `toolCalls`, `toolOutcomes` and `stop: "tool-budget"` are `llm.tools`'s;
+ * `images` is `llm.image`'s. On any other kind each is refused, so a device
+ * cannot attach a tool count or an image reference to a chat answer and have
+ * a site believe it.
+ *
+ * **{@link SealedOutcome} is unchanged** and is still the right schema for
+ * `llm.generate`, `llm.chat` and `llm.vision`, whose answers are text. A
+ * reader that has not moved to this function refuses an `llm.tools` or
+ * `llm.image` result rather than accepting it with its additions stripped:
+ * the new keys fail a strict parse. That is the direction to fail in — the
+ * card that serves the new kind has to pick this up to work at all.
+ */
+export function SealedOutcomeFor(
+  kind: JobKind,
+):
+  typeof SealedOutcome | typeof ToolsSealedOutcome | typeof ImageSealedOutcome {
+  switch (kind) {
+    case "llm.tools":
+      return ToolsSealedOutcome;
+    case "llm.image":
+      return ImageSealedOutcome;
+    case "llm.generate":
+    case "llm.chat":
+    case "llm.vision":
+      return SealedOutcome;
+  }
+}
 
 /** A completed job as delivered to the app, provenance attached. */
 export const DeliveredResult = z

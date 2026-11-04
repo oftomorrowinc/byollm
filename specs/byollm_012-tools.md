@@ -620,34 +620,39 @@ map a purpose to it unless the site is the owner's own. None of that exists.
 It is an owner feature under its own name, not a tool menu, and it shares
 nothing with v1 except the word.
 
-## 12. Proposed MUSTs and their checks
+## 12. MUSTs and their checks
 
-These are written in bold rather than as registry-table rows on purpose.
+Registered by card 1 of byollm_021 §Rollout R8 (#7053). This section first
+wrote the MUSTs in bold rather than as table rows, because
 `musts-match-specs.test.ts` counts any table row that starts with a
 backticked id as a declared MUST and fails while the registry lacks it. The
-build card that adds the registry entries also turns this list into the
-spec's table.
+registry entries and this table landed in one commit.
 
-- **TOOLS_RUN_AT_SITE**: a daemon never executes a tool. A tool call leaves
-  the device only as an envelope signed by the device and sealed to the
-  job's site. Daemon; conformance (checks 1, 2).
-- **TOOLS_MATCH_CONSENT**: on the cloud lane, an `llm.tools` payload whose
-  declarations or limits do not match the grant's `toolsDigest`, or whose
-  `maxToolCalls` is above the purpose's, is refused before any backend sees
-  it. An enqueue whose `toolsDigest` does not match the manifest of record is
-  refused at the hub with nothing queued. A call to an undeclared tool, or
-  with arguments that fail its schema, is a tool error to the model, and
-  nothing is sent. Daemon and hub; conformance (checks 3, 4, 15).
-- **TOOL_ENVELOPES_BOUND**: `tool-call` and `tool-result` are directions
-  inside the signature, and a result is accepted only for an outstanding
-  call of the same job. Daemon; conformance (check 5).
-- **TOOLS_BUDGETED**: §8's per-job call ceiling, enforced before the call
-  that would exceed it, by the daemon, the relay and the site SDK; and the
-  context cap, counted in the job's size class before it runs and enforced
-  by the daemon before each result reaches the model. Conformance (checks
-  6–8, 14).
+**Each is `pending`.** It is adjudicated and nothing verifies it yet, because
+the checks that will are built by cards 2 to 4. A `pending` MUST names the
+checks assigned to it and the kinds they will verify it as (`Must.planned`).
+The card that builds a check promotes its MUST to that kind and edits the
+"Verified" cell below in the same commit: a kit check that claims a
+`pending` MUST fails `miscoveredMusts`, and so does a daemon test that cites
+one. `scripts/pending-musts-hold-the-cut.mjs`, run by `tag.sh`, refuses any
+release while one of byollm_021's MUSTs is `pending` and a stable release
+while any is: these four may ride on the beta, as the cut line allows, and
+the card that applies the cut line takes them out with `llm.tools` (Owl,
+#55886).
+
+| MUST | Statement | Verified | Checks, and the kind they verify it as |
+|---|---|---|---|
+| `TOOLS_RUN_AT_SITE` | A daemon never executes a tool. A tool call leaves the device only as an envelope signed by the device and sealed to the job's site. Daemon. | pending | C033, C034: conformance |
+| `TOOLS_MATCH_CONSENT` | On the cloud lane, an `llm.tools` payload whose declarations or limits do not match the grant's `toolsDigest`, or whose `maxToolCalls` is above the purpose's, is refused before any backend sees it. An enqueue whose `toolsDigest` does not match the manifest of record is refused at the hub with nothing queued. A call to an undeclared tool, or with arguments that fail its schema, is a tool error to the model, and nothing is sent. Daemon and hub. | pending | C035, C036, C047: conformance |
+| `TOOL_ENVELOPES_BOUND` | `tool-call` and `tool-result` are directions inside the signature, and a result is accepted only for an outstanding call of the same job. Daemon. | pending | C037: conformance |
+| `TOOLS_BUDGETED` | §8's per-job call ceiling, enforced before the call that would exceed it, by the daemon, the relay and the site SDK; and the context cap, counted in the job's size class before it runs and enforced by the daemon before each result reaches the model. | pending | C038, C039, C040, C046: conformance |
+
+Beside the table, and not rows of it:
+
 - **`INGRESS_LOGGED_BEFORE_EXECUTION`**, amended: each tool call is logged
-  before it is sent. Daemon; conformance (check 10).
+  before it is sent. Its row is byollm_001's, since a MUST has one home. The
+  registry's statement gains the clause, its source names §9, and C042 is
+  planned against it. Daemon; conformance (check 10).
 - **byollm_004 §2's "No prompt-driven tools"** becomes: "The daemon exposes
   no tools, functions, retrieval or MCP to the model, **except the
   declarations of a site's own tools on an `llm.tools` job, which the daemon
@@ -668,10 +673,10 @@ spec's table.
   content, and the consent binding is why they are acceptable, not a reason
   to pretend they are something else.
 
-The ids below are proposals. byollm_021 uses C057–C066 and C069–C071. The
-build cards assign the real ids after C032.
+The check ids are assigned: byollm_012's are C033 to C047, as proposed, and
+byollm_021's follow from C048 (byollm_021 §10).
 
-| # | proposed id | what it does | passes when | mutation that must fail it |
+| # | id | what it does | passes when | mutation that must fail it |
 |---|---|---|---|---|
 | 1 | C033 a tool call leaves sealed | an echo backend calls `lookup` once | the kit's upstream receives one `tool-call` envelope; it opens only with the site's key, verifies against the device's identity key, and carries the `tool-call` direction | send the call in the clear |
 | 2 | C034 nothing runs on the device | a hostile site declares `shell`, `read_file` and `fetch`; an echo backend calls each with plausible arguments | the injected process spawner and socket factory record no spawn and no connection except to the upstream; three sealed calls reach the site | a daemon helper that runs a declared tool locally |
@@ -702,7 +707,7 @@ build cards assign the real ids after C032.
   purpose, and seals results.
 - The daemon runs the loop on HTTP backends, with the probe from §7.
 - §12's checks pass, and each is recorded in MUTATIONS.md with its mutation
-  and a note that it was seen to fail.
+  and a note that it was seen to fail. No §12 MUST is still `pending`.
 - The adversarial corpus gains a hostile-site set: declarations that try to
   name local actions, results that try to instruct the model, and calls
   aimed at another job.

@@ -3,6 +3,7 @@ import {
   MUSTS,
   MUST_IDS,
   mustsVerifiedBy,
+  type Must,
   type MustId,
 } from "@byollm/protocol";
 import { CHECKS, type Check } from "./checks.js";
@@ -113,7 +114,8 @@ export function miscoveredMusts(checks: readonly Check[] = CHECKS): MustId[] {
 const VERIFICATION_NOTE =
   "(`adversarial` = proved by the reference daemon's own suites; " +
   "`construction` = true by code shape; `operator` = a deployment claim, " +
-  "verifiable only by audit or source. None is asserted by this run.)";
+  "verifiable only by audit or source; `pending` = adjudicated, with its " +
+  "checks assigned and not yet built. None is asserted by this run.)";
 
 /** A human-readable report. */
 export function formatReport(report: CertificationReport): string {
@@ -162,6 +164,23 @@ export function formatReport(report: CertificationReport): string {
       lines.push(`    ${kind}: ${ids.join(", ")}`);
     }
     lines.push(`    ${VERIFICATION_NOTE}`);
+  }
+
+  // Its own heading, not a line under "verified elsewhere": nothing verifies
+  // these yet, and a reader comparing their run against "N checks passed"
+  // most needs to know which MUSTs that number says nothing about (Owl,
+  // #55886 point 1).
+  const pending = mustsVerifiedBy("pending");
+  if (pending.length > 0) {
+    lines.push("");
+    lines.push("  Not yet verified — adjudicated, checks assigned, not built:");
+    for (const id of pending) {
+      const must: Must = MUSTS[id];
+      const planned = must.planned;
+      const checks =
+        planned === undefined ? "" : ` (${planned.checks.join(", ")})`;
+      lines.push(`    - ${id}${checks}: ${MUSTS[id].statement}`);
+    }
   }
   return `${lines.join("\n")}\n`;
 }

@@ -386,53 +386,52 @@ byollm_016 already uses "voice" for an owner's tuned service, such as
   never used, raises a consent question that `offer: "team"` does not
   answer. It needs its own sentence before it needs code.
 
-## 10. Proposed MUSTs and their checks
+## 10. MUSTs and their checks
 
-These are in bold rather than registry rows, for the reason byollm_012 §12
-gives.
+Registered with byollm_012 §12's, in one commit (#7053), and `pending` for
+the reason that section gives: the checks below are built by cards 5 and 6,
+and the card that builds one promotes its MUST and edits its "Verified" cell.
 
-- **BLOBS_SEALED**: blob bytes leave an endpoint only encrypted under a key
-  that travels only inside a sealed, signed envelope; a blob store and a
-  relay hold no key that opens one. It extends `RELAY_BLIND` to media.
-  Operator and conformance.
-- **BLOB_BOUND_TO_JOB**: a blob that fails to decrypt under its job's
-  associated data, or whose plaintext hash does not match its reference, is
-  refused at both endpoints. Conformance.
-- **MEDIA_VERIFIED**: declared type matches the magic bytes, and the
-  dimensions are within the caps, checked at both endpoints before a backend
-  or an app sees the bytes. Conformance and adversarial.
-- **BLOB_BUDGET_BEFORE_DOWNLOAD**: a non-owner's images are charged against
-  `community.maxImageBytes` from the declared sizes before any blob is
-  fetched, and a download stops at its declared size. An upstream offers
-  no job whose stored blobs differ from the sizes their slots were issued
-  for (§2). Conformance on the reference server (C060, C061, C069);
-  operator on the hub.
-- **BLOBS_GO_WITH_THE_JOB**: input blobs are deleted when the result is
-  accepted; output blobs when the site says it holds them, or one hour after
-  collection; an uncollected job's blobs 24 hours after its deadline.
-  Conformance on the reference server (C063, C071); operator on the hub.
-- **IMAGE_BYTES_NOT_URLS**: a daemon never fetches a URL a backend returned
-  in place of image bytes. Adversarial.
-- **`KIND_NO_CODE`, `OUTPUT_INERT` and the CLI containment** are unchanged,
-  and the image kinds are never advertised on a `process` backend. Daemon;
-  conformance (C070).
+| MUST | Statement | Verified | Checks, and the kind they verify it as |
+|---|---|---|---|
+| `BLOBS_SEALED` | Blob bytes leave an endpoint only encrypted under a key that travels only inside a sealed, signed envelope; a blob store and a relay hold no key that opens one. It extends `RELAY_BLIND` to media. | pending | C048: operator + conformance |
+| `BLOB_BOUND_TO_JOB` | A blob that fails to decrypt under its job's associated data, or whose plaintext hash does not match its reference, is refused at both endpoints. | pending | C049: conformance |
+| `MEDIA_VERIFIED` | Declared type matches the magic bytes, and the dimensions are within the caps, checked at both endpoints before a backend or an app sees the bytes. | pending | C050: conformance + adversarial |
+| `BLOB_BUDGET_BEFORE_DOWNLOAD` | A non-owner's images are charged against `community.maxImageBytes` from the declared sizes before any blob is fetched, and a download stops at its declared size. An upstream offers no job whose stored blobs differ from the sizes their slots were issued for (§2). | pending | C051, C052, C057: conformance on the reference server; operator on the hub |
+| `BLOBS_GO_WITH_THE_JOB` | Input blobs are deleted when the result is accepted; output blobs when the site says it holds them, or one hour after collection; an uncollected job's blobs 24 hours after its deadline. | pending | C054, C059: conformance on the reference server; operator on the hub |
+| `IMAGE_BYTES_NOT_URLS` | A daemon never fetches a URL a backend returned in place of image bytes. | pending | C056: adversarial |
 
-| # | proposed id | what it does | passes when | mutation that must fail it |
+Beside the table: **`KIND_NO_CODE`, `OUTPUT_INERT` and the CLI containment**
+are unchanged, and the image kinds are never advertised on a `process`
+backend. Daemon; conformance (C058).
+
+**C056 is a check id on an adversarial MUST.** The table below lists it with
+the kit's checks, and the MUST says it is proved by the daemon's own suites.
+Card 6 decides which it is: a hostile image backend in the adversarial
+corpus (the MUST stays `adversarial` and the id names the corpus row), or a
+kit check (the MUST becomes `conformance`).
+
+The ids are assigned after byollm_012's C033 to C047, in this table's order,
+with guard (b)'s check last. Each was proposed as: C048 (C057), C049 (C058),
+C050 (C059), C051 (C060), C052 (C061), C053 (C062), C054 (C063), C055
+(C064), C056 (C065), C057 (C069), C058 (C070), C059 (C071), and C060 (C066).
+
+| # | id | what it does | passes when | mutation that must fail it |
 |---|---|---|---|---|
-| 1 | C057 blobs sealed | the kit reads every stored blob and the relay's whole state | no plaintext image bytes anywhere; no key | store the plaintext |
-| 2 | C058 blob bound to its job | swap two jobs' blob ids; swap `in` for `out`; flip one byte | each one refused before the backend | drop the associated data |
-| 3 | C059 media verified | PNG declared over JPEG bytes; an SVG; a 50,000 × 50,000 PNG header | each one refused; backend saw nothing | trust the declared type |
-| 4 | C060 blob budget before download | a teammate's job declaring 3 × 10 MiB against a 16 MiB budget | refused; **zero blob downloads** | check after downloading |
-| 5 | C061 blob larger than declared | a blob of 12 MiB declared as 2 MiB | download stops at 2 MiB; refused | trust the declaration |
-| 6 | C062 blob needs the lease | a download request without the job's lease | refused; no URL issued | drop the lease scope |
-| 7 | C063 blobs go with the job | collect a result and send `received`; let another job pass its deadline plus a day | no blob left for either | skip the sweep |
-| 8 | C064 vision is detected | an echo backend that ignores images and answers "blue" | `llm.vision` not advertised; `backends` says why | probe for a 200 only |
-| 9 | C065 image bytes, not URLs | an image backend that answers with a URL | job errors; no fetch made | follow the URL |
-| 10 | C069 blob size checked before offer | the reference server issues a 256 KiB slot; the site stores 512 KiB under it, then a job is enqueued | the job is refused at enqueue and never offered | trust the slot's size |
-| 11 | C070 no images on a process backend | a `claude-cli` service listing `llm.vision` | `llm.vision` not advertised; `backends` says the kind needs an HTTP backend | advertise it |
-| 12 | C071 output outlives collection until received | the site collects an `llm.image` result, then downloads its blobs 30 seconds later without having sent `received` | every download succeeds; the blobs are gone after `received`, or one hour after collection without it | delete output blobs at collection |
+| 1 | C048 blobs sealed | the kit reads every stored blob and the relay's whole state | no plaintext image bytes anywhere; no key | store the plaintext |
+| 2 | C049 blob bound to its job | swap two jobs' blob ids; swap `in` for `out`; flip one byte | each one refused before the backend | drop the associated data |
+| 3 | C050 media verified | PNG declared over JPEG bytes; an SVG; a 50,000 × 50,000 PNG header | each one refused; backend saw nothing | trust the declared type |
+| 4 | C051 blob budget before download | a teammate's job declaring 3 × 10 MiB against a 16 MiB budget | refused; **zero blob downloads** | check after downloading |
+| 5 | C052 blob larger than declared | a blob of 12 MiB declared as 2 MiB | download stops at 2 MiB; refused | trust the declaration |
+| 6 | C053 blob needs the lease | a download request without the job's lease | refused; no URL issued | drop the lease scope |
+| 7 | C054 blobs go with the job | collect a result and send `received`; let another job pass its deadline plus a day | no blob left for either | skip the sweep |
+| 8 | C055 vision is detected | an echo backend that ignores images and answers "blue" | `llm.vision` not advertised; `backends` says why | probe for a 200 only |
+| 9 | C056 image bytes, not URLs | an image backend that answers with a URL | job errors; no fetch made | follow the URL |
+| 10 | C057 blob size checked before offer | the reference server issues a 256 KiB slot; the site stores 512 KiB under it, then a job is enqueued | the job is refused at enqueue and never offered | trust the slot's size |
+| 11 | C058 no images on a process backend | a `claude-cli` service listing `llm.vision` | `llm.vision` not advertised; `backends` says the kind needs an HTTP backend | advertise it |
+| 12 | C059 output outlives collection until received | the site collects an `llm.image` result, then downloads its blobs 30 seconds later without having sent `received` | every download succeeds; the blobs are gone after `received`, or one hour after collection without it | delete output blobs at collection |
 
-(byollm_012's checks are C033–C047. C066 is the daemon's differential
+(byollm_012's checks are C033–C047. C060 is the daemon's differential
 heartbeat retry, in §Rollout R2.)
 
 ## 11. Done when
@@ -442,7 +441,8 @@ heartbeat retry, in §Rollout R2.)
 - Blobs work on both lanes: R2 with presigned URLs on the hub, and the store
   adapter methods on `@byollm/server` with the Supabase migration, both with
   §2's deletion order.
-- §10's checks pass and are recorded in MUTATIONS.md.
+- §10's checks pass and are recorded in MUTATIONS.md, and no §10 MUST is
+  still `pending`.
 - The backends in §6 marked "yes" pass their probes on a real machine.
 - `claude-cli`'s and `codex-cli`'s containment files and tests are
   unchanged, which the release card checks by diff.
@@ -549,7 +549,7 @@ images.
 |---|---|
 | 0.1.4 daemon, 0.1.5 hub | Nothing changes. It never advertises a new kind and is never offered one. A person whose only devices are on 0.1.4 sees the new slot as "nothing of yours can use the site's tools yet — update byollm on <device> (0.1.4)". It never receives a grant carrying `toolsDigest`, because grants carry it only for `llm.tools`, which it never claims. The hub knows the version from `daemonVersion` on the device's requests, so the hub composes the fix (byollm_013's rule). |
 | 0.1.5 daemon, 0.1.5 hub | Everything ruled. |
-| 0.1.5 daemon, **0.1.4 upstream** (none of ours, after step 2; somebody else's self-hosted `@byollm/server`) | **The danger case.** Step 2 means it never happens against a server we run. It still happens against other people's, so the daemon guards it. `Capability.kind` is an enum, and a 0.1.4 upstream parses the heartbeat strictly. One new kind in the advertisement and the whole heartbeat is refused, so the device goes dark for *everything*, not only the new kind. Two guards. (a) New kinds are off by default, so a plain upgrade advertises nothing new. (b) The daemon must never let a new kind take the device down, and must not blame the upstream's version for a refusal the new kind did not cause. A 0.1.4 upstream's refusal does not say which field failed: the relay and the reference server both answer `400 bad-request` with a fixed message ("request failed schema validation" in `relay/src/daemon-plane.ts`, "request body failed schema validation" in `server/src/handlers.ts`) that names no path. So the daemon tells the two cases apart by a differential retry instead of by reading the body. When a heartbeat that advertises a 0.1.5 kind is refused as `bad-request`, the daemon re-sends the same heartbeat once, with only the 0.1.5 kinds removed. **Only if that retry succeeds** does it remember, for the session, that this upstream predates them, and say so: "<upstream> runs byollm 0.1.4 or older and cannot carry the site's tools — update it, or turn tools off for `qwen`". If the retry is refused too, the new kinds were not the cause. The daemon reports the original refusal as it does today, and blames no version. The hub cannot warn the daemon with a new response field, because B019 is the same hazard in the other direction. A 0.1.5 upstream may name the failing path inside the existing `message` string, which adds no key, but the daemon must not depend on that, because 0.1.4 upstreams never will. **Guard (b) has a check, C066:** the kit runs the 0.1.4 reference server, published from npm, and a 0.1.5 daemon with `llm.tools` and `llm.vision` turned on. It passes when the daemon's second heartbeat succeeds without the new kinds, `llm.chat` jobs keep running, and the message names the upstream. The mutation that must fail it is "re-send unchanged". A second case gives the 0.1.4 server a heartbeat that is malformed for another reason, and passes when the daemon blames no version. |
+| 0.1.5 daemon, **0.1.4 upstream** (none of ours, after step 2; somebody else's self-hosted `@byollm/server`) | **The danger case.** Step 2 means it never happens against a server we run. It still happens against other people's, so the daemon guards it. `Capability.kind` is an enum, and a 0.1.4 upstream parses the heartbeat strictly. One new kind in the advertisement and the whole heartbeat is refused, so the device goes dark for *everything*, not only the new kind. Two guards. (a) New kinds are off by default, so a plain upgrade advertises nothing new. (b) The daemon must never let a new kind take the device down, and must not blame the upstream's version for a refusal the new kind did not cause. A 0.1.4 upstream's refusal does not say which field failed: the relay and the reference server both answer `400 bad-request` with a fixed message ("request failed schema validation" in `relay/src/daemon-plane.ts`, "request body failed schema validation" in `server/src/handlers.ts`) that names no path. So the daemon tells the two cases apart by a differential retry instead of by reading the body. When a heartbeat that advertises a 0.1.5 kind is refused as `bad-request`, the daemon re-sends the same heartbeat once, with only the 0.1.5 kinds removed. **Only if that retry succeeds** does it remember, for the session, that this upstream predates them, and say so: "<upstream> runs byollm 0.1.4 or older and cannot carry the site's tools — update it, or turn tools off for `qwen`". If the retry is refused too, the new kinds were not the cause. The daemon reports the original refusal as it does today, and blames no version. The hub cannot warn the daemon with a new response field, because B019 is the same hazard in the other direction. A 0.1.5 upstream may name the failing path inside the existing `message` string, which adds no key, but the daemon must not depend on that, because 0.1.4 upstreams never will. **Guard (b) has a check, C060:** the kit runs the 0.1.4 reference server, published from npm, and a 0.1.5 daemon with `llm.tools` and `llm.vision` turned on. It passes when the daemon's second heartbeat succeeds without the new kinds, `llm.chat` jobs keep running, and the message names the upstream. The mutation that must fail it is "re-send unchanged". A second case gives the 0.1.4 server a heartbeat that is malformed for another reason, and passes when the daemon blames no version. |
 | 0.1.4 site, 0.1.5 hub | Nothing changes. It never asks for a new kind, so it never meets a new result key. |
 | 0.1.5 site, 0.1.4 hub | A new kind is refused at enqueue as a bad request. Step 2 before step 5 prevents this on byollm.cloud, and self-hosters upgrade their server before their site, which on the direct lane is the same package. A 0.1.5 site's pump asks a 0.1.4 relay for `calls` and gets a 404. The pump reads that as "this relay carries no tools" and carries on with the rest of its cycle, so a site that upgrades early keeps working. |
 
@@ -566,7 +566,7 @@ accepts it, and a vocabulary the gate cannot map is itself a refusal.
 read `wire-shapes.ts` without reading the vocabulary half of the script.)
 What the gate cannot reach is a `@byollm/server` still on 0.1.4. For Signals
 and Press, step 2 is what covers that. For everyone else's, guard (b) and
-C066 do.
+C060 do.
 
 ### R3. What `@oftomorrow/byollm` (Press) needs
 
@@ -753,7 +753,7 @@ specced.
    store rows for calls in flight, and the Supabase SQL for them.
 3. **Daemon, tools:** the function-calling loop on `http` backends, the
    digest check at admission, the context cap, the waits and timeouts,
-   budgets, logging, the probe, and guard (b) with C066.
+   budgets, logging, the probe, and guard (b) with C060.
 4. **Site SDK, tools:** handler registration, the pump's `calls` step, the
    SDK's per-job count, the digest check at enqueue, and the 404 tolerance
    for an older relay.
@@ -761,7 +761,7 @@ specced.
    deletion order, the Supabase SQL for the bucket, and the site SDK's
    encrypt, pad, strip, upload, verify and `received`.
 6. **Daemon, images:** vision parts and image generation on `http`
-   backends, the probes, `community.maxImageBytes`, and C070's check that
+   backends, the probes, `community.maxImageBytes`, and C058's check that
    neither kind is ever advertised on a `process` backend.
 7. **By hand, Todd's** (rulebook §1): the R2 bucket, its 7-day lifecycle rule
    and the access key for presigning, with the commands, on Todd's lane.

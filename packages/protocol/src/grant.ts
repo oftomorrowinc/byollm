@@ -1,6 +1,7 @@
 import { Buffer } from "node:buffer";
 import { z } from "zod";
 import { signWith, verifyWith, type StoredKeys } from "./keys.js";
+import { ToolsDigest } from "./tools.js";
 
 /**
  * One job, one signature, one answer — byollm_016 Amendment J.
@@ -171,10 +172,37 @@ export const SignedGrant = z
     service: z.string().min(1),
     /** When the control plane signed it — epoch ms, the only anchor for age. */
     issuedAt: z.number().int().positive(),
+    /**
+     * The tools the person consented to for this (purpose, `llm.tools`)
+     * slot, as a digest — byollm_012 §4. See `toolsDigest` in `tools.ts`.
+     *
+     * The device recomputes it from the payload's declarations and limits
+     * and refuses a mismatch before any backend sees the payload
+     * ({@link MUSTS.TOOLS_MATCH_CONSENT}). The site signs the payload and the
+     * control plane signs this, so neither the site nor a relay can add a
+     * tool, or raise the budget, past what the person was shown.
+     *
+     * **Present on `llm.tools` grants and absent on every other** — enforced
+     * below, not left to the author. A 0.1.4 daemon parses grants strictly
+     * and must never meet this key. It never claims `llm.tools`
+     * (`CLAIM_REQUIRES_CAPABILITY`), so it never gets a grant that carries
+     * it (byollm_021 §R2); a control plane that put it on a chat grant would
+     * be the one thing that could hand it one, and this schema refuses that
+     * grant on both sides.
+     */
+    toolsDigest: ToolsDigest.optional(),
     /** Base64url Ed25519 over {@link grantStatement}. */
     signature: z.string().min(1),
   })
-  .strict();
+  .strict()
+  .refine(
+    (grant) =>
+      (grant.kind === "llm.tools") === (grant.toolsDigest !== undefined),
+    {
+      message: "a grant carries toolsDigest exactly when its kind is llm.tools",
+      path: ["toolsDigest"],
+    },
+  );
 export type SignedGrant = z.infer<typeof SignedGrant>;
 
 /** Everything a grant says, before it is signed. */
@@ -214,12 +242,23 @@ export const GRANT_SIGNED_FIELDS: readonly (keyof GrantClaims)[] =
  *
  * The context string leads, and the field order is the schema's own sorted
  * keys, so the encoding is canonical without anyone maintaining a list.
+ *
+ * **An absent optional field is left out, not written as `null`** —
+ * byollm_012 §4. `toolsDigest` sorts between `site` and `user`, and a `null`
+ * in its place would change the bytes of every grant ever signed: a 0.1.5
+ * daemon would refuse a 0.1.4 control plane's chat grant as `bad-signature`,
+ * and the other way round. Leaving it out keeps every grant without it
+ * byte-identical to what it was. It cannot make two grants share a statement:
+ * a grant with the field has one more element than a grant without it, and
+ * the schema decides which grants have it.
  */
 export function grantStatement(claims: GrantClaims): Uint8Array {
   return Buffer.from(
     JSON.stringify([
       GRANT_CONTEXT,
-      ...GRANT_SIGNED_FIELDS.map((field) => claims[field]),
+      ...GRANT_SIGNED_FIELDS.flatMap((field) =>
+        claims[field] === undefined ? [] : [claims[field]],
+      ),
     ]),
     "utf8",
   );

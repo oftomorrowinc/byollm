@@ -143,6 +143,19 @@ const AGREED: Readonly<Record<string, readonly string[]>> = {
     "jobs[].grant.service",
     "jobs[].grant.signature",
     "jobs[].grant.site",
+    /**
+     * Withheld by KIND — a third way past this file, ruled on #6933
+     * (byollm_012 §4, byollm_021 §R2).
+     *
+     * A grant carries `toolsDigest` exactly when its kind is `llm.tools`, and
+     * `SignedGrant` refuses it on any other (grant.test.ts, "the grant field
+     * stays home"). A daemon is offered an `llm.tools` job only if it
+     * advertised the kind (`CLAIM_REQUIRES_CAPABILITY`), and no 0.1.4 daemon
+     * can. So no daemon that predates the key is ever sent a response that
+     * carries it, which is the property "withhold by version" exists to buy,
+     * bought by the vocabulary the claim already filters on.
+     */
+    "jobs[].grant.toolsDigest",
     "jobs[].grant.user",
     "jobs[].id",
     "jobs[].kind",

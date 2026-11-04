@@ -32,12 +32,20 @@ const and = (items: readonly string[]): string =>
  */
 export function notYetFor(kinds: readonly string[]): readonly NotYet[] {
   return Object.freeze([
-    { what: "tool use" },
+    // byollm_012 §13: not "no tool use" bare, because a site's own tools now
+    // run (on the site). What is still not there is said by name.
+    {
+      what: "tools that run on your device",
+      detail:
+        "a site's own tools run on its servers, and not yet on Claude or " +
+        "Codex subscriptions",
+    },
     { what: "access to your local files" },
     { what: "streaming", detail: "a result comes back whole" },
     {
       what: `job kinds beyond ${and(kinds)}`,
-      detail: "no embeddings or images yet",
+      // byollm_021 §11: drops "images", keeps audio (§9, a named future).
+      detail: "no embeddings or audio yet",
     },
     {
       what: "jobs while your device is offline",

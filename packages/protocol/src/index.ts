@@ -82,14 +82,55 @@ export {
   ChatMessage,
   ChatPayload,
   GeneratePayload,
+  ImageAspect,
+  ImagePayload,
   JOB_KINDS,
   JobKind,
   KindedPayload,
   PAYLOAD_LIMITS,
+  ToolsPayload,
+  VisionMessage,
+  VisionPart,
+  VisionPayload,
   isJobKind,
   payloadTextLength,
+  visionImages,
   type PayloadFor,
 } from "./kinds.js";
+
+export {
+  TOOL_LIMITS,
+  ToolCall,
+  ToolDeclaration,
+  ToolLimits,
+  ToolName,
+  ToolOutcomes,
+  ToolParameters,
+  ToolResult,
+  ToolSpec,
+  ToolsDigest,
+  ToolsRefusal,
+  consentOfPayload,
+  toolsConsentRefusal,
+  toolsDigest,
+  toolsRefusalText,
+  type ToolsConsent,
+} from "./tools.js";
+
+export { canonicalJson } from "./jcs.js";
+
+export {
+  BLOB_PADDING_BYTES,
+  BlobRef,
+  IMAGE_MEDIA_TYPES,
+  ImageMediaType,
+  MAX_IMAGES_IN,
+  MAX_IMAGES_OUT,
+  MAX_IMAGE_BYTES,
+  MAX_IMAGE_PIXELS,
+  MAX_IMAGE_SIDE,
+  paddedBlobBytes,
+} from "./media.js";
 
 export {
   SIZE_CLASSES,
@@ -98,6 +139,12 @@ export {
   JobOutcome,
   RunMetadata,
   SealedOutcome,
+  SealedOutcomeFor,
+  ToolsRunMetadata,
+  ToolsSealedOutcome,
+  ImageJobOutcome,
+  ImageResultOk,
+  ImageSealedOutcome,
   JobPayload,
   JobResultCanceled,
   JobResultError,
@@ -172,8 +219,10 @@ export {
   Purpose,
   PurposeRouting,
   RESERVED_PURPOSE,
+  purposeToolsDigest,
   routingOf,
   singlePurposeManifest,
+  toolLimitsOf,
 } from "./manifest.js";
 
 export {

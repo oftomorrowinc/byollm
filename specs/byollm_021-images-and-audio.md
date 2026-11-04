@@ -432,7 +432,7 @@ gives.
 | 11 | C070 no images on a process backend | a `claude-cli` service listing `llm.vision` | `llm.vision` not advertised; `backends` says the kind needs an HTTP backend | advertise it |
 | 12 | C071 output outlives collection until received | the site collects an `llm.image` result, then downloads its blobs 30 seconds later without having sent `received` | every download succeeds; the blobs are gone after `received`, or one hour after collection without it | delete output blobs at collection |
 
-(byollm_012's checks are C033–C045. C066 is the daemon's differential
+(byollm_012's checks are C033–C047. C066 is the daemon's differential
 heartbeat retry, in §Rollout R2.)
 
 ## 11. Done when

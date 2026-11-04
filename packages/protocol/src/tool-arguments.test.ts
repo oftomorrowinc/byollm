@@ -1,5 +1,13 @@
 import { describe, expect, it } from "vitest";
 import { ToolParameters, toolArgumentsRefusal } from "./tools.js";
+import {
+  ENDPOINTS,
+  PROTOCOL_VERSION,
+  ToolCallRef,
+  ToolCallRequest,
+  ToolCallResponse,
+  ToolResultsRequest,
+} from "./wire.js";
 
 /**
  * A call's arguments against its declaration — byollm_012 §3, C036's rule.
@@ -67,5 +75,57 @@ describe("toolArgumentsRefusal", () => {
     expect(refused({ toString: "x" })).toBe(
       '"toString" is not a parameter of this tool',
     );
+  });
+});
+
+describe("the daemon plane's tool endpoints", () => {
+  it("are in ENDPOINTS, now that a server serves them (card 2, #7054)", () => {
+    for (const endpoint of ["tool-call", "tool-results"]) {
+      expect(ENDPOINTS as readonly string[]).toContain(endpoint);
+    }
+  });
+
+  it("has #7054's fields, exactly", () => {
+    expect(Object.keys(ToolCallRequest.shape).sort()).toEqual([
+      "callId",
+      "envelope",
+      "jobId",
+      "leaseId",
+      "protocolVersion",
+      "runnerId",
+    ]);
+    expect(Object.keys(ToolCallResponse.shape).sort()).toEqual([
+      "callId",
+      "expiresAt",
+    ]);
+    expect(Object.keys(ToolResultsRequest.shape).sort()).toEqual([
+      "calls",
+      "protocolVersion",
+      "runnerId",
+    ]);
+    expect(Object.keys(ToolCallRef.shape).sort()).toEqual([
+      "callId",
+      "jobId",
+      "leaseId",
+    ]);
+  });
+
+  it("refuses a call with no lease, and a poll naming no call", () => {
+    expect(
+      ToolCallRequest.safeParse({
+        protocolVersion: PROTOCOL_VERSION,
+        runnerId: "r",
+        jobId: "j",
+        callId: "AAAAAAAAAAAAAAAAAAAAAA",
+        envelope: {},
+      }).success,
+    ).toBe(false);
+    expect(
+      ToolResultsRequest.safeParse({
+        protocolVersion: PROTOCOL_VERSION,
+        runnerId: "r",
+        calls: [],
+      }).success,
+    ).toBe(false);
   });
 });

@@ -795,6 +795,9 @@ kit's own test file.
 | C039 the relay's budget                   | `packages/relay/src/state.ts`         | Drop the count: `if ((job.toolCallsMade ?? 0) >= limit) return { refused: "budget" }` in `recordToolCall`                                                                                              | ✓ bites — the three C039 cases, and the replay case                 |
 | C041 a site that does not answer (relay)  | `packages/relay/src/state.ts`         | Two, both verified: stop renewing a lease whose job has an unanswered call (`renewLeases`); and drop `call.expiresAt <= now` from `answerToolCall` and `toolCalls`, so only the deadline ends the wait | ✓ bites (both)                                                      |
 | C041 a site that does not answer (server) | `packages/server/src/memory.ts`       | Two, both verified: the same two, in `renewLeases` and in `outstandingToolCalls` / `answerToolCall`                                                                                                    | ✓ bites (both)                                                      |
+| Rows deleted with their job (server)      | `packages/server/src/memory.ts`       | Drop `if (TERMINAL.has(record.state)) this.#toolCalls.delete(jobId)` from `#write`                                                                                                                     | ✓ bites — "deletes a job's calls with the job", via `heldToolCalls` |
+| Rows deleted with their job (relay)       | `packages/relay/src/state.ts`         | Drop `delete job.toolCalls` from `complete`                                                                                                                                                            | ✓ bites — "leaves nothing to land on once job A has ended"          |
+| Rows deleted with their grant (relay)     | `packages/relay/src/state.ts`         | Drop `delete job.toolCalls` from the requeue path (beside `delete job.payload`)                                                                                                                        | ✓ bites — "…once A's grant has ended, even if A runs again"         |
 | C042 calls logged first (upstream half)   | `packages/conformance/src/harness.ts` | In `observeArrivals`, forward the request to the target before awaiting `observe`                                                                                                                      | ✓ bites — the ordering case and the refusal case                    |
 
 **Halves, and named as halves.** None of the four is a whole check yet, and
@@ -815,6 +818,15 @@ budget is the site SDK's (C040, card 4). So C039 sits where the relay's
 device gate does, for the same reason (above, 2026-08-16). `TOOLS_BUDGETED`
 lists it as planned `conformance`; whoever promotes that MUST should read
 this paragraph first.
+
+**Unreachable is not deleted.** Every read of a call row filters on the
+job's current grant, so a finished job's rows are out of reach whether or not
+they were deleted. The first build's "deleted with its job" case asserted only
+the reach, and the server's delete survived it (Owl, #55977); the relay's
+requeue-time delete survived the same way. Signals runs `MemoryStore` and
+never deletes a job, so kept rows were memory held until restart. Both suites
+now count the rows the store holds (`MemoryStore.heldToolCalls`, the relay's
+`RelayState.job(...).toolCalls`), and the three deletes above bite.
 
 **The replay case also fails under the C039 mutation**, and should: it shows
 a replayed call is not counted twice by leaning on the count. A shared

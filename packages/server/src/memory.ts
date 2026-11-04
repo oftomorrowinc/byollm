@@ -460,6 +460,17 @@ export class MemoryStore implements ByollmStore {
     return Promise.resolve({ recorded });
   }
 
+  /**
+   * How many call rows this store holds for a job, every grant's — not part
+   * of {@link JobStore}. Reads never see a finished job's rows (they filter
+   * on the current lease), so only this can tell "deleted with its job"
+   * (byollm_021 R1) from "kept but unreachable": the memory a long-running
+   * MemoryStore would otherwise hold until restart.
+   */
+  heldToolCalls(jobId: string): number {
+    return this.#toolCalls.get(jobId)?.length ?? 0;
+  }
+
   /** The current grant's row for a call, or nothing. */
   #currentCall(jobId: string, callId: string): ToolCallRecord | undefined {
     const lease = this.#jobs.get(jobId)?.lease?.id;

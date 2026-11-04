@@ -20,6 +20,7 @@ import {
 import { randomBytes } from "node:crypto";
 import { afterEach, beforeAll, describe, expect, it } from "vitest";
 import { Relay, subStateOf } from "../src/index.js";
+import { RelayState } from "../src/state.js";
 import { SITE_ID, fixtureFor, makeDaemon, siteHeaders } from "./harness.js";
 
 /**
@@ -65,7 +66,19 @@ async function world() {
   const siteKeys = generateKeys(clock.at);
   const site = publicIdentityOf(siteKeys);
   const fixture = fixtureFor(site);
-  const relay = new Relay({ fixture, leaseMs: LEASE_MS, now: () => clock.at });
+  // Its own store, so a case can read the rows the relay holds — every
+  // read endpoint filters on the current grant, and so cannot tell rows
+  // deleted from rows kept out of reach.
+  const store = new RelayState({ now: () => clock.at });
+  const relay = new Relay({
+    fixture,
+    store,
+    leaseMs: LEASE_MS,
+    now: () => clock.at,
+  });
+  /** The call rows the relay still holds for a job, every grant's. */
+  const heldCalls = async (jobId: string) =>
+    (await store.job(SITE_ID, jobId))?.toolCalls?.length ?? 0;
   const daemon = await makeDaemon(relay, fixture, {
     owner: "alice",
     site,
@@ -272,6 +285,7 @@ async function world() {
     answer,
     heartbeat,
     opensFor,
+    heldCalls,
   };
 }
 
@@ -488,6 +502,7 @@ describe("C037 a result is bound to its call — the relay's half", () => {
     const a = await w.running();
     const callId = await call(w, a);
     const result = await w.resultEnvelope(a.jobId, callId, 1);
+    expect(await w.heldCalls(a.jobId)).toBe(1);
 
     // A ends: the device posts its result while the call is unanswered.
     const done = await w.daemon.signedFetch("result", {
@@ -500,6 +515,8 @@ describe("C037 a result is bound to its call — the relay's half", () => {
     expect((await w.answer(a.jobId, callId, result)).status).toBe(404);
     expect(await w.toolResults([{ ...a, callId }])).toEqual([]);
     expect(await w.calls()).toEqual([]);
+    // Out of reach is not deleted — the reads above filter on the grant.
+    expect(await w.heldCalls(a.jobId)).toBe(0);
   });
 
   it("leaves nothing to land on once A's grant has ended, even if A runs again", async () => {
@@ -517,6 +534,8 @@ describe("C037 a result is bound to its call — the relay's half", () => {
     );
     expect(late.status).toBe(404);
     expect(await w.calls()).toEqual([]);
+    // The grant's rows went with the grant; only the job's count stays.
+    expect(await w.heldCalls(a.jobId)).toBe(0);
 
     // Claimed again, under a new grant: the old call is not this grant's.
     const claim = await w.daemon.signedFetch("claim", {

@@ -324,6 +324,7 @@ describe("C037 a result is bound to its call — the server's half", () => {
     const w = await world();
     const job = await w.running();
     const callId = await w.call(job);
+    expect(w.h.store.heldToolCalls(job.jobId)).toBe(1);
     const done = await w.h.call(
       "result",
       await w.h.resultBody({
@@ -344,6 +345,9 @@ describe("C037 a result is bound to its call — the server's half", () => {
     ).toEqual({ refused: "not-found" });
     expect(await w.toolResults([{ ...job, callId }])).toEqual([]);
     expect((await w.h.app.calls()).calls).toEqual([]);
+    // Unreachable is not deleted: every read above filters on the lease, so
+    // it would pass with the rows still held. This is the delete itself.
+    expect(w.h.store.heldToolCalls(job.jobId)).toBe(0);
   });
 
   it("treats a call id as single-use for the job, across grants", async () => {

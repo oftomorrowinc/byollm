@@ -14,6 +14,7 @@ import { dirname } from "node:path";
 import { DEFAULT_FLOOR_BYTES } from "./memory-gate.js";
 import { normalizeOrigin } from "./origins.js";
 import { checkBaseUrl } from "./ssrf.js";
+import { SERVED_KINDS, isServedKind } from "./compose.js";
 
 /**
  * One configured backend instance.
@@ -602,6 +603,21 @@ export function resolveConfig(config: DaemonConfig): LoadedConfig {
   const claimants = new Map<z.infer<typeof JobKind>, string[]>();
   for (const [name, service] of Object.entries(config.services)) {
     for (const kind of service.kinds) {
+      /* A kind the protocol knows and this build cannot run — #7053. Withheld
+         with a problem naming it, never a route: a config written for a newer
+         byollm still starts a daemon that is a release behind it, and that
+         daemon still never advertises what it has no handler for
+         ({@link MUSTS.CAPABILITY_IS_DETECTED}). */
+      if (!isServedKind(kind)) {
+        problems.push({
+          where: `services.${name}.kinds`,
+          message:
+            `${kind} is not served by this build of byollm (it serves ` +
+            `${SERVED_KINDS.join(", ")}), so ${name} does not advertise it. ` +
+            `It will be offered once you update to a byollm that runs it.`,
+        });
+        continue;
+      }
       claimants.set(kind, [...(claimants.get(kind) ?? []), name]);
     }
   }
@@ -724,6 +740,8 @@ export function resolveConfig(config: DaemonConfig): LoadedConfig {
     }
 
     for (const kind of service.kinds) {
+      // Reported once, above, where claimants are counted.
+      if (!isServedKind(kind)) continue;
       // **Every claimant is a route now** — byollm_016 Phase B.
       //
       // This read `if (serves.get(kind) !== name) continue;` under a comment

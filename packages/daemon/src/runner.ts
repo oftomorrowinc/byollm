@@ -42,6 +42,11 @@ import {
   toolsRefusalText,
   ToolCall,
   type ToolOutcomes,
+  ImagePayload,
+  VisionPayload,
+  visionImages,
+  type BlobRef,
+  type ImageJobOutcome,
   type BackendId,
   type JobOutcome,
   CLOCK_ATTRIBUTION_MS,
@@ -61,7 +66,21 @@ import {
 import { SpentGrants } from "./spent-grants.js";
 import type { BudgetRefusal, Budgets } from "./budgets.js";
 import { ClientError, type ProtocolClient } from "./client.js";
-import { composePrompt } from "./compose.js";
+import { composePrompt, visionTurns } from "./compose.js";
+import {
+  IMAGE_PROBE_REUSE_MS,
+  imageBudgetRefusal,
+  imageProbeKey,
+  memoryImageProbeStore,
+  openInputImages,
+  probeImages,
+  probeOutputCap,
+  probeVision,
+  storeOutputImages,
+  type BlobTransport,
+  type ImageProbe,
+  type ImageProbeStore,
+} from "./images.js";
 import type { LoadedConfig, ResolvedRoute } from "./config.js";
 import { writeHealth } from "./health.js";
 import { writeHeartbeat } from "./heartbeat.js";
@@ -243,6 +262,21 @@ export interface RunnerOptions {
    * a sixty-second `TOOL_CALL_TIMEOUT` is exercised without sixty seconds.
    */
   readonly toolWait?: (ms: number) => Promise<void>;
+
+  /**
+   * Where the image probes' verdicts are kept — byollm_021 §5. In memory when
+   * absent; the CLI passes the file, so the daemon, `start` and `services`
+   * share one paid probe.
+   */
+  readonly imageProbes?: ImageProbeStore;
+  /**
+   * When the image probes may run. `when-due` (the default): when no verdict
+   * younger than 24 hours is held. `never`: report what is held and spend
+   * nothing — `byollm services`. `now`: ask again — `byollm services
+   * --probe-images`.
+   */
+  readonly probeImages?: "when-due" | "never" | "now";
+
   readonly readMemory?: () => Promise<{
     readonly memory: MemoryReading;
     readonly pressure: MemoryPressure;
@@ -700,7 +734,8 @@ function sameKey(a: PublicIdentity, b: PublicIdentity): boolean {
  * metadata: a model, a class, and a real duration.
  */
 export interface RanJob {
-  readonly outcome: JobOutcome;
+  /** An `llm.image` job's carries the output references (byollm_021 §1). */
+  readonly outcome: JobOutcome | ImageJobOutcome;
   /** With `toolCalls` and `toolOutcomes` on an `llm.tools` job (§3). */
   readonly ran?: RunMetadata | ToolsRan;
 }
@@ -1392,6 +1427,16 @@ export class Runner {
         continue;
       }
 
+      /* Reading and making images need more than a healthy server: a model
+         that sees the red square, or a backend that returns image bytes
+         (byollm_021 §5). A 200 alone advertises neither. */
+      if (
+        (route.kind === "llm.vision" || route.kind === "llm.image") &&
+        !(await this.#imageKindPasses(route))
+      ) {
+        continue;
+      }
+
       capabilities.push({
         kind: route.kind,
         service: route.service,
@@ -1447,6 +1492,61 @@ export class Runner {
     const verdict = await probeTools(this.#backendFor(route), route.model);
     this.#toolsProbes.set(route.service, verdict);
     return verdict.kind === "calls-tools";
+  }
+
+  /**
+   * Each image route's last probe verdict, keyed `service kind`, for the
+   * surfaces that must say why one is not advertised (`byollm services`).
+   */
+  get imageProbes(): ReadonlyMap<string, ImageProbe | undefined> {
+    return this.#imageVerdicts;
+  }
+
+  readonly #imageVerdicts = new Map<string, ImageProbe | undefined>();
+  #imageProbeStore: ImageProbeStore | undefined;
+
+  /**
+   * Ask the image probe for a route, or reuse its answer — byollm_021 §5.
+   *
+   * A verdict from a service that answered is reused for
+   * {@link IMAGE_PROBE_REUSE_MS}: the image probe is a paid call on a metered
+   * backend, so it runs when the owner adds the kind (no verdict yet) and on
+   * `--probe-images`, never per heartbeat. A service that did not answer is
+   * asked again next pass — that is about the server, not the model.
+   */
+  async #imageKindPasses(route: ResolvedRoute): Promise<boolean> {
+    this.#imageProbeStore ??=
+      this.#options.imageProbes ?? memoryImageProbeStore();
+    const store = this.#imageProbeStore;
+    const key = imageProbeKey(route);
+    const mode = this.#options.probeImages ?? "when-due";
+    const held = await store.get(key);
+    const fresh =
+      held !== undefined &&
+      held.kind !== "unanswered" &&
+      this.#now() - held.at < IMAGE_PROBE_REUSE_MS;
+    let verdict = held;
+    if (mode === "now" || (mode === "when-due" && !fresh)) {
+      const backend = this.#backendFor(route);
+      const now = this.#now();
+      if (route.kind === "llm.vision") {
+        verdict = await probeVision(backend, route.model, now);
+      } else {
+        const images =
+          this.#options.loaded.config.services[route.service]?.images;
+        verdict = await probeImages(
+          backend,
+          route.model,
+          images?.probeSize ?? images?.sizes.square ?? "1024x1024",
+          now,
+        );
+      }
+      await store.set(key, verdict);
+    }
+    this.#imageVerdicts.set(`${route.service} ${route.kind}`, verdict);
+    /* `when-due` reprobed anything stale above, so what is held is fresh;
+       `never` reports what is held, however old, and spends nothing. */
+    return verdict?.kind === "passes";
   }
 
   #backendFor(route: ResolvedRoute): Backend {
@@ -2373,6 +2473,149 @@ export class Runner {
     });
   }
 
+  /**
+   * Run an `llm.vision` or `llm.image` job — byollm_021 §1–§6.
+   *
+   * Vision: download and open each input image (stopping each download at its
+   * declared size, refusing anything that does not decrypt, hash or sniff as
+   * declared), then one call with the parts. Image: one call that returns
+   * bytes — never a URL, which is never fetched — then sniff, encrypt and
+   * upload each, and only then answer with the references.
+   *
+   * Shaped as a {@link BackendResult} so everything around a call — the auth
+   * and quota withdrawals, the log, the seal — is the same for every kind.
+   */
+  async #runImageKind(
+    job: ClaimedJob,
+    route: ResolvedRoute,
+    backend: Backend,
+    context: {
+      community: boolean;
+      limits: LoadedConfig["config"];
+      signal: AbortSignal;
+      deadlineAt: number;
+      madeImages: (refs: readonly BlobRef[]) => void;
+    },
+  ): Promise<BackendResult> {
+    const started = this.#now();
+    const refused = (
+      code: "image-refused" | "backend-error",
+      message: string,
+    ): BackendResult => ({
+      ok: false,
+      code,
+      message,
+      durationMs: this.#now() - started,
+    });
+    const { community, limits } = context;
+    const ceiling = community
+      ? Math.min(limits.community.maxWallClockMs, limits.limits.maxWallClockMs)
+      : limits.limits.maxWallClockMs;
+    const timeoutMs = Math.max(
+      1,
+      Math.min(ceiling, context.deadlineAt - this.#now()),
+    );
+    const transport = this.#blobTransport(job, context.signal);
+    await this.#ensureLocalServer(route, backend);
+
+    if (job.kind === "llm.vision") {
+      if (backend.readImages === undefined) {
+        return refused("backend-error", `${backend.id} cannot read images`);
+      }
+      const payload = job.payload as VisionPayload;
+      let opened;
+      try {
+        opened = await openInputImages({
+          refs: visionImages(payload),
+          jobId: job.id,
+          transport,
+        });
+      } catch (error) {
+        return refused(
+          "backend-error",
+          `could not fetch the job's images (${error instanceof Error ? error.message : "unknown error"})`,
+        );
+      }
+      if (!opened.ok) return refused("image-refused", opened.message);
+      return backend.readImages({
+        messages: visionTurns(payload, opened.images),
+        model: route.model,
+        timeoutMs,
+        maxOutputBytes: community
+          ? Math.min(
+              limits.community.maxOutputBytes,
+              limits.limits.maxOutputBytes,
+            )
+          : limits.limits.maxOutputBytes,
+        signal: context.signal,
+      });
+    }
+
+    if (backend.makeImages === undefined) {
+      return refused("backend-error", `${backend.id} cannot make images`);
+    }
+    const payload = job.payload as ImagePayload;
+    const settings = this.#options.loaded.config.services[route.service]
+      ?.images ?? { sizes: undefined, maxImagesPerJob: 1 };
+    const count = Math.min(payload.count ?? 1, settings.maxImagesPerJob);
+    const sizes = settings.sizes ?? {
+      square: "1024x1024",
+      portrait: "1024x1536",
+      landscape: "1536x1024",
+    };
+    const made = await backend.makeImages({
+      prompt: payload.prompt,
+      model: route.model,
+      size: sizes[payload.aspect ?? "square"],
+      count,
+      timeoutMs,
+      maxOutputBytes: probeOutputCap(count),
+      signal: context.signal,
+    });
+    if (!made.ok) return made;
+    /* A backend that made more than it was asked for does not get to send
+       them all: the owner's count is the ceiling. */
+    let stored;
+    try {
+      stored = await storeOutputImages({
+        images: made.images.slice(0, count),
+        jobId: job.id,
+        transport,
+      });
+    } catch (error) {
+      return refused(
+        "backend-error",
+        `could not upload the images (${error instanceof Error ? error.message : "unknown error"})`,
+      );
+    }
+    if (!stored.ok) return refused("backend-error", stored.message);
+    context.madeImages(stored.refs);
+    return {
+      ok: true,
+      text: made.text,
+      durationMs: this.#now() - started,
+    };
+  }
+
+  /** The upstream's blob endpoints, under this job's lease (§2). */
+  #blobTransport(job: ClaimedJob, signal: AbortSignal): BlobTransport {
+    const client = this.#options.client;
+    const lease = {
+      runnerId: this.#options.runnerId,
+      jobId: job.id,
+      leaseId: job.lease.id,
+    };
+    return {
+      url: async (blob) => (await client.blobUrl({ ...lease, blob })).url,
+      get: (url, size) => client.getBlob(url, size, signal),
+      slot: async (bytes) => {
+        const slot = await client.blobSlot({ ...lease, bytes });
+        return { blob: slot.blob, url: slot.url };
+      },
+      put: (url, object) => client.putBlob(url, object, signal),
+    };
+  }
+
   async #ensureLocalServer(
     route: ResolvedRoute,
     backend: Backend,
@@ -2497,6 +2740,8 @@ export class Runner {
        */
       const gate = await this.#memoryDecision(route, job.id);
       const refusedForMemory = gate !== undefined && !gate.admit;
+      /* Set by an `llm.image` run once its images are uploaded. */
+      let outputImages: readonly BlobRef[] | undefined;
       /* `llm.tools` runs as a loop of turns rather than one call — byollm_012
          §7. Everything around it is the same: the memory gate before, the
          outcome, the log and the seal after. */
@@ -2519,14 +2764,25 @@ export class Runner {
             }
           : toolRun !== undefined
             ? toolRun.result
-            : await this.#runOnBackend(route, backend, prompt, {
-                community,
-                limits,
-                signal: controller.signal,
-                /* Absent means unclamped, which is what happened before B199.
-                 The stub always carries it, so on the real path it is set. */
-                deadlineAt: job.deadlineAt ?? Number.POSITIVE_INFINITY,
-              });
+            : job.kind === "llm.vision" || job.kind === "llm.image"
+              ? await this.#runImageKind(job, route, backend, {
+                  community,
+                  limits,
+                  signal: controller.signal,
+                  deadlineAt: job.deadlineAt ?? Number.POSITIVE_INFINITY,
+                  madeImages: (refs) => {
+                    outputImages = refs;
+                  },
+                })
+              : await this.#runOnBackend(route, backend, prompt, {
+                  community,
+                  limits,
+                  signal: controller.signal,
+                  /* Absent means unclamped, which is what happened before
+                     B199. The stub always carries it, so on the real path it
+                     is set. */
+                  deadlineAt: job.deadlineAt ?? Number.POSITIVE_INFINITY,
+                });
 
       /**
        * A service that cannot authenticate stops being advertised, after one
@@ -2599,8 +2855,10 @@ export class Runner {
         });
       }
 
-      const outcome: JobOutcome = result.ok
-        ? { outcome: "ok", text: result.text }
+      const outcome: JobOutcome | ImageJobOutcome = result.ok
+        ? outputImages !== undefined
+          ? { outcome: "ok", text: result.text, images: [...outputImages] }
+          : { outcome: "ok", text: result.text }
         : result.code === "canceled"
           ? { outcome: "canceled" }
           : /**
@@ -3627,6 +3885,41 @@ export class Runner {
         return;
       }
     }
+    /**
+     * Image kinds are held to their schema here, before anything is
+     * downloaded — byollm_021 §1–§3.
+     *
+     * The payload is the site's word about its images: each reference's
+     * size, type and dimensions, held to the caps by `BlobRef`. A teammate's
+     * are then charged against `community.maxImageBytes` from those declared
+     * sizes **before any blob is fetched** (C051), and each download stops
+     * at its declared size (C052, `getBlob`). So the most a teammate's job
+     * can make this device download before it is refused is the sealed
+     * payload itself.
+     */
+    if (job.kind === "llm.vision" || job.kind === "llm.image") {
+      const parsed =
+        job.kind === "llm.vision"
+          ? VisionPayload.safeParse(payload)
+          : ImagePayload.safeParse(payload);
+      if (!parsed.success) {
+        await this.#refuseOnOurOwnRules(
+          job,
+          `its ${job.kind} payload is not one this device can run`,
+        );
+        return;
+      }
+      if (job.kind === "llm.vision" && job.owner !== this.#options.owner) {
+        const over = imageBudgetRefusal(
+          visionImages(parsed.data as VisionPayload),
+          this.#options.loaded.config.community.maxImageBytes,
+        );
+        if (over !== undefined) {
+          await this.#refuseOnOurOwnRules(job, over, "image-bytes");
+          return;
+        }
+      }
+    }
     const { outcome, ran } = await this.runJob({
       ...job,
       payload,
@@ -3709,7 +4002,7 @@ export class Runner {
    */
   async #sealOutcome(
     job: ClaimedStub,
-    outcome: JobOutcome,
+    outcome: JobOutcome | ImageJobOutcome,
     ran: RunMetadata | ToolsRan,
   ): Promise<SealedEnvelope> {
     const identity = this.#options.identity;
@@ -3723,7 +4016,8 @@ export class Runner {
     }
     const keys = await identity.keys();
     /* Per kind (byollm_021 §R1): `toolCalls` and `toolOutcomes` belong on an
-       `llm.tools` result and are refused on any other. */
+       `llm.tools` result and `images` on an `llm.image` one, and each is
+       refused on any other. */
     const Sealed = SealedOutcomeFor(job.kind);
     return seal({
       // The outcome **and how it was produced**, as one signed statement —

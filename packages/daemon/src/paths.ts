@@ -50,6 +50,12 @@ export interface DaemonPaths {
    */
   readonly serviceStates: string;
   /**
+   * The image probes' verdicts — byollm_021 §5. The image probe is a paid
+   * call on a metered backend, so its answer is kept for 24 hours and shared
+   * by every process that would otherwise ask again.
+   */
+  readonly imageProbes: string;
+  /**
    * How the daemon's last conversation with an upstream went.
    *
    * Written by the running daemon, read by `byollm status`, which otherwise
@@ -93,6 +99,7 @@ export function daemonPaths(root = defaultRoot()): DaemonPaths {
     budgets: join(root, "budgets.json"),
     spend: join(root, "spend.json"),
     serviceStates: join(root, "services.json"),
+    imageProbes: join(root, "image-probes.json"),
     spentGrants: join(root, "spent-grants.json"),
     keys: join(root, "keys.json"),
     health: join(root, "health.json"),

@@ -2,6 +2,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import {
   BackendIdSchema,
   JobKind,
+  MAX_IMAGES_OUT,
   OfferScope,
   backendDescriptor,
   effectiveOfferScope,
@@ -15,6 +16,56 @@ import { DEFAULT_FLOOR_BYTES } from "./memory-gate.js";
 import { normalizeOrigin } from "./origins.js";
 import { checkBaseUrl } from "./ssrf.js";
 import { SERVED_KINDS, isServedKind } from "./compose.js";
+
+/** A pixel size as an OpenAI-shaped images endpoint takes it: `1024x1024`. */
+const PixelSize = z.string().regex(/^[1-9][0-9]{1,4}x[1-9][0-9]{1,4}$/, {
+  message: 'a size is WIDTHxHEIGHT in pixels, such as "1024x1024"',
+});
+
+/** `services.<name>.images` — byollm_021 §1. */
+const ImageSettings = z
+  .object({
+    /** Each aspect a job may ask for, mapped to this backend's pixel size. */
+    sizes: z
+      .object({
+        square: PixelSize.default("1024x1024"),
+        portrait: PixelSize.default("1024x1536"),
+        landscape: PixelSize.default("1536x1024"),
+      })
+      .strict()
+      .prefault({}),
+    /** The ceiling on a job's `count`, at most the protocol's {@link MAX_IMAGES_OUT}. */
+    maxImagesPerJob: z.number().int().min(1).max(MAX_IMAGES_OUT).default(1),
+    /**
+     * The size the image probe asks for (§5). The smallest this backend
+     * takes, because on a metered backend the probe is a paid call. Absent
+     * asks for the square size.
+     */
+    probeSize: PixelSize.optional(),
+  })
+  .strict();
+
+/**
+ * Why `kind` cannot be served by a `type` service, or undefined when it can.
+ *
+ * `llm.vision` and `llm.image` need an HTTP backend — byollm_021 §6. The
+ * sentence is the one `byollm services` prints, so it names the kind, the
+ * need and the fix.
+ */
+function httpOnlyKind(
+  kind: z.infer<typeof JobKind>,
+  type: BackendId,
+): string | undefined {
+  if (kind !== "llm.vision" && kind !== "llm.image") return undefined;
+  if (backendDescriptor(type).class === "http") return undefined;
+  const what = kind === "llm.vision" ? "read images" : "make images";
+  return (
+    `${kind} needs an HTTP backend (Ollama, LM Studio, llama.cpp or an ` +
+    `OpenAI-compatible API) — ${type} cannot ${what} in this release, so ` +
+    `it does not advertise ${kind}. Add "${kind}" to an HTTP service's ` +
+    `kinds instead.`
+  );
+}
 
 /**
  * One configured backend instance.
@@ -92,6 +143,15 @@ export const ServiceConfig = z
       })
       .strict()
       .optional(),
+    /**
+     * How this service makes images, for `llm.image` — byollm_021 §1.
+     *
+     * A job asks for an aspect and a count, never a size, a model or a step
+     * count. The owner maps each aspect to the pixel size this backend takes,
+     * and caps how many images one job may ask for. Optional, because the
+     * defaults are the sizes OpenAI's image models take.
+     */
+    images: ImageSettings.optional(),
   })
   .strict();
 export type ServiceConfig = z.infer<typeof ServiceConfig>;
@@ -135,6 +195,21 @@ export const CommunityBudget = z
      * GPU, which no dollar ceiling bounds — is always counted.
      */
     countTeamJobs: z.boolean().default(false),
+    /**
+     * Bytes of images one teammate's job may make this device download —
+     * byollm_021 §3 ({@link MUSTS.BLOB_BUDGET_BEFORE_DOWNLOAD}).
+     *
+     * Charged from the sizes the opened payload declares, before any blob is
+     * fetched; each download then stops at its declared size. 16 MiB admits
+     * two or three ordinary phone photos and refuses one image at the
+     * protocol's 20 MiB cap: that cap is sized for an owner's own work, and
+     * on a teammate's job this device's owner pays for the bandwidth.
+     */
+    maxImageBytes: z
+      .number()
+      .int()
+      .positive()
+      .default(16 * 1024 * 1024),
   })
   .strict();
 export type CommunityBudget = z.infer<typeof CommunityBudget>;
@@ -612,7 +687,7 @@ export function resolveConfig(config: DaemonConfig): LoadedConfig {
         problems.push({
           where: `services.${name}.kinds`,
           message:
-            `${kind} is not served by this build of byollm (it serves ` +
+            `${String(kind)} is not served by this build of byollm (it serves ` +
             `${SERVED_KINDS.join(", ")}), so ${name} does not advertise it. ` +
             `It will be offered once you update to a byollm that runs it.`,
         });
@@ -634,6 +709,16 @@ export function resolveConfig(config: DaemonConfig): LoadedConfig {
             `site's tools yet, so ${name} does not advertise it. Add ` +
             `"llm.tools" to an HTTP service's kinds instead.`,
         });
+        continue;
+      }
+      /* Images go to a model as request-body bytes, which only the `http`
+         class has (byollm_021 §6, #6756). A CLI would need the image on its
+         command line or in its scratch directory — the file surface BY-01
+         closed — so the kind is withheld with its fix named, and never
+         advertised on a process backend (C058). */
+      const needsHttp = httpOnlyKind(kind, service.type);
+      if (needsHttp !== undefined) {
+        problems.push({ where: `services.${name}.kinds`, message: needsHttp });
         continue;
       }
       claimants.set(kind, [...(claimants.get(kind) ?? []), name]);
@@ -761,6 +846,7 @@ export function resolveConfig(config: DaemonConfig): LoadedConfig {
       // Reported once, above, where claimants are counted.
       if (!isServedKind(kind)) continue;
       if (kind === "llm.tools" && descriptor.class !== "http") continue;
+      if (httpOnlyKind(kind, service.type) !== undefined) continue;
       // **Every claimant is a route now** — byollm_016 Phase B.
       //
       // This read `if (serves.get(kind) !== name) continue;` under a comment

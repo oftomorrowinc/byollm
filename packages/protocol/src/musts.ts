@@ -812,12 +812,13 @@ export const MUSTS = Object.freeze({
       "stored blobs differ from the sizes their slots were issued for.",
     enforcedBy: "both",
     // The upstream's clause is C057 (#7057), conformance on the reference
-    // server and operator on the hub. The device's two — the budget from the
-    // declared sizes, and a download that stops at its declared size — are
-    // C051 and C052, card 6's (#7058), and `planned` until they land.
-    verifiedBy: ["conformance", "operator"],
+    // server and operator on the hub. The device's two are C051 (charged from
+    // the declared sizes, zero downloads) and C052 (a download stops at its
+    // declared size), in the daemon's own suites — card 6 (#7058), the way
+    // card 3 built the tool checks: the kit's target cannot yet hold a
+    // teammate's blobs.
+    verifiedBy: ["conformance", "operator", "adversarial"],
     source: "byollm_021 §10",
-    planned: { verifiedBy: "conformance", checks: ["C051", "C052"] },
   }),
   BLOBS_GO_WITH_THE_JOB: must({
     id: "BLOBS_GO_WITH_THE_JOB",
@@ -837,9 +838,11 @@ export const MUSTS = Object.freeze({
       "A daemon MUST NOT fetch a URL a backend returned in place of image " +
       "bytes.",
     enforcedBy: "daemon",
-    verifiedBy: "pending",
+    // C056 is a hostile image backend in the http-class adversarial corpus
+    // (card 6, #7058, deciding §10's open question): its URL points back at
+    // the corpus's own server, so a fetch of it would be seen there.
+    verifiedBy: "adversarial",
     source: "byollm_021 §10",
-    planned: { verifiedBy: "adversarial", checks: ["C056"] },
   }),
 } as const satisfies Record<string, Must>);
 

@@ -15,7 +15,8 @@ const BudgetFile = z
  * job is counted is the runner's question, asked per job, and answered here
  * through `check`'s `counted`.
  */
-type Caps = Omit<CommunityBudget, "countTeamJobs">;
+/* `maxImageBytes` is charged at admission, from the opened payload (`images.ts`), not by this ledger. */
+type Caps = Omit<CommunityBudget, "countTeamJobs" | "maxImageBytes">;
 
 /** Which brake refused a community job — written to the ingress log. */
 export const BudgetRefusal = z.enum([
@@ -23,6 +24,10 @@ export const BudgetRefusal = z.enum([
   "daily-cap",
   "payload-too-large",
   "ledger-untrusted",
+  /* A teammate's images over `community.maxImageBytes`, charged from the
+     declared sizes before any download — byollm_021 §3. Charged at the
+     opened payload, not by this ledger. */
+  "image-bytes",
 ]);
 export type BudgetRefusal = z.infer<typeof BudgetRefusal>;
 

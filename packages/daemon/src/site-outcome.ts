@@ -88,6 +88,13 @@ const FOR_SITE: Readonly<
     message: "the job was canceled",
     retryable: false,
   },
+  /* The site's own images, refused by its own references — nothing about
+     this device or its owner is in it, so it is said plainly. */
+  "image-refused": {
+    code: "image_refused",
+    message: "the job's images did not match their references",
+    retryable: false,
+  },
 });
 
 /**

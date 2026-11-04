@@ -1,6 +1,8 @@
 import {
   type ResultDisposition,
   type SealedEnvelope,
+  BlobSlotResponse,
+  BlobUrlResponse,
   ClaimResponse,
   FetchResponse,
   type PublicIdentity,
@@ -325,6 +327,162 @@ export class ProtocolClient {
     });
   }
 
+  /**
+   * A download URL for one input blob of a job whose lease this daemon holds
+   * — byollm_021 §2. No lease, no URL.
+   */
+  async blobUrl(input: {
+    runnerId: string;
+    jobId: string;
+    leaseId: string;
+    blob: string;
+  }): Promise<BlobUrlResponse> {
+    return this.#post("blob-url", BlobUrlResponse, {
+      protocolVersion: PROTOCOL_VERSION,
+      ...input,
+    });
+  }
+
+  /**
+   * An upload slot for one output blob of an `llm.image` job whose lease this
+   * daemon holds, for an object of exactly `bytes` (`blobObjectBytes`).
+   */
+  async blobSlot(input: {
+    runnerId: string;
+    jobId: string;
+    leaseId: string;
+    bytes: number;
+  }): Promise<BlobSlotResponse> {
+    return this.#post("blob-slot", BlobSlotResponse, {
+      protocolVersion: PROTOCOL_VERSION,
+      ...input,
+    });
+  }
+
+  /**
+   * GET one blob's ciphertext, **stopping at `size` bytes** — byollm_021 §3,
+   * {@link MUSTS.BLOB_BUDGET_BEFORE_DOWNLOAD} (C052).
+   *
+   * `size` is the object size the reference declares (`blobObjectBytes`). A
+   * `Content-Length` over it is refused before the body is read, and a body
+   * that runs past it is cancelled at the first chunk that crosses it, so a
+   * store holding 12 MiB under a 2 MiB reference costs this device at most
+   * 2 MiB and one chunk — never the 12. Fewer bytes than declared is refused
+   * too: `decryptBlob` opens nothing but the exact size.
+   *
+   * The URL is the upstream's answer to {@link blobUrl}, a capability on
+   * presigned object storage or on the direct-lane server — never a URL a
+   * backend or a payload chose. Redirects are refused, as on every call here.
+   */
+  async getBlob(
+    url: string,
+    size: number,
+    signal?: AbortSignal,
+  ): Promise<
+    | { readonly ok: true; readonly bytes: Uint8Array }
+    | { readonly ok: false; readonly message: string }
+  > {
+    const target = blobTarget(url);
+    if (target === undefined) {
+      return { ok: false, message: "the upstream's blob URL is not http(s)" };
+    }
+    let response: Response;
+    try {
+      response = await this.#fetch(target, {
+        method: "GET",
+        redirect: "error",
+        signal: AbortSignal.any([
+          AbortSignal.timeout(this.#timeoutMs * 4),
+          ...(signal === undefined ? [] : [signal]),
+        ]),
+      });
+    } catch (error) {
+      return {
+        ok: false,
+        message: `could not download a blob (${error instanceof Error ? error.message : "unknown error"})`,
+      };
+    }
+    if (!response.ok) {
+      await response.body?.cancel();
+      return {
+        ok: false,
+        message: `the blob store returned HTTP ${String(response.status)}`,
+      };
+    }
+    const length = response.headers.get("content-length");
+    if (length !== null && /^\d+$/.test(length) && Number(length) > size) {
+      await response.body?.cancel();
+      return { ok: false, message: LARGER_THAN_DECLARED };
+    }
+    const body = response.body;
+    if (body === null) return { ok: false, message: SMALLER_THAN_DECLARED };
+    const reader = (body as ReadableStream<Uint8Array>).getReader();
+    const out = new Uint8Array(size);
+    let total = 0;
+    try {
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        if (total + value.byteLength > size) {
+          await reader.cancel();
+          return { ok: false, message: LARGER_THAN_DECLARED };
+        }
+        out.set(value, total);
+        total += value.byteLength;
+      }
+    } catch (error) {
+      return {
+        ok: false,
+        message: `a blob download failed (${error instanceof Error ? error.message : "unknown error"})`,
+      };
+    } finally {
+      reader.releaseLock();
+    }
+    if (total !== size) return { ok: false, message: SMALLER_THAN_DECLARED };
+    return { ok: true, bytes: out };
+  }
+
+  /** PUT one output blob's ciphertext to the slot the upstream issued. */
+  async putBlob(
+    url: string,
+    object: Uint8Array,
+    signal?: AbortSignal,
+  ): Promise<
+    { readonly ok: true } | { readonly ok: false; readonly message: string }
+  > {
+    const target = blobTarget(url);
+    if (target === undefined) {
+      return { ok: false, message: "the upstream's slot URL is not http(s)" };
+    }
+    try {
+      const response = await this.#fetch(target, {
+        method: "PUT",
+        headers: {
+          "content-type": "application/octet-stream",
+          "content-length": String(object.byteLength),
+        },
+        body: object,
+        redirect: "error",
+        signal: AbortSignal.any([
+          AbortSignal.timeout(this.#timeoutMs * 4),
+          ...(signal === undefined ? [] : [signal]),
+        ]),
+      });
+      await response.body?.cancel();
+      return response.ok
+        ? { ok: true }
+        : {
+            ok: false,
+            message: `the blob store refused an upload with HTTP ${String(response.status)}`,
+          };
+    } catch (error) {
+      return {
+        ok: false,
+        message: `could not upload a blob (${error instanceof Error ? error.message : "unknown error"})`,
+      };
+    }
+  }
+
   async #post<T>(
     endpoint: Endpoint,
     schema: z.ZodType<T>,
@@ -495,6 +653,22 @@ export class ProtocolClient {
           ? new ClientError("server-error", message, retryAfter)
           : new ClientError("rejected", message, retryAfter);
     }
+  }
+}
+
+const LARGER_THAN_DECLARED =
+  "a blob was larger than its reference declares, so its download was stopped at the declared size";
+const SMALLER_THAN_DECLARED = "a blob was smaller than its reference declares";
+
+/** An upstream's blob URL, if it is one this daemon will GET or PUT. */
+function blobTarget(url: string): URL | undefined {
+  try {
+    const parsed = new URL(url);
+    return parsed.protocol === "https:" || parsed.protocol === "http:"
+      ? parsed
+      : undefined;
+  } catch {
+    return undefined;
   }
 }
 

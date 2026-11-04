@@ -9,6 +9,7 @@ import { realUpdateDeps } from "./update-deps.js";
 import type { Provenance } from "./provenance.js";
 import { runLogin, type LoginCommand } from "./login.js";
 import { createBackend } from "./backends/index.js";
+import { fileImageProbeStore } from "./images.js";
 import type { Backend } from "./backends/types.js";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { hostname, userInfo } from "node:os";
@@ -472,16 +473,23 @@ export async function runCli(
           options.env,
         );
       }
-      if (rest.length > 0) {
+      /* byollm_021 §5's `--probe-images`: the image probes are paid calls on
+         a metered backend, so they run when a kind is added and when asked,
+         and this is the asking. */
+      if (
+        rest.length > 0 &&
+        !(rest.length === 1 && rest[0] === "--probe-images")
+      ) {
         io.err(
           `byollm services takes no arguments, and got ` +
             `${rest.map((arg) => JSON.stringify(arg)).join(" ")}.\n\n` +
-            `  byollm services            every service, and the model it runs\n` +
-            `  byollm services manage     turn services on and off\n`,
+            `  byollm services                 every service, and the model it runs\n` +
+            `  byollm services --probe-images  ask the image services again\n` +
+            `  byollm services manage          turn services on and off\n`,
         );
         return 2;
       }
-      return commandServices(paths, io, service);
+      return commandServices(paths, io, service, rest[0] === "--probe-images");
     case "model":
       return commandModel(paths, rest, io);
     /* Gone, and saying so rather than doing something adjacent — see
@@ -1321,6 +1329,7 @@ async function commandConnect(
     spend,
     spentGrants,
     ingress,
+    imageProbes: fileImageProbeStore(paths.imageProbes),
   });
 
   // Daemon start: the one place a canary runs. `#tick()` calls this with no
@@ -2078,6 +2087,9 @@ async function runLoop(
       // daemon that actually runs is getting on.
       healthPath: paths.health,
       heartbeatPath: paths.heartbeat,
+      /* One store for every pairing's runner and for `start` and `services`,
+         so the paid image probe runs once a day, not once a runner. */
+      imageProbes: fileImageProbeStore(paths.imageProbes),
       // Written whenever it changes, not only at start — S2. `byollm status`
       // is a different process and this file is the whole of what reaches it.
       onServiceStates: (states) =>
@@ -3246,7 +3258,15 @@ async function commandStatus(
     `  ${String(usage.hour)} in the last hour (cap ${String(usage.limits.maxJobsPerHour)}), ` +
       `${String(usage.day)} today (cap ${String(usage.limits.maxJobsPerDay)})\n`,
   );
-  for (const line of brakeLines(entries, now, usage.limits, paths.config)) {
+  for (const line of brakeLines(
+    entries,
+    now,
+    {
+      ...usage.limits,
+      maxImageBytes: loaded.config.community.maxImageBytes,
+    },
+    paths.config,
+  )) {
     io.out(`  ${line}\n`);
   }
   /* Said, so a count that stops rising is not read as a count still guarding
@@ -3298,7 +3318,7 @@ function brakeLines(
   now: number,
   limits: Pick<
     CommunityBudget,
-    "maxJobsPerHour" | "maxJobsPerDay" | "maxPayloadChars"
+    "maxJobsPerHour" | "maxJobsPerDay" | "maxPayloadChars" | "maxImageBytes"
   >,
   configPath: string,
 ): string[] {
@@ -3321,6 +3341,9 @@ function brakeLines(
     "ledger-untrusted":
       "its record of community work cannot be read — see " +
       '"bookkeeping this device cannot read" above',
+    "image-bytes":
+      `image limit (${String(limits.maxImageBytes)} bytes a job) — ` +
+      `community.maxImageBytes in ${configPath}`,
   };
   return [...counts].map(
     ([brake, count]) =>
@@ -4258,6 +4281,7 @@ async function commandServices(
   paths: DaemonPaths,
   io: CliIo,
   service: ServiceIo,
+  probeImagesNow = false,
 ): Promise<ExitCode> {
   /**
    * A fresh machine gets a next step, not an error — byollm_020.
@@ -4300,6 +4324,10 @@ async function commandServices(
     spend,
     spentGrants,
     ingress,
+    /* What the daemon learned, and nothing spent to learn it again unless
+       asked: `services` is a command people run often (§5). */
+    imageProbes: fileImageProbeStore(paths.imageProbes),
+    probeImages: probeImagesNow ? "now" : "never",
   });
 
   const advertised = await runner.detectCapabilities();
@@ -4356,8 +4384,28 @@ async function commandServices(
       route.kind === "llm.tools"
         ? runner.toolsProbes.get(route.service)
         : undefined;
+    /* An image service the daemon reached but whose probe failed, or that
+       has not been probed: the probe's own words (byollm_021 §5) — "the
+       model answered 'blue' — it is not reading images". */
+    const imageProbe =
+      route.kind === "llm.vision" || route.kind === "llm.image"
+        ? { held: runner.imageProbes.get(`${route.service} ${route.kind}`) }
+        : undefined;
     if (!ok && toolsProbe !== undefined && toolsProbe.kind !== "calls-tools") {
       io.out(`      ${stripControlChars(toolsProbe.why)}\n`);
+    } else if (
+      !ok &&
+      imageProbe !== undefined &&
+      imageProbe.held?.kind !== "passes"
+    ) {
+      io.out(
+        `      ${
+          imageProbe.held === undefined
+            ? "not probed yet — `byollm services --probe-images` asks it " +
+              "(on a metered service, one paid call)"
+            : stripControlChars(imageProbe.held.why)
+        }\n`,
+      );
     } else if (!ok) {
       /**
        * Everything the probe learned, handed to the thing that explains it —

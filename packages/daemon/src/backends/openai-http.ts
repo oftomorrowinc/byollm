@@ -12,6 +12,10 @@ import type {
   ConverseRequest,
   ConverseResult,
   ModelToolCall,
+  ImageRequest,
+  ImageResult,
+  VisionRequest,
+  VisionTurn,
 } from "./types.js";
 
 /**
@@ -88,7 +92,7 @@ export class OpenAiHttpBackend implements Backend {
    * from a job — and the result is re-checked against the base's origin so a
    * surprising `baseUrl` (say, one with a `..` path) cannot walk elsewhere.
    */
-  #endpoint(path: "chat/completions" | "models"): URL {
+  #endpoint(path: "chat/completions" | "models" | "images/generations"): URL {
     const base = this.#baseUrl.href.endsWith("/")
       ? this.#baseUrl.href
       : `${this.#baseUrl.href}/`;
@@ -204,6 +208,162 @@ export class OpenAiHttpBackend implements Backend {
       stop,
       durationMs: Date.now() - turn.started,
     };
+  }
+
+  /**
+   * `llm.vision` — the same `/v1/chat/completions`, with image parts as
+   * `image_url` data URLs (byollm_021 §6: Ollama, llama.cpp with a projector,
+   * vLLM, LM Studio, OpenAI and the compatible endpoints all take this shape).
+   *
+   * A data URL, never a link: the bytes are the request, so the model server
+   * has nothing to fetch and neither does this daemon.
+   */
+  async readImages(request: VisionRequest): Promise<BackendResult> {
+    const turn = await this.#complete(
+      request,
+      { messages: request.messages.map(toOpenAiTurn) },
+      { readsCalls: false },
+    );
+    if (!turn.ok) return turn;
+    if (turn.message.content === null) {
+      return this.#fail(
+        "backend-error",
+        "the model server's response was not in OpenAI chat-completion shape",
+        turn.started,
+      );
+    }
+    return {
+      ok: true,
+      text: turn.message.content,
+      durationMs: Date.now() - turn.started,
+      stop: turn.message.stop,
+    };
+  }
+
+  /**
+   * `llm.image` — `/v1/images/generations`, asking for `b64_json`.
+   *
+   * **Bytes, never URLs** ({@link MUSTS.IMAGE_BYTES_NOT_URLS}, C056). A
+   * backend that answers with `url` instead is an error, and the URL is not
+   * fetched: fetching it would be this device fetching an address a backend
+   * chose, which byollm_012 §11.1 holds back from v1.
+   */
+  async makeImages(request: ImageRequest): Promise<ImageResult> {
+    if (!Number.isFinite(request.timeoutMs) || request.timeoutMs <= 0) {
+      return {
+        ok: false,
+        code: "backend-error",
+        message: "no time limit was set for this call",
+        durationMs: 0,
+      };
+    }
+    const started = Date.now();
+    const signal = AbortSignal.any([
+      request.signal,
+      AbortSignal.timeout(request.timeoutMs),
+    ]);
+    try {
+      const response = await fetch(this.#endpoint("images/generations"), {
+        method: "POST",
+        headers: this.#headers(),
+        body: JSON.stringify({
+          model: request.model,
+          prompt: request.prompt,
+          n: request.count,
+          size: request.size,
+          response_format: "b64_json",
+        }),
+        redirect: "error",
+        signal,
+      });
+      const refused = this.#refusal(response, request.model, started);
+      if (refused !== undefined) return refused;
+      const text = await readCapped(response, request.maxOutputBytes, signal);
+      if (text === null) {
+        return this.#fail(
+          "output-too-large",
+          `the model produced more than ${String(request.maxOutputBytes)} bytes`,
+          started,
+        );
+      }
+      const answer = extractImages(text);
+      if (answer.kind === "url") {
+        return this.#fail(
+          "backend-error",
+          "the model server answered with a URL instead of image bytes; " +
+            "byollm never fetches a URL a backend returns — set it to " +
+            "return b64_json",
+          started,
+        );
+      }
+      if (answer.kind === "malformed") {
+        return this.#fail(
+          "backend-error",
+          "the model server's response was not in OpenAI images shape",
+          started,
+        );
+      }
+      return {
+        ok: true,
+        images: answer.images,
+        text: answer.revisedPrompt,
+        durationMs: Date.now() - started,
+      };
+    } catch (error) {
+      return this.#caught(error, request, started);
+    }
+  }
+
+  /** The statuses every call here reads the same way. */
+  #refusal(
+    response: Response,
+    model: string,
+    started: number,
+  ): (BackendResult & { ok: false }) | undefined {
+    if (response.status === 401 || response.status === 403) {
+      return this.#fail(
+        "unauthorized",
+        "the model server rejected our credentials",
+        started,
+      );
+    }
+    if (response.status === 404) {
+      return this.#fail(
+        "model-not-found",
+        `the model server does not know "${model}"`,
+        started,
+      );
+    }
+    if (!response.ok) {
+      return this.#fail(
+        "backend-error",
+        `the model server returned HTTP ${String(response.status)}`,
+        started,
+      );
+    }
+    return undefined;
+  }
+
+  #caught(
+    error: unknown,
+    request: { readonly signal: AbortSignal; readonly timeoutMs: number },
+    started: number,
+  ): BackendResult & { ok: false } {
+    if (request.signal.aborted) {
+      return this.#fail("canceled", "the job was canceled", started);
+    }
+    if (isAbort(error)) {
+      return this.#fail(
+        "timeout",
+        `the model did not answer within ${String(request.timeoutMs)}ms`,
+        started,
+      );
+    }
+    return this.#fail(
+      "backend-unreachable",
+      describeFetchError(error, this.#baseUrl.origin),
+      started,
+    );
   }
 
   /**
@@ -496,6 +656,76 @@ function wireMessage(message: ConverseMessage): Record<string, unknown> {
         content: message.content,
       };
   }
+}
+
+/** One vision turn in OpenAI's chat shape: image parts as data URLs. */
+function toOpenAiTurn(turn: VisionTurn): unknown {
+  if (typeof turn.content === "string") {
+    return { role: turn.role, content: turn.content };
+  }
+  return {
+    role: turn.role,
+    content: turn.content.map((part) =>
+      part.type === "text"
+        ? { type: "text", text: part.text }
+        : {
+            type: "image_url",
+            image_url: {
+              url: `data:${part.mediaType};base64,${Buffer.from(part.bytes).toString("base64")}`,
+            },
+          },
+    ),
+  };
+}
+
+/**
+ * The images in an OpenAI `/v1/images/generations` response.
+ *
+ * `url` is its own answer, not a malformed one, so the error can say what the
+ * backend did — and so nothing downstream is ever handed the URL to follow.
+ * A response mixing bytes and URLs is a URL response: one image fetched from
+ * a backend's address is the whole of what is forbidden.
+ */
+function extractImages(
+  raw: string,
+):
+  | { kind: "ok"; images: Uint8Array[]; revisedPrompt: string }
+  | { kind: "url" }
+  | { kind: "malformed" } {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return { kind: "malformed" };
+  }
+  if (typeof parsed !== "object" || parsed === null)
+    return { kind: "malformed" };
+  const data = (parsed as { data?: unknown }).data;
+  if (!Array.isArray(data) || data.length === 0) return { kind: "malformed" };
+  const images: Uint8Array[] = [];
+  let revisedPrompt = "";
+  for (const entry of data) {
+    if (typeof entry !== "object" || entry === null)
+      return { kind: "malformed" };
+    const {
+      b64_json: b64,
+      url,
+      revised_prompt: revised,
+    } = entry as {
+      b64_json?: unknown;
+      url?: unknown;
+      revised_prompt?: unknown;
+    };
+    if (typeof b64 !== "string" || b64 === "") {
+      return typeof url === "string" ? { kind: "url" } : { kind: "malformed" };
+    }
+    if (!/^[A-Za-z0-9+/]*={0,2}$/.test(b64)) return { kind: "malformed" };
+    images.push(new Uint8Array(Buffer.from(b64, "base64")));
+    if (revisedPrompt === "" && typeof revised === "string") {
+      revisedPrompt = revised;
+    }
+  }
+  return { kind: "ok", images, revisedPrompt };
 }
 
 /** Model ids from an OpenAI `/v1/models` response. */

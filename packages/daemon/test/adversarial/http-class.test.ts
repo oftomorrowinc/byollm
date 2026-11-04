@@ -213,3 +213,116 @@ describe("HTTP-class ceilings and refusals", () => {
     expect(health.models).toContain(MODEL);
   });
 });
+
+/**
+ * byollm_021 §6 — a hostile image backend. The URL it answers with points
+ * back at this same server, so a fetch of it would be seen here; none may be.
+ */
+describe("C056 image bytes, not URLs [IMAGE_BYTES_NOT_URLS]", () => {
+  const ask = () =>
+    backend().makeImages({
+      prompt: "a red square",
+      model: MODEL,
+      size: "1024x1024",
+      count: 1,
+      timeoutMs: 10_000,
+      maxOutputBytes: 1024 * 1024,
+      signal: new AbortController().signal,
+    });
+
+  it("asks for b64_json, and errors on a URL answer without fetching it", async () => {
+    respond = (req) =>
+      req.url?.endsWith("/images/generations") === true
+        ? {
+            status: 200,
+            body: JSON.stringify({
+              data: [{ url: `${baseUrl.replace(/\/v1$/, "")}/evil.png` }],
+            }),
+          }
+        : { status: 200, body: "\x89PNG" };
+    const result = await ask();
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.code).toBe("backend-error");
+      expect(result.message).toContain("URL instead of image bytes");
+    }
+    expect(captured.map((c) => c.url)).toEqual(["/v1/images/generations"]);
+    expect(captured[0]?.body).toMatchObject({ response_format: "b64_json" });
+  });
+
+  it("treats bytes and a URL in one answer as a URL answer", async () => {
+    respond = () => ({
+      status: 200,
+      body: JSON.stringify({
+        data: [
+          { b64_json: Buffer.from("png").toString("base64") },
+          { url: `${baseUrl.replace(/\/v1$/, "")}/evil.png` },
+        ],
+      }),
+    });
+    const result = await ask();
+    expect(result.ok).toBe(false);
+    expect(captured).toHaveLength(1);
+  });
+
+  it("returns the bytes of a b64_json answer", async () => {
+    respond = () => ({
+      status: 200,
+      body: JSON.stringify({
+        data: [
+          {
+            b64_json: Buffer.from("not-checked-here").toString("base64"),
+            revised_prompt: "a plain red square",
+          },
+        ],
+      }),
+    });
+    const result = await ask();
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(Buffer.from(result.images[0] ?? []).toString()).toBe(
+        "not-checked-here",
+      );
+      expect(result.text).toBe("a plain red square");
+    }
+  });
+});
+
+/**
+ * byollm_021 §5 — a model server that drops image parts and answers anyway.
+ * The adapter is the real one, over loopback; the server answers 200 to
+ * everything, so only the answer's content can fail the probe.
+ */
+describe("C055 vision is detected [CAPABILITY_IS_DETECTED]", () => {
+  it("an echo backend that ignores the image and answers 'blue' is refused", async () => {
+    const { probeVision } = await import("../../src/images.js");
+    respond = () => ({
+      status: 200,
+      body: JSON.stringify({
+        choices: [{ message: { role: "assistant", content: "Blue." } }],
+      }),
+    });
+    const verdict = await probeVision(backend(), MODEL, 0);
+    expect(verdict.kind).toBe("cannot");
+    if (verdict.kind === "cannot") {
+      expect(verdict.why).toContain(
+        'answered "blue" — it is not reading images',
+      );
+    }
+    /* The image went in the request as a data URL, never as a link. */
+    const sent = JSON.stringify(captured[0]?.body);
+    expect(sent).toContain('"type":"image_url"');
+    expect(sent).toContain("data:image/png;base64,");
+  });
+
+  it("a model that answers 'red' passes", async () => {
+    const { probeVision } = await import("../../src/images.js");
+    respond = () => ({
+      status: 200,
+      body: JSON.stringify({
+        choices: [{ message: { role: "assistant", content: "Red" } }],
+      }),
+    });
+    expect((await probeVision(backend(), MODEL, 0)).kind).toBe("passes");
+  });
+});

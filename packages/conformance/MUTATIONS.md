@@ -940,3 +940,47 @@ covers a swapped job, `in` passed as `out`, a flipped byte, a JPEG declared
 as PNG, an over-cap header, and an object larger than declared, each refused
 before the app sees a byte. It does not claim those MUSTs, because half a
 MUST is not a covered MUST.
+
+## Verified 2026-11-04 — byollm_021's daemon half: images (#7058)
+
+byollm 0.1.5 card 6. Like card 3's, these drive the **shipped daemon**, not
+the kit: `packages/daemon/src/images.test.ts` (a real `Runner` and
+`ProtocolClient`, payloads sealed with the site's keys, input blobs made
+with the protocol's own `encryptBlob` — the site's encoder, not a copy — an
+upstream that counts every `blob-url` call and blob GET, and a backend
+double), `served-kinds.test.ts`, and the http-class adversarial corpus
+(`packages/daemon/test/adversarial/http-class.test.ts`) for C055 and C056
+against the real `openai-http` adapter over loopback. C056 is the corpus row
+§10 left for this card to choose.
+
+Each mutation was applied by script, the named files run, and the file
+restored.
+
+| Check                               | File                                 | Mutation                                                                                     | Result                                                                    |
+| ----------------------------------- | ------------------------------------ | -------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------- |
+| C051 budget before download         | `daemon/src/images.ts`               | Never charge: `imageBudgetRefusal` admits every declared sum                                 | ✓ bites: the 3 × 10 MiB case, alone                                       |
+| C051                                | `daemon/src/runner.ts`               | Charge after downloading: the gate before `runJob` skipped, so the job reaches its downloads | ✓ bites: the 3 × 10 MiB case (a `blob-url` call is made), alone           |
+| C052 a blob larger than declared    | `daemon/src/client.ts`               | Trust the declaration: read the whole body, then compare its length                          | ✓ bites: "stops the download at the declared size", alone — 12 MiB pulled |
+| C052                                | `daemon/src/images.ts`               | Ask the store for 64 MiB instead of `blobObjectBytes(ref.bytes)`                             | ✓ bites: the end-to-end vision case, alone                                |
+| C055 vision is detected             | `daemon/src/images.ts`               | Probe for a 200 only: pass on any answer                                                     | ✓ bites: the "blue" case in `images.test.ts` and in the http-class corpus |
+| C056 image bytes, not URLs          | `daemon/src/backends/openai-http.ts` | Follow the URL: fetch it before returning the error                                          | ✓ bites: both URL cases (the fetch reaches the corpus's server)           |
+| C058 no images on a process backend | `daemon/src/config.ts`               | Advertise it: `httpOnlyKind` never objects                                                   | ✓ bites: all four config cases and both runner cases                      |
+
+### What C052's end-to-end case does not prove
+
+The runner-level C052 case (one real image stored with 12 MiB appended) is
+refused whichever of the two C052 mutations is applied: `decryptBlob`
+refuses any object that is not exactly the declared size, so the job fails
+either way. That case proves the job is refused and the model sees nothing.
+**That the download stops is proved only by the client-level cases**, which
+stream from a counting `ReadableStream` and assert at most the declared size
+plus one 64 KiB chunk was pulled. The fake upstream in the runner harness
+answers with a whole `Response`, and nothing there counts bytes.
+
+### Live probe
+
+`probeVision` and the real `openai-http` adapter against Ollama on the
+building machine, 2026-11-04: `gemma3:4b` answered "red" and passed (1.3 s);
+`glm-5.2:cloud` answered "unknown" and was refused with "sent an image, the
+model answered \"unknown\" — it is not reading images". The image probe was
+not run live: nothing on that machine serves `/v1/images/generations`.

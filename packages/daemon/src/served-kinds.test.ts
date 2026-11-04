@@ -18,9 +18,11 @@ import { DaemonConfig, loadConfig, resolveConfig } from "./config.js";
 
 /**
  * Named, not derived: a test per new kind, as the review asked. `llm.tools`
- * left this list in card 3 of #6933 (#7055), with its loop.
+ * left this list in card 3 of #6933 (#7055), with its loop; `llm.vision` and
+ * `llm.image` in card 6 (#7058), with their handlers. Empty now, and the
+ * withholding stays for the next kind the protocol names before a handler.
  */
-const UNSERVED = ["llm.vision", "llm.image"] as const;
+const UNSERVED: readonly JobKind[] = [];
 
 const service = (kinds: readonly string[]) => ({
   services: {
@@ -34,11 +36,13 @@ const service = (kinds: readonly string[]) => ({
 });
 
 describe("the daemon's one list of served kinds", () => {
-  it("is generate, chat and tools in this build", () => {
+  it("is every kind the protocol names, in this build", () => {
     expect([...SERVED_KINDS]).toEqual([
       "llm.generate",
       "llm.chat",
       "llm.tools",
+      "llm.vision",
+      "llm.image",
     ]);
   });
 
@@ -136,18 +140,83 @@ describe("llm.tools is served on HTTP services only — byollm_012 §7", () => {
     },
   );
 });
+/**
+ * C058 — no images on a process backend (byollm_021 §6, #6756). The config
+ * half: the kind gets no route, so nothing can advertise it, and the problem
+ * `byollm services` prints says the kind needs an HTTP backend. The runner
+ * half is in `images.test.ts`.
+ */
+describe.each(["llm.vision", "llm.image"] as const)(
+  "%s is served on HTTP services only",
+  (kind) => {
+    it("gets a route on an HTTP service", () => {
+      const loaded = resolveConfig(DaemonConfig.parse(service([kind])));
+      expect(loaded.routes.map((route) => route.kind)).toEqual([kind]);
+      expect(loaded.problems).toEqual([]);
+    });
+
+    it.each(["claude-cli", "codex-cli"])(
+      "gets no route on %s, and a problem saying it needs an HTTP backend",
+      (type) => {
+        const loaded = resolveConfig(
+          DaemonConfig.parse({
+            services: {
+              cli: { type, model: "default", kinds: ["llm.chat", kind] },
+            },
+          }),
+        );
+        expect(loaded.routes.map((route) => route.kind)).toEqual(["llm.chat"]);
+        expect(loaded.problems).toHaveLength(1);
+        expect(loaded.problems[0]?.where).toBe("services.cli.kinds");
+        expect(loaded.problems[0]?.message).toContain(
+          `${kind} needs an HTTP backend`,
+        );
+      },
+    );
+  },
+);
 
 describe("composePrompt and the list agree", () => {
+  const image = {
+    blob: "b1",
+    mediaType: "image/png",
+    bytes: 79,
+    width: 16,
+    height: 16,
+    sha256: "0".repeat(64),
+    key: "k".repeat(43),
+  };
   const payloads: Record<(typeof SERVED_KINDS)[number], unknown> = {
     "llm.generate": { prompt: "hi" },
     "llm.chat": { messages: [{ role: "user", content: "hi" }] },
     "llm.tools": { messages: [{ role: "user", content: "hi" }] },
+    "llm.vision": {
+      messages: [
+        {
+          role: "user",
+          content: [
+            { type: "text", text: "hi" },
+            { type: "image", image },
+          ],
+        },
+      ],
+    },
+    "llm.image": { prompt: "hi" },
   };
+
+  it("never puts an image's key in the composed text", () => {
+    const text = composePrompt({
+      kind: "llm.vision",
+      payload: payloads["llm.vision"],
+    } as unknown as ClaimedJob);
+    expect(text).toContain("[image image/png, 16×16]");
+    expect(text).not.toContain(image.key);
+  });
 
   it.each([...SERVED_KINDS])("composes %s", (kind: JobKind) => {
     const job = {
       kind,
-      payload: payloads[kind as (typeof SERVED_KINDS)[number]],
+      payload: payloads[kind],
     } as unknown as ClaimedJob;
     expect(composePrompt(job)).toContain("hi");
   });

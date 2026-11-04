@@ -86,4 +86,7 @@ export type {
   BackendResult,
   ConverseRequest,
   ConverseResult,
+  ImageRequest,
+  ImageResult,
+  VisionRequest,
 } from "./types.js";

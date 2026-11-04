@@ -212,7 +212,15 @@ export type BackendErrorCode =
   | "timeout"
   | "output-too-large"
   | "canceled"
-  | "unauthorized";
+  | "unauthorized"
+  /**
+   * The job's own images could not be used — byollm_021 §2–§4: a blob that
+   * was larger or smaller than its reference, did not decrypt under this job,
+   * failed its hash, or was not the type or size it declared. A fact about
+   * what the SITE sent, so it is the one failure here a site is told
+   * plainly; re-sending the same job will not change it.
+   */
+  | "image-refused";
 
 /** Whether a backend is usable right now, and with which models. */
 export interface BackendHealth {
@@ -304,7 +312,65 @@ export interface Backend {
    * ({@link MUSTS.TOOLS_RUN_AT_SITE}).
    */
   converse?(request: ConverseRequest): Promise<ConverseResult>;
+
+  /**
+   * One model call that reads images — byollm_021 `llm.vision`.
+   *
+   * Present only on a backend that can put image bytes in a request body,
+   * which is the `http` class (§6). The bytes arrive already decrypted,
+   * hash-checked and sniffed; the backend sends them and nothing else.
+   */
+  readImages?(request: VisionRequest): Promise<BackendResult>;
+
+  /**
+   * One image-generation call — byollm_021 `llm.image`.
+   *
+   * Returns image **bytes**. A backend that answers with a URL instead is an
+   * error and the URL is never fetched ({@link MUSTS.IMAGE_BYTES_NOT_URLS}).
+   */
+  makeImages?(request: ImageRequest): Promise<ImageResult>;
 }
+
+/** A turn of an `llm.vision` call, as the backend sends it. */
+export type VisionTurn =
+  | { readonly role: "user" | "assistant" | "system"; readonly content: string }
+  | {
+      readonly role: "user";
+      readonly content: readonly (
+        | { readonly type: "text"; readonly text: string }
+        | {
+            readonly type: "image";
+            readonly mediaType: string;
+            readonly bytes: Uint8Array;
+          }
+      )[];
+    };
+
+export interface VisionRequest extends Omit<BackendRequest, "prompt"> {
+  readonly messages: readonly VisionTurn[];
+}
+
+export interface ImageRequest {
+  readonly prompt: string;
+  readonly model: string;
+  /** The owner's pixel size for the job's aspect, from config only. */
+  readonly size: string;
+  readonly count: number;
+  readonly timeoutMs: number;
+  /** Ceiling on the response body, which carries every image as base64. */
+  readonly maxOutputBytes: number;
+  readonly signal: AbortSignal;
+}
+
+export type ImageResult =
+  | {
+      readonly ok: true;
+      readonly images: readonly Uint8Array[];
+      /** The backend's revised prompt, where it returns one; else empty. */
+      readonly text: string;
+      readonly durationMs: number;
+    }
+  | (BackendResult & { readonly ok: false });
 
 /** Everything a backend instance needs from the owner's config. */
 export interface BackendInit {

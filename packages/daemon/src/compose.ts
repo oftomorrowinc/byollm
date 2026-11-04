@@ -1,4 +1,11 @@
-import type { ClaimedJob, JobKind } from "@byollm/protocol";
+import type {
+  ClaimedJob,
+  ImagePayload,
+  JobKind,
+  VisionPayload,
+} from "@byollm/protocol";
+import type { VisionTurn } from "./backends/types.js";
+import type { OpenedImage } from "./images.js";
 
 /**
  * The kinds this daemon can turn into a backend call — its one list (#7053).
@@ -17,6 +24,8 @@ export const SERVED_KINDS = Object.freeze([
   "llm.generate",
   "llm.chat",
   "llm.tools",
+  "llm.vision",
+  "llm.image",
 ] as const satisfies readonly JobKind[]);
 export type ServedKind = (typeof SERVED_KINDS)[number];
 
@@ -62,15 +71,35 @@ export function composePrompt(job: ClaimedJob): string {
         .join("\n\n");
       return joinSections([systemSection(payload.system), turns]);
     }
-    /* Not served by this build. Each was once composed as chat by a
-       fall-through: an image job crashed on `messages`, a vision job sent the
-       model "[object Object]", and a tools job ran with no digest checked
-       against its grant (TOOLS_MATCH_CONSENT). A route for one cannot exist
-       ({@link SERVED_KINDS}), so reaching here is a bug — and it throws
-       rather than guessing. */
-    case "llm.vision":
+    /* `llm.vision` — byollm_021 §1. This is the TEXT of the job, for the
+       ingress log and the spend estimate: each image is a marker, never its
+       bytes or its key. The backend is sent the parts themselves
+       (`visionTurns`), because a vision model has to see where each image
+       sits among the words. */
+    case "llm.vision": {
+      const payload = job.payload as VisionPayload;
+      const turns = payload.messages
+        .map(
+          (message) =>
+            `${roleLabel(message.role)}: ${
+              typeof message.content === "string"
+                ? message.content
+                : message.content
+                    .map((part) =>
+                      part.type === "text"
+                        ? part.text
+                        : `[image ${part.image.mediaType}, ${String(part.image.width)}×${String(part.image.height)}]`,
+                    )
+                    .join("\n")
+            }`,
+        )
+        .join("\n\n");
+      return joinSections([systemSection(payload.system), turns]);
+    }
+    /* `llm.image` — the prompt, as the model is sent it. `aspect` and
+       `count` work inside the call and never route it (§1). */
     case "llm.image":
-      throw new Error(`this daemon does not compose ${kind} jobs`);
+      return (job.payload as ImagePayload).prompt;
     default: {
       const unknown: never = kind;
       throw new Error(`this daemon does not compose ${String(unknown)} jobs`);
@@ -96,4 +125,48 @@ function roleLabel(role: string): string {
 
 function joinSections(sections: readonly (string | undefined)[]): string {
   return sections.filter((section) => section !== undefined).join("\n\n");
+}
+
+/**
+ * An `llm.vision` payload as the backend is sent it — byollm_021 §1.
+ *
+ * Turns in order, each image part replaced by the bytes opened for it, in the
+ * order {@link visionImages} lists the references. `system` leads as a system
+ * turn, which an HTTP backend carries natively; only `http` serves this kind.
+ */
+export function visionTurns(
+  payload: VisionPayload,
+  images: readonly OpenedImage[],
+): VisionTurn[] {
+  let next = 0;
+  const turns: VisionTurn[] = [];
+  if (payload.system !== undefined && payload.system.trim() !== "") {
+    turns.push({ role: "system", content: payload.system });
+  }
+  for (const message of payload.messages) {
+    if (typeof message.content === "string") {
+      turns.push({ role: message.role, content: message.content });
+      continue;
+    }
+    turns.push({
+      role: "user",
+      content: message.content.map((part) => {
+        if (part.type === "text") return { type: "text", text: part.text };
+        const image = images[next];
+        next += 1;
+        if (image === undefined) {
+          throw new Error("an image part has no opened image beside it");
+        }
+        return {
+          type: "image",
+          mediaType: image.mediaType,
+          bytes: image.bytes,
+        };
+      }),
+    });
+  }
+  if (next !== images.length) {
+    throw new Error("opened images and image parts do not line up");
+  }
+  return turns;
 }

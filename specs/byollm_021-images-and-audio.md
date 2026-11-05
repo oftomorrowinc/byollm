@@ -481,8 +481,10 @@ that release, with the two fixes already in it.
 - Result additions, each on its own kind only: `toolCalls` (tools),
   `images` (image). `StopReason` gains `tool-budget`.
 - For tools: `Purpose.tools`, `maxToolCalls` and `maxToolResultChars` in
-  the manifest; `toolsDigest` on grants for `llm.tools` only, and in the
-  site's enqueue request beside the stub; `payloadTextLength` counting
+  the manifest; `toolsDigest` on grants for `llm.tools` only; in the site's
+  enqueue request beside the stub, `tools: { toolsDigest, maxToolCalls }`,
+  the job's budget being what the relay counts its calls against (byollm_012
+  §4, §8; #7122); `payloadTextLength` counting
   `maxToolResultChars`; `RunMetadata.toolOutcomes`; the `tool-call` and `tool-result` envelope directions;
   four endpoints, `tool-call` and `tool-results` on the daemon plane and
   `calls` and `tool-result` on the site plane, served by the relay and by

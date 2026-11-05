@@ -243,14 +243,22 @@ digest comes from the manifest of record, which Todd registers by hand. If
 the two differ by one character, every device would refuse every job after
 claiming it, and the site would see only no-runner (Owl, #54911 part 2 point
 3). So the site SDK computes the same digest over what it is about to send
-and puts it in the **enqueue request** (`toolsDigest` beside the stub, not in
-it, so `STUB_METADATA_EXHAUSTIVE` is untouched and a device never sees it).
+and puts it in the **enqueue request** (`tools: { toolsDigest, maxToolCalls }`
+beside the stub, not in it, so `STUB_METADATA_EXHAUSTIVE` is untouched and a
+device never sees it). `maxToolCalls` there is the job's budget as the site
+computed it, the lower of the payload's number and the purpose's, and it is
+the number the relay counts the job's calls against (§8), since the relay
+cannot read the payload. Todd kept it as a second guard beside the site
+SDK's own count (#7122, msg #56527); a hub that drops it leaves every job at
+the protocol ceiling, and C039 fails for that (§12 row 7).
 The hub compares it with the digest of the manifest of record and refuses a
 mismatch at enqueue, with nothing queued: `tools-manifest-mismatch`, "the
 tools <site> declares in code for <purpose> differ from its registered
 manifest — register the manifest, or fix the declaration". The digest is
 of public consent text, not job content, so `RELAY_BLIND` is untouched. The
-key is sent only for `llm.tools`, which a 0.1.4 hub refuses anyway.
+`tools` field is sent only for `llm.tools`, which a 0.1.4 hub refuses
+anyway. The budget in it is the purpose's public consent number or lower,
+which the relay already learns from the calls it counts (§5.2).
 
 **A changed tool list is a changed consent.** When a manifest's tools for a
 purpose change, the digest changes, and the person's mapping for that
@@ -501,6 +509,29 @@ tools offered*: "Answer from what you have." The result comes back `ok` with
 `stop: "tool-budget"`, so the site can tell a short answer from a complete
 one.
 
+**A relay that says the job's calls are spent is the same limit.** The
+relay's count is the job's and survives a requeue; a device's count is its
+own. So a job claimed after a lapse can arrive with its calls already made
+(Owl, #56042 point 3). Dane's device makes a chapter's 8 searches and its lid
+closes before the final turn; Lis's device claims the job, and its first
+call is refused although its own count says 0. That refusal is `forbidden`
+(403) with the message "this job has made every tool call it is allowed"
+(`TOOLS_SPENT_MESSAGE`), from the relay and from `@byollm/server` alike, and
+the daemon recognises it by that pair. The model gets a tool error ("this
+job's tools are spent"), the call counts as `refused` in `toolOutcomes`, and
+the daemon goes straight to the closing turn above, with no tools offered:
+`ok`, `stop: "tool-budget"`. It is never a failed request, and the model
+never spends paid turns on calls that would all be refused. Any other
+failure to send a call stays what §5.3 says, a site that did not answer.
+
+The sentence is the signal, not a new `WireErrorCode`, because a new member
+of that closed enumeration breaks every 0.1.4 party that parses it, which is
+`ToolsRefusal`'s reason too (§4). A daemon that does not recognise the
+sentence treats the call as unsent, which is the behaviour before this
+paragraph. The relay's suite checks it through the real relay plane
+(`packages/relay/test/tool-calls.test.ts`, "closes a job reclaimed with its
+calls spent"), and both planes' suites assert the body they serve.
+
 **Spend.** A tool job costs the person up to `maxToolCalls + 1` model turns,
 each with the conversation so far. The daemon's existing daily budgets count
 every turn, not every job, for `llm.tools`. Tool spend itself is the site's,
@@ -714,7 +745,7 @@ byollm_021's follow from C048 (byollm_021 §10).
 | 4 | C036 undeclared or ill-typed calls | an echo backend calls an undeclared name, then a declared tool with an extra key, then with a string past `maxLength` | three tool errors to the model; nothing sent; three calls charged | let unknown names through |
 | 5 | C037 a result is bound to its call | the upstream returns a result for an unknown `callId`, for another job's call, a replay of an answered call, and a `payload`-direction envelope | each dropped and logged; the model never sees it | drop the `callId` check |
 | 6 | C038 the daemon's budget | an echo backend that calls forever, `maxToolCalls: 3` | exactly 3 calls sent; a final turn with no tools; `ok` with `stop: "tool-budget"` | count after sending instead of before |
-| 7 | C039 the relay's budget | the kit plays a modified daemon and posts 21 calls on one job | the relay refuses the 21st; the site's `calls` never shows it | drop the relay's count |
+| 7 | C039 the relay's budget | a site enqueues an `llm.tools` job with `tools.maxToolCalls: 3` through the enqueue request, and a modified daemon posts 4 calls on it; then a job at the ceiling, and 21 calls (the relay's suite plays the site and the daemon, MUTATIONS.md says why) | the relay refuses the 4th call, and the 21st; the site's `calls` never shows either. A site plane that drops `tools.maxToolCalls` leaves the first job at the ceiling, so its 4th call is taken and the check fails | drop the relay's count; drop `tools.maxToolCalls` at the site plane's enqueue |
 | 8 | C040 the site SDK's budget | the kit posts `maxToolCalls + 1` valid sealed calls on the direct lane | the SDK runs `maxToolCalls` handlers and refuses the rest | drop the SDK's count |
 | 9 | C041 a site that does not answer | the site never posts a result; the job's deadline is 5 minutes | after `TOOL_CALL_TIMEOUT` the model gets a tool error and the job ends `ok` with `toolOutcomes.answered` 0 and `timedOut` equal to `toolCalls`; the lease was held throughout, with no reclaim | resolve the wait only at the deadline, stop renewing the lease while waiting, or count a timeout as answered |
 | 10 | C042 calls logged first | the upstream asserts the ingress line exists when the call arrives | every call has its line already | log after sending |

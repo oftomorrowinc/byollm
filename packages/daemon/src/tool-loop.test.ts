@@ -106,7 +106,7 @@ function input(
       return Promise.resolve();
     },
     transport: {
-      send: () => Promise.resolve(),
+      send: () => Promise.resolve("sent" as const),
       poll: () => Promise.resolve([]),
     },
     seal: () => Promise.resolve(ENVELOPE),
@@ -132,7 +132,7 @@ function answering(answer: (callId: string, seq: number) => string) {
       send: (call: { callId: string }) => {
         seq += 1;
         last = { callId: call.callId, seq };
-        return Promise.resolve();
+        return Promise.resolve("sent" as const);
       },
       poll: () =>
         Promise.resolve(

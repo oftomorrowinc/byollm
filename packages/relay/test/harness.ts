@@ -431,6 +431,13 @@ export async function makeDaemon(
     endpoint: string,
     body: Record<string, unknown>,
   ) => Promise<Response>;
+  /** This device's request signer, for a test that builds its own client. */
+  sign: (input: {
+    endpoint: string;
+    runnerId: string;
+    issuedAt: number;
+    body: string;
+  }) => Promise<string>;
   dispose: () => Promise<void>;
 }> {
   const home = await mkdtemp(join(tmpdir(), "byollm-relay-"));
@@ -577,6 +584,7 @@ export async function makeDaemon(
     backend,
     runnerId: approval.runnerId,
     signedFetch,
+    sign: (i) => identity.signRequest(i),
     home,
     keys: await identity.load(Date.now()),
     dispose: async () => {

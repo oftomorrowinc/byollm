@@ -52,6 +52,39 @@ export const TOOL_LIMITS = Object.freeze({
   callTimeoutMs: 60_000,
 });
 
+/**
+ * The upstream's refusal of a tool call past the job's budget — byollm_012 §8.
+ *
+ * Served on `tool-call` as `forbidden` (403) with exactly this message, by the
+ * relay and by `@byollm/server` alike, and recognised by the daemon by the
+ * pair: the code, and this sentence. A daemon that reads it tells the model
+ * the job's tools are spent and goes to the closing turn, so the job ends
+ * `ok` with `stop: "tool-budget"` rather than spending turns on calls that
+ * will all be refused (#7122, #7440).
+ *
+ * The sentence is the signal, not a new `WireErrorCode`: that enumeration is
+ * parsed strictly by every 0.1.4 party, and a new member is breaking on the
+ * side nobody upgraded (`ToolsRefusal`'s note says the same). This is the
+ * hub's `tools-manifest-mismatch` precedent. Both planes serve it from this
+ * constant, and their suites assert the live body, so it cannot drift from
+ * what the daemon compares. A daemon that does not recognise it falls back to
+ * an unsent call, which is what every other send failure is.
+ *
+ * Why an honest daemon meets it at all: the relay's count is the job's and
+ * survives a requeue, and a second device that claims a lapsed job starts its
+ * own count at 0 (Owl, #56042 point 3).
+ */
+export const TOOLS_SPENT_MESSAGE =
+  "this job has made every tool call it is allowed";
+
+/** Is this refusal the upstream saying the job's tool calls are spent? */
+export function isToolsSpentRefusal(error: {
+  readonly error: string;
+  readonly message: string;
+}): boolean {
+  return error.error === "forbidden" && error.message === TOOLS_SPENT_MESSAGE;
+}
+
 /** UTF-8 bytes of a string — what §5.1's "measured on the plaintext" means. */
 const utf8Bytes = (value: string): number =>
   new TextEncoder().encode(value).length;

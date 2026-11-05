@@ -18,6 +18,7 @@ import {
   type Endpoint,
   ToolCallResponse,
   ToolResultsResponse,
+  isToolsSpentRefusal,
 } from "@byollm/protocol";
 import { type z } from "zod";
 
@@ -89,6 +90,16 @@ export type ClientErrorKind =
    * is about one request.
    */
   | "forbidden"
+  /**
+   * The job has made every tool call it is allowed — byollm_012 §8.
+   *
+   * Arrives as `forbidden`, and is told apart by the sentence beside it
+   * (`TOOLS_SPENT_MESSAGE`, the protocol's). Its own kind because the remedy is not a
+   * permission problem: the tool loop tells the model the job's tools are
+   * spent and goes to the closing turn. The relay's count is the job's, so
+   * an honest second device meets this after a lapse (#7122, #7440).
+   */
+  | "tools-spent"
   | "rate-limited"
   | "server-error"
   | "malformed-response";
@@ -577,6 +588,11 @@ export class ProtocolClient {
 
     if (wire.success && wire.data.error === "revoked") {
       return new ClientError("revoked", message, retryAfter);
+    }
+    if (wire.success && isToolsSpentRefusal(wire.data)) {
+      /* Before the status switch, which would call it `forbidden`: a 403 the
+         tool loop must not read as a send that failed (byollm_012 §8). */
+      return new ClientError("tools-spent", message, retryAfter);
     }
     if (
       typeof body === "object" &&

@@ -2,6 +2,7 @@ import {
   PROTOCOL_VERSION,
   SiteToolCalls,
   TOOL_LIMITS,
+  TOOLS_SPENT_MESSAGE,
   ToolCallResponse,
   ToolResultsResponse,
   type Capability,
@@ -210,9 +211,14 @@ describe("a tool call on the direct lane", () => {
     ).toBe(400);
     for (let n = 2; n <= TOOL_LIMITS.maxToolCalls; n += 1) await w.call(job);
     const extra = newCallId();
-    expect(
-      (await w.toolCall(job, extra, sealedAs(extra, "tool-call"))).status,
-    ).toBe(403);
+    const refused = await w.toolCall(job, extra, sealedAs(extra, "tool-call"));
+    expect(refused.status).toBe(403);
+    // The pair the daemon reads as the job's tools spent (§8), as the
+    // relay serves it: the two planes say one thing.
+    expect(refused.body).toEqual({
+      error: "forbidden",
+      message: TOOLS_SPENT_MESSAGE,
+    });
   });
 
   it("refuses the site's calls and toolResult on the cloud lane, rather than answering empty", async () => {

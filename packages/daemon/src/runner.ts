@@ -87,6 +87,7 @@ import { writeHeartbeat } from "./heartbeat.js";
 import type { IngressLog } from "./ingress.js";
 import { estimateCents, type SpendLedger } from "./spend.js";
 import { runToolLoop, type ToolLoopRun } from "./tool-loop.js";
+import { clientToolTransport } from "./tool-transport.js";
 import { probeTools, type ToolsProbe } from "./tools-probe.js";
 import { isAfter014, predatesMessage } from "./upstream-predates.js";
 
@@ -2396,23 +2397,10 @@ export class Runner {
       signal: context.signal,
       now: at,
       wait: toolWait,
-      transport: {
-        send: async ({ callId, envelope }) => {
-          await client.toolCall({
-            runnerId: this.#options.runnerId,
-            ...lease,
-            callId,
-            envelope,
-          });
-        },
-        poll: async (callId) =>
-          (
-            await client.toolResults({
-              runnerId: this.#options.runnerId,
-              calls: [{ ...lease, callId }],
-            })
-          ).results,
-      },
+      transport: clientToolTransport(client, {
+        runnerId: this.#options.runnerId,
+        ...lease,
+      }),
       seal: (call: ToolCall) =>
         seal({
           /* Parsed before it is sealed, like everything this daemon seals:

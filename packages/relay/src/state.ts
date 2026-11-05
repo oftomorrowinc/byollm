@@ -260,8 +260,11 @@ export interface RoutedJob {
    * can corrupt. It survives `#requeue` on purpose: a budget that restarted
    * with every grant would let a modified daemon release, re-claim and spend
    * the site's tools again — the counter exists to stop exactly that. The
-   * cost is that a job reclaimed after a lapse runs on what is left, which
-   * an honest daemon reads as the site refusing a call.
+   * cost is that a job reclaimed after a lapse runs on what is left, and a
+   * second device's own count starts at 0: its first call past what is left
+   * is refused as `budget`, which an honest daemon reads as the job's tools
+   * being spent — a tool error to the model and the closing turn, `ok` with
+   * `stop: "tool-budget"` (byollm_012 §8, `TOOLS_SPENT_MESSAGE`).
    */
   toolCallsMade?: number;
   /**

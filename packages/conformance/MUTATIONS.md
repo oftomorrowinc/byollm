@@ -1115,3 +1115,48 @@ the site's end in the server's suite. So both MUSTs are registered as
 `adversarial`, with no `planned` record left. A kit check of the site's end,
 driving `target.blobs.images()` over a mis-bound output, would make them
 `conformance`. It is not built.
+
+## Verified 2026-11-05 — the enqueue's budget, and a relay budget refusal that says so (#7440, #7122)
+
+Todd kept `tools.maxToolCalls` on the enqueue request (#7122, msg #56527):
+C039 tested through the enqueue request at a budget of 3, and a relay's
+budget refusal reaching the model as a tool error, never a failed request.
+Each mutation was applied, run with `npx vitest run` over
+`packages/relay/test/tool-calls.test.ts` (and, for the daemon's, the
+daemon's `tool-loop`, `client` and `tools-at-the-site` suites), seen to
+fail, and reverted. The relay's suite imports `byollm` and `@byollm/server` from
+source here (`vitest.config.ts`'s aliases), so no build was needed.
+
+| Check                                         | File                                    | Mutation                                                                                                                   | Result                                                                                                                                                                                                                                                              |
+| --------------------------------------------- | --------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| C039 the relay's budget, at the site's number | `packages/relay/src/site-plane.ts`      | Drop the field at `enqueue`: delete `...(request.tools === undefined ? {} : { maxToolCalls: request.tools.maxToolCalls })` | ✓ bites — "holds a job to the budget its site sent, below the ceiling" (the budget-of-3 case); also "does not give the budget back…", the replay case and "passes toolsDigest to satisfiable…", which reads the job's budget. The 21-call case survives, as it must |
+| A relay budget refusal closes the job         | `packages/daemon/src/client.ts`         | Drop the `tools-spent` branch, so the 403 is plain `forbidden`                                                             | ✓ bites — "closes a job reclaimed with its calls spent…", and `client.test.ts`'s "reads the budget refusal as tools-spent…"                                                                                                                                         |
+| A relay budget refusal closes the job         | `packages/daemon/src/tool-loop.ts`      | Read `tools-spent` as unsent: after the send, `if (sent === "tools-spent") sent = "unsent"`                                | ✓ bites — the reclaimed-job case, alone                                                                                                                                                                                                                             |
+| A relay budget refusal closes the job         | `packages/daemon/src/tool-loop.ts`      | Drop `atLimit = true` in the `tools-spent` case                                                                            | ✓ bites — the reclaimed-job case, alone                                                                                                                                                                                                                             |
+| A relay budget refusal closes the job         | `packages/daemon/src/tool-transport.ts` | Rethrow the `tools-spent` `ClientError` instead of returning `"tools-spent"`                                               | ✓ bites — the reclaimed-job case, alone                                                                                                                                                                                                                             |
+
+**The 21-call case alone could not see the field dropped.** With the field
+gone the job runs at the ceiling, and 21 is still refused. That is Owl's
+#56042 point 4, and why the budget-of-3 case is C039's row now.
+
+**The refusal case runs the shipped loop against the real relay plane.**
+Dane's device spends a budget of 3, the lease lapses and the sweep requeues
+the job; Lis's device claims it with its own count at 0. Its first call
+reaches the real relay through the shipped `ProtocolClient` and
+`clientToolTransport`, and the case asserts the relay's own body
+(`forbidden`, `TOOLS_SPENT_MESSAGE`), that the site's `calls` never shows it
+and the relay's count is still 3, that the model saw the tool error and then
+one closing turn with no tools, and `ok` with `stop: "tool-budget"` and
+`toolOutcomes.refused` 1. Under each daemon mutation the loop offers tools
+again, and the model, which calls whenever it is offered tools, spends its
+own count of three on calls the relay refuses: four turns, not two. Under
+three of them the calls are also logged `timedOut`, as a site that did not
+answer.
+
+**The signal is a sentence, and both planes assert it.** The daemon
+recognises the refusal as `forbidden` plus `TOOLS_SPENT_MESSAGE`, the hub's
+`tools-manifest-mismatch` precedent, because a new `WireErrorCode` member
+breaks every 0.1.4 parser. The relay's budget-of-3 case and the server's
+"holds a job to the protocol ceiling" case assert the live body against the
+constant, and `client.test.ts` holds that another 403, or the sentence on
+another code, is not read as spent.

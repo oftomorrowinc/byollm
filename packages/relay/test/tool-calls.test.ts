@@ -3,6 +3,7 @@ import {
   PROTOCOL_VERSION,
   SiteToolCalls,
   TOOL_LIMITS,
+  TOOLS_SPENT_MESSAGE,
   ToolCallResponse,
   ToolResultsResponse,
   cryptoReady,
@@ -17,6 +18,14 @@ import {
   type SealedEnvelope,
   type StoredKeys,
 } from "@byollm/protocol";
+import {
+  CLOSING_TURN,
+  ProtocolClient,
+  clientToolTransport,
+  runToolLoop,
+  type Backend,
+  type ConverseRequest,
+} from "byollm";
 import { randomBytes } from "node:crypto";
 import { afterEach, beforeAll, describe, expect, it } from "vitest";
 import { Relay, subStateOf } from "../src/index.js";
@@ -272,6 +281,8 @@ async function world() {
   return {
     clock,
     relay,
+    fixture,
+    site,
     daemon,
     device,
     siteKeys,
@@ -564,9 +575,14 @@ describe("C039 the relay's budget", () => {
    * number the relay is told at enqueue, and across a requeue, which is the
    * door a budget per grant would leave open.
    *
-   * Mutation (MUTATIONS.md): drop the relay's count — the
+   * The budget of 3 is C039's row as #7122 ruled it (byollm_012 §12 row 7):
+   * sent through the enqueue request, so a site plane that drops
+   * `tools.maxToolCalls` leaves the job at the ceiling and the case fails.
+   *
+   * Mutations (MUTATIONS.md): drop the relay's count — the
    * `if ((job.toolCallsMade ?? 0) >= limit) return { refused: "budget" }`
-   * line in `RelayState.recordToolCall`.
+   * line in `RelayState.recordToolCall`; and drop the field at the site
+   * plane's `enqueue` call.
    */
   it("refuses the 21st call on one job, and the site never sees it", async () => {
     const w = await world();
@@ -601,6 +617,11 @@ describe("C039 the relay's budget", () => {
       await w.callEnvelope(job.jobId, fourth, 4),
     );
     expect(refused.status).toBe(403);
+    // The pair the daemon recognises as the job's tools being spent (§8).
+    expect(await refused.json()).toEqual({
+      error: "forbidden",
+      message: TOOLS_SPENT_MESSAGE,
+    });
     expect((await w.calls()).map((c) => c.callId)).not.toContain(fourth);
   });
 
@@ -652,6 +673,207 @@ describe("C039 the relay's budget", () => {
       await w.callEnvelope(job.jobId, third, 1),
     );
     expect(refused.status).toBe(403);
+  });
+
+  /**
+   * What an HONEST daemon does with that refusal — #7122's condition, Owl's
+   * #56042 point 3. Dane's device spends a budget of 3 and its lease lapses;
+   * Lis's device claims the job with its own count at 0, and its first call
+   * is refused by the relay. The shipped tool loop, through the shipped
+   * transport and the shipped client, against this relay's plane: the model
+   * hears a tool error, gets one closing turn with no tools, and the job is
+   * `ok` with `stop: "tool-budget"` — never a failed request, and never a
+   * model left calling into refusals on paid turns.
+   *
+   * Mutations (MUTATIONS.md): the client drops its `tools-spent` branch, so
+   * the 403 is plain `forbidden`; the loop reads `tools-spent` as unsent.
+   */
+  it("closes a job reclaimed with its calls spent: a tool error, one closing turn, ok with tool-budget", async () => {
+    const w = await world();
+    const job = await w.running({ maxToolCalls: 3 });
+    for (let seq = 1; seq <= 3; seq += 1) await call(w, job, seq);
+
+    // Dane's lid closes: no heartbeat, the lease lapses, the job requeues.
+    w.clock.at += LEASE_MS + 1;
+    await w.relay.sweep();
+    expect((await w.relay.state.job(SITE_ID, job.jobId))?.state).toBe("queued");
+
+    const lis = await makeDaemon(w.relay, w.fixture, {
+      owner: "alice",
+      site: w.site,
+      offer: "private",
+    });
+    disposers.push(lis.dispose);
+    const lisDevice = publicIdentityOf(lis.keys);
+    const claim = await lis.signedFetch("claim", {
+      capabilities: [toolsCapability],
+      max: 1,
+    });
+    const { jobs } = (await claim.json()) as {
+      jobs: { id: string; lease: { id: string } }[];
+    };
+    const leaseId = jobs.find((it) => it.id === job.jobId)?.lease.id;
+    if (leaseId === undefined) throw new Error("Lis did not claim the job");
+    const payload = await seal({
+      plaintext: JSON.stringify({ messages: [] }),
+      senderKeys: w.siteKeys,
+      recipientEncryptionPublic: lisDevice.encryption,
+      context: {
+        jobId: job.jobId,
+        senderKeyId: keyId(w.site.identity),
+        recipientKeyId: keyId(lisDevice.identity),
+        deadlineAt: w.clock.at + ENVELOPE_MAX_AGE_MS,
+        direction: "payload",
+      },
+    });
+    expect(
+      (await w.sitePost("payload", { jobId: job.jobId, envelope: payload }))
+        .status,
+    ).toBe(200);
+    expect(
+      (await lis.signedFetch("fetch", { jobId: job.jobId, leaseId })).status,
+    ).toBe(200);
+
+    // Lis's client, with every tool-call answer the relay served recorded.
+    const served: { status: number; body: unknown }[] = [];
+    const client = new ProtocolClient({
+      origin: "http://relay.test",
+      identity: { runnerId: lis.runnerId, sign: lis.sign },
+      fetch: async (input, init) => {
+        const response = await w.relay.handle(new Request(input, init));
+        if (new Request(input, init).url.endsWith("/byollm/tool-call")) {
+          served.push({
+            status: response.status,
+            body: await response.clone().json(),
+          });
+        }
+        return response;
+      },
+    });
+
+    // A model that calls whenever it is offered tools, as a model with a
+    // question it cannot answer does.
+    const seen: ConverseRequest[] = [];
+    const backend: Backend = {
+      id: "openai-http",
+      class: "http",
+      stopReasons: { kind: "unavailable", why: "a test double" },
+      health: () => Promise.resolve({ healthy: true, models: [] }),
+      execute: () => Promise.reject(new Error("not used")),
+      converse: (request) => {
+        seen.push(request);
+        return Promise.resolve(
+          request.tools === undefined
+            ? {
+                ok: true,
+                text: "from what I have",
+                toolCalls: [],
+                stop: "end",
+                durationMs: 0,
+              }
+            : {
+                ok: true,
+                text: "",
+                toolCalls: [
+                  {
+                    id: `m${String(seen.length)}`,
+                    name: "lookup",
+                    arguments: '{"query":"q"}',
+                  },
+                ],
+                stop: "end",
+                durationMs: 0,
+              },
+        );
+      },
+    };
+    const outcomes: { outcome: string; detail?: string | undefined }[] = [];
+    const run = await runToolLoop({
+      backend,
+      model: "echo-model",
+      jobId: job.jobId,
+      prompt: "check the chapter",
+      declarations: [
+        {
+          name: "lookup",
+          description: "Look a term up.",
+          parameters: {
+            type: "object",
+            properties: { query: { type: "string", maxLength: 64 } },
+          },
+        },
+      ],
+      // Lis's own count, from the payload: it knows nothing of Dane's calls.
+      budget: 3,
+      maxResultChars: 32_000,
+      turnCeilingMs: 60_000,
+      maxOutputBytes: 64_000,
+      deadlineAt: w.clock.at + 10 * 60_000,
+      signal: new AbortController().signal,
+      now: () => w.clock.at,
+      wait: (ms) => {
+        w.clock.at += ms;
+        return Promise.resolve();
+      },
+      transport: clientToolTransport(client, {
+        runnerId: lis.runnerId,
+        jobId: job.jobId,
+        leaseId,
+      }),
+      seal: (toolCall) =>
+        seal({
+          plaintext: JSON.stringify(toolCall),
+          senderKeys: lis.keys,
+          recipientEncryptionPublic: w.site.encryption,
+          context: {
+            jobId: job.jobId,
+            senderKeyId: keyId(lisDevice.identity),
+            recipientKeyId: keyId(w.site.identity),
+            deadlineAt: w.clock.at + ENVELOPE_MAX_AGE_MS,
+            direction: "tool-call",
+          },
+        }),
+      open: () => Promise.resolve(null),
+      log: {
+        call: () => Promise.resolve(),
+        outcome: (entry) => {
+          outcomes.push({ outcome: entry.outcome, detail: entry.detail });
+          return Promise.resolve();
+        },
+        dropped: () => Promise.resolve(),
+      },
+    });
+
+    // The real refusal: one call sent, and the relay's own 403 for it.
+    expect(served).toEqual([
+      {
+        status: 403,
+        body: { error: "forbidden", message: TOOLS_SPENT_MESSAGE },
+      },
+    ]);
+    // Never shown to the site, and nothing charged past the budget.
+    expect(await w.calls()).toEqual([]);
+    expect((await w.relay.state.job(SITE_ID, job.jobId))?.toolCallsMade).toBe(
+      3,
+    );
+
+    // The model was told, then asked once more with no tools offered.
+    expect(seen).toHaveLength(2);
+    expect(seen[0]?.tools).toBeDefined();
+    expect(seen[1]?.tools).toBeUndefined();
+    const told = seen[1]?.messages.find((m) => m.role === "tool");
+    expect(told?.content).toMatch(/tools are spent/u);
+    expect(seen[1]?.messages.at(-1)?.content).toBe(CLOSING_TURN);
+
+    // ok, and says why it is short.
+    expect(run.result).toMatchObject({ ok: true, stop: "tool-budget" });
+    expect(run.toolOutcomes).toEqual({
+      answered: 0,
+      errored: 0,
+      timedOut: 0,
+      refused: 1,
+    });
+    expect(outcomes.map((o) => o.outcome)).toEqual(["refused"]);
   });
 });
 

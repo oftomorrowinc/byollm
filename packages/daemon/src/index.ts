@@ -101,6 +101,21 @@ export {
   type RunnerStatus,
 } from "./runner.js";
 
+/**
+ * The function-calling loop and its way to the site — byollm_012 §5, §8.
+ * Exported so the relay's suite can drive the shipped loop, through the
+ * shipped transport, against the real relay plane (#7440).
+ */
+export {
+  CLOSING_TURN,
+  runToolLoop,
+  type ToolLoopInput,
+  type ToolLoopLog,
+  type ToolLoopRun,
+  type ToolTransport,
+} from "./tool-loop.js";
+export { clientToolTransport } from "./tool-transport.js";
+
 export {
   BASE_URL_REFUSAL_MESSAGES,
   checkBaseUrl,

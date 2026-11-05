@@ -30,6 +30,7 @@ import {
   ReleaseRequest,
   ResultRequest,
   TOOL_LIMITS,
+  TOOLS_SPENT_MESSAGE,
   ToolCallRequest,
   ToolCallResponse,
   ToolResultsRequest,
@@ -943,10 +944,8 @@ export class ByollmHandlers {
         case "not-tools":
           return fail("bad-request", "this job does not carry tools");
         case "budget":
-          return fail(
-            "forbidden",
-            "this job has made every tool call it is allowed",
-          );
+          // The daemon recognises this pair and closes the job (§8).
+          return fail("forbidden", TOOLS_SPENT_MESSAGE);
         case "call-conflict":
           return fail(
             "bad-request",

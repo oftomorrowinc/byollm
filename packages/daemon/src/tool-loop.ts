@@ -46,7 +46,16 @@ export const CLOSING_TURN = "Answer from what you have.";
 
 /** The way to the site: the upstream's two tool endpoints, for this lease. */
 export interface ToolTransport {
-  send(call: { callId: string; envelope: SealedEnvelope }): Promise<void>;
+  /**
+   * Send one call: `"sent"` when the upstream took it. Throws when it would
+   * not, except for one refusal it names: `"tools-spent"`, the upstream
+   * saying this job has made every call it is allowed (byollm_012 §8,
+   * `TOOLS_SPENT_MESSAGE`).
+   */
+  send(call: {
+    callId: string;
+    envelope: SealedEnvelope;
+  }): Promise<"sent" | "tools-spent">;
   /** The upstream's answers for the one call this job is waiting on. */
   poll(
     callId: string,
@@ -249,22 +258,23 @@ export async function runToolLoop(input: ToolLoopInput): Promise<ToolLoopRun> {
         name: asked.name,
         arguments: parsedArguments(asked),
       };
-      let sent = true;
+      let sent: "sent" | "unsent" | "tools-spent";
       try {
-        await input.transport.send({
+        sent = await input.transport.send({
           callId,
           envelope: await input.seal(call),
         });
       } catch {
-        sent = false;
+        sent = "unsent";
       }
-      const answered = sent
-        ? await waitForResult({
-            ...input,
-            outstanding: { callId, seq },
-            finished,
-          })
-        : ({ kind: "unsent" } as const);
+      const answered =
+        sent === "sent"
+          ? await waitForResult({
+              ...input,
+              outstanding: { callId, seq },
+              finished,
+            })
+          : ({ kind: sent } as const);
       finished.add(callId);
 
       switch (answered.kind) {
@@ -275,6 +285,30 @@ export async function runToolLoop(input: ToolLoopInput): Promise<ToolLoopRun> {
             message: "the job was canceled",
             durationMs: input.now() - started,
           });
+        case "tools-spent": {
+          /* The upstream's count is the job's, not this device's: a job
+             claimed after a lapse can arrive with its calls already made
+             (#7122, Owl #56042 point 3). Not a site that did not answer —
+             nothing more will be taken, so the model is told so and the job
+             closes like one at its own limit, `ok` with `stop:
+             "tool-budget"` (§8). Never a failed request. */
+          outcomes.refused += 1;
+          atLimit = true;
+          await input.log.outcome({
+            callId,
+            seq,
+            outcome: "refused",
+            detail:
+              "the upstream says this job has made every tool call it is allowed",
+          });
+          messages.push(
+            toolTurn(
+              asked,
+              "Tool error: this job's tools are spent. Nothing was run.",
+            ),
+          );
+          break;
+        }
         case "unsent":
         case "timed-out": {
           /* The call still counts toward the budget (§5.3). An unsent call is

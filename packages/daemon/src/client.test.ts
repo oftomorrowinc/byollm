@@ -1,4 +1,5 @@
 import {
+  TOOLS_SPENT_MESSAGE,
   generateKeys,
   publicIdentityOf,
   signRequest,
@@ -579,5 +580,53 @@ describe("a finished job is not a job to keep asking about", () => {
     expect((await fetching(answering("too-late")))?.message).toContain(
       "already finished",
     );
+  });
+});
+
+describe("a job's tools spent is not a permission problem", () => {
+  /**
+   * byollm_012 §8, #7440. The relay's count is the job's, so an honest
+   * second device meets its refusal after a lapse; it arrives as `forbidden`
+   * and is told apart by the sentence beside it. Every other 403 stays
+   * `forbidden`, which the tool loop reads as a call that was not sent.
+   */
+  const calling = (status: number, body: unknown) =>
+    client(fetchReturning(status, body))
+      .toolCall({
+        runnerId: "r1",
+        jobId: "job_1",
+        leaseId: "lease_1",
+        callId: "c".repeat(22),
+        envelope: {} as never,
+      })
+      .then(() => null)
+      .catch((e: unknown) => e as ClientError);
+
+  it("reads the budget refusal as tools-spent, and nothing else as it", async () => {
+    expect(
+      (
+        await calling(403, {
+          error: "forbidden",
+          message: TOOLS_SPENT_MESSAGE,
+        })
+      )?.kind,
+    ).toBe("tools-spent");
+    expect(
+      (
+        await calling(403, {
+          error: "forbidden",
+          message: "that lease is no longer current",
+        })
+      )?.kind,
+    ).toBe("forbidden");
+    // The sentence alone is not enough: it is the pair.
+    expect(
+      (
+        await calling(400, {
+          error: "bad-request",
+          message: TOOLS_SPENT_MESSAGE,
+        })
+      )?.kind,
+    ).toBe("rejected");
   });
 });

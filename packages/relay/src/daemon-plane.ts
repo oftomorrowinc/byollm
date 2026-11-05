@@ -6,6 +6,7 @@ import {
   HeartbeatRequest,
   MAX_ENVELOPE_BYTES,
   PROTOCOL_VERSION,
+  TOOLS_SPENT_MESSAGE,
   ReleaseRequest,
   ResultRequest,
   RequestSignature,
@@ -125,19 +126,19 @@ const fail = (status: number, error: string, message: string): PlaneResult => ({
 /**
  * A tool call's refusals: the holder's, and three only a tool call can earn.
  *
- * `budget` is `forbidden` rather than a code of its own. An honest daemon
- * counts its own calls and never sends the one past the budget (byollm_012
- * §8), so the only caller who reads this is one that was modified to ignore
- * that count — and it needs no vocabulary to be told no.
+ * `budget` is read by honest daemons too. The count is the job's and
+ * survives a requeue, so a second device that claims a lapsed job starts its
+ * own count at 0 and meets this on its first call (Owl, #56042 point 3). It
+ * is `forbidden` with {@link TOOLS_SPENT_MESSAGE}, and the daemon recognises
+ * that pair: the model is told the job's tools are spent and the job closes
+ * `ok` with `stop: "tool-budget"` (byollm_012 §8). Not a code of its own,
+ * because a new `WireErrorCode` member breaks every 0.1.4 parser; the
+ * constant's note says why the sentence is safe to be the signal.
  */
 const TOOL_CALL_REFUSALS: Record<ToolCallRefusal, PlaneResult> = {
   ...REFUSALS,
   "not-tools": fail(400, "bad-request", "this job does not carry tools"),
-  budget: fail(
-    403,
-    "forbidden",
-    "this job has made every tool call it is allowed",
-  ),
+  budget: fail(403, "forbidden", TOOLS_SPENT_MESSAGE),
   "call-conflict": fail(
     400,
     "bad-request",

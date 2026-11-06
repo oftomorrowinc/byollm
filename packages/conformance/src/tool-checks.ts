@@ -1,3 +1,4 @@
+import { relative } from "node:path";
 import {
   TOOL_LIMITS,
   generateKeys,
@@ -344,12 +345,12 @@ export const TOOL_CHECKS: readonly ToolCheck[] = [
                 ({ data }) =>
                   data.includes("id_ed25519") || data.includes("rm -rf"),
               )
-              .map(({ path }) => path.slice(home.length)),
+              .map(({ path }) => relative(home, path)),
           ),
         ];
         expectSame(
           holding,
-          ["/ingress.log"],
+          ["ingress.log"],
           "files holding a call's arguments",
         );
         expectSame(

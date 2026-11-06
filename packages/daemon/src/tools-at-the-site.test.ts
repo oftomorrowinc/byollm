@@ -1,3 +1,4 @@
+import { join } from "node:path";
 import {
   TOOL_LIMITS,
   generateKeys,
@@ -171,8 +172,8 @@ describe("C034 nothing runs on the device — TOOLS_RUN_AT_SITE", () => {
       .filter(
         ({ data }) => data.includes("id_ed25519") || data.includes("rm -rf"),
       )
-      .map(({ path }) => path.slice(home.length));
-    expect(new Set(holding)).toEqual(new Set(["/ingress.log"]));
+      .map(({ path }) => path);
+    expect(new Set(holding)).toEqual(new Set([join(home, "ingress.log")]));
     expect(daemon.calls.map((c) => c.name)).toEqual([
       "shell",
       "exec",

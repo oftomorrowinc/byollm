@@ -1,6 +1,8 @@
 import { openSealedOutcome } from "./sealed-outcome.js";
+import { keptOutcome, readAtMost } from "./blobs.js";
 import {
   PROTOCOL_VERSION,
+  type ImageSealedOutcome,
   type JobKind,
   type SealedOutcome,
   type ResultDisposition,
@@ -198,6 +200,20 @@ const RETRYABLE_AT_ENQUEUE = new Set(["not-ready"]);
 /** An endpoint this relay does not have — see `#getUnlessAbsent`. */
 const ABSENT = Symbol("absent");
 
+/**
+ * What a relay with no blob endpoints is told about, in one sentence.
+ *
+ * A relay before 0.1.5-beta.2 answers `/relay/blobs` 404, and so does a
+ * newer one whose host gave it no blob store. Either way the fix is the
+ * relay's, and no retry changes it.
+ */
+const NO_IMAGES =
+  "this relay carries no images (404 on blobs) — it predates byollm 0.1.5 " +
+  "or has no blob store";
+
+/** The one content type a blob is: ciphertext, never what it decrypts to. */
+const BLOB_CONTENT_TYPE = "application/octet-stream";
+
 /** The endpoint where a decline means the job was never queued. */
 const ENQUEUE_ENDPOINT = "enqueue";
 
@@ -270,6 +286,14 @@ export class CloudLane {
   readonly #now: () => number;
   readonly #fetch: typeof fetch;
   readonly #tools: SiteTools | undefined;
+  /**
+   * Upload slots this process was issued and has not used, by blob id.
+   *
+   * In memory, and that is enough: a slot is asked for and filled within one
+   * `enqueue`, and one that outlives its process has expired at the store
+   * before anything could look for it.
+   */
+  readonly #slots = new Map<string, { url: string; expiresAt: number }>();
 
   constructor(deps: {
     options: CloudLaneOptions;
@@ -363,6 +387,157 @@ export class CloudLane {
    */
   async cancel(jobId: string): Promise<void> {
     await this.#post("cancel", { siteId: this.#options.siteId, jobId });
+  }
+
+  // -- blobs — byollm_021 §2, "The cloud lane" (#7875) ----------------------
+  //
+  // The site's half of images by reference through a relay: ask for a slot,
+  // `PUT` the ciphertext straight to the store, and on the way back ask for
+  // a download, `GET` it, and say when every output is held. The relay never
+  // sees a byte or a key; `ByollmApp` encrypts before calling these and
+  // decrypts after, so nothing here handles plaintext either.
+
+  /**
+   * `POST /relay/blobs` — an upload slot for one input image of a job not
+   * yet enqueued. `bytes` is the object's size (`blobObjectBytes`), and the
+   * relay holds the stored object to it before the job is offered.
+   */
+  async blobSlot(jobId: string, bytes: number): Promise<{ blob: string }> {
+    const answer = (await this.#blobPost("blobs", {
+      siteId: this.#options.siteId,
+      jobId,
+      direction: "in",
+      bytes,
+    })) as { blob?: unknown; url?: unknown; expiresAt?: unknown } | null;
+    // Read by the three keys this needs and no stricter: a slot already
+    // issued is not un-issued by a key this SDK does not know.
+    if (
+      typeof answer?.blob !== "string" ||
+      typeof answer.url !== "string" ||
+      typeof answer.expiresAt !== "number"
+    ) {
+      throw new RelayUnavailable(
+        "blobs: the relay's answer is not an upload slot",
+        false,
+        "bad-response",
+      );
+    }
+    this.#slots.set(answer.blob, {
+      url: answer.url,
+      expiresAt: answer.expiresAt,
+    });
+    return { blob: answer.blob };
+  }
+
+  /**
+   * `PUT` one blob's ciphertext to the slot {@link CloudLane.blobSlot}
+   * issued for it. Once per slot.
+   *
+   * Ciphertext, its length, and one content type — the same `PUT` a daemon
+   * makes for an output. The job a blob belongs to is in the object name the
+   * relay chose, so there is nothing else to send (#7875, choice B).
+   */
+  async uploadBlob(blob: string, object: Uint8Array): Promise<void> {
+    const slot = this.#slots.get(blob);
+    this.#slots.delete(blob);
+    if (slot === undefined || slot.expiresAt <= this.#now()) {
+      throw new RelayUnavailable(
+        `blobs: no open upload slot ${blob} — ask for one with blobSlot`,
+        false,
+        "no-slot",
+      );
+    }
+    const response = await this.#fetch(slot.url, {
+      method: "PUT",
+      headers: { "content-type": BLOB_CONTENT_TYPE },
+      body: object,
+      redirect: "error",
+    });
+    await response.body?.cancel();
+    if (!response.ok) {
+      throw new RelayUnavailable(
+        `blobs: the blob store refused an upload with HTTP ${String(response.status)}`,
+        response.status >= 500 || response.status === 429,
+        "blob-upload",
+      );
+    }
+  }
+
+  /**
+   * One output blob's ciphertext: `POST /relay/blobs/download` for a URL,
+   * then a `GET` that **stops at `size` bytes** — the object size the
+   * reference declares. A store that sends more is not believed for the
+   * rest, and `decryptBlob` opens nothing but the exact size.
+   */
+  async downloadBlob(
+    jobId: string,
+    blob: string,
+    size: number,
+  ): Promise<Uint8Array> {
+    const answer = (await this.#blobPost("blobs/download", {
+      siteId: this.#options.siteId,
+      jobId,
+      blob,
+    })) as { url?: unknown } | null;
+    if (typeof answer?.url !== "string") {
+      throw new RelayUnavailable(
+        "blobs/download: the relay's answer is not a download URL",
+        false,
+        "bad-response",
+      );
+    }
+    const response = await this.#fetch(answer.url, { redirect: "error" });
+    if (!response.ok) {
+      await response.body?.cancel();
+      throw new RelayUnavailable(
+        `blobs/download: the blob store returned HTTP ${String(response.status)}`,
+        response.status >= 500 || response.status === 429,
+        "blob-download",
+      );
+    }
+    const object = await readAtMost(response.body, size);
+    if (object === null) {
+      throw new RelayUnavailable(
+        "blobs/download: a blob was larger than its reference declares, so " +
+          "its download was stopped at the declared size",
+        false,
+        "blob-download",
+      );
+    }
+    return object;
+  }
+
+  /**
+   * `POST /relay/blobs/received` — this site holds these output blobs, so
+   * the relay deletes them now rather than an hour after collection.
+   */
+  async received(jobId: string, blobs: readonly string[]): Promise<void> {
+    await this.#blobPost("blobs/received", {
+      siteId: this.#options.siteId,
+      jobId,
+      blobs,
+    });
+  }
+
+  /**
+   * A blob call: `/relay/<endpoint>`, signed under that endpoint's name.
+   *
+   * A bare 404 — no message — is a relay with no such endpoint, and is
+   * said as that ({@link NO_IMAGES}). A 404 that names what was not found
+   * is this relay answering about one blob, and goes through as it is.
+   */
+  async #blobPost(endpoint: string, body: unknown): Promise<unknown> {
+    const response = await this.#send(endpoint, body, `/relay/${endpoint}`);
+    if (response.status === 404) {
+      const said = (await response
+        .clone()
+        .json()
+        .catch(() => null)) as { message?: unknown } | null;
+      if (typeof said?.message !== "string") {
+        throw new RelayUnavailable(NO_IMAGES, false, "no-images");
+      }
+    }
+    return this.#answer(response, endpoint);
   }
 
   /**
@@ -517,7 +692,11 @@ export class CloudLane {
         // that ran it, and the signature it verified above is the stronger
         // claim about who did.
         holder: { by: "lease", leaseId: done.leaseId },
-        outcome: outcome.outcome,
+        // An `llm.image` answer's references are kept with their keys
+        // wrapped, as on the direct lane. The relay held each output to its
+        // slot's size before it took the result; what each one decrypts to
+        // is checked when `images()` downloads it.
+        outcome: keptOutcome(this.#siteKeys, done.jobId, outcome.outcome),
         provenance: provenanceFor({
           audience: record.audience,
           runnerId: done.runnerId,
@@ -629,7 +808,7 @@ export class CloudLane {
     disposition: ResultDisposition;
     device: PublicIdentity;
     kind: JobKind;
-  }): Promise<SealedOutcome | null> {
+  }): Promise<SealedOutcome | ImageSealedOutcome | null> {
     const opened = await open({
       envelope: done.envelope,
       recipientKeys: this.#siteKeys,
@@ -750,6 +929,15 @@ export class CloudLane {
   }
 
   async #post(endpoint: string, body: unknown): Promise<unknown> {
+    return this.#answer(await this.#send(endpoint, body), endpoint);
+  }
+
+  /** One signed site-plane `POST`, answered or not. */
+  async #send(
+    endpoint: string,
+    body: unknown,
+    path = `/relay/site/${endpoint}`,
+  ): Promise<Response> {
     // The version travels in the body, as it does on the daemon plane — §B.4.
     // Added here rather than at each call site so a new site-plane call cannot
     // be written without it, which is how the site plane came to be outside
@@ -758,18 +946,14 @@ export class CloudLane {
       protocolVersion: PROTOCOL_VERSION,
       ...(body as Record<string, unknown>),
     });
-    const response = await this.#fetch(
-      `${this.#options.relayOrigin}/relay/site/${endpoint}`,
-      {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          ...this.#headers(endpoint, rawBody),
-        },
-        body: rawBody,
+    return this.#fetch(`${this.#options.relayOrigin}${path}`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        ...this.#headers(endpoint, rawBody),
       },
-    );
-    return this.#answer(response, endpoint);
+      body: rawBody,
+    });
   }
 
   /**

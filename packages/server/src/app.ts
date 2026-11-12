@@ -45,7 +45,12 @@ import {
 } from "./blobs.js";
 import { generateJobId, generateRunnerId } from "./ids.js";
 import { stripImageMetadata } from "./image-metadata.js";
-import { CloudLane, type CloudLaneOptions, type PumpReport } from "./cloud.js";
+import {
+  CloudLane,
+  RelayUnavailable,
+  type CloudLaneOptions,
+  type PumpReport,
+} from "./cloud.js";
 import { SiteTools, type ToolHandler } from "./site-tools.js";
 import { deadlineFor } from "./records.js";
 import type {
@@ -387,22 +392,6 @@ export class ByollmApp {
       );
     }
 
-    /**
-     * Images ride the cloud lane once the hub serves blobs — byollm_021
-     * §Rollout R2 step 2. Until then a blob uploaded here is one no relayed
-     * device can reach, so the job is refused rather than sent to fail.
-     */
-    if (
-      this.cloud !== undefined &&
-      (input.kind === "llm.vision" || input.kind === "llm.image")
-    ) {
-      throw new Error(
-        `enqueue does not take ${input.kind} on the cloud lane yet: images ` +
-          "travel by reference, and the hub's blob endpoints are not live. " +
-          "Use the direct lane for images until they are.",
-      );
-    }
-
     // One id for the job, minted before anything is sealed or uploaded:
     // the envelope binds it, and so does every input blob's associated data.
     const jobId = input.id ?? generateJobId();
@@ -440,7 +429,13 @@ export class ByollmApp {
     // §2, {@link MUSTS.BLOB_BUDGET_BEFORE_DOWNLOAD}. Every referenced input
     // is read back from the store and held to its slot: whatever uploaded
     // it, what is offered is what was stored.
-    if (input.kind === "llm.vision") {
+    //
+    // On the direct lane, where the store is this site's own. On the cloud
+    // lane the blobs are in the relay's store and the relay makes the same
+    // check when the stub is published, below: it reads each object's size
+    // and refuses the enqueue (byollm_021 §2, "the hub reads each object's
+    // size before the job is offered").
+    if (input.kind === "llm.vision" && this.cloud === undefined) {
       for (const ref of visionImages(parsed.data.payload as VisionPayload)) {
         const fault = await blobFault(this.#store, {
           jobId,
@@ -585,7 +580,13 @@ export class ByollmApp {
   async result(jobId: string): Promise<DeliveredResult | null> {
     const job = await this.job(jobId);
     if (!job) return null;
-    if (job.outcome !== null && "images" in job.outcome) {
+    if (
+      this.cloud === undefined &&
+      job.outcome !== null &&
+      "images" in job.outcome
+    ) {
+      // On the cloud lane the relay starts this clock itself, when its
+      // `results` hands the result over; the blobs are not in this store.
       // Collected: the output blobs now go within the hour, unless the site
       // says sooner that it holds them (byollm_021 §2). **Not now** — the
       // site downloads its images after it collects, and deleting them here
@@ -643,18 +644,12 @@ export class ByollmApp {
         ...rest,
         key: wrapBlobKey(this.#siteKeys, job.id, stored.blob, wrappedKey),
       });
-      const fault = await blobFault(this.#store, {
-        jobId: job.id,
-        direction: "out",
-        ref,
-        now,
-      });
-      const blob = await this.#store.getBlob(ref.blob);
-      if (fault !== null || blob?.data == null) {
-        throw new ImageRefused(fault ?? `blob ${ref.blob} is gone`);
-      }
+      const object =
+        this.cloud === undefined
+          ? await this.#storedOutput(job.id, ref, now)
+          : await this.#relayedOutput(this.cloud, job.id, ref);
       const opened = await decryptBlob({
-        object: blob.data,
+        object,
         ref,
         jobId: job.id,
         direction: "out",
@@ -671,12 +666,68 @@ export class ByollmApp {
     return out;
   }
 
+  /** One output's ciphertext from this site's own store — the direct lane. */
+  async #storedOutput(
+    jobId: string,
+    ref: BlobRef,
+    now: number,
+  ): Promise<Uint8Array> {
+    const fault = await blobFault(this.#store, {
+      jobId,
+      direction: "out",
+      ref,
+      now,
+    });
+    const blob = await this.#store.getBlob(ref.blob);
+    if (fault !== null || blob?.data == null) {
+      throw new ImageRefused(fault ?? `blob ${ref.blob} is gone`);
+    }
+    return blob.data;
+  }
+
+  /**
+   * One output's ciphertext through the relay — the cloud lane. The
+   * download stops at the size the reference declares, and what arrived is
+   * held to that reference by `decryptBlob` like any other.
+   */
+  async #relayedOutput(
+    cloud: CloudLane,
+    jobId: string,
+    ref: BlobRef,
+  ): Promise<Uint8Array> {
+    try {
+      return await cloud.downloadBlob(
+        jobId,
+        ref.blob,
+        blobObjectBytes(ref.bytes),
+      );
+    } catch (error) {
+      // The relay answering about this one blob: deleted, or never this
+      // job's output. Anything else is the relay's or the store's, and
+      // keeps its own class so a caller can tell an outage from a refusal.
+      if (error instanceof RelayUnavailable && error.code === "not-found") {
+        throw new ImageRefused(`blob ${ref.blob} is gone`);
+      }
+      throw error;
+    }
+  }
+
   /**
    * Tell the store this site holds a job's output images, so they are
-   * deleted now — the direct lane's `POST /relay/blobs/received`.
+   * deleted now — `POST /relay/blobs/received` on the cloud lane, the same
+   * deletion in this site's own store on the direct lane.
    * {@link ByollmApp.images} sends it after every image has verified.
    */
   async received(jobId: string): Promise<void> {
+    if (this.cloud !== undefined) {
+      const job = await this.#store.get(jobId);
+      const blobs =
+        job?.outcome != null && "images" in job.outcome
+          ? job.outcome.images.map((image) => image.blob)
+          : [];
+      if (blobs.length > 0) await this.cloud.received(jobId, blobs);
+      return;
+    }
     const now = this.#now();
     await this.#store.deleteBlob({
       jobId,
@@ -688,7 +739,8 @@ export class ByollmApp {
 
   /**
    * Issue an upload slot for one input image of a job not yet enqueued —
-   * the direct lane's `POST /relay/blobs`.
+   * `POST /relay/blobs` on the cloud lane, a row in this site's own store on
+   * the direct lane.
    *
    * `bytes` is the object's size, padded plus overhead (`blobObjectBytes`).
    * `enqueue` does this itself for images given as bytes; this is for a
@@ -703,6 +755,9 @@ export class ByollmApp {
       throw new ImageRefused(
         "a slot is whole 256 KiB buckets plus 40 bytes, up to one image at the cap",
       );
+    }
+    if (this.cloud !== undefined) {
+      return this.cloud.blobSlot(input.jobId, input.bytes);
     }
     const now = this.#now();
     const blob = newBlobId();
@@ -722,11 +777,16 @@ export class ByollmApp {
   }
 
   /**
-   * Upload ciphertext under a slot from {@link ByollmApp.blobSlot} — what
-   * the presigned `PUT` is on the hub. Once per slot. Stored as given: the
-   * size is checked at enqueue, against what was stored.
+   * Upload ciphertext under a slot from {@link ByollmApp.blobSlot} — the
+   * presigned `PUT` on the cloud lane, a write to this site's own store on
+   * the direct lane. Once per slot. Stored as given: the size is checked at
+   * enqueue, against what was stored.
    */
   async uploadBlob(blobId: string, data: Uint8Array): Promise<void> {
+    if (this.cloud !== undefined) {
+      await this.cloud.uploadBlob(blobId, data);
+      return;
+    }
     const blob = await this.#store.getBlob(blobId);
     if (blob?.direction !== "in" || blob.data !== null) {
       throw new ImageRefused(`no empty input slot ${blobId}`);

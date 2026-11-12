@@ -13,6 +13,7 @@ import {
   type Capability,
 } from "@byollm/protocol";
 import { ByollmApp, ImageRefused } from "./app.js";
+import { RelayUnavailable } from "./cloud.js";
 import { generateSiteKeys } from "./keys.js";
 import { BLOB_URL_SEGMENT, openBlobUrl, signBlobUrl } from "./blobs.js";
 import { stripImageMetadata } from "./image-metadata.js";
@@ -294,20 +295,45 @@ describe("the site's input images — byollm_021 §2, §4", () => {
     expect(h.store.allJobs()).toEqual([]);
   });
 
-  it("refuses images on the cloud lane until the hub serves blobs", async () => {
+  it("says so when its relay has no blob endpoints, and enqueues nothing", async () => {
+    // A relay before 0.1.5-beta.2, or one whose host gave it no blob
+    // store, answers `/relay/blobs` with a bare 404. The round trip against
+    // a relay that has them is `packages/relay/test/blobs-sdk.test.ts`.
     const h = createHarness();
+    const asked: string[] = [];
     const cloud = new ByollmApp({
       store: h.store,
       siteKeys: generateSiteKeys(),
-      lane: { relayOrigin: "https://relay.test", siteId: "site" },
+      lane: {
+        relayOrigin: "https://relay.test",
+        siteId: "site",
+        fetch: (input, init) => {
+          asked.push(new URL(new Request(input, init).url).pathname);
+          return Promise.resolve(
+            Response.json({ error: "not-found" }, { status: 404 }),
+          );
+        },
+      },
     });
-    await expect(
-      cloud.enqueue({
-        kind: "llm.image",
+    const refusal = await cloud
+      .enqueue({
+        kind: "llm.vision",
         owner: "alice",
-        payload: { prompt: "a square" },
-      }),
-    ).rejects.toThrow(/cloud lane/);
+        payload: {
+          messages: [
+            { role: "user", content: [{ type: "image", image: png() }] },
+          ],
+        },
+      })
+      .catch((error: unknown) => error);
+    expect(refusal).toBeInstanceOf(RelayUnavailable);
+    expect((refusal as RelayUnavailable).code).toBe("no-images");
+    expect((refusal as RelayUnavailable).retryable).toBe(false);
+    expect((refusal as RelayUnavailable).message).toMatch(/carries no images/);
+    // The slot was the first thing asked for and the last: no stub was
+    // published and no job stored for a device to be offered.
+    expect(asked).toEqual(["/relay/blobs"]);
+    expect(h.store.allJobs()).toEqual([]);
   });
 });
 

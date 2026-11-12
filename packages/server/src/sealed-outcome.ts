@@ -46,8 +46,8 @@ export function openSealedOutcome(input: {
    * The job's kind, which owns what its answer may carry (byollm_021 R1):
    * an `llm.image` answer carries image references, an `llm.tools` answer
    * carries `toolCalls` and `toolOutcomes`, and a text kind's may carry
-   * neither. The cloud lane carries no images until the hub's blob endpoints
-   * exist (byollm_021 §Rollout R2).
+   * neither. Both lanes carry images: the references arrive sealed either
+   * way, and only where the ciphertext is stored differs (byollm_021 §2).
    *
    * Without it every `llm.tools` result failed the strict `SealedOutcome`
    * parse, on both lanes, so no site could read a tool job's answer — found

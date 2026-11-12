@@ -50,11 +50,12 @@ import {
   BLOB_URL_TTL_MS,
   BLOBS_KEPT_AFTER_DEADLINE_MS,
   blobFault,
+  keptOutcome,
   openBlobUrl,
+  readAtMost,
   outputBlobIds,
   servable,
   signBlobUrl,
-  wrapBlobKey,
 } from "./blobs.js";
 import { generateDeviceCode, generateUserCode, hashSecret } from "./ids.js";
 import { resealForDevice } from "./reseal.js";
@@ -1012,17 +1013,7 @@ export class ByollmHandlers {
         return { ok: false, failure: fail("bad-request", fault) };
       }
     }
-    return {
-      ok: true,
-      outcome: {
-        outcome: "ok",
-        text: outcome.text,
-        images: outcome.images.map(({ key, ...ref }) => ({
-          ...ref,
-          wrappedKey: wrapBlobKey(this.#siteKeys, job.id, ref.blob, key),
-        })),
-      },
-    };
+    return { ok: true, outcome: keptOutcome(this.#siteKeys, job.id, outcome) };
   }
 
   // -- 5. release -----------------------------------------------------------
@@ -1057,37 +1048,4 @@ function leaseOf(job: JobRecord): NonNullable<JobRecord["lease"]> {
     );
   }
   return job.lease;
-}
-
-/**
- * Read a body, or `null` once it runs past `limit` bytes.
- *
- * Stops reading at the first byte over, so a device cannot make this
- * process hold more than one slot's worth of anybody's upload.
- */
-async function readAtMost(
-  body: ReadableStream<Uint8Array> | null,
-  limit: number,
-): Promise<Uint8Array | null> {
-  if (body === null) return new Uint8Array();
-  const reader = body.getReader();
-  const chunks: Uint8Array[] = [];
-  let total = 0;
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    total += value.length;
-    if (total > limit) {
-      await reader.cancel();
-      return null;
-    }
-    chunks.push(value);
-  }
-  const out = new Uint8Array(total);
-  let at = 0;
-  for (const chunk of chunks) {
-    out.set(chunk, at);
-    at += chunk.length;
-  }
-  return out;
 }

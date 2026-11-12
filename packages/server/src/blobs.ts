@@ -6,8 +6,11 @@ import {
   verifyWith,
   type BlobDirection,
   type BlobRef,
+  type ImageJobOutcome,
+  type JobOutcome,
   type StoredKeys,
 } from "@byollm/protocol";
+import type { StoredOutcome } from "./records.js";
 import type { BlobStore, StoredBlob } from "./store.js";
 
 /**
@@ -22,13 +25,14 @@ import type { BlobStore, StoredBlob } from "./store.js";
  */
 
 /**
- * How long an output blob outlives its result's collection when the site
- * never says it holds it (§2).
+ * §2's two deletion clocks. The protocol's, because a relay deletes on the
+ * same two and a second statement of either is a lane whose blobs live
+ * longer than the privacy page says.
  */
-export const OUTPUT_KEPT_AFTER_COLLECTION_MS = 60 * 60_000;
-
-/** How long an uncollected job's blobs outlive its deadline (§2). */
-export const BLOBS_KEPT_AFTER_DEADLINE_MS = 24 * 60 * 60_000;
+export {
+  BLOBS_KEPT_AFTER_DEADLINE_MS,
+  OUTPUT_KEPT_AFTER_COLLECTION_MS,
+} from "@byollm/protocol";
 
 /** How long a blob URL works once issued. Short: it is a bearer capability. */
 export const BLOB_URL_TTL_MS = 5 * 60_000;
@@ -146,6 +150,65 @@ export function wrapBlobKey(
     out[i] = (raw[i] ?? 0) ^ (pad[i % pad.length] ?? 0);
   }
   return out.toString("base64url");
+}
+
+/**
+ * An outcome as this site keeps it: a text answer as sealed, an `llm.image`
+ * answer with each reference's key wrapped ({@link wrapBlobKey}).
+ *
+ * One function for both lanes. The direct lane's store holds the ciphertext
+ * too, which is why a bare key may not sit beside it; the cloud lane's does
+ * not, and wraps anyway, so a stored reference is one shape wherever the
+ * result arrived from and `ByollmApp.images` unwraps it one way.
+ */
+export function keptOutcome(
+  siteKeys: Pick<StoredKeys, "identityPrivate">,
+  jobId: string,
+  outcome: JobOutcome | ImageJobOutcome,
+): StoredOutcome {
+  if (!("images" in outcome)) return outcome;
+  return {
+    outcome: "ok",
+    text: outcome.text,
+    images: outcome.images.map(({ key, ...ref }) => ({
+      ...ref,
+      wrappedKey: wrapBlobKey(siteKeys, jobId, ref.blob, key),
+    })),
+  };
+}
+
+/**
+ * Read a body, refusing one longer than `limit` — `null` then.
+ *
+ * Counted as it arrives rather than after: a body is whatever the far end
+ * chose to send, and neither an upload under a slot nor a download against
+ * a reference may make this process hold more than the size it was told.
+ */
+export async function readAtMost(
+  body: ReadableStream<Uint8Array> | null,
+  limit: number,
+): Promise<Uint8Array | null> {
+  if (body === null) return new Uint8Array();
+  const reader = body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.length;
+    if (total > limit) {
+      await reader.cancel();
+      return null;
+    }
+    chunks.push(value);
+  }
+  const out = new Uint8Array(total);
+  let at = 0;
+  for (const chunk of chunks) {
+    out.set(chunk, at);
+    at += chunk.length;
+  }
+  return out;
 }
 
 /**

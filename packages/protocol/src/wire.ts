@@ -8,6 +8,7 @@ import { SealedEnvelope } from "./envelope.js";
 import { JobKind } from "./kinds.js";
 import { TOOL_LIMITS, ToolCallId, ToolsDigest } from "./tools.js";
 import { MAX_BLOB_OBJECT_BYTES } from "./blob.js";
+import { MAX_IMAGES_OUT } from "./media.js";
 
 /**
  * Protocol version carried on every request; servers refuse what they can't
@@ -1312,3 +1313,107 @@ export const BlobSlotResponse = z
   })
   .strict();
 export type BlobSlotResponse = z.infer<typeof BlobSlotResponse>;
+
+// -- the site's three — byollm_021 §2, "The cloud lane" (#7875) -------------
+//
+// The daemon's two above have a site-plane counterpart on a relay: the site
+// asks for an upload slot for each input image, downloads each output image,
+// and says when it holds them so they can be deleted. Signed with the site
+// key like every site-plane call. On the direct lane the site is the
+// upstream and these are method calls on its own store, not requests.
+//
+// None carries a header list or a job tag for the upload (#7875, choice B):
+// the job a blob belongs to rides in the object name the upstream chooses,
+// which the uploader never sees or sends, so the site's `PUT` is the daemon's
+// `PUT` — ciphertext and its length, nothing else.
+
+/** A blob id, as every blob shape accepts it — {@link BlobRef}'s `blob`. */
+const BlobId = z.string().regex(/^[A-Za-z0-9_-]{1,128}$/);
+
+/**
+ * `POST /relay/blobs` — an upload slot for one input blob of a job this site
+ * is about to enqueue.
+ *
+ * Before the enqueue, because the reference goes inside the sealed payload
+ * and the upload overlaps the wait for a device. `bytes` is the object's
+ * size, padded plus overhead (`blobObjectBytes`); the upstream keeps it with
+ * the slot and holds the stored object to it before the job is offered
+ * ({@link MUSTS.BLOB_BUDGET_BEFORE_DOWNLOAD}).
+ */
+export const SiteBlobSlotRequest = z
+  .object({
+    protocolVersion: z.literal(PROTOCOL_VERSION),
+    siteId: z.string().min(1),
+    jobId: z.string().min(1),
+    /**
+     * Always `in`: a site uploads inputs and a device uploads outputs. Named
+     * rather than implied because the direction is bound into the blob's
+     * associated data, and the slot says which one it was issued for.
+     */
+    direction: z.literal("in"),
+    bytes: z.number().int().min(1).max(MAX_BLOB_OBJECT_BYTES),
+  })
+  .strict();
+export type SiteBlobSlotRequest = z.infer<typeof SiteBlobSlotRequest>;
+
+/** The same three keys as {@link BlobSlotResponse}: a slot is a slot. */
+export const SiteBlobSlotResponse = z
+  .object({
+    /** The id the payload's reference names, minted by the upstream. */
+    blob: BlobId,
+    /** `PUT` exactly `bytes` of ciphertext here. A capability; it expires. */
+    url: z.url(),
+    expiresAt: z.number().int(),
+  })
+  .strict();
+export type SiteBlobSlotResponse = z.infer<typeof SiteBlobSlotResponse>;
+
+/**
+ * `POST /relay/blobs/download` — a download URL for one output blob of one
+ * of this site's jobs.
+ */
+export const SiteBlobDownloadRequest = z
+  .object({
+    protocolVersion: z.literal(PROTOCOL_VERSION),
+    siteId: z.string().min(1),
+    jobId: z.string().min(1),
+    /** The blob, by the id in the result's reference. */
+    blob: BlobId,
+  })
+  .strict();
+export type SiteBlobDownloadRequest = z.infer<typeof SiteBlobDownloadRequest>;
+
+export const SiteBlobDownloadResponse = z
+  .object({
+    /** `GET` this for the stored ciphertext. A capability; it expires. */
+    url: z.url(),
+    expiresAt: z.number().int(),
+  })
+  .strict();
+export type SiteBlobDownloadResponse = z.infer<typeof SiteBlobDownloadResponse>;
+
+/**
+ * `POST /relay/blobs/received` — this site holds these output blobs, so the
+ * upstream may delete them now ({@link MUSTS.BLOBS_GO_WITH_THE_JOB}).
+ *
+ * Sent once every output has downloaded and verified. Without it they go one
+ * hour after the result was collected. Naming a blob that is already gone,
+ * or was never this job's, deletes nothing and is not an error: the call is
+ * a statement about what the site holds, and saying it twice is ordinary.
+ */
+export const SiteBlobsReceivedRequest = z
+  .object({
+    protocolVersion: z.literal(PROTOCOL_VERSION),
+    siteId: z.string().min(1),
+    jobId: z.string().min(1),
+    blobs: z.array(BlobId).min(1).max(MAX_IMAGES_OUT),
+  })
+  .strict();
+export type SiteBlobsReceivedRequest = z.infer<typeof SiteBlobsReceivedRequest>;
+
+export const SiteBlobsReceivedResponse = z
+  .object({ jobId: z.string().min(1) })
+  .strict();
+export type SiteBlobsReceivedResponse = z.infer<
+  typeof SiteBlobsReceivedResponse
+>;

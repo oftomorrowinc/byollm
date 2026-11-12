@@ -73,6 +73,19 @@ export function isBlobObjectSize(size: number): boolean {
   );
 }
 
+/**
+ * How long an output blob outlives its result's collection when the site
+ * never says it holds it — byollm_021 §2.
+ *
+ * Here, beside the padding and the caps, because both upstreams delete on
+ * it: `@byollm/server` from its own store and a relay from its blob store.
+ * One number, so the privacy page's sentence is true on either lane.
+ */
+export const OUTPUT_KEPT_AFTER_COLLECTION_MS = 60 * 60_000;
+
+/** How long an uncollected job's blobs outlive its deadline — §2. */
+export const BLOBS_KEPT_AFTER_DEADLINE_MS = 24 * 60 * 60_000;
+
 /** A blob id: 128 random bits, base64url — what {@link BlobRef.blob} accepts. */
 export function newBlobId(): string {
   return randomBytes(16).toString("base64url");

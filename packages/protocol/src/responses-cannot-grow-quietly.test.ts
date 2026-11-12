@@ -229,6 +229,14 @@ const AGREED: Readonly<Record<string, readonly string[]>> = {
   ],
   ReleaseResponse: ["released"],
   ResultResponse: ["accepted", "duplicate", "state"],
+  /* byollm_021 §2's site-plane blob answers (#7875). Agreed new, and parsed
+     by the site SDK, never by a daemon: a site meets them only by asking
+     for a slot, a download or `received`, which no SDK before 0.1.5 does.
+     The slot's answer has the daemon's three keys and no fourth — the job
+     rides in the object name, so there is no header list to hand over. */
+  SiteBlobDownloadResponse: ["expiresAt", "url"],
+  SiteBlobSlotResponse: ["blob", "expiresAt", "url"],
+  SiteBlobsReceivedResponse: ["jobId"],
   /* byollm_012 §5.2's tool endpoints (#6933 card 2). Agreed new: no daemon
      before 0.1.5 calls them, so this is the promise starting, not a key
      added to one already made. The site one is parsed by the site SDK. */

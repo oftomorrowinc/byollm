@@ -1190,6 +1190,28 @@ the file restored.
 | C059  | `packages/relay/src/blobs.ts`        | Let every collection extend the hour (`bringForward` takes the later) | ✓ bites                                     |
 | C052  | `packages/server/src/cloud.ts`       | The SDK reads a whole download, not the declared size                 | ✓ bites (the site's end, on the cloud lane) |
 
+Added after Owl's review (#58753), with `packages/server/src/blobs.test.ts`
+run beside the two relay files. Each was applied to one match, the exit code
+read (1 each time), and the file restored.
+
+| check | mutated                              | mutation                                                          | result                                           |
+| ----- | ------------------------------------ | ----------------------------------------------------------------- | ------------------------------------------------ |
+| C053  | `packages/relay/src/daemon-plane.ts` | `#held` also allows a job that is `done`                          | ✓ bites (no URL, no slot once done)              |
+| C053  | `packages/relay/src/daemon-plane.ts` | `#held` drops the `cancelled` clause                              | ✓ bites (the cancelled running job)              |
+| C054  | `packages/relay/src/daemon-plane.ts` | Drop `recorded.accepted` before `resultAccepted`                  | ✓ bites (ok replayed as error keeps the outputs) |
+| C057  | `packages/relay/src/blobs.ts`        | `outputFault` checks every lease's output slots                   | ✓ bites (a lapsed lease's unfilled slot)         |
+| C054  | `packages/relay/src/blobs.ts`        | The orphan pass deletes nothing                                   | ✓ bites (2)                                      |
+| C054  | `packages/relay/src/blobs.ts`        | The orphan pass ignores the ledger record                         | ✓ bites (the object its record still names)      |
+| C054  | `packages/relay/src/blobs.ts`        | The orphan pass ignores age (`storedBefore(now)`)                 | ✓ bites (deleted at the hour, not at 48 hours)   |
+| C053  | `packages/relay/src/blobs.ts`        | `blobAddressOf` accepts a segment `segment` never wrote           | ✓ bites (the non-canonical name)                 |
+| C057  | `packages/server/src/app.ts`         | The SDK does not ask before an `llm.image` enqueue                | ✓ bites (2: a beta.1 relay is published to)      |
+| C057  | `packages/server/src/cloud.ts`       | `carriesImages` treats a bare 404 as a relay that has blob routes | ✓ bites                                          |
+
+`outputFault`'s lease filter is not equivalent to having none: a lapsed
+lease's slots are displaced only when the next lease asks for a slot, so a
+next lease that asks for none would be refused for the first one's unfilled
+slot.
+
 **What these do not show.** The store under them is the package's memory
 store, which stores whatever is `PUT`. Nothing here has asked a real bucket
 whether a daemon's `PUT` satisfies a signed URL; that is the hub card's one

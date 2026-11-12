@@ -199,9 +199,10 @@ this is what was built.
 
 - **The store is the host's, behind one interface.** "R2" above is whatever
   bucket the deployment has; byollm.cloud's is GCS (#7332). `@byollm/relay`
-  takes a `BlobStore` from its host (slot, URL, size, list, delete) and ships
-  a memory one. The lease check, the size checks and the deletion order are
-  in the package, not in the host's code beside it (Owl's point 4).
+  takes a `BlobStore` from its host (slot, URL, size, a job's objects, every
+  object with its stored time, delete) and ships a memory one. The lease
+  check, the size checks and the deletion order are in the package, not in
+  the host's code beside it (Owl's point 4).
 - **Three site-plane calls**, signed with the site key:
   - `POST /relay/blobs` takes `{ jobId, direction: "in", bytes }` and answers
     `{ blob, url, expiresAt }`: a blob id the relay mints and a signed `PUT`.
@@ -214,9 +215,27 @@ this is what was built.
   upstream chooses, `blobs/<site>/<job>/<in|out>/<blob>`. An uploader sends
   ciphertext and its length and nothing else, so `BlobSlotResponse` keeps
   its three keys and a 0.1.5-beta.1 daemon's `PUT` is unchanged. The bucket
-  still says which job each object belongs to, and that survives the hub's
-  routing store restarting (Owl's point 5): a job enqueued again after one
-  is checked, and later deleted, from the names.
+  still says which job each object belongs to, whatever the hub's routing
+  store remembers (Owl's point 5).
+- **What a lost ledger costs.** The relay's record of a job's slots carries
+  the deletion times above. If it is lost (the hub's routing store
+  restarting), two things rebuild or replace it, both from object names:
+  - A job enqueued again is checked from the names, and gets a new record
+    that deletes its blobs a day after its deadline.
+  - Any other object has no record and nothing to rebuild one. The sweep
+    lists the whole store and deletes each object no record covers once it
+    is 48 hours old: the oldest an envelope may be, plus a day. The name
+    does not carry the job's deadline, so this is the earliest time that is
+    safe for every job.
+
+  So a lost ledger loses the two early deletions, at the result and an hour
+  after collection, and nothing else. Example: the ledger is lost on a
+  Thursday night with forty `llm.image` outputs collected and waiting out
+  their hour, and their sites never call `images()`. They are deleted by
+  Saturday night, 48 hours after each was stored, not at the bucket's day 7
+  and not within the hour. A site that does call `images()` still has its
+  blobs deleted at `received`, which needs no record. A hub that wants the
+  hour kept across a restart keeps its ledger somewhere that survives one.
 - **A slot's size is in its blob id.** The id ends with the slot's size in
   256 KiB buckets, so the size a stored object is held to is recorded where
   it cannot be lost separately from the object.
@@ -240,8 +259,16 @@ this is what was built.
   404, as a relay before `0.1.5-beta.2` does, and it refuses `llm.vision`
   and `llm.image` at enqueue. Without that an `llm.image` job, which has no
   input to check, would be offered, the device's backend would be paid, and
-  the output slot would answer 404 (Owl's point 3). The site SDK reads the
-  404 as "this relay carries no images" and enqueues nothing.
+  the output slot would answer 404 (Owl's point 3).
+- **The site SDK asks before it enqueues an image job.** It reads a bare 404
+  from a blob route as "this relay carries no images", throws, and neither
+  stores nor publishes the job. An `llm.vision` job asks with its first
+  upload slot. An `llm.image` job uploads nothing, so the SDK first asks
+  `POST /relay/blobs/download` for a blob no job has: a relay with blob
+  routes answers 404 with a message naming the blob, and one without them
+  answers a bare 404. This is what protects a site on this SDK from a
+  `0.1.5-beta.1` relay, which routes `llm.image` and has no blob routes. So
+  a 404 from a blob route that is about one blob MUST carry a `message`.
 - **Output slots belong to a lease.** At most four under one lease. When a
   lease lapses and the next device asks for a slot, the first lease's
   outputs are deleted: no result can reference them.

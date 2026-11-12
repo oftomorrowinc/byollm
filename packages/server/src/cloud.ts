@@ -211,6 +211,12 @@ const NO_IMAGES =
   "this relay carries no images (404 on blobs) — it predates byollm 0.1.5 " +
   "or has no blob store";
 
+/**
+ * The blob id {@link CloudLane.carriesImages} asks for: well-formed on the
+ * wire, and not an id any relay mints, so it names no object.
+ */
+const NO_SUCH_BLOB = "no-such-blob";
+
 /** The one content type a blob is: ciphertext, never what it decrypts to. */
 const BLOB_CONTENT_TYPE = "application/octet-stream";
 
@@ -505,6 +511,35 @@ export class CloudLane {
       );
     }
     return object;
+  }
+
+  /**
+   * Ask this relay whether it carries images, before an `llm.image` stub is
+   * published to it. Throws `no-images` when it does not.
+   *
+   * An `llm.vision` job learns this from its first upload slot. An
+   * `llm.image` job has no input, so nothing it does before `enqueue` would
+   * touch a blob route: published to a relay without them, it would be
+   * offered, the device's backend paid, and the output slot answer 404
+   * (#7875, Owl's point 3 — a 0.1.5-beta.1 relay routes the kind and has no
+   * blob routes). So one download is asked for first, for a blob no job
+   * has. It reads and writes nothing: a relay with blob routes says it has
+   * no such blob, by name, and one without them answers a bare 404, which
+   * {@link CloudLane.#blobPost} reads as {@link NO_IMAGES}.
+   */
+  async carriesImages(jobId: string): Promise<void> {
+    try {
+      await this.#blobPost("blobs/download", {
+        siteId: this.#options.siteId,
+        jobId,
+        blob: NO_SUCH_BLOB,
+      });
+    } catch (error) {
+      if (error instanceof RelayUnavailable && error.code === "not-found") {
+        return;
+      }
+      throw error;
+    }
   }
 
   /**

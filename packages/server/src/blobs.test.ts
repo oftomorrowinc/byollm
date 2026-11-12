@@ -335,6 +335,80 @@ describe("the site's input images — byollm_021 §2, §4", () => {
     expect(asked).toEqual(["/relay/blobs"]);
     expect(h.store.allJobs()).toEqual([]);
   });
+
+  it("asks before it publishes an llm.image job, which uploads nothing, and enqueues nothing on a relay with no blob endpoints", async () => {
+    // The relay 0.1.5-beta.1 shipped: it routes `llm.image` and has no blob
+    // route. Everything is answered as that relay answers it — a bare 404
+    // under `/relay/blobs`, and yes to an enqueue — so the only thing that
+    // keeps a device from being paid for images it cannot hand back is the
+    // SDK asking first.
+    const h = createHarness();
+    const asked: string[] = [];
+    const cloud = new ByollmApp({
+      store: h.store,
+      siteKeys: generateSiteKeys(),
+      lane: {
+        relayOrigin: "https://relay.test",
+        siteId: "site",
+        fetch: (input, init) => {
+          const { pathname } = new URL(new Request(input, init).url);
+          asked.push(pathname);
+          return Promise.resolve(
+            pathname.startsWith("/relay/blobs")
+              ? Response.json({ error: "not-found" }, { status: 404 })
+              : Response.json({ state: "queued" }),
+          );
+        },
+      },
+    });
+    const refusal = await cloud
+      .enqueue({
+        kind: "llm.image",
+        owner: "alice",
+        payload: { prompt: "a square" },
+      })
+      .catch((error: unknown) => error);
+    expect(refusal).toBeInstanceOf(RelayUnavailable);
+    expect((refusal as RelayUnavailable).code).toBe("no-images");
+    expect((refusal as RelayUnavailable).retryable).toBe(false);
+    expect(asked).toEqual(["/relay/blobs/download"]);
+    expect(h.store.allJobs()).toEqual([]);
+  });
+
+  it("publishes an llm.image job once the relay has said it has no such blob", async () => {
+    const h = createHarness();
+    const asked: string[] = [];
+    const cloud = new ByollmApp({
+      store: h.store,
+      siteKeys: generateSiteKeys(),
+      lane: {
+        relayOrigin: "https://relay.test",
+        siteId: "site",
+        fetch: (input, init) => {
+          const { pathname } = new URL(new Request(input, init).url);
+          asked.push(pathname);
+          return Promise.resolve(
+            pathname === "/relay/blobs/download"
+              ? Response.json(
+                  {
+                    error: "not-found",
+                    message: "no such output blob of this job",
+                  },
+                  { status: 404 },
+                )
+              : Response.json({ state: "queued" }),
+          );
+        },
+      },
+    });
+    await cloud.enqueue({
+      kind: "llm.image",
+      owner: "alice",
+      payload: { prompt: "a square" },
+    });
+    expect(asked).toEqual(["/relay/blobs/download", "/relay/site/enqueue"]);
+    expect(h.store.allJobs()).toHaveLength(1);
+  });
 });
 
 describe("the site's output images — byollm_021 §2, §4", () => {

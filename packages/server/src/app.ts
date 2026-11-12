@@ -425,6 +425,11 @@ export class ByollmApp {
       throw new Error(`invalid ${input.kind} payload — ${detail}`);
     }
 
+    // An `llm.image` job uploads nothing, so nothing above has asked the
+    // relay whether it carries images; ask before the job is stored or its
+    // stub published. An `llm.vision` job was told by its first slot.
+    if (input.kind === "llm.image") await this.cloud?.carriesImages(jobId);
+
     // **The size check, before the job exists to be offered** — byollm_021
     // §2, {@link MUSTS.BLOB_BUDGET_BEFORE_DOWNLOAD}. Every referenced input
     // is read back from the store and held to its slot: whatever uploaded

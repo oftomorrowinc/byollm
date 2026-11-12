@@ -8,6 +8,13 @@ import {
   type GrantAuthor,
   type PlaneResult,
 } from "./daemon-plane.js";
+import {
+  BlobStoreFailure,
+  MemoryBlobLedger,
+  RelayBlobs,
+  type BlobLedger,
+  type BlobStore,
+} from "./blobs.js";
 import { debugPage } from "./debug.js";
 import { Projection, type RelayFixture } from "./fixture.js";
 import { MemoryPairingCodes, type PairingCodes } from "./pairing-codes.js";
@@ -212,6 +219,28 @@ export interface RelayOptions {
    * guarantee.
    */
   readonly store?: RoutingStore;
+  /**
+   * Where image ciphertext lives — byollm_021 §2, #7875.
+   *
+   * **Absent, this relay carries no images**: the blob endpoints answer
+   * `not-found`, as a relay that predates them does, and an `llm.vision` or
+   * `llm.image` job is refused at enqueue rather than offered to a device
+   * that could not fetch or return its images.
+   *
+   * `store` is the host's: a bucket in a deployment, `MemoryBlobStore` for
+   * the reference relay and tests. Like the routing store, the
+   * implementation that needs a cloud client is deliberately not in this
+   * package. `ledger` defaults to an in-process one, which is right for one
+   * replica; more than one supply a shared one.
+   *
+   * No field here can hold a key, and none is needed: a blob's key travels
+   * inside the sealed envelope, so this relay issues URLs for ciphertext it
+   * cannot open (`BLOBS_SEALED`).
+   */
+  readonly blobs?: {
+    readonly store: BlobStore;
+    readonly ledger?: BlobLedger;
+  };
 }
 
 /** A running relay: one fetch handler, two planes, one debug page. */
@@ -223,6 +252,7 @@ export class Relay {
   readonly #now: () => number;
   readonly #basePath: string;
   readonly #debug: boolean;
+  readonly #blobs: RelayBlobs | undefined;
 
   constructor(options: RelayOptions) {
     this.state =
@@ -237,11 +267,22 @@ export class Relay {
     this.#now = options.now ?? Date.now;
     this.#basePath = (options.basePath ?? "/byollm").replace(/\/+$/, "");
     this.#debug = options.debug ?? false;
+    this.#blobs =
+      options.blobs === undefined
+        ? undefined
+        : new RelayBlobs({
+            store: options.blobs.store,
+            ledger: options.blobs.ledger ?? new MemoryBlobLedger(),
+            // The routing store's clock, the one every other deadline here
+            // is stamped from.
+            now: () => this.state.now(),
+          });
     this.#daemon = new DaemonPlane({
       state: this.state,
       projection: this.projection,
       now: this.#now,
       leaseMs: options.leaseMs ?? 60_000,
+      blobs: this.#blobs,
       pairingCodes:
         options.pairingCodes ?? new MemoryPairingCodes(() => this.#now()),
       ...(options.verificationUrl === undefined
@@ -285,6 +326,7 @@ export class Relay {
       state: this.state,
       projection: this.projection,
       now: this.#now,
+      blobs: this.#blobs,
       ...(options.satisfiable === undefined
         ? {}
         : { satisfiable: options.satisfiable }),
@@ -305,13 +347,41 @@ export class Relay {
    * site vanished should return to the queue without waiting for someone to
    * ask about it.
    */
-  async sweep(): Promise<{ requeued: string[] }> {
+  async sweep(): Promise<{ requeued: string[]; blobsDeleted: number }> {
     const requeued = await this.state.sweep();
-    return { requeued: requeued.map((j) => j.id) };
+    // The blob half of the same tick — byollm_021 §2's deletion order:
+    // outputs an hour after collection without `received`, and whatever a
+    // job has left a day after its deadline.
+    const blobsDeleted = (await this.#blobs?.sweep()) ?? 0;
+    return { requeued: requeued.map((j) => j.id), blobsDeleted };
   }
 
   /** The whole HTTP surface. */
   async handle(request: Request): Promise<Response> {
+    try {
+      // A blob store that serves its own URLs is asked first: its `PUT` and
+      // `GET` carry ciphertext, not a protocol request, and are neither
+      // signed nor versioned — the URL is the capability.
+      return (
+        (await this.#blobs?.serve(request)) ?? (await this.#route(request))
+      );
+    } catch (error) {
+      if (!(error instanceof BlobStoreFailure)) throw error;
+      // The reason stays here, as it does for a policy read that failed: a
+      // caller learns that we could not answer, and that asking again is
+      // the right thing to do.
+      return json({
+        status: 503,
+        body: {
+          error: "server-error",
+          message:
+            "the blob store could not answer just now — try again shortly",
+        },
+      });
+    }
+  }
+
+  async #route(request: Request): Promise<Response> {
     const url = new URL(request.url);
     const path = url.pathname;
 
@@ -439,6 +509,45 @@ export class Relay {
       );
     }
 
+    // The blob three — byollm_021 §2. Under `/relay/blobs`, as the spec
+    // names them, and signed under their own endpoint names so a signature
+    // for one is a signature for no other call.
+    //
+    // Only on a relay whose host gave it a blob store. Without one these
+    // paths fall through to `not-found`, exactly as on a relay that
+    // predates them, which is the answer the site SDK reads as "this relay
+    // carries no images".
+    const blobs = this.#blobs;
+    if (blobs !== undefined) {
+      if (path === "/relay/blobs") {
+        return json(
+          await this.#site.blobSlot(
+            blobs,
+            { ...siteAuth, endpoint: "blobs" },
+            body,
+          ),
+        );
+      }
+      if (path === "/relay/blobs/download") {
+        return json(
+          await this.#site.blobDownload(
+            blobs,
+            { ...siteAuth, endpoint: "blobs/download" },
+            body,
+          ),
+        );
+      }
+      if (path === "/relay/blobs/received") {
+        return json(
+          await this.#site.blobsReceived(
+            blobs,
+            { ...siteAuth, endpoint: "blobs/received" },
+            body,
+          ),
+        );
+      }
+    }
+
     // -- the daemon plane ---------------------------------------------------
     if (!path.startsWith(`${this.#basePath}/`)) {
       return json({ status: 404, body: { error: "not-found" } });
@@ -460,9 +569,16 @@ export class Relay {
         return json(await this.#daemon.toolCall(auth, body));
       case "tool-results":
         return json(await this.#daemon.toolResults(auth, body));
+      case "blob-url":
+        if (blobs === undefined) break;
+        return json(await this.#daemon.blobUrl(blobs, auth, body));
+      case "blob-slot":
+        if (blobs === undefined) break;
+        return json(await this.#daemon.blobSlot(blobs, auth, body));
       default:
-        return json({ status: 404, body: { error: "not-found" } });
+        break;
     }
+    return json({ status: 404, body: { error: "not-found" } });
   }
 }
 
@@ -576,6 +692,32 @@ export type {
 
 /** byollm_012 §5.3's sub-state, derived the one way every reader derives it. */
 export { subStateOf } from "./state.js";
+
+/**
+ * The blob path — byollm_021 §2, #7875.
+ *
+ * What a host needs to give a relay a blob store ({@link BlobStore}, and
+ * {@link BlobLedger} when it runs more than one replica), the in-process
+ * pair this package ships, and the naming a bucket-backed store shares with
+ * them: the job rides in the object name, and the slot's size in the blob id.
+ */
+export {
+  BLOB_OBJECT_PREFIX,
+  MEMORY_BLOB_PATH,
+  MEMORY_BLOB_URL_TTL_MS,
+  MemoryBlobLedger,
+  MemoryBlobStore,
+  blobJobPrefix,
+  blobObjectName,
+  mintBlobId,
+  slotBytesOf,
+  type BlobAddress,
+  type BlobJobRecord,
+  type BlobLedger,
+  type BlobSlot,
+  type BlobStore,
+  type SignedBlobUrl,
+} from "./blobs.js";
 
 /** The grant a lease-scoped answer names — V1-3. */
 export type { Grant } from "./store.js";

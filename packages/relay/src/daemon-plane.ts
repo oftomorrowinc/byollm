@@ -1,4 +1,8 @@
 import {
+  BlobSlotRequest,
+  BlobSlotResponse,
+  BlobUrlRequest,
+  BlobUrlResponse,
   PairPollRequest,
   PairStartRequest,
   ClaimRequest,
@@ -23,10 +27,12 @@ import {
   UPGRADE_COMMAND,
   PublicIdentity,
   ERROR_STATUS,
+  isBlobObjectSize,
   type CapabilityMatrix,
   type ClaimedStub,
 } from "@byollm/protocol";
 import { z } from "zod";
+import type { RelayBlobs } from "./blobs.js";
 import type { Projection } from "./fixture.js";
 import type { GrantDecision } from "./index.js";
 import {
@@ -41,6 +47,7 @@ import { tooLargeRefusal } from "./refusals.js";
 import {
   RETRY_AFTER_MS,
   type HolderRefusal,
+  type RoutedJob,
   type ToolCallRefusal,
 } from "./state.js";
 import { clockSkewRefusal } from "./refusals.js";
@@ -122,6 +129,10 @@ const fail = (status: number, error: string, message: string): PlaneResult => ({
   status,
   body: { error, message },
 });
+
+/** What a slot's size must be, in the words the reference server uses. */
+export const SLOT_SIZE_MESSAGE =
+  "a slot is whole 256 KiB buckets plus 40 bytes, up to one image at the cap";
 
 /**
  * A tool call's refusals: the holder's, and three only a tool call can earn.
@@ -227,6 +238,12 @@ export interface DaemonPlaneDeps {
    * {@link RelayOptions.authorGrant}; this plane only calls it.
    */
   readonly authorGrant?: GrantAuthor;
+  /**
+   * The blob decisions, when this relay's host gave it a blob store —
+   * byollm_021 §2, for the output check at `result`. The two blob endpoints
+   * are handed it by the router, which has neither route without one.
+   */
+  readonly blobs?: RelayBlobs | undefined;
   /**
    * Where a human goes to approve a code — the control plane, always.
    *
@@ -810,6 +827,36 @@ export class DaemonPlane {
       const bytes = envelopeBytes(request.envelope);
       if (bytes > MAX_ENVELOPE_BYTES) return tooLargeRefusal(bytes);
 
+      /**
+       * The output check, before the result is accepted — byollm_021 §2,
+       * "Output blobs get the same check before the result is accepted".
+       *
+       * The relay cannot read which blobs the sealed result names, so it
+       * holds every output slot issued under this lease to the size it was
+       * issued for. Only for an `ok` result of an `llm.image` job still in
+       * flight: a replay of a result already recorded is `complete`'s to
+       * answer, and by then `received` may have deleted what it named.
+       */
+      const blobs = this.#deps.blobs;
+      const job =
+        blobs === undefined
+          ? undefined
+          : await this.#jobUnder(request.jobId, request.leaseId, device);
+      if (
+        blobs !== undefined &&
+        job !== undefined &&
+        job.state !== "done" &&
+        job.stub.kind === "llm.image" &&
+        request.disposition === "ok"
+      ) {
+        const fault = await blobs.outputFault({
+          siteId: job.siteId,
+          jobId: job.id,
+          leaseId: request.leaseId,
+        });
+        if (fault !== null) return fail(400, "bad-request", fault);
+      }
+
       const recorded = await this.#deps.state.complete({
         jobId: request.jobId,
         runnerId: device.runnerId,
@@ -818,8 +865,168 @@ export class DaemonPlane {
         disposition: request.disposition,
       });
       if ("refused" in recorded) return REFUSALS[recorded.refused];
+      // Accepted, so nothing reads the inputs again: they go now (§2).
+      // After the write, and only for the request that made it — a replay
+      // finds them already gone. A store that cannot be reached must not
+      // turn a recorded result into an error: the sweep deletes them a day
+      // after the deadline instead.
+      if (blobs !== undefined && job !== undefined && recorded.accepted) {
+        await blobs
+          .resultAccepted(
+            { siteId: job.siteId, jobId: job.id },
+            request.disposition,
+          )
+          .catch(() => undefined);
+      }
       return ok(recorded);
     });
+  }
+
+  // -- blobs — byollm_021 §2 ------------------------------------------------
+
+  /**
+   * The job this device is the claimant of under `leaseId`, in any state,
+   * or `undefined`.
+   *
+   * A blob request names a job and a lease and no site, and a job id is a
+   * site's to choose, so the job is looked for under each site this
+   * device's owner has consented to — the only sites whose work can be on
+   * this machine at all. Matched on the lease id, which this relay minted
+   * and which is unique across sites, and on the runner the signature
+   * proved. Read through `RoutingStore.job`, so a store needs nothing new.
+   */
+  async #jobUnder(
+    jobId: string,
+    leaseId: string,
+    device: { readonly runnerId: string; readonly owner: string },
+  ): Promise<RoutedJob | undefined> {
+    for (const site of this.#deps.projection.sitesFor(device.owner)) {
+      const job = await this.#deps.state.job(site.siteId, jobId);
+      if (
+        job?.claimedBy?.runnerId === device.runnerId &&
+        job.claimedBy.leaseId === leaseId
+      ) {
+        return job;
+      }
+    }
+    return undefined;
+  }
+
+  /**
+   * The job this device holds *right now* under `leaseId`, or `undefined` —
+   * the lease scope both blob endpoints share
+   * ({@link MUSTS.LEASE_SCOPED_BY_GRANT}, C053).
+   *
+   * Held means: claimed by this runner under exactly this grant, the grant
+   * not yet expired on the store's clock, the payload collected (`running`),
+   * and the job neither finished nor withdrawn. A device that has not
+   * fetched its payload has no reference to ask about, and one whose grant
+   * ended has no business with the job's blobs.
+   */
+  async #held(
+    jobId: string,
+    leaseId: string,
+    device: { readonly runnerId: string; readonly owner: string },
+  ): Promise<RoutedJob | undefined> {
+    const job = await this.#jobUnder(jobId, leaseId, device);
+    if (
+      job?.claimedBy === undefined ||
+      job.state !== "running" ||
+      job.cancelled === true ||
+      job.claimedBy.leaseExpiresAt <= (await this.#deps.state.now())
+    ) {
+      return undefined;
+    }
+    return job;
+  }
+
+  /**
+   * A download URL for one input blob of a job this device holds.
+   *
+   * **No lease, no URL.** One `not-found` for a lease that is not held, a
+   * blob that is not one of this job's stored inputs, and one that is not
+   * the size its slot was issued for — a caller without the lease learns
+   * nothing about which. The object is addressed by the site and the job
+   * the lease names, never by anything in the request but the blob id, so
+   * a lease on one job reaches no other job's blobs.
+   */
+  blobUrl(
+    blobs: RelayBlobs,
+    auth: { endpoint: string; rawBody: string; signature: unknown },
+    body: unknown,
+  ): Promise<PlaneResult> {
+    return this.#authed(auth, body, BlobUrlRequest, async (request, device) => {
+      if (request.runnerId !== device.runnerId) {
+        return fail(403, "forbidden", "runner id does not match the key");
+      }
+      const job = await this.#held(request.jobId, request.leaseId, device);
+      const signed =
+        job === undefined
+          ? null
+          : await blobs.downloadUrl({
+              siteId: job.siteId,
+              jobId: job.id,
+              direction: "in",
+              blob: request.blob,
+            });
+      if (signed === null) {
+        return fail(404, "not-found", "no such blob under a lease you hold");
+      }
+      return ok(BlobUrlResponse.parse(signed));
+    });
+  }
+
+  /**
+   * An upload slot for one output image of an `llm.image` job this device
+   * holds. Lease-scoped as {@link DaemonPlane.blobUrl} is, and at most
+   * `MAX_IMAGES_OUT` under one lease.
+   */
+  blobSlot(
+    blobs: RelayBlobs,
+    auth: { endpoint: string; rawBody: string; signature: unknown },
+    body: unknown,
+  ): Promise<PlaneResult> {
+    return this.#authed(
+      auth,
+      body,
+      BlobSlotRequest,
+      async (request, device) => {
+        if (request.runnerId !== device.runnerId) {
+          return fail(403, "forbidden", "runner id does not match the key");
+        }
+        const job = await this.#held(request.jobId, request.leaseId, device);
+        if (job === undefined) {
+          return fail(404, "not-found", "no such lease on this job");
+        }
+        if (job.stub.kind !== "llm.image") {
+          return fail(
+            400,
+            "bad-request",
+            "only an llm.image job uploads images",
+          );
+        }
+        if (!isBlobObjectSize(request.bytes)) {
+          return fail(400, "bad-request", SLOT_SIZE_MESSAGE);
+        }
+        const slot = await blobs.outputSlot(
+          {
+            siteId: job.siteId,
+            jobId: job.id,
+            leaseId: request.leaseId,
+            deadlineAt: job.stub.deadlineAt,
+          },
+          request.bytes,
+        );
+        if (slot === "full") {
+          return fail(
+            400,
+            "bad-request",
+            "this lease has been issued every output slot an llm.image job may use",
+          );
+        }
+        return ok(BlobSlotResponse.parse(slot));
+      },
+    );
   }
 
   /**

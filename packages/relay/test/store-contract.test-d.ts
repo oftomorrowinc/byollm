@@ -1,5 +1,14 @@
-import type { ClaimedStub, SealedEnvelope } from "@byollm/protocol";
 import type {
+  BlobDirection,
+  ClaimedStub,
+  SealedEnvelope,
+} from "@byollm/protocol";
+import type {
+  BlobAddress,
+  BlobJobRecord,
+  BlobLedger,
+  BlobSlot,
+  BlobStore,
   ClaimInput,
   PairingCodes,
   PendingPairing,
@@ -12,6 +21,7 @@ import type {
   RoutedJob,
   RoutedState,
   RoutingStore,
+  SignedBlobUrl,
   ToolCallRefusal,
 } from "../src/index.js";
 
@@ -126,3 +136,38 @@ declare const _relayOptions: {
  */
 declare const _putResult: (pending: PendingPairing) => Promise<PutResult>;
 void _putResult;
+
+/**
+ * And the blob option, the fifth place this could happen (#7875).
+ *
+ * The hub supplies `blobs.store` from another repository — a bucket — and a
+ * shared `blobs.ledger` once it runs more than one replica. Every type either
+ * interface takes or answers is restated by name here, for the reason the
+ * `Grant` note gives: a declared `BlobStore` alone would be satisfied
+ * structurally and a private `BlobAddress` would break the hub's build a
+ * release later.
+ */
+declare const _blobOptions: {
+  blobs?: { store: BlobStore; ledger?: BlobLedger };
+};
+declare const _blobSlot: (
+  address: BlobAddress,
+  bytes: number,
+) => Promise<SignedBlobUrl>;
+declare const _blobList: (job: {
+  siteId: string;
+  jobId: string;
+}) => Promise<{ direction: BlobDirection; blob: string }[]>;
+declare const _ledgerIssue: (input: {
+  siteId: string;
+  jobId: string;
+  slot: BlobSlot;
+  max: number;
+  deleteAt: number;
+}) => Promise<{ issued: boolean; displaced: BlobSlot[] }>;
+declare const _ledgerDue: (now: number) => Promise<BlobJobRecord[]>;
+export type BlobContract = typeof _blobOptions &
+  typeof _blobSlot &
+  typeof _blobList &
+  typeof _ledgerIssue &
+  typeof _ledgerDue;

@@ -2,10 +2,17 @@ import {
   MAX_ENVELOPE_BYTES,
   PROTOCOL_VERSION,
   envelopeBytes,
+  isBlobObjectSize,
   keyId,
   JobStub,
   RequestSignature,
   SealedEnvelope,
+  SiteBlobDownloadRequest,
+  SiteBlobDownloadResponse,
+  SiteBlobSlotRequest,
+  SiteBlobSlotResponse,
+  SiteBlobsReceivedRequest,
+  SiteBlobsReceivedResponse,
   SiteEnqueueTools,
   SiteToolCalls,
   SiteToolResultRequest,
@@ -14,7 +21,8 @@ import {
   verifySiteRequest,
 } from "@byollm/protocol";
 import { z } from "zod";
-import type { PlaneResult } from "./daemon-plane.js";
+import type { RelayBlobs } from "./blobs.js";
+import { SLOT_SIZE_MESSAGE, type PlaneResult } from "./daemon-plane.js";
 import type { Projection } from "./fixture.js";
 import { clockSkewRefusal, tooLargeRefusal } from "./refusals.js";
 import type { RoutingStore } from "./store.js";
@@ -165,6 +173,12 @@ export interface SitePlaneDeps {
    * the enumerated-metadata commitment so the list stays exhaustive.
    */
   readonly satisfiable?: Satisfiable;
+  /**
+   * The blob decisions, when this relay's host gave it a blob store —
+   * byollm_021 §2. Absent, this relay carries no images: the three blob
+   * endpoints answer `not-found` and an image kind is refused at enqueue.
+   */
+  readonly blobs?: RelayBlobs | undefined;
   /**
    * The one site this relay routes for.
    *
@@ -507,6 +521,9 @@ export class SitePlane {
           );
         }
 
+        const imageRefusal = await this.#imageRefusal(siteId, request.stub);
+        if (imageRefusal !== null) return imageRefusal;
+
         const job = await this.#deps.state.enqueue({
           id: request.stub.id,
           siteId,
@@ -545,6 +562,154 @@ export class SitePlane {
           return fail(400, "bad-request", "that stub was not accepted");
         }
         return ok({ jobId: job.id, state: job.state });
+      },
+    );
+  }
+
+  /**
+   * Why an image job may not be queued, or `null` — byollm_021 §2.
+   *
+   * **A relay with no blob store carries no images, and says so here.** An
+   * `llm.image` job has no input, so nothing else would stop one reaching a
+   * device: it would be offered, the device's backend would be paid for the
+   * images, and the upload slot would answer `not-found` (Owl on #7875,
+   * point 3). Refused before anything is queued instead.
+   *
+   * **The `HEAD` before offer** ({@link MUSTS.BLOB_BUDGET_BEFORE_DOWNLOAD},
+   * C057): every input slot this job was issued must hold an object of the
+   * size it was issued for, read from the store. Once, when the job is first
+   * queued — a republish of a job already routing was checked when it
+   * arrived, and its inputs may since have been deleted with its result.
+   */
+  async #imageRefusal(
+    siteId: string,
+    stub: JobStub,
+  ): Promise<PlaneResult | null> {
+    if (stub.kind !== "llm.vision" && stub.kind !== "llm.image") return null;
+    const blobs = this.#deps.blobs;
+    if (blobs === undefined) {
+      return fail(
+        400,
+        "bad-request",
+        `this relay carries no images, so it cannot route ${stub.kind}: ` +
+          "it has no blob store",
+      );
+    }
+    if ((await this.#deps.state.job(siteId, stub.id)) !== undefined) {
+      return null;
+    }
+    const fault = await blobs.inputFault({
+      siteId,
+      jobId: stub.id,
+      kind: stub.kind,
+      deadlineAt: stub.deadlineAt,
+    });
+    return fault === null
+      ? null
+      : fail(400, "bad-request", `enqueue refused: ${fault}`);
+  }
+
+  // -- blobs — byollm_021 §2, "The cloud lane" -----------------------------
+  //
+  // Three, all signed with the site key and all about the caller's own
+  // jobs: the site id every object is addressed under is the one the
+  // signature proved, so a site reaches no other site's blobs by naming a
+  // job id it does not own. Each is handed the blob decisions by the
+  // router, which has no such route on a relay without a blob store.
+
+  /**
+   * `POST /relay/blobs` — an upload slot for one input of a job this site
+   * is about to enqueue. The size is kept with the slot, in the blob id
+   * this relay mints, and the stored object is held to it at enqueue.
+   */
+  blobSlot(
+    blobs: RelayBlobs,
+    auth: SiteAuth,
+    body: unknown,
+  ): Promise<PlaneResult> {
+    return this.#authed(
+      auth,
+      body,
+      SiteBlobSlotRequest,
+      (request) => request.siteId,
+      async (request, siteId) => {
+        if (!isBlobObjectSize(request.bytes)) {
+          return fail(400, "bad-request", SLOT_SIZE_MESSAGE);
+        }
+        // Inputs are uploaded before the enqueue, which is where they are
+        // checked. A slot issued afterwards would be an input nothing held
+        // to its size before the job was offered.
+        if ((await this.#deps.state.job(siteId, request.jobId)) !== undefined) {
+          return fail(
+            409,
+            "too-late",
+            "this job is already queued; its inputs are uploaded before it is",
+          );
+        }
+        const slot = await blobs.inputSlot(
+          { siteId, jobId: request.jobId },
+          request.bytes,
+        );
+        if (slot === "full") {
+          return fail(
+            400,
+            "bad-request",
+            "this job has been issued every input slot an llm.vision job may use",
+          );
+        }
+        return ok(SiteBlobSlotResponse.parse(slot));
+      },
+    );
+  }
+
+  /**
+   * `POST /relay/blobs/download` — a download URL for one output blob of
+   * one of this site's jobs. One `not-found` for a blob that is not stored
+   * under this site, this job and `out`, whatever the reason.
+   */
+  blobDownload(
+    blobs: RelayBlobs,
+    auth: SiteAuth,
+    body: unknown,
+  ): Promise<PlaneResult> {
+    return this.#authed(
+      auth,
+      body,
+      SiteBlobDownloadRequest,
+      (request) => request.siteId,
+      async (request, siteId) => {
+        const signed = await blobs.downloadUrl({
+          siteId,
+          jobId: request.jobId,
+          direction: "out",
+          blob: request.blob,
+        });
+        if (signed === null) {
+          return fail(404, "not-found", "no such output blob of this job");
+        }
+        return ok(SiteBlobDownloadResponse.parse(signed));
+      },
+    );
+  }
+
+  /**
+   * `POST /relay/blobs/received` — the site holds these outputs, so they
+   * are deleted now ({@link MUSTS.BLOBS_GO_WITH_THE_JOB}). Idempotent, and
+   * quiet about a blob that was already gone or never this job's.
+   */
+  blobsReceived(
+    blobs: RelayBlobs,
+    auth: SiteAuth,
+    body: unknown,
+  ): Promise<PlaneResult> {
+    return this.#authed(
+      auth,
+      body,
+      SiteBlobsReceivedRequest,
+      (request) => request.siteId,
+      async (request, siteId) => {
+        await blobs.received({ siteId, jobId: request.jobId }, request.blobs);
+        return ok(SiteBlobsReceivedResponse.parse({ jobId: request.jobId }));
       },
     );
   }
@@ -716,7 +881,22 @@ export class SitePlane {
       QueryRequest,
       (request) => request.siteId,
       async (_request, site) => {
-        const jobs = (await this.#deps.state.finished(site)).map((job) => ({
+        const finished = await this.#deps.state.finished(site);
+        // Collected: an `llm.image` result's outputs now go within the hour
+        // unless the site says sooner that it holds them (§2, C059). Only
+        // ever brought forward, so a result read on every poll is not kept
+        // longer for it. A ledger that cannot be reached costs nothing a
+        // site can see: the next poll says it again, and a day after the
+        // deadline is the bound either way.
+        await this.#deps.blobs
+          ?.collected(
+            site,
+            finished
+              .filter((job) => job.stub.kind === "llm.image")
+              .map((job) => job.id),
+          )
+          .catch(() => undefined);
+        const jobs = finished.map((job) => ({
           jobId: job.id,
           envelope: job.result,
           disposition: job.disposition,

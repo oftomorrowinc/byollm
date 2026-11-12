@@ -1,5 +1,5 @@
 <!-- release-note 0.1.1 -->
-> **`0.1.5-beta.1` is documentation only — nothing to upgrade.** `PROTOCOL_VERSION`
+> **`0.1.5-beta.2` is documentation only — nothing to upgrade.** `PROTOCOL_VERSION`
 > is still `2`, so a 0.1.0 party and a 0.1.1 party talk to each other in both
 > directions. No dependency, schema, wire field or on-disk shape moved.
 >
@@ -95,6 +95,51 @@ It is **not** single-tenant. `RelayOptions` has no site field; the relay routes
 for every site its projection holds, and refuses a caller that names a site the
 projection does not (cloud_009 §3). Job state is keyed by the pair, so two sites
 may use the same job id without either seeing the other.
+
+## Images: give it a blob store
+
+`llm.vision` and `llm.image` carry images by reference (byollm_021 §2). The
+bytes are encrypted blobs in object storage, uploaded and downloaded straight
+to it through short-lived URLs this relay issues. They never pass through this
+process, and it holds no key that opens one.
+
+A relay carries images only when its host gives it somewhere to keep them:
+
+```ts
+import { MemoryBlobStore, Relay } from "@byollm/relay";
+
+const relay = new Relay({
+  fixture,
+  blobs: { store: new MemoryBlobStore({ origin: "http://127.0.0.1:8787" }) },
+});
+```
+
+`MemoryBlobStore` is for the reference relay and tests. A deployment
+implements `BlobStore` over its own bucket: a signed upload, a signed
+download, an object's stored size, a job's objects by name, and a delete. With
+more than one replica it also supplies a shared `BlobLedger`, for the reason
+it supplies a shared `RoutingStore`.
+
+**Without `blobs`, this relay carries no images.** Its blob routes answer 404
+and it refuses `llm.vision` and `llm.image` at enqueue, so no device is paid
+to make an image it then cannot hand back.
+
+What the package decides, whatever the store:
+
+- **No lease, no URL.** A device gets a download URL or an upload slot only
+  for a job it holds right now, under the lease it names.
+- **The job is in the object name**, `blobs/<site>/<job>/<in|out>/<blob>`
+  (`blobObjectName`). A caller names a blob id and nothing else; the site and
+  the job come from what the relay already verified. The uploader sends
+  ciphertext and its length, with no header to copy.
+- **Sizes are read, not trusted.** A slot's size is in the blob id the relay
+  mints. A job is queued only if every input it was issued a slot for is
+  stored at that size, and an `ok` result is accepted only if its outputs
+  are.
+- **Blobs go with the job.** Inputs when the result is accepted; outputs when
+  the site says it holds them, or an hour after it collected the result; and
+  whatever is left a day after the job's deadline. `Relay.sweep()` runs the
+  last two. Set a lifecycle rule on the bucket as the floor under it.
 
 ## Breaking before `0.1.0`: `RelayState` is async
 

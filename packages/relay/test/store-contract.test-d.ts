@@ -22,6 +22,7 @@ import type {
   RoutedState,
   RoutingStore,
   SignedBlobUrl,
+  StoredBlob,
   ToolCallRefusal,
 } from "../src/index.js";
 
@@ -158,6 +159,7 @@ declare const _blobList: (job: {
   siteId: string;
   jobId: string;
 }) => Promise<{ direction: BlobDirection; blob: string }[]>;
+declare const _blobStoredBefore: (time: number) => Promise<StoredBlob[]>;
 declare const _ledgerIssue: (input: {
   siteId: string;
   jobId: string;
@@ -169,5 +171,6 @@ declare const _ledgerDue: (now: number) => Promise<BlobJobRecord[]>;
 export type BlobContract = typeof _blobOptions &
   typeof _blobSlot &
   typeof _blobList &
+  typeof _blobStoredBefore &
   typeof _ledgerIssue &
   typeof _ledgerDue;

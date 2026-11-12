@@ -116,7 +116,8 @@ const relay = new Relay({
 
 `MemoryBlobStore` is for the reference relay and tests. A deployment
 implements `BlobStore` over its own bucket: a signed upload, a signed
-download, an object's stored size, a job's objects by name, and a delete. With
+download, an object's stored size, a job's objects by name, every object with
+the time it was stored, and a delete. With
 more than one replica it also supplies a shared `BlobLedger`, for the reason
 it supplies a shared `RoutingStore`.
 
@@ -140,6 +141,11 @@ What the package decides, whatever the store:
   the site says it holds them, or an hour after it collected the result; and
   whatever is left a day after the job's deadline. `Relay.sweep()` runs the
   last two. Set a lifecycle rule on the bucket as the floor under it.
+- **A lost ledger delays deletion; it does not stop it.** `Relay.sweep()` also
+  lists the whole store and deletes any object no ledger record covers once it
+  is 48 hours old (`ORPHAN_BLOB_AGE_MS`). The two earlier deletions, at the
+  result and an hour after collection, need the record: keep the ledger
+  somewhere that survives a restart if you want them kept across one.
 
 ## Breaking before `0.1.0`: `RelayState` is async
 

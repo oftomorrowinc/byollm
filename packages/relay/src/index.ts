@@ -350,8 +350,9 @@ export class Relay {
   async sweep(): Promise<{ requeued: string[]; blobsDeleted: number }> {
     const requeued = await this.state.sweep();
     // The blob half of the same tick — byollm_021 §2's deletion order:
-    // outputs an hour after collection without `received`, and whatever a
-    // job has left a day after its deadline.
+    // outputs an hour after collection without `received`, whatever a job
+    // has left a day after its deadline, and what no ledger record covers
+    // once it is 48 hours old.
     const blobsDeleted = (await this.#blobs?.sweep()) ?? 0;
     return { requeued: requeued.map((j) => j.id), blobsDeleted };
   }
@@ -707,6 +708,8 @@ export {
   MEMORY_BLOB_URL_TTL_MS,
   MemoryBlobLedger,
   MemoryBlobStore,
+  ORPHAN_BLOB_AGE_MS,
+  blobAddressOf,
   blobJobPrefix,
   blobObjectName,
   mintBlobId,
@@ -717,6 +720,7 @@ export {
   type BlobSlot,
   type BlobStore,
   type SignedBlobUrl,
+  type StoredBlob,
 } from "./blobs.js";
 
 /** The grant a lease-scoped answer names — V1-3. */

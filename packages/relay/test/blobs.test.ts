@@ -26,7 +26,9 @@ import { afterEach, beforeAll, describe, expect, it } from "vitest";
 import {
   MemoryBlobLedger,
   MemoryBlobStore,
+  ORPHAN_BLOB_AGE_MS,
   Relay,
+  blobAddressOf,
   blobJobPrefix,
   blobObjectName,
   mintBlobId,
@@ -531,6 +533,22 @@ describe("C057 — blob size checked before offer", () => {
     expect((await w.finish(job)).status).toBe(200);
     expect((await w.state.job(SITE_ID, job.jobId))?.state).toBe("done");
   });
+
+  it("holds an ok result to the slots of the lease reporting it, not a lapsed lease's", async () => {
+    const w = await world();
+    const { stub, job, output } = await w.imageJob();
+    // The first device asked for a slot and never filled it, and its lease
+    // ran out.
+    await output(ONE_BUCKET, 0);
+    w.clock.at += LEASE_MS + 1;
+    await w.relay.sweep();
+    const again = await w.run(stub.id);
+    expect(again.leaseId).not.toBe(job.leaseId);
+    // The next lease asks for no slot, so nothing has displaced the first
+    // lease's. Its result is not refused for a slot it was never issued.
+    expect((await w.finish(again)).status).toBe(200);
+    expect((await w.state.job(SITE_ID, stub.id))?.state).toBe("done");
+  });
 });
 
 describe("C053 — blob needs the lease", () => {
@@ -602,7 +620,7 @@ describe("C053 — blob needs the lease", () => {
     expect(w.blobStore.urls).toBe(0);
   });
 
-  it("issues no URL before the payload is fetched, or after the job is done", async () => {
+  it("issues no URL before the payload is fetched", async () => {
     const w = await world();
     const { stub, slot } = await w.visionJob();
     const claim = await w.daemon.signedFetch("claim", {
@@ -619,6 +637,74 @@ describe("C053 — blob needs the lease", () => {
     });
     expect(early.status).toBe(404);
     expect(w.blobStore.urls).toBe(0);
+  });
+
+  it("issues no URL and no upload slot once the job is done, under the lease that finished it", async () => {
+    const w = await world();
+    const { stub, slot } = await w.visionJob();
+    const read = await w.run(stub.id);
+    expect((await w.finish(read)).status).toBe(200);
+    // The input went with the result. Put one back at its address, so the
+    // only thing between this device and a URL is that the job is finished.
+    const address = {
+      siteId: SITE_ID,
+      jobId: stub.id,
+      direction: "in" as const,
+      blob: slot.blob,
+    };
+    const again = await w.blobStore.slot(address, ONE_BUCKET);
+    expect((await w.put(again.url, ONE_BUCKET)).status).toBe(200);
+    const url = await w.daemon.signedFetch("blob-url", {
+      ...read,
+      blob: slot.blob,
+    });
+    expect(url.status).toBe(404);
+    expect(w.blobStore.urls).toBe(0);
+
+    // An ok `llm.image` result with most of its lease left: the same lease
+    // is issued nothing more to store under a job whose result is recorded.
+    const { job, output } = await w.imageJob();
+    await output(ONE_BUCKET, ONE_BUCKET);
+    expect((await w.finish(job)).status).toBe(200);
+    const before = w.blobStore.slots;
+    const late = await w.daemon.signedFetch("blob-slot", {
+      ...job,
+      bytes: ONE_BUCKET,
+    });
+    expect(late.status).toBe(404);
+    expect(w.blobStore.slots).toBe(before);
+    expect(stored(w).filter((name) => name.includes("/out/"))).toHaveLength(1);
+  });
+
+  it("issues no URL and no upload slot for a running job its site has cancelled", async () => {
+    const reading = await world();
+    const { stub, slot } = await reading.visionJob();
+    const read = await reading.run(stub.id);
+    expect((await reading.sitePost("cancel", { jobId: stub.id })).status).toBe(
+      200,
+    );
+    // Still claimed, still running, the lease not expired: withdrawn is the
+    // one thing that changed.
+    expect((await reading.state.job(SITE_ID, stub.id))?.state).toBe("running");
+    const url = await reading.daemon.signedFetch("blob-url", {
+      ...read,
+      blob: slot.blob,
+    });
+    expect(url.status).toBe(404);
+    expect(reading.blobStore.urls).toBe(0);
+
+    const making = await world();
+    const { job } = await making.imageJob();
+    expect((await making.sitePost("cancel", { jobId: job.jobId })).status).toBe(
+      200,
+    );
+    const before = making.blobStore.slots;
+    const late = await making.daemon.signedFetch("blob-slot", {
+      ...job,
+      bytes: ONE_BUCKET,
+    });
+    expect(late.status).toBe(404);
+    expect(making.blobStore.slots).toBe(before);
   });
 
   it("reaches no other job's blob with a lease on this one", async () => {
@@ -863,6 +949,24 @@ describe("the site's download and its address — byollm_021 §2", () => {
       expect(name.startsWith(blobJobPrefix({ siteId: SITE_ID, jobId }))).toBe(
         true,
       );
+      // And the name reads back to the address it was written from.
+      expect(blobAddressOf(name)).toEqual({
+        siteId: SITE_ID,
+        jobId,
+        direction: "out",
+        blob,
+      });
+    }
+    // A name this relay did not write is nobody's address.
+    for (const foreign of [
+      `other/${SITE_ID}/job/in/${blob}`,
+      `blobs/${SITE_ID}/job/in/${blob}/more`,
+      `blobs/${SITE_ID}/job/sideways/${blob}`,
+      `blobs/${SITE_ID}/job/in/not-a-minted-id`,
+      `blobs/${SITE_ID}/~am9i/in/${blob}`,
+      `blobs/${SITE_ID}//in/${blob}`,
+    ]) {
+      expect([foreign, blobAddressOf(foreign)]).toEqual([foreign, null]);
     }
     // An id that needed encoding cannot collide with one that did not.
     const encoded = blobJobPrefix({ siteId: SITE_ID, jobId: "a/b" });
@@ -922,6 +1026,33 @@ describe("C054 — blobs go with the job", () => {
     ).toBe(200);
   });
 
+  it("keeps an ok result's outputs when the same result is replayed as an error", async () => {
+    const w = await world();
+    const { job, output } = await w.imageJob();
+    const first = await output(ONE_BUCKET, ONE_BUCKET);
+    const second = await output(TWO_BUCKETS, TWO_BUCKETS);
+    expect((await w.finish(job)).status).toBe(200);
+    // The same lease says `error` afterwards. The recorded result stands,
+    // and so do the images it names, which the site has not downloaded yet.
+    const replay = await w.finish(job, "error");
+    expect(replay.status).toBe(200);
+    expect(await replay.json()).toMatchObject({
+      accepted: false,
+      duplicate: true,
+    });
+    expect((await w.state.job(SITE_ID, job.jobId))?.disposition).toBe("ok");
+    expect(stored(w)).toHaveLength(2);
+    for (const slot of [first, second]) {
+      const download = await w.blobPost("blobs/download", {
+        jobId: job.jobId,
+        blob: slot.blob,
+      });
+      expect(download.status).toBe(200);
+      const { url } = SiteBlobDownloadResponse.parse(await download.json());
+      expect((await w.get(url)).status).toBe(200);
+    }
+  });
+
   it("deletes the outputs of a result that is not ok, which nothing references", async () => {
     const w = await world();
     const { job, output } = await w.imageJob();
@@ -959,6 +1090,110 @@ describe("C054 — blobs go with the job", () => {
     w.clock.at += 1;
     expect((await w.relay.sweep()).blobsDeleted).toBe(1);
     expect(stored(w)).toEqual([]);
+  });
+});
+
+describe("C054 — a lost ledger: the sweep reads the store's names", () => {
+  it("deletes collected outputs no record covers once they are 48 hours old — not at the hour, and not at day 7", async () => {
+    // Owl's Thursday night (#58474): outputs collected and waiting out
+    // their hour, the ledger lost, and a site that never calls images().
+    // Nothing enqueues the job again, so nothing rebuilds its record.
+    const w = await world();
+    const { job, output } = await w.imageJob();
+    const storedAt = w.clock.at;
+    await output(ONE_BUCKET, ONE_BUCKET);
+    await output(TWO_BUCKETS, TWO_BUCKETS);
+    expect((await w.finish(job)).status).toBe(200);
+    expect(await w.collect()).toHaveLength(1);
+    await w.ledger.drop({ siteId: SITE_ID, jobId: job.jobId });
+    expect(await w.ledger.record(SITE_ID, job.jobId)).toBeUndefined();
+
+    // The hour was the record's to keep, and went with it.
+    w.clock.at = storedAt + OUTPUT_KEPT_AFTER_COLLECTION_MS;
+    expect((await w.relay.sweep()).blobsDeleted).toBe(0);
+    w.clock.at = storedAt + ORPHAN_BLOB_AGE_MS - 1;
+    expect((await w.relay.sweep()).blobsDeleted).toBe(0);
+    expect(stored(w)).toHaveLength(2);
+    w.clock.at = storedAt + ORPHAN_BLOB_AGE_MS;
+    expect((await w.relay.sweep()).blobsDeleted).toBe(2);
+    expect(stored(w)).toEqual([]);
+  });
+
+  it("deletes one object its job's record does not name, and leaves the ones it does", async () => {
+    // An `llm.image` job with a deadline days away, so its record's clock
+    // is later than 48 hours after its outputs were stored.
+    const w = await world();
+    const stub = {
+      ...w.stubFor("llm.image"),
+      deadlineAt: w.clock.at + 3 * ORPHAN_BLOB_AGE_MS,
+    };
+    expect((await w.enqueue(stub)).status).toBe(200);
+    const job = await w.run(stub.id);
+    const storedAt = w.clock.at;
+    const outputs: string[] = [];
+    for (let n = 0; n < 2; n += 1) {
+      const response = await w.daemon.signedFetch("blob-slot", {
+        ...job,
+        bytes: ONE_BUCKET,
+      });
+      const slot = BlobSlotResponse.parse(await response.json());
+      expect((await w.put(slot.url, ONE_BUCKET)).status).toBe(200);
+      outputs.push(slot.blob);
+    }
+    const [kept, lost] = outputs as [string, string];
+    expect((await w.finish(job)).status).toBe(200);
+    await w.ledger.drop({
+      siteId: SITE_ID,
+      jobId: stub.id,
+      direction: "out",
+      blobs: [lost],
+    });
+
+    // 48 hours old, both. The one the record still names waits for that
+    // record's clock, a day after a deadline that is days away.
+    w.clock.at = storedAt + ORPHAN_BLOB_AGE_MS;
+    expect((await w.relay.sweep()).blobsDeleted).toBe(1);
+    expect(stored(w)).toEqual([
+      blobObjectName({
+        siteId: SITE_ID,
+        jobId: stub.id,
+        direction: "out",
+        blob: kept,
+      }),
+    ]);
+    w.clock.at = stub.deadlineAt + BLOBS_KEPT_AFTER_DEADLINE_MS;
+    expect((await w.relay.sweep()).blobsDeleted).toBe(1);
+    expect(stored(w)).toEqual([]);
+  });
+
+  it("lists every stored object with its address and when it was stored, from the store alone", async () => {
+    const w = await world();
+    const first = await w.input("a/b", ONE_BUCKET, ONE_BUCKET);
+    w.clock.at += 1_000;
+    const second = await w.input("job-plain", TWO_BUCKETS, TWO_BUCKETS);
+    await w.input("job-empty", ONE_BUCKET, 0);
+    const all = await w.blobStore.storedBefore(w.clock.at);
+    expect(all).toEqual([
+      {
+        address: {
+          siteId: SITE_ID,
+          jobId: "a/b",
+          direction: "in",
+          blob: first.blob,
+        },
+        storedAt: w.clock.at - 1_000,
+      },
+      {
+        address: {
+          siteId: SITE_ID,
+          jobId: "job-plain",
+          direction: "in",
+          blob: second.blob,
+        },
+        storedAt: w.clock.at,
+      },
+    ]);
+    expect(await w.blobStore.storedBefore(w.clock.at - 1)).toHaveLength(1);
   });
 });
 

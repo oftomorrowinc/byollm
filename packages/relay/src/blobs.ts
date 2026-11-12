@@ -45,11 +45,13 @@ import {
  * An object is stored at {@link blobObjectName}: site, job, direction, blob.
  * So the bucket alone says which job every object belongs to. Nothing has to
  * be signed into the upload for that — no header the uploader must send, no
- * key on a slot's answer — and a ledger that forgets (the hub's routing
- * store keeps nothing across a restart) is rebuilt from the names the next
- * time the job is enqueued. It is also the address check: a caller names a
- * blob id, and this relay supplies the site and the job from what it has
- * already verified, so no id reaches another job's object.
+ * key on a slot's answer. A ledger that forgets (the hub's routing store
+ * keeps nothing across a restart) is rebuilt from the names the next time
+ * the job is enqueued, and what no job is enqueued for again is found by
+ * the sweep from the names too, once it is too old to belong to anything
+ * ({@link ORPHAN_BLOB_AGE_MS}). It is also the address check: a caller
+ * names a blob id, and this relay supplies the site and the job from what
+ * it has already verified, so no id reaches another job's object.
  *
  * ## The slot's size rides in the blob id
  *
@@ -69,6 +71,13 @@ export interface BlobAddress {
   readonly blob: string;
 }
 
+/** One stored object, as a store-wide listing names it. */
+export interface StoredBlob {
+  readonly address: BlobAddress;
+  /** Epoch ms the object was stored, on the store's own clock. */
+  readonly storedAt: number;
+}
+
 /** A short-lived capability for one object: `PUT` it or `GET` it. */
 export interface SignedBlobUrl {
   readonly url: string;
@@ -86,8 +95,10 @@ export interface SignedBlobUrl {
  * An implementation MUST:
  *
  * 1. **Store an object where its address says.** {@link blobObjectName} is
- *    the name this package's store uses; a host may choose another, so long
- *    as `list` finds a job's objects from the site and the job alone.
+ *    the name this package's store uses ({@link blobAddressOf} reads one
+ *    back); a host may choose another, so long as `list` finds a job's
+ *    objects from the site and the job alone and `storedBefore` finds every
+ *    object's address from the store alone.
  * 2. **Need nothing from the uploader but the bytes.** `slot` answers a URL
  *    a plain `PUT` of `bytes` octets of `application/octet-stream`
  *    satisfies. No header list is handed back, so there is nowhere to put
@@ -96,6 +107,9 @@ export interface SignedBlobUrl {
  *    was signed for. That read is the check (§2: "nothing rests on" the
  *    store enforcing a signed length).
  * 4. **Delete idempotently.** Deleting what is already gone is not an error.
+ * 5. **Say when each object was stored**, from the store's own record of
+ *    it. The sweep deletes by that time what no ledger record covers, so a
+ *    lost ledger does not leave an object waiting for the bucket's rule.
  *
  * It SHOULD make a slot writable once. Where it cannot, an object replaced
  * after its job was offered is caught by the size check a download URL gets
@@ -113,6 +127,12 @@ export interface BlobStore {
     readonly siteId: string;
     readonly jobId: string;
   }): Promise<{ readonly direction: BlobDirection; readonly blob: string }[]>;
+  /**
+   * Every object stored at or before `time`, across every site and job,
+   * from the store alone — no ledger is asked. An object whose name is not
+   * one of this store's is left out.
+   */
+  storedBefore(time: number): Promise<StoredBlob[]>;
   /** Gone. Idempotent. */
   delete(address: BlobAddress): Promise<void>;
   /**
@@ -143,6 +163,14 @@ function segment(id: string): string {
     : `~${Buffer.from(id, "utf8").toString("base64url")}`;
 }
 
+/** {@link segment}, read back; `null` for what `segment` never wrote. */
+function unsegment(part: string): string | null {
+  const id = part.startsWith("~")
+    ? Buffer.from(part.slice(1), "base64url").toString("utf8")
+    : part;
+  return id !== "" && segment(id) === part ? id : null;
+}
+
 /** The prefix every object of one job is stored under, with its final `/`. */
 export function blobJobPrefix(job: {
   readonly siteId: string;
@@ -167,6 +195,45 @@ export function blobObjectName(address: BlobAddress): string {
   }
   return `${blobJobPrefix(address)}${address.direction}/${address.blob}`;
 }
+
+/**
+ * The address {@link blobObjectName} wrote `name` from, or `null` for a
+ * name it did not write — what a bucket-backed `storedBefore` reads its
+ * listing with.
+ */
+export function blobAddressOf(name: string): BlobAddress | null {
+  const [prefix, site, job, direction, blob, extra] = name.split("/");
+  if (
+    prefix !== BLOB_OBJECT_PREFIX ||
+    site === undefined ||
+    job === undefined ||
+    (direction !== "in" && direction !== "out") ||
+    blob === undefined ||
+    extra !== undefined ||
+    slotBytesOf(blob) === null
+  ) {
+    return null;
+  }
+  const siteId = unsegment(site);
+  const jobId = unsegment(job);
+  return siteId === null || jobId === null
+    ? null
+    : { siteId, jobId, direction, blob };
+}
+
+/**
+ * How old a stored object must be before the sweep deletes it for having no
+ * ledger record: the oldest an envelope may be, plus the day blobs are kept
+ * past a deadline.
+ *
+ * The same bound an input slot is given before its job is enqueued, for the
+ * same reason. An object with no record is one whose ledger was lost, and
+ * nothing in its name says when its job ends — so it is kept for as long as
+ * any job it could belong to could still be opened, and a day. 48 hours,
+ * where the bucket's own rule would be day 7.
+ */
+export const ORPHAN_BLOB_AGE_MS =
+  ENVELOPE_MAX_AGE_MS + BLOBS_KEPT_AFTER_DEADLINE_MS;
 
 /** 128 random bits as base64url (22 characters), then the bucket count. */
 const BLOB_ID = /^[A-Za-z0-9_-]{22}([1-9][0-9]?)$/;
@@ -225,10 +292,13 @@ export interface BlobJobRecord {
 /**
  * Which slots each job has been issued, and when its blobs are deleted.
  *
- * Routing state: short-lived, derived, and safe to lose. A ledger that
- * forgets a job is rebuilt from the store's object names when that job is
- * next enqueued, and the store's own lifecycle rule is the floor under a
- * job that never is. {@link MemoryBlobLedger} is correct for one replica; a
+ * Routing state: short-lived and derived. **Losing it loses the two early
+ * clocks, not the deletion**: a ledger that forgets a job is rebuilt from
+ * the store's object names when that job is next enqueued, and the objects
+ * of a job that never is are deleted by the sweep once they are
+ * {@link ORPHAN_BLOB_AGE_MS} old — not at the result, and not an hour after
+ * collection, which only a record can say. A ledger that outlives a restart
+ * keeps those. {@link MemoryBlobLedger} is correct for one replica; a
  * deployment with more supplies a shared one, for the reason
  * `RoutingStore` is not a `Map`.
  *
@@ -409,6 +479,7 @@ export const MEMORY_BLOB_PATH = "/relay/blob-store/";
  */
 export class MemoryBlobStore implements BlobStore {
   readonly #objects = new Map<string, Uint8Array>();
+  readonly #storedAt = new Map<string, number>();
   readonly #urls = new Map<
     string,
     { name: string; method: "PUT" | "GET"; expiresAt: number }
@@ -470,8 +541,19 @@ export class MemoryBlobStore implements BlobStore {
     return Promise.resolve(found);
   }
 
+  storedBefore(time: number): Promise<StoredBlob[]> {
+    const found: StoredBlob[] = [];
+    for (const [name, storedAt] of this.#storedAt) {
+      const address = storedAt <= time ? blobAddressOf(name) : null;
+      if (address !== null) found.push({ address, storedAt });
+    }
+    return Promise.resolve(found);
+  }
+
   delete(address: BlobAddress): Promise<void> {
-    this.#objects.delete(blobObjectName(address));
+    const name = blobObjectName(address);
+    this.#objects.delete(name);
+    this.#storedAt.delete(name);
     return Promise.resolve();
   }
 
@@ -503,6 +585,7 @@ export class MemoryBlobStore implements BlobStore {
       return new Response(null, { status: 413 });
     }
     this.#objects.set(grant.name, body);
+    this.#storedAt.set(grant.name, this.#now());
     return new Response(null, { status: 200 });
   }
 
@@ -799,8 +882,11 @@ export class RelayBlobs {
    * Delete whatever the clock says is due, and count it.
    *
    * Outputs an hour after collection without `received`; everything a job
-   * has left a day after its deadline. The store's own lifecycle rule is
-   * the floor under this, for the case where it does not run.
+   * has left a day after its deadline. Then the objects no record covers —
+   * a ledger that was lost, with nothing enqueued again to rebuild it —
+   * once they are {@link ORPHAN_BLOB_AGE_MS} old, found from the store's
+   * names and its stored times alone. The store's own lifecycle rule is the
+   * floor under this, for the case where it does not run.
    */
   async sweep(): Promise<number> {
     const now = await this.#now();
@@ -817,6 +903,20 @@ export class RelayBlobs {
         ...(all ? {} : { direction: "out" as const }),
       });
       deleted += going.length;
+    }
+    for (const { address } of await this.#store.storedBefore(
+      now - ORPHAN_BLOB_AGE_MS,
+    )) {
+      // An object its job's record still names is that record's to delete,
+      // on the clock it carries.
+      const record = await this.#ledger.record(address.siteId, address.jobId);
+      const covered = record?.slots.some(
+        (slot) =>
+          slot.direction === address.direction && slot.blob === address.blob,
+      );
+      if (covered === true) continue;
+      await this.#store.delete(address);
+      deleted += 1;
     }
     return deleted;
   }

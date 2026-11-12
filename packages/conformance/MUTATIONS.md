@@ -1212,6 +1212,19 @@ lease's slots are displaced only when the next lease asks for a slot, so a
 next lease that asks for none would be refused for the first one's unfilled
 slot.
 
+Added when landing refused the approved branch (#7908): `pnpm verify` stopped
+at `packages/server/src/**`'s 90% branch threshold (89.56%), on the cloud
+lane's blob refusals no test reached. `packages/server/src/cloud-blobs.test.ts`
+answers them with a made relay and store; each mutation was applied to one
+match, the exit code read (1 each time), and the file restored.
+
+| check | mutated                        | mutation                                                 | result  |
+| ----- | ------------------------------ | -------------------------------------------------------- | ------- |
+| —     | `packages/server/src/cloud.ts` | `blobSlot` takes an answer with no numeric `expiresAt`   | ✓ bites |
+| —     | `packages/server/src/cloud.ts` | A refused upload is coded `blob-download`                | ✓ bites |
+| —     | `packages/server/src/cloud.ts` | A store's refused download is never retryable (5xx, 429) | ✓ bites |
+| —     | `packages/server/src/cloud.ts` | `downloadBlob` fetches without a URL from the relay      | ✓ bites |
+
 **What these do not show.** The store under them is the package's memory
 store, which stores whatever is `PUT`. Nothing here has asked a real bucket
 whether a daemon's `PUT` satisfies a signed URL; that is the hub card's one

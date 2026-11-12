@@ -1160,3 +1160,38 @@ breaks every 0.1.4 parser. The relay's budget-of-3 case and the server's
 "holds a job to the protocol ceiling" case assert the live body against the
 constant, and `client.test.ts` holds that another 403, or the sentence on
 another code, is not read as spent.
+
+## Verified 2026-11-12 — the relay's blob routes (byollm_021 §2, #7875, #7908)
+
+The cloud lane's halves of C053, C054, C057 and C059, in the relay's own
+suite: `packages/relay/test/blobs.test.ts` (the routes against the memory
+blob store) and `packages/relay/test/blobs-sdk.test.ts` (`ByollmApp` on the
+cloud lane against the relay in process). Not kit checks: the kit's target
+is the reference server, and these certify `@byollm/relay`, as the freeze
+gate does. Each mutation was applied to the named file, both files run, and
+the file restored.
+
+| check | mutated                              | mutation                                                              | result                                      |
+| ----- | ------------------------------------ | --------------------------------------------------------------------- | ------------------------------------------- |
+| C053  | `packages/relay/src/daemon-plane.ts` | Drop the lease-id comparison from `#jobUnder`                         | ✓ bites (2: no URL, no upload slot)         |
+| C053  | `packages/relay/src/daemon-plane.ts` | Match the lease id and not the runner the signature proved            | ✓ bites (2)                                 |
+| C053  | `packages/relay/src/daemon-plane.ts` | Ignore the lease's expiry in `#held`                                  | ✓ bites (2)                                 |
+| C053  | `packages/relay/src/blobs.ts`        | Drop the job from the object name (`blobJobPrefix`)                   | ✓ bites (3, incl. another job's blob)       |
+| C053  | `packages/relay/src/site-plane.ts`   | Address a site's download by a fixed site, not the one that signed    | ✓ bites (another site's blob)               |
+| C057  | `packages/relay/src/blobs.ts`        | Trust the slot's size: any stored object passes `#slotFault`          | ✓ bites (5, enqueue and result)             |
+| C057  | `packages/relay/src/blobs.ts`        | Accept a slot nothing was uploaded to                                 | ✓ bites (2)                                 |
+| C057  | `packages/relay/src/blobs.ts`        | Issue a download URL without reading the size again                   | ✓ bites (the replaced object)               |
+| C057  | `packages/relay/src/daemon-plane.ts` | Skip the output check at `result`                                     | ✓ bites (2)                                 |
+| C057  | `packages/relay/src/site-plane.ts`   | Route image kinds on a relay with no blob store                       | ✓ bites                                     |
+| C054  | `packages/relay/src/index.ts`        | Skip the sweep: `Relay.sweep` does not call the blob sweep            | ✓ bites (3)                                 |
+| C054  | `packages/relay/src/daemon-plane.ts` | Keep input blobs after the result is accepted                         | ✓ bites (4)                                 |
+| C054  | `packages/server/src/app.ts`         | The SDK never sends `received`                                        | ✓ bites (2)                                 |
+| C059  | `packages/relay/src/blobs.ts`        | Delete output blobs at collection                                     | ✓ bites (5)                                 |
+| C059  | `packages/relay/src/blobs.ts`        | Let every collection extend the hour (`bringForward` takes the later) | ✓ bites                                     |
+| C052  | `packages/server/src/cloud.ts`       | The SDK reads a whole download, not the declared size                 | ✓ bites (the site's end, on the cloud lane) |
+
+**What these do not show.** The store under them is the package's memory
+store, which stores whatever is `PUT`. Nothing here has asked a real bucket
+whether a daemon's `PUT` satisfies a signed URL; that is the hub card's one
+real GCS `PUT` (#7875, Owl's point 6). The hub's own ledger and store are
+operator claims until that card lands.

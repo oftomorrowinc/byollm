@@ -189,6 +189,67 @@ worse.
   long as the object exists, as the envelope's size does in the store, and
   goes with it.
 
+### The cloud lane's wire, as built (#7875, `0.1.5-beta.2`)
+
+Todd ruled #7875 on 2026-11-11: all of the blob path ships in 0.1.5, cloud
+lane included, and Owl's red team (#58474) amends how. `0.1.5-beta.1` carried
+the daemon's two endpoints and the direct lane. `0.1.5-beta.2` carries the
+rest, in the published packages. Where this differs from the text above,
+this is what was built.
+
+- **The store is the host's, behind one interface.** "R2" above is whatever
+  bucket the deployment has; byollm.cloud's is GCS (#7332). `@byollm/relay`
+  takes a `BlobStore` from its host (slot, URL, size, list, delete) and ships
+  a memory one. The lease check, the size checks and the deletion order are
+  in the package, not in the host's code beside it (Owl's point 4).
+- **Three site-plane calls**, signed with the site key:
+  - `POST /relay/blobs` takes `{ jobId, direction: "in", bytes }` and answers
+    `{ blob, url, expiresAt }`: a blob id the relay mints and a signed `PUT`.
+  - `POST /relay/blobs/download` takes `{ jobId, blob }` and answers
+    `{ url, expiresAt }`: a signed `GET` for one output of the site's own
+    job. This is "the site downloads with its own signed request", named.
+  - `POST /relay/blobs/received` takes `{ jobId, blobs }`, the outputs the
+    site now holds.
+- **No signed job header (choice B).** The job rides in the object name the
+  upstream chooses, `blobs/<site>/<job>/<in|out>/<blob>`. An uploader sends
+  ciphertext and its length and nothing else, so `BlobSlotResponse` keeps
+  its three keys and a 0.1.5-beta.1 daemon's `PUT` is unchanged. The bucket
+  still says which job each object belongs to, and that survives the hub's
+  routing store restarting (Owl's point 5): a job enqueued again after one
+  is checked, and later deleted, from the names.
+- **A slot's size is in its blob id.** The id ends with the slot's size in
+  256 KiB buckets, so the size a stored object is held to is recorded where
+  it cannot be lost separately from the object.
+- **What "its blobs" means to a relay.** A relay cannot read which blobs a
+  sealed payload names. So the `HEAD` before offer holds every input slot
+  the job was issued to its size, and refuses the job if one was never
+  filled; an `llm.vision` job with no input slot at all is refused too. A
+  refused job's inputs are deleted with the refusal. The output check at
+  `result` is the same, over the slots issued under the lease that is
+  reporting. Example: a site asks for two slots, uploads one photo, and
+  enqueues. The job is refused at enqueue naming the empty slot, both slots
+  are cleared, and the site's next attempt under the same job id starts
+  clean.
+- **Inputs are uploaded before the enqueue.** A slot asked for after its job
+  is queued is refused, because nothing would hold it to its size before a
+  device was offered the job.
+- **A download URL is issued only for an object that is still its slot's
+  size.** The size is read again when a device or a site asks, so an object
+  replaced after its job was offered is not handed on.
+- **A relay with no blob store carries no images.** Its blob routes answer
+  404, as a relay before `0.1.5-beta.2` does, and it refuses `llm.vision`
+  and `llm.image` at enqueue. Without that an `llm.image` job, which has no
+  input to check, would be offered, the device's backend would be paid, and
+  the output slot would answer 404 (Owl's point 3). The site SDK reads the
+  404 as "this relay carries no images" and enqueues nothing.
+- **Output slots belong to a lease.** At most four under one lease. When a
+  lease lapses and the next device asks for a slot, the first lease's
+  outputs are deleted: no result can reference them.
+- **The hub's part is its own card**, after `0.1.5-beta.2`: the GCS store
+  behind this interface, a ledger in its routing store, one real `PUT` from
+  the daemon's own client against the bucket, and the bucket's CORS list
+  without the job tag. The clean 0.1.5 holds on it.
+
 ### The direct lane (`@byollm/server`)
 
 The server answers the same endpoints from its store adapter, which gains

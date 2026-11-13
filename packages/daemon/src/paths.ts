@@ -71,6 +71,8 @@ export interface DaemonPaths {
   readonly health: string;
   /** Liveness, rewritten every beat — B202. */
   readonly heartbeat: string;
+  /** Who keeps this device running when it is not a service — #8404. */
+  readonly supervisor: string;
   /**
    * What this machine calls itself when it pairs.
    *
@@ -104,6 +106,7 @@ export function daemonPaths(root = defaultRoot()): DaemonPaths {
     keys: join(root, "keys.json"),
     health: join(root, "health.json"),
     heartbeat: join(root, "heartbeat.json"),
+    supervisor: join(root, "supervisor.json"),
     label: join(root, "label"),
     scratch: join(root, "scratch"),
   };

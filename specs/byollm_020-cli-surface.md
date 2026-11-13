@@ -67,6 +67,7 @@ the model each runs), model <svc> <name> (the setter), offer <service>
   byollm start            run persistently, across restarts (was install)
   byollm stop             stop the persistent daemon (was uninstall)
   byollm run              run in the foreground and watch (no url)
+  byollm run --supervised <name>   the same, kept running by <name> (#8404)
   byollm status           what is connected, running, and what it cost
   byollm log [--full] [-n N]   every prompt this device has run
   byollm services         each service: health, advertised/withheld, model
@@ -971,3 +972,36 @@ this morning, alongside these answers to CCB's challenges:
 Law minted in 016 from the pattern CCB named: a test that ends the
 thing it is measuring proves only that it ended it — with the
 direction-learning corollary.
+
+### `run --supervised <name>` — decision #8404 part 4, the daemon half (2026-11-13)
+
+Todd on box-1's console, 11-12. PID 1 on a hosted box is the box
+supervisor (byollm-cloud `box/src/supervisor.ts`); it runs `byollm run`
+as a child and there is no systemd. `status` said "service: not installed
+— jobs only run while `byollm run` is open (`byollm start` fixes that)",
+which was false, and `stop` removed a unit that did nothing, after which
+`start` failed on `systemctl --user daemon-reload — exit 127`.
+
+The surface gains one flag on `run`, and it is a statement, not an
+inference:
+
+- `byollm run --supervised <name>` writes `~/.byollm/supervisor.json` —
+  `{ by, pid, at }`, the name and the run's pid — before anything can
+  fail, and its startup line ends "Kept running by <name> (--supervised)."
+  in place of "Ctrl-C to stop." It also means supervised and not
+  interactive, the same answer `BYOLLM_SUPERVISOR_PID` gives (B213).
+- While that record stands, `status` prints `service: kept running by
+  <name>` and never asks the service manager; `start` and `stop` print
+  "this device is kept running by <name>; nothing to install or remove"
+  and exit 0 without touching systemd, launchd or Task Scheduler.
+- A plain `byollm run` removes the record only when the run that wrote it
+  is proven gone (`ESRCH`). Somebody typing `byollm run` at a box's
+  console while the supervised daemon serves does not erase the claim; a
+  machine that once ran supervised and now runs in a terminal stops saying
+  it is supervised.
+- Without the flag, nothing changes.
+
+The name is stripped of control characters and capped at 120 characters,
+like `byollm name`; a name with nothing printable left is refused (exit
+2). The box half — the supervisor passing `--supervised "this box"` — is
+byollm-cloud's.

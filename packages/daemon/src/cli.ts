@@ -74,7 +74,16 @@ import {
   overriddenRootNotice,
   type DaemonPaths,
 } from "./paths.js";
-import { howItRuns, supervisorPid, tellSupervisor } from "./supervised.js";
+import {
+  forgetKeptRunningByIfGone,
+  howItRuns,
+  keptRunningSentence,
+  readKeptRunningBy,
+  supervisorName,
+  supervisorPid,
+  tellSupervisor,
+  writeKeptRunningBy,
+} from "./supervised.js";
 import { Runner, type RunnerEvent } from "./runner.js";
 import {
   installedProgram,
@@ -106,6 +115,8 @@ const USAGE = `byollm — run an app's LLM jobs on your own models.
   byollm start                run in the background, across restarts
   byollm stop                 stop running in the background
   byollm run                  run here in the foreground, and watch the log
+  byollm run --supervised <name>  run under <name>, which keeps it running;
+                              status, start and stop then defer to <name>
   byollm status               what is connected, what is running, what it cost
   byollm log [--full] [-n N]  every prompt that has run on this device
   byollm services             each service: health, who it is offered to, model
@@ -613,6 +624,11 @@ async function commandInstall(
     ask?: (question: string) => Promise<string>;
   } = {},
 ): Promise<ExitCode> {
+  const keeper = await readKeptRunningBy(paths.supervisor);
+  if (keeper !== undefined) {
+    io.out(`${keptRunningSentence(keeper.by)}\n`);
+    return 0;
+  }
   const result = await installService(
     serviceTarget(paths, service),
     service.run,
@@ -660,6 +676,14 @@ async function commandUninstall(
   io: CliIo,
   service: ServiceIo,
 ): Promise<ExitCode> {
+  /* The other half of box-1 on 11-12: `stop` removed a unit that did nothing,
+     and the `start` after it failed on a systemd that is not there. Under a
+     supervisor neither has anything to act on, and saying so is the answer. */
+  const keeper = await readKeptRunningBy(paths.supervisor);
+  if (keeper !== undefined) {
+    io.out(`${keptRunningSentence(keeper.by)}\n`);
+    return 0;
+  }
   const result = await uninstallService(
     serviceTarget(paths, service),
     service.run,
@@ -1698,11 +1722,34 @@ async function commandRun(
    * taking a url, one of which does not mean what it looks like, is the
    * confusion this audit is for. Serving every paired app is the whole job.
    */
-  if (args.length > 0) {
+  /**
+   * One flag, and it is a statement — decision #8404 part 4.
+   *
+   * `--supervised <name>` is how a supervisor that is not systemd, launchd or
+   * Task Scheduler says so: the box's PID 1 passes it. It is recorded with
+   * this run's pid for `status`, `start` and `stop` to read later, from other
+   * processes, and it settles B213's question the same way
+   * `BYOLLM_SUPERVISOR_PID` does — told, not guessed: supervised, and nobody
+   * here to answer a prompt.
+   */
+  let keptRunningBy: string | undefined;
+  if (args[0] === "--supervised" && args.length === 2) {
+    keptRunningBy = supervisorName(args[1] ?? "");
+    if (keptRunningBy === undefined) {
+      io.err(
+        "byollm run --supervised needs the name of what keeps it running, " +
+          'e.g. byollm run --supervised "this box".\n',
+      );
+      return 2;
+    }
+    supervised = true;
+    interactive = false;
+  } else if (args.length > 0) {
     io.err(
       `byollm run takes no arguments, and got ` +
         `${args.map((arg) => JSON.stringify(arg)).join(" ")}.\n\n` +
         `  byollm run                 serve every app this device is paired with\n` +
+        `  byollm run --supervised <name>   the same, kept running by <name>\n` +
         `  byollm connect ${args[0] ?? "<url>"}   pair with an app\n` +
         `  byollm sites               which sites this device serves\n`,
     );
@@ -1720,6 +1767,19 @@ async function commandRun(
    * Outside the loop: the loop re-enters on re-pairing, and asking again
    * there would be asking a question nobody's answer had changed.
    */
+  /* Written before anything can fail, so a supervised daemon that exits on
+     its first tick is still recorded as supervised: the supervisor will start
+     it again, and `start` must not install a second one in the meantime. */
+  if (keptRunningBy === undefined) {
+    await forgetKeptRunningByIfGone(paths.supervisor);
+  } else {
+    await writeKeptRunningBy(paths.supervisor, {
+      by: keptRunningBy,
+      pid: process.pid,
+      at: Date.now(),
+    });
+  }
+
   await preflightFor(paths, io, interactive, preflightOptions);
 
   /*
@@ -1745,7 +1805,15 @@ async function commandRun(
           // — which is why the decision lives in one function now rather than
           // beside each `return`.
           await nothingToServe(paths, io, signal, supervised, [], pollMs)
-        : await runLoop(paths, origins, io, signal, supervised, pollMs);
+        : await runLoop(
+            paths,
+            origins,
+            io,
+            signal,
+            supervised,
+            pollMs,
+            keptRunningBy,
+          );
 
     if (outcome !== "repaired") return outcome;
     io.err("re-paired — this device is returning to service.\n");
@@ -1986,6 +2054,28 @@ async function parkedUntilRepaired(
   }
 }
 
+/**
+ * The startup line — B037, and #8404's supervisor in it.
+ *
+ * "Ctrl-C to stop" is advice for a person at a terminal. A daemon a
+ * supervisor keeps running has nobody at its terminal, and the person reading
+ * its log needs to know the opposite: that stopping it is the supervisor's
+ * business, not a keypress.
+ */
+export function servingLine(
+  label: string,
+  origins: string,
+  keptRunningBy?: string,
+): string {
+  return (
+    `serving as ${label} — ${origins}.\n` +
+    `Which sites may send work is enabled from your dashboard. ` +
+    (keptRunningBy === undefined
+      ? `Ctrl-C to stop.\n`
+      : `Kept running by ${keptRunningBy} (--supervised).\n`)
+  );
+}
+
 async function runLoop(
   paths: DaemonPaths,
   origins: readonly string[],
@@ -2006,6 +2096,8 @@ async function runLoop(
    */
   supervised = !process.stdout.isTTY,
   pollMs = PARK_POLL_MS,
+  /** What `--supervised` named, for the startup line. */
+  keptRunningBy?: string,
 ): Promise<ServeOutcome> {
   /* One line, only when the state directory has actually moved — B205 item 2.
      Silent on a box (the supervisor states BYOLLM_HOME to this same default)
@@ -2294,10 +2386,11 @@ async function runLoop(
    * after "is it running" is always "then why is nothing arriving".
    */
   io.out(
-    `serving as ${await labelFor(paths, undefined)} — ` +
-      `${describeOrigins(origins)}.\n` +
-      `Which sites may send work is enabled from your dashboard. ` +
-      `Ctrl-C to stop.\n`,
+    servingLine(
+      await labelFor(paths, undefined),
+      describeOrigins(origins),
+      keptRunningBy,
+    ),
   );
 
   await ingress.applyRetention(Date.now());
@@ -2816,7 +2909,14 @@ async function commandStatus(
    * the defaults is a daemon that is running, whatever the file says.
    */
   const plan = servicePlan(serviceTarget(paths, service));
-  const supervision = await serviceState(plan, service.run);
+  /* Under a supervisor there is no service manager to ask — on a box,
+     `systemctl` is not even installed — and asking would only produce the
+     `absent` that printed "not installed". */
+  const keeper = await readKeptRunningBy(paths.supervisor);
+  const supervision: ServiceState =
+    keeper === undefined
+      ? await serviceState(plan, service.run)
+      : { state: "absent" };
   const revoked = await revokedMark(paths.health);
   const notSetUp = !configured && beat === undefined;
 
@@ -2846,7 +2946,10 @@ async function commandStatus(
     io.out(
       `  ${REVOKED_SENTENCE}.\n` +
         `  ${revoked.origin} no longer accepts this device's credential.\n` +
-        revokedRemedy(revoked.origin, supervision.state !== "absent"),
+        revokedRemedy(
+          revoked.origin,
+          keeper !== undefined || supervision.state !== "absent",
+        ),
     );
   }
   if (stale) {
@@ -2897,7 +3000,11 @@ async function commandStatus(
         `been told.\n`,
     );
   }
-  io.out(await supervisionLine(plan, supervision, revoked !== undefined));
+  io.out(
+    keeper === undefined
+      ? await supervisionLine(plan, supervision, revoked !== undefined)
+      : `service: kept running by ${keeper.by}\n`,
+  );
   io.out("\n");
 
   /**

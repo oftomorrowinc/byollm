@@ -1,3 +1,8 @@
+import { randomBytes } from "node:crypto";
+import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { dirname } from "node:path";
+import { beatWriterIsGone } from "./heartbeat.js";
+
 /**
  * Telling a supervisor that this device's configuration changed — B207.
  *
@@ -129,4 +134,109 @@ export function howItRuns(
     return { supervised: true, interactive: false };
   }
   return { supervised: !isTty, interactive: isTty };
+}
+
+/**
+ * Who keeps this device running, when it is not a service — decision #8404
+ * part 4.
+ *
+ * On a hosted box PID 1 is the box's supervisor and it runs `byollm run` as a
+ * child; there is no systemd. So `status` asked systemd, heard nothing, and
+ * told Todd on box-1's console (11-12) that jobs only ran while `byollm run`
+ * was open and that `byollm start` fixed that — both false. `stop` then removed
+ * a unit that did nothing, and `start` failed on `systemctl --user
+ * daemon-reload — exit 127`.
+ *
+ * **Stated, not inferred**, for the reason {@link supervisorPid} gives: the
+ * supervisor passes `byollm run --supervised <name>`, the daemon writes it
+ * here with its pid, and `status`, `start` and `stop` — other processes, later
+ * — read it. A file rather than `BYOLLM_SUPERVISOR_PID` because a console a
+ * person opens on the box is not guaranteed to inherit the supervisor's
+ * environment, and the file is in the state directory every command already
+ * reads.
+ */
+export interface KeptRunningBy {
+  /** What the supervisor called itself — "this box". */
+  readonly by: string;
+  /** The `run` that wrote it. */
+  readonly pid: number;
+  /** When, epoch ms. */
+  readonly at: number;
+}
+
+/** The longest name kept — the cap `byollm name` uses. */
+const NAME_LIMIT = 120;
+
+/**
+ * The name as it will be printed, or nothing if nothing printable is left.
+ *
+ * It reaches a terminal on every `status`, so control characters go: a name
+ * is a label, and an escape sequence in a label is somebody repainting the
+ * screen of whoever types `status`.
+ */
+export function supervisorName(raw: string): string | undefined {
+  // eslint-disable-next-line no-control-regex
+  const name = raw.replace(/[\u0000-\u001f\u007f-\u009f]/g, "").trim();
+  return name === "" ? undefined : name.slice(0, NAME_LIMIT);
+}
+
+/** Record it — atomically, so a `status` mid-write reads the old one or this. */
+export async function writeKeptRunningBy(
+  path: string,
+  record: KeptRunningBy,
+): Promise<void> {
+  await mkdir(dirname(path), { recursive: true });
+  const temp = `${path}.${randomBytes(6).toString("hex")}`;
+  await writeFile(temp, `${JSON.stringify(record)}\n`, { mode: 0o600 });
+  await rename(temp, path);
+}
+
+/** The record, or nothing — absent, unreadable and malformed are one answer. */
+export async function readKeptRunningBy(
+  path: string,
+): Promise<KeptRunningBy | undefined> {
+  try {
+    const parsed = JSON.parse(await readFile(path, "utf8")) as Partial<
+      Record<keyof KeptRunningBy, unknown>
+    > | null;
+    if (
+      parsed === null ||
+      typeof parsed.by !== "string" ||
+      typeof parsed.pid !== "number" ||
+      typeof parsed.at !== "number"
+    ) {
+      return undefined;
+    }
+    const by = supervisorName(parsed.by);
+    return by === undefined
+      ? undefined
+      : { by, pid: parsed.pid, at: parsed.at };
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * A `run` without the flag, and what it does to the record.
+ *
+ * Removed only when the run that wrote it is **proven gone** (`ESRCH`, the
+ * asymmetry {@link beatWriterIsGone} explains). A person who types `byollm
+ * run` at a box's console while the supervised daemon is serving must not
+ * erase the supervisor's claim and send `start` back to systemd; a laptop that
+ * once ran under a supervisor and now runs in a terminal must not keep saying
+ * it is supervised. The pid tells those two apart.
+ */
+export async function forgetKeptRunningByIfGone(
+  path: string,
+  kill?: (pid: number, signal: number) => void,
+): Promise<void> {
+  const record = await readKeptRunningBy(path);
+  if (record === undefined) return;
+  if (!beatWriterIsGone(record, kill)) return;
+  await rm(path, { force: true });
+}
+
+/** `start` and `stop` under a supervisor — one sentence for both. */
+export function keptRunningSentence(by: string): string {
+  return `this device is kept running by ${by}; nothing to install or remove`;
 }

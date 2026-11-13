@@ -812,7 +812,10 @@ describe("C051's bound — what an admitted teammate's job can make this device 
     expect(imageDownloadCeiling(MAX_IMAGES_IN, MAX)).toBe(
       MAX + MAX_IMAGES_IN * (BLOB_PADDING_BYTES + 40),
     );
-  });
+    /* Seals and opens eight ~2 MiB blobs: about 4 s on an idle machine,
+       so the 5 s unit default timed it out under a full `pnpm verify`
+       (landing of #8409). */
+  }, 30_000);
 
   it("holds for every admitted split: no admitted refs exceed the ceiling", () => {
     /* The ceiling is per reference, so the worst shapes are 1..8 refs each

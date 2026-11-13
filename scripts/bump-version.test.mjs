@@ -214,6 +214,77 @@ describe("a bump to a RELEASE retires the alpha, and only mechanically", () => {
     ).toContain("version 2 as of 0.1.0");
   });
 
+  it("leaves a marked note alone even where it opens like the banner — #8620", () => {
+    /**
+     * **Found on #7064.** `release-note.mjs` opens every note
+     * `> **\`0.1.1\` is …` — the banner's shape since the flip — so every
+     * bump from 0.1.1 on renumbered the note as if it were the banner. At
+     * 0.1.5 six npm pages said "`0.1.5` is documentation only — no schema
+     * moved" under `<!-- release-note 0.1.1 -->`, over a release shipping four
+     * migrations.
+     *
+     * The note here names the version being bumped FROM, which is the only
+     * case where the old rule could touch it: a note naming any other version
+     * has nothing for `line.replace(current, next)` to find. And the banner
+     * sits in the same file, so the case proves the exemption is the marker's
+     * and not a rule that stopped renumbering READMEs.
+     */
+    root = mkdtempSync(join(tmpdir(), "bump-marked-note-"));
+    mkdirSync(join(root, "packages/protocol"), { recursive: true });
+    writeFileSync(
+      join(root, "packages/protocol/package.json"),
+      '{\n  "version": "0.1.5"\n}\n',
+    );
+    const readme =
+      "> [!WARNING]\n" +
+      "> **`0.1.5` — early.** The protocol is version 2 as of 0.1.0.\n" +
+      "\n" +
+      "<!-- release-note 0.1.5 -->\n" +
+      "> **`0.1.5` adds four migrations.** Run them before upgrading.\n" +
+      ">\n" +
+      "> **`0.1.5` also moves a wire field.**\n" +
+      "\n" +
+      "# @byollm/protocol\n";
+    writeFileSync(join(root, "packages/protocol/README.md"), readme);
+    execFileSync(process.execPath, [script, "0.1.6"], { cwd: root });
+
+    const after = readFileSync(
+      join(root, "packages/protocol/README.md"),
+      "utf8",
+    );
+    expect(after, "the unmarked banner stopped moving").toContain(
+      "> **`0.1.6` — early.**",
+    );
+    expect(after, "the marked note's first line was renumbered").toContain(
+      "<!-- release-note 0.1.5 -->\n> **`0.1.5` adds four migrations.**",
+    );
+    expect(
+      after,
+      "a later line of the same note, also banner-shaped, was renumbered",
+    ).toContain("> **`0.1.5` also moves a wire field.**");
+    expect(after.match(/0\.1\.6/g), "exactly the banner moved").toHaveLength(1);
+  });
+
+  it("does not delete a marked note at a release because it opens like the alpha banner", () => {
+    /* The retire path's half of the same exemption: `RETIRED_AT_RELEASE`
+       deletes `> **Alpha (` lines, and a note written in an alpha's own
+       words is history that a clean version does not make false. */
+    const at = tree();
+    writeFileSync(
+      join(at, "packages/protocol/README.md"),
+      "> **Alpha (`0.1.0-alpha.21`) — under active development.**\n\n" +
+        "<!-- release-note 0.1.0-alpha.9 -->\n" +
+        "> **Alpha (`0.1.0-alpha.9`) was the first to pair.**\n\n# Package\n",
+    );
+    execFileSync(process.execPath, [script, "0.1.0"], { cwd: at });
+
+    const after = readFileSync(join(at, "packages/protocol/README.md"), "utf8");
+    expect(after).not.toContain("Alpha (`0.1.0-alpha.21`)");
+    expect(after).toContain(
+      "<!-- release-note 0.1.0-alpha.9 -->\n> **Alpha (`0.1.0-alpha.9`) was the first to pair.**",
+    );
+  });
+
   it("leaves the site's banner alone, because that block is not mechanical", () => {
     /**
      * I wrote the HTML rules first and they broke the page. The orange bar is

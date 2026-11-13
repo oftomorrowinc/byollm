@@ -781,6 +781,38 @@ describe("the warning body the bump leaves standing", () => {
     expect(out).not.toMatch(/it has no production miles either/u);
   });
 
+  it("reads the body under a numeric banner as live — #8620", () => {
+    /**
+     * Since the flip the banner opens `> **\`0.1.5\` — early.**`, which is
+     * bold-then-code — `RELEASE_ENTRY`'s shape. The region used to end on the
+     * banner line itself, so everything the warning said below it was
+     * history, and a "don't use this yet" put back into the root README's
+     * warning at a clean version passed. The mirror of the bumper reading a
+     * marked note as the banner; both now take the banner from
+     * `readme-banner.mjs`.
+     *
+     * Not through the bump: a numeric banner is not something the bump
+     * produces from an alpha tree, it is what the tree already looks like.
+     */
+    const root = tree("0.1.6", {
+      "README.md":
+        "> [!WARNING]\n" +
+        "> **`0.1.6` — early.** The protocol is version 2 as of 0.1.0.\n" +
+        ">\n" +
+        "> It has no production miles; don't put it in front of your users.\n" +
+        ">\n" +
+        "> **`alpha.15` is a breaking wire change** with no production miles.\n" +
+        "\n# byollm\n",
+    });
+    const { code, out } = run(root);
+    expect(code, out).toBe(1);
+    expect(out).toMatch(
+      /README\.md:4\s+\[pre-release claim\].*production miles/u,
+    );
+    /* And the entry after it still ends the region. */
+    expect(out).not.toMatch(/README\.md:6\s/u);
+  });
+
   it("says nothing about prose that is still true after the cut", () => {
     /**
      * `README.md:577` says *"it will change without a deprecation path"* about

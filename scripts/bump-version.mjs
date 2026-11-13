@@ -16,6 +16,7 @@
  */
 import { readdirSync, readFileSync, writeFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
+import { README_BANNER, markedNoteLines } from "./readme-banner.mjs";
 
 const next = process.argv[2];
 if (!next || !/^\d+\.\d+\.\d+(-[a-z]+\.\d+)?$/.test(next)) {
@@ -91,9 +92,23 @@ const dropAlphaTag = (line) =>
 
 /** Replace the one live version declaration in a release target. */
 function replaceLiveVersion(path, text) {
-  return text
-    .split("\n")
-    .map((line) => {
+  const lines = text.split("\n");
+  /**
+   * **A marked release note is history, even where it looks like the banner
+   * — #8620, found on #7064.**
+   *
+   * `release-note.mjs` opens every note `> **\`0.1.1\` is …`, which is the
+   * banner's shape since the flip. So from 0.1.1 onward every bump renumbered
+   * the note too, and at 0.1.5 six npm pages said "`0.1.5` is documentation
+   * only — no schema moved" under `<!-- release-note 0.1.1 -->`, over a
+   * release shipping four migrations. The marker is what the note carries and
+   * the banner does not, so the marker decides.
+   */
+  const history = path.endsWith("README.md")
+    ? markedNoteLines(lines)
+    : new Set();
+  return lines
+    .map((line, at) => {
       const isManifestVersion =
         path.endsWith("package.json") && /^\s*"version"\s*:/.test(line);
       /**
@@ -108,7 +123,8 @@ function replaceLiveVersion(path, text) {
        */
       const isReadmeBanner =
         path.endsWith("README.md") &&
-        /^\s*>\s*\*\*(?:Alpha \(`|`\d+\.\d+\.\d)/i.test(line);
+        !history.has(at) &&
+        README_BANNER.test(line);
       const isSiteBanner =
         path === "site/index.html" &&
         /<b>(?:Alpha \(|\d+\.\d+\.\d)/i.test(line);
@@ -165,8 +181,17 @@ function replaceLiveVersion(path, text) {
  */
 function retireAlpha(path, text) {
   const lines = text.split("\n");
+  /* The same exemption as the renumbering: a marked note that happens to open
+     like the alpha banner is history, and deleting it is rewriting it. */
+  const history = path.endsWith("README.md")
+    ? markedNoteLines(lines)
+    : new Set();
   const kept = lines
-    .filter((line) => !RETIRED_AT_RELEASE.some((shape) => shape.test(line)))
+    .filter(
+      (line, at) =>
+        history.has(at) ||
+        !RETIRED_AT_RELEASE.some((shape) => shape.test(line)),
+    )
     .map(dropAlphaTag);
   /* The banner is the first line of every README and is followed by a blank.
      Removing one without the other leaves the document opening on an empty

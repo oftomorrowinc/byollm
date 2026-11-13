@@ -19,6 +19,13 @@
  * matched — but that the banner and the notes shared a namespace, which made
  * every "is this version mentioned?" question ambiguous.
  *
+ * **That sentence was false from 0.1.1 to 0.1.5 — #8620.** The flip gave the
+ * banner the shape every note opens with (`> **\`0.1.1\` …`), and the bumper
+ * matched the shape, not the marker: at 0.1.5 the 0.1.1 note said "`0.1.5` is
+ * documentation only" on six npm pages. Both readers now take the banner from
+ * `readme-banner.mjs`, which exempts everything from a marker to the end of
+ * the blockquote after it — so the marker is load-bearing; keep writing it.
+ *
  *   node scripts/release-note.mjs 0.1.0-alpha.21 note.md
  *
  * Prints what it wrote per file, and exits non-zero if any README did not

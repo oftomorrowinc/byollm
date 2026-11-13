@@ -71,6 +71,7 @@
 import { readFileSync, readdirSync, existsSync, realpathSync } from "node:fs";
 import { dirname, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
+import { README_BANNER } from "./readme-banner.mjs";
 
 /**
  * A path as this project writes paths: relative, forward slashes, everywhere.
@@ -198,6 +199,21 @@ const WARNING_OPENS = /^\s*>\s*\[!(?:WARNING|CAUTION|IMPORTANT)\]\s*$/i;
  * 8, 15, 15, 15 and 15, and in each the warning is entirely above it.
  */
 const RELEASE_ENTRY = /^\s*>\s*\*\*`/;
+
+/**
+ * **But the banner opens that way too, since the flip — #8620.**
+ *
+ * `> **\`0.1.5\` — early.**` is bold-then-code, so the region below ended on
+ * the banner line itself and the warning body under it read as history: a
+ * "don't use this yet" put back in the root README's warning would have gone
+ * unreported at a clean version. The bumper had the mirror confusion — it read
+ * a note's first line as the banner — and both now take the banner from
+ * `readme-banner.mjs`. A release entry is that shape when it is NOT the
+ * banner; inside one warning blockquote there is no marker to consult, since
+ * a `<!-- release-note -->` line always ends the blockquote above it.
+ */
+const endsTheWarning = (line) =>
+  RELEASE_ENTRY.test(line) && !README_BANNER.test(line);
 
 /** A blockquote line with nothing in it — `>` and no more. */
 const BLANK_QUOTE = /^\s*>\s*$/;
@@ -332,7 +348,7 @@ const liveClaims = (text) => {
     if (!WARNING_OPENS.test(lines[i] ?? "")) continue;
     for (let j = i; j < lines.length; j += 1) {
       const line = lines[j] ?? "";
-      if (j > i && (RELEASE_ENTRY.test(line) || !/^\s*>/.test(line))) break;
+      if (j > i && (endsTheWarning(line) || !/^\s*>/.test(line))) break;
       live.add(j);
     }
   }

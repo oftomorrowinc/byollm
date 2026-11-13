@@ -1230,3 +1230,26 @@ store, which stores whatever is `PUT`. Nothing here has asked a real bucket
 whether a daemon's `PUT` satisfies a signed URL; that is the hub card's one
 real GCS `PUT` (#7875, Owl's point 6). The hub's own ledger and store are
 operator claims until that card lands.
+
+## Verified 2026-11-13 — the tool MUSTs owe nothing, so 0.1.5 may be cut (#7064)
+
+`TOOLS_BUDGETED` listed C039 and C040 as `planned`, and `TOOLS_MATCH_CONSENT`
+listed C047, so `pending-musts-hold-the-cut.mjs` refused `0.1.5`. All three
+were built by then, where each party's code lives rather than in the kit:
+C039 in the relay's suite (#7054), C040 in the server's (#7056), and C047 in
+three halves, the site SDK's and the relay's here (#7056) and the hub's in
+byollm-cloud (#7061). The release card took the three ids out of `planned` and
+re-ran each mutation on this tree, after `pnpm run build`. Each was seen to
+fail and was reverted.
+
+| Check                      | File                                    | Mutation                                                                 | Result                                                                                                            |
+| -------------------------- | --------------------------------------- | ------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------- |
+| C039 the relay's budget    | `packages/relay/src/state.ts`           | Drop the count in `recordToolCall`                                       | ✓ bites — four cases of `tool-calls.test.ts`, three of them under "C039 the relay's budget"                       |
+| C040 the site SDK's budget | `packages/server/src/site-tools.ts`     | Let a `budget` refusal from `chargeToolCall` fall through to the handler | ✓ bites — both C040 cases; 10 others pass                                                                         |
+| C047 relay: the verdict    | `packages/relay/src/site-plane.ts`      | Ignore a `tools-mismatch` verdict, so the job is queued                  | ✓ bites — only "is refused as tools-manifest-mismatch…"; 6 others pass                                            |
+| C047 hub: the compare      | byollm-cloud `hub/src/tools-consent.ts` | Drop the enqueue digest comparison                                       | ✓ bites — four cases of `hub/test/tools-consent.test.ts` (Owl, #58918; not re-run here, it is another repository) |
+
+The kit still does not carry C039, C040 or C047. It certifies a direct
+server, which has no relay, no site handlers and no manifest of record, so
+these stay as each party's own suite, as the C039 and C040 paragraphs above
+explain.

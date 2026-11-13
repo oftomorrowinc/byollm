@@ -159,13 +159,142 @@ schedule so that last rule fires.
 
 **The mount needs `GET` and `PUT`.** A device downloads input images and
 uploads output images through short-lived URLs under `/byollm/blobs/`, so
-export all three handlers, as above. Images are direct-lane only until the
-hub's blob endpoints are live.
+export all three handlers, as above. On the cloud lane the same calls go
+through the relay's blob endpoints instead (`app.enqueue`, `job.images()` and
+`app.received()` are unchanged), and byollm.cloud serves them from 0.1.5.
 
 **Adapter authors:** the store contract gains `putBlob`, `getBlob` and
 `deleteBlob` — a breaking addition in 0.1.5. The Supabase adapter keeps blobs
 in a private Storage bucket (migration `20261104050000_blob_bucket.sql`, which
 needs Storage enabled).
+
+## Tools — the site's own
+
+`llm.tools` (byollm_012) lets the model on a user's device call tools **your
+site** declares, such as your search or your catalogue. The tools run on your
+servers, never on the device: the device seals each call to you, your pump runs
+the handler, and the answer goes back sealed. The device owner turns tools on
+per service, and sees your tools on the consent screen.
+
+**1. Declare them on the purpose, with its limits.** The declarations are what
+the person consents to. On byollm.cloud the hub compares the digest of what you
+send at enqueue with the manifest of record, and refuses a mismatch as
+`tools-manifest-mismatch` with nothing queued, so change both together. A
+changed description is a changed consent, and people are asked again.
+
+```ts
+const PURPOSES = {
+  "fact-checker": {
+    label: "Fact Checker",
+    kinds: ["llm.tools"],
+    tools: {
+      web_search: {
+        description: "Search the web for a claim",
+        parameters: {
+          type: "object",
+          properties: { query: { type: "string", maxLength: 200 } },
+          required: ["query"],
+        },
+      },
+    },
+    maxToolCalls: 8, // 1 to 20; the job's budget, counted three times
+    maxToolResultChars: 32_000, // what one job may read from your tools
+  },
+};
+```
+
+`maxToolResultChars` counts toward the job's size class before it runs, so a
+generous number moves a job up a class and narrows who can serve it.
+
+**2. Register a handler per tool, in every process that pumps.**
+
+```ts
+import { ToolError } from "@byollm/server";
+
+getApp().tool("web_search", async ({ query }, job) => {
+  const hits = await search(String(query));
+  if (hits.length === 0) throw new ToolError("no results for that query");
+  return hits.map((h) => `${h.title} — ${h.url}`).join("\n");
+});
+```
+
+The SDK runs a handler only for a call sealed to your site by the device that
+holds the job, for a tool **that job's own payload declares**, within the job's
+budget, and with arguments that pass the declaration's schema. Anything else
+is dropped or answered with a tool error. Throw `ToolError` for an error the
+model may read; any other throw is answered with a fixed sentence, so a stack
+trace never reaches a device.
+
+**3. Scope every tool to the job, not to the user.** The arguments are chosen
+by a model, and a page or a prompt may have talked it into something. On a
+purpose a teammate can serve, the caller may also be a teammate's modified
+daemon, signed under a real grant. So a tool may return **only what you would
+have put in that job's payload**. Authorising as the job's user is not enough,
+because the user's authority reaches further than the job does:
+
+```ts
+// An editor's assistant whose jobs are about one manuscript.
+getApp().tool("read_section", async ({ section }, job) => {
+  // Wrong: any manuscript this user can open. A teammate's device could ask
+  // for the user's other drafts.
+  //   const doc = await manuscripts.forUser(job.user, String(args.manuscriptId));
+
+  // Right: the manuscript this job is about, which you recorded when you
+  // enqueued it. The model cannot name another one.
+  const manuscriptId = await jobSubjects.get(job.jobId);
+  if (manuscriptId === undefined) throw new ToolError("no manuscript for this job");
+  return manuscripts.section(manuscriptId, String(section));
+});
+```
+
+A tool that would act for somebody else is not a tool to declare at all. Start
+with read-only tools; a tool that writes is a write chosen by a model.
+
+**4. Enqueue it like chat, with the declarations.**
+
+```ts
+const job = await getApp().enqueue({
+  kind: "llm.tools",
+  owner: ownerId,
+  purpose: "fact-checker",
+  payload: {
+    messages: [{ role: "user", content: `Check this claim: ${claim}` }],
+    tools: [{ name: "web_search", ...PURPOSES["fact-checker"].tools.web_search }],
+    purposeLimits: { maxToolCalls: 8, maxToolResultChars: 32_000 },
+  },
+});
+```
+
+The result's `ran.toolCalls` counts every call the model made, including
+refused and timed-out ones, and `ran.toolOutcomes` says how each ended. A job
+that spends its budget ends `ok` with `stop: "tool-budget"`. If every call
+timed out, the answer came from the model's memory, not your tools: say so.
+
+**5. Keep the pump turning while tool jobs run.** Your handlers run inside
+`app.pump()`, on both lanes. A call nobody answers in 60 seconds is a tool
+error to the model, and still counts. A serverless request dies at its
+platform's ceiling, and a tool job can outlive the request that enqueued it.
+So pump from the request that waits on the job, **and** from a scheduled job
+that keeps cycling while `await app.toolJobsInFlight()` is true. If you cannot
+schedule work, run one tool job per request and size `maxToolCalls` to fit the
+route's ceiling.
+
+**What the round trips cost.** On the direct lane a call waits for your next
+pump cycle and the device's next poll, about a second apart. On the cloud lane
+add the relay's hop and your pump's cadence: at a 1.5-second pump, a call
+costs roughly 2 to 4 seconds before your tool runs, so a job with eight calls
+spends perhaps half a minute on round trips. That suits verification and
+research. It does not suit interactive chat.
+
+**Older relays and devices.** A pump whose relay answers `404` on `calls` reads
+it as a relay that carries no tools and runs the rest of its cycle. A device on
+0.1.4, or whose only service is a Claude or Codex subscription, cannot serve
+`llm.tools`; the person is told which device to update.
+
+**Adapter authors:** the store contract gains the tool-call methods
+(`recordToolCall`, `outstandingToolCalls`, `answerToolCall`, `toolResults`,
+`chargeToolCall`). The Supabase adapter needs `20261103230000_tool_calls.sql`
+and `20261104010000_tool_charges.sql`.
 
 ## Who `owner` is — this differs by mode
 

@@ -6,7 +6,7 @@ Every release note, newest first. Each links to the full note in
 **This file is generated.** Add a note to the directory, then run
 `node scripts/changelog.mjs`; `--check` refuses a stale one in `verify`.
 
-- [`0.1.5`](docs/release-notes/0.1.5.md) — A two-fix release: the hub-fence mapping claims the pair row's two times, and a teammate's large job can run.
+- [`0.1.5`](docs/release-notes/0.1.5.md) — Site tools, images, and two fixes.
 - [`0.1.5-beta.2`](docs/release-notes/0.1.5-beta.2.md) — A second prerelease for the servers that run byollm: images now travel through a relay.
 - [`0.1.5-beta.1`](docs/release-notes/0.1.5-beta.1.md) — A prerelease for the servers that run byollm: site tools and images, ahead of 0.1.5.
 - [`0.1.4`](docs/release-notes/0.1.4.md) — One sentence changes: the hub-fence now says what the hub sees. And `byollm status` names the brake when it...

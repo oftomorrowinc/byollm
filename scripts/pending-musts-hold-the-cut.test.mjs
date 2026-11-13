@@ -114,10 +114,12 @@ describe("what a promoted MUST still owes — #7055", () => {
     ]);
   });
 
-  it("finds the halves card 3 left to cards 2 and 4 in the registry as built", () => {
-    expect(plannedMustsIn(source).map((m) => m.id)).toEqual(
-      expect.arrayContaining(["TOOLS_BUDGETED", "TOOLS_MATCH_CONSENT"]),
-    );
+  it("finds nothing owing in the registry, once cards 2 and 4 built the halves card 3 left them", () => {
+    // TOOLS_BUDGETED owed C039 and C040, and TOOLS_MATCH_CONSENT owed C047.
+    // The 0.1.5 release card (#7064) took them out once each was built and
+    // seen to fail under its mutation, so 0.1.5 carries no planned check.
+    expect(plannedMustsIn(source)).toEqual([]);
+    expect(refusal("0.1.5", pendingMustsIn(source), [])).toBeNull();
   });
 
   it("refuses a stable cut while a tool MUST owes a planned check", () => {

@@ -237,12 +237,15 @@ locked to your own work — a protocol rule, not a setting you can change.
 Every payload is treated as hostile input. Breakout is structurally
 impossible: process-class backends get a fixed argv with the prompt on stdin,
 a stripped environment, an empty scratch directory and hard timeout/output
-caps; HTTP-class backends spawn nothing at all. The model has no tools, no
-retrieval and no MCP.
+caps; HTTP-class backends spawn nothing at all. The model has no tools that
+run on your device, no retrieval and no MCP. A site's own tools (`llm.tools`,
+off until you turn it on for a service) run on the site: the daemon seals each
+call to that site, logs it first, and never executes it.
 
 Prompt injection — steering what the model _says_ — is not prevented by
-anything and we do not claim otherwise. It is bounded here because the model
-has no tools and the output is inert.
+anything and we do not claim otherwise. It is bounded here because nothing
+the model says runs on the device: its output is inert, and a call to a site's
+tool is sealed to that site and run there.
 
 Full threat model, including what the OS stops us dropping:
 [`docs/security.md`](https://github.com/oftomorrowinc/byollm/blob/main/docs/security.md).

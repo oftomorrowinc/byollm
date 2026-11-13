@@ -715,9 +715,11 @@ export const MUSTS = Object.freeze({
   // these is `conformance` and `adversarial` both: the kit's checks run
   // against any target, and the daemon's suites stay, holding what the kit
   // cannot reach (C035's grant-digest cases, which need the cloud lane's
-  // grant). What the other parties' checks still owe is `planned`, and
+  // grant). What the other parties' checks owed was `planned`, and
   // `pending-musts-hold-the-cut.mjs` refuses a stable cut while a tool MUST
-  // has any.
+  // has any. The 0.1.5 release card (#7064) took the last of them out: C039
+  // (#7054), C040 (#7056) and C047 (#7056's SDK half, #7061's hub half) are
+  // built, each seen to fail under its mutation.
   TOOLS_RUN_AT_SITE: must({
     id: "TOOLS_RUN_AT_SITE",
     statement:
@@ -741,10 +743,11 @@ export const MUSTS = Object.freeze({
     // The device's half: C035 (the digest at admission) and C036 (undeclared
     // or ill-typed calls), in the kit and the daemon's suites; C035's digest
     // cases are the daemon suite's alone, because a direct target routes no
-    // grant to compare against. The hub's half is C047, at enqueue.
+    // grant to compare against. The hub's half is C047, at enqueue: the site
+    // SDK's and the relay's in packages/relay/test/site-sdk-tools.test.ts,
+    // the hub's in byollm-cloud's hub/test/tools-consent.test.ts (#7061).
     verifiedBy: ["conformance", "adversarial"],
     source: "byollm_012 §12",
-    planned: { verifiedBy: "conformance", checks: ["C047"] },
   }),
   TOOL_ENVELOPES_BOUND: must({
     id: "TOOL_ENVELOPES_BOUND",
@@ -767,10 +770,13 @@ export const MUSTS = Object.freeze({
     // The daemon's counter and the context cap: C038, C041, C046, in the kit
     // and in the daemon's suites. The relay's
     // counter is C039 and the site SDK's C040 — "three counters, on purpose"
-    // (§8), and one checked is a gap, not coverage, until all three are.
+    // (§8), and one checked is a gap, not coverage, until all three are. All
+    // three are: C039 in the relay's suite (packages/relay/test/
+    // tool-calls.test.ts) and C040 in the server's (packages/server/src/
+    // site-tools.test.ts), because the kit certifies a direct server, which
+    // has neither a relay nor a site's handlers (MUTATIONS.md, #7054, #7056).
     verifiedBy: ["conformance", "adversarial"],
     source: "byollm_012 §12",
-    planned: { verifiedBy: "conformance", checks: ["C039", "C040"] },
   }),
 
   // ---- Images by reference (byollm_021, #6933) --------------------------

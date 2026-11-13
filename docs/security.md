@@ -24,8 +24,10 @@ run. §3 is how.
 
 **Prompt injection** — payload text manipulating what the model _says_. No
 daemon can prevent this, and BYOLLM does not claim to. What it does is bound
-the consequences: the model has no tools, no retrieval and no MCP, and its
-output is inert bytes that travel back over the protocol and into a log.
+the consequences: the model has no tools that run on your device, no
+retrieval and no MCP. A site's own tools run on the site (byollm_012), and the
+model's output is inert bytes that travel back over the protocol and into a
+log.
 
 **"No retrieval" is a claim about somebody else's CLI, and it was false once.**
 An agentic CLI can read a file named in the prompt *before the model turn*, in
@@ -45,7 +47,11 @@ re-created the risk on its own side. See §6.
 ## 2. What a job can cause
 
 A claimed job of kind `llm.generate` or `llm.chat` results in **exactly one
-action**: text sent to the configured model backend, text returned.
+action**: text sent to the configured model backend, text returned. The three
+0.1.5 kinds add no other action on the device: `llm.vision` sends images the
+daemon downloaded and verified to that backend, `llm.image` returns images it
+made, and `llm.tools` sends the model's tool calls, sealed, to the site that
+declared them (§4b).
 
 Nothing in the payload may influence anything else — not the model, not the
 backend, not the base URL, not flags, not the filesystem, not the environment.
@@ -206,6 +212,12 @@ sentence naming it as an accepted cost was three lines above the sentence
 claiming the cost was covered. The cost was real; the cover was not. It is
 covered now by an argv flag and a live check, and `HOME` stays for the same
 reason as before.
+
+**"Having no tools" above is unchanged by 0.1.5, on purpose.** Site tools
+(byollm_012) and images (byollm_021) are served by `http`-class backends only,
+and a `process` backend is never offered `llm.tools`, `llm.vision` or
+`llm.image`. So everything this section says about the `claude` CLI's child
+still holds as written.
 
 **Windows needs eight more variables, for the same reason.** `HOME` does not
 name the user's profile there, so the allowlist also carries `USERPROFILE`,
@@ -454,6 +466,53 @@ return a price, so it is token-count × an owner-supplied rate. It will not
 match an invoice. It does not need to: it is a brake, and a defensible
 over-estimate stops a runaway, which is what the owner actually wants. A
 backend with no ceiling reads as *reached*, not as unlimited.
+
+## 4b. Site tools and images (0.1.5)
+
+**Site tools.** _A site's tools run on the site; your device sends the model's
+requests to that site and nothing else, and every request is in your device's
+log._ On an `llm.tools` job the daemon hands the model the site's tool
+declarations, and when the model calls one, the daemon checks the call against
+its declaration, logs it, seals it to that site and sends it. Nothing is
+executed on the device (`TOOLS_RUN_AT_SITE`, checks C033 and C034). On the
+cloud lane the declarations must match what you consented to, by the grant's
+`toolsDigest` (`TOOLS_MATCH_CONSENT`), and a site that changes its tools asks
+you again. Each job's calls are capped three times over, by the daemon, the
+relay and the site SDK (`TOOLS_BUDGETED`). Tools are off for a service until
+you turn them on.
+
+**What a site takes on when it declares a tool.** Every argument of a tool
+call is chosen by a party the site does not control: a model that a page or a
+prompt has talked into something, or, on a teammate's device, a device owner
+who modified their daemon. The call is signed by a real device under a real
+grant, so the site knows _who_ called, and cannot know the arguments were the
+model's honest choice. So a site treats every call as untrusted input and
+authorises it no wider than the job, never as itself. **On any purpose a
+teammate can serve, a tool is scoped to the job, not to the user:** it may
+return only what the site would have put in that job's payload. A tool that
+would act for somebody else is not a tool to declare. We recommend read-only
+tools for a first integration. The site guide (`packages/server/README.md`,
+"Tools — the site's own") has an example.
+
+**Images are inert too.** An image reaches a backend only after the daemon has
+decrypted it, checked its hash, and matched its declared type to its magic
+bytes and its dimensions to the caps (`MEDIA_VERIFIED`); an SVG, or a header
+claiming 50,000 × 50,000 pixels, is refused before any backend sees it. An
+image the model makes is checked the same way before the site's app sees it,
+and is bytes on the device: never opened, rendered or written to a path a
+payload named.
+
+**Blobs are encrypted end to end.** Image bytes never ride in the envelope.
+Each image is its own blob, encrypted before it leaves the endpoint that made
+it under a fresh key, and the key travels only inside the sealed, signed
+envelope (`BLOBS_SEALED`). Whoever stores a blob — byollm.cloud, or your own
+`@byollm/server` — holds ciphertext padded to 256 KiB buckets and nothing that
+opens it. The job id and direction are bound into each blob's associated data,
+so a blob cannot be moved to another job (`BLOB_BOUND_TO_JOB`). A teammate's
+images are budgeted before your device downloads them
+(`community.maxImageBytes`, `BLOB_BUDGET_BEFORE_DOWNLOAD`). Blobs are deleted
+once the site has its output, and at most a day after the job's deadline
+(`BLOBS_GO_WITH_THE_JOB`).
 
 ## 5. Community jobs get extra teeth
 

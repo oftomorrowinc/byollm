@@ -58,6 +58,41 @@ strictness above leaves no third option. That is a real constraint on how fast
 the wire can grow, and it is the price of a lock that means anything. Agreeing
 to the lock is agreeing to that.
 
+## 0.1.5's new shapes are inside the lock — byollm_021 R5
+
+**Decided with the 0.1.5 release (#6933's rollout, R5): yes, beside the
+envelope.** From 0.1.5 the shapes the three new kinds carry are locked surfaces,
+under **Claim** ("the job shapes they carry") and **Envelope**:
+
+- the payloads of `llm.tools`, `llm.vision` and `llm.image` (`ToolsPayload`,
+  `VisionPayload`, `ImagePayload`) and their result additions (`images`,
+  `ToolsRunMetadata`, `stop: "tool-budget"`);
+- `BlobRef`, which lives only inside a sealed envelope and is the whole of what
+  makes an image openable;
+- the `tool-call` and `tool-result` envelope directions and the `ToolCall` and
+  `ToolResult` bodies they seal;
+- `Purpose.tools`, `maxToolCalls` and `maxToolResultChars` in the manifest,
+  and the grant's `toolsDigest`.
+
+They are locked for the same reason the envelope is: an endpoint that cannot
+be upgraded holds the other end of each, and the conformance kit proves them
+(C033–C038, C041–C043 and C046 for tools; C048 onward for images).
+
+**How 0.1.5 added them without breaking the promise above, and where it
+strains it.** Every addition is a new *value* — a kind, a direction, a
+manifest key under a new kind — that reaches only a party that advertised or
+declared it. A 0.1.4 party never sends one and is never sent one, so 0.1.4 and
+0.1.5 still talk in both directions with nothing turned on. The strain is a
+0.1.5 daemon whose owner turns a new kind on, talking to a 0.1.4 upstream:
+`Capability.kind` is an enum on a strict heartbeat, so the upstream refuses
+the whole heartbeat. That is this document's "an optional field is a breaking
+change", met by a value. The daemon handles it: new kinds are off by default,
+and a refused heartbeat is re-sent once without them, with the upstream named
+as the cause only if that retry succeeds (byollm_021 R2, guard (b), check
+C060). So the lock now reads: *with nothing new turned on*, any two 0.1.x
+parties talk; a new kind needs its upstream on the version that added it, and
+a device that meets an older one says so and keeps serving everything else.
+
 ## What is NOT locked, stated here rather than somewhere quieter
 
 Carve-outs belong in the same document as the promise, or the promise reads

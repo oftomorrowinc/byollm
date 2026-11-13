@@ -1,11 +1,14 @@
 <!-- release-note 0.1.1 -->
-> **`0.1.1` is documentation only — nothing to upgrade.** `PROTOCOL_VERSION`
-> is still `2`, so a 0.1.0 party and a 0.1.1 party talk to each other in both
-> directions. No dependency, schema, wire field or on-disk shape moved.
+> **`0.1.5` carries site tools and images — update the relay first.**
+> `PROTOCOL_VERSION` is still `2`. The relay gains the four tool endpoints
+> (byollm_012) and the blob routes, against a `BlobStore` its host supplies
+> (byollm_021). Run it before any daemon or site that turns a new kind on: a
+> 0.1.4 relay refuses a heartbeat that advertises one. Full note:
+> `docs/release-notes/0.1.5.md`.
 >
 > This README used to open with a stack of release notes instead of with the
 > package. The history moved to `docs/release-notes/` and `CHANGELOG.md`,
-> where none of it was lost. Full note: `docs/release-notes/0.1.1.md`.
+> where none of it was lost.
 
 # `@byollm/relay`
 

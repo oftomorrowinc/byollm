@@ -110,8 +110,14 @@ A job is:
 ```
 
 `kind` is a string resolved against handlers **baked into the daemon**. v0
-defines `llm.generate` and `llm.chat`. A daemon MUST refuse an unknown kind
+defines `llm.generate` and `llm.chat`; 0.1.5 adds `llm.tools` (byollm_012),
+`llm.vision` and `llm.image` (byollm_021). A daemon MUST refuse an unknown kind
 rather than guess `[KIND_TYPED_ONLY]`.
+
+The three 0.1.5 kinds are new values, not new fields: each reaches only a
+daemon that advertised it and a site that declared it, so `PROTOCOL_VERSION`
+stays `2`. Each is off on a device until its owner turns it on for a service,
+and each is served only by `http`-class backends (§6).
 
 A server MUST NOT be able to convey code, a shell string, a file path, an
 argument, a model name, a base URL, or an environment variable
@@ -128,7 +134,26 @@ llm.chat     → { messages: { role: "system"|"user"|"assistant", content: strin
                  system?: string }
 ```
 
-Text only, deliberately. Sampling parameters, model selection and backend
+And from 0.1.5:
+
+```ts
+llm.tools  → { messages, system?, tools: ToolDeclaration[] /* 1–16 */,
+               maxToolCalls?, purposeLimits: { maxToolCalls, maxToolResultChars } }
+llm.vision → { messages: (ChatMessage | { role: "user",
+               content: ({ type: "text", text } | { type: "image", image: BlobRef })[] })[],
+               system? }                                   // 1–8 images
+llm.image  → { prompt: string, aspect?: "square"|"portrait"|"landscape",
+               count?: 1–4 }
+```
+
+`llm.tools` is chat plus the site's tool declarations and the purpose's limits
+they were built against. A payload carries no tool turns: tool turns exist
+only inside the daemon's loop (§5.6). An `llm.image` result carries `images`,
+references to its output blobs; an `llm.tools` result's `ran` carries
+`toolCalls` and `toolOutcomes`, and its `stop` may be `tool-budget`.
+
+Text only, deliberately, except by reference (§5.7). Sampling parameters,
+model selection and backend
 selection are **owner-side route configuration**, not payload. A future
 `params` field with a closed allowlist and owner-set clamps is reserved;
 adding a field later is non-breaking, removing one is not.
@@ -343,6 +368,102 @@ Voluntary un-claim on shutdown, pause, revocation, or backend failure. Best
 effort: a daemon that dies without releasing loses nothing, because the lease
 expires (§7.1).
 
+### 5.6 Site tools: `tool-call`, `tool-results`, `calls`, `tool-result`
+
+An `llm.tools` job is a conversation with a suspended middle (byollm_012 §5).
+The tools are the site's and run on the site. **A daemon never executes a
+tool** `[TOOLS_RUN_AT_SITE]`.
+
+```ts
+ToolCall   = { callId, seq, name, arguments }          // sealed device → site
+ToolResult = { callId, seq, ok: true,  content }       // sealed site → device
+           | { callId, seq, ok: false, error }
+```
+
+`tool-call` and `tool-result` are two more directions inside the envelope
+signature, beside `payload` and `result`, so a result can never be replayed as
+a payload or a call passed off as a result. A daemon accepts a result only for
+an outstanding `callId` of the same job `[TOOL_ENVELOPES_BOUND]`. `content` is
+at most 256 KiB of text, `error` 1 KiB, and a call's `arguments` 64 KiB.
+
+Four endpoints, all outbound and polled:
+
+| plane | endpoint | who calls it | what it carries |
+|---|---|---|---|
+| daemon | `POST /byollm/tool-call` | the daemon holding the job's lease | one sealed `tool-call` envelope, with `jobId`, `leaseId`, `callId` |
+| daemon | `POST /byollm/tool-results` | the daemon, while any job of its waits | the sealed `tool-result` envelopes for its held jobs |
+| site | `POST /relay/site/calls` | the site's pump | the sealed `tool-call` envelopes for its jobs |
+| site | `POST /relay/site/tool-result` | the site's pump | one sealed `tool-result` envelope, with `jobId`, `callId` |
+
+A relay serves all four. `@byollm/server` serves the daemon's two over HTTP
+and runs the site's handlers in-process, because on the direct lane the site
+is the upstream. An upstream reads only the job, the lease and the call id,
+never a call's contents `[RELAY_BLIND]`.
+
+- **Consent.** On the cloud lane the grant carries `toolsDigest` for
+  `llm.tools` and only for it. A daemon refuses a payload whose declarations
+  or limits do not match it, and a hub refuses an enqueue whose `toolsDigest`
+  does not match the manifest of record, as `tools-manifest-mismatch`, with
+  nothing queued `[TOOLS_MATCH_CONSENT]`.
+- **Budget.** The job's `maxToolCalls` is counted three times, on purpose: by
+  the daemon before each call, by the relay at `tool-call`, and by the site
+  SDK before it runs a handler. The context cap, `maxToolResultChars`, is
+  counted in the job's size class at enqueue and enforced by the daemon before
+  each result reaches the model `[TOOLS_BUDGETED]`. A spent job ends `ok` with
+  `stop: "tool-budget"`.
+- **Waiting.** A job waiting on a result is still `running` and holds its
+  lease. A call with no answer in 60 seconds is a tool error to the model, and
+  it still counts. A daemon polls `tool-results` about once a second, and only
+  while one of its jobs waits.
+- **An older relay.** A site's pump that gets `404` from `calls` reads it as
+  "this relay carries no tools" and carries on with the rest of its cycle.
+
+### 5.7 Images by reference: `BlobRef` and the blob endpoints
+
+Image bytes never ride inside an envelope. Each image is its own blob,
+encrypted before it leaves the endpoint that made it, and the envelope carries
+its reference (byollm_021 §2):
+
+```ts
+BlobRef = { blob, mediaType, bytes, width, height, sha256, key }
+```
+
+A fresh 32-byte key per blob, XChaCha20-Poly1305, with the nonce ahead of the
+ciphertext and `jobId ‖ blobId ‖ direction` as the associated data, so a blob
+cannot be moved to another job or passed off as the other leg
+`[BLOB_BOUND_TO_JOB]`. The plaintext is padded to a multiple of 256 KiB before
+it is encrypted, so a store sees a bucket and not a byte count. `key` exists
+only inside a sealed, signed envelope `[BLOBS_SEALED]`, so whoever stores a
+blob holds ciphertext and nothing that opens it. `sha256` is of the plaintext
+and is checked after decrypting, and an image's declared type must match its
+magic bytes and its dimensions the caps, at both endpoints, before a backend
+or an app sees the bytes `[MEDIA_VERIFIED]`. Caps: 20 MiB an image, eight in to a job, four out.
+
+| plane | endpoint | who calls it | what it returns |
+|---|---|---|---|
+| site | `POST /relay/blobs` | the site, before it enqueues | an upload slot for one input blob, issued for its exact stored size |
+| daemon | `POST /byollm/blob-url` | the daemon holding the job's lease | a short-lived download URL for one input blob |
+| daemon | `POST /byollm/blob-slot` | the daemon holding an `llm.image` job's lease | an upload slot for one output blob |
+| site | `POST /relay/blobs/download` | the site | a download URL for one output blob of one of its jobs |
+| site | `POST /relay/blobs/received` | the site, once every output verified | nothing; the upstream may delete those outputs now |
+
+No lease, no URL. An upstream checks each stored object's size against its
+slot before the job is offered and before a result that references it is
+accepted, and a teammate's job is budgeted on `bytes` before any blob is
+downloaded `[BLOB_BUDGET_BEFORE_DOWNLOAD]`.
+
+**Deletion, in an order that lets the site keep its output**
+`[BLOBS_GO_WITH_THE_JOB]`:
+
+1. input blobs, when the device's result is accepted;
+2. output blobs, when the site says it holds them (`received`);
+3. output blobs the site never acknowledges, one hour after the result was
+   collected;
+4. every blob of a job never collected, a day after its `deadlineAt`.
+
+On the direct lane `@byollm/server` answers the same endpoints from its store
+(`putBlob`, `getBlob`, `deleteBlob`) in the same order.
+
 ---
 
 ## 6. Capabilities and backend classes
@@ -467,9 +588,11 @@ The full threat model is `docs/security.md`. The protocol-level MUSTs:
 - Returned text is **inert**: never evaluated, never written to a
   payload-named path, never interpolated into a shell or into terminal control
   sequences when logged `[OUTPUT_INERT]`.
-- The daemon exposes no tools, functions, retrieval, or MCP to the model. A
-  kind that needs tools is a new kind with its own spec and threat review, not
-  a payload flag.
+- The daemon exposes no tools, functions, retrieval or MCP to the model,
+  **except the declarations of a site's own tools on an `llm.tools` job, which
+  the daemon never executes: a call is sealed to the site.** Any tool that
+  would run on the device is a new kind with its own spec and its own threat
+  review, not a payload flag.
 - Every executed prompt MUST be appended to the local ingress log **before**
   execution begins `[INGRESS_LOGGED_BEFORE_EXECUTION]`.
 - Jobs whose owner is not the daemon's owner MUST be subject to the owner's
@@ -478,7 +601,9 @@ The full threat model is `docs/security.md`. The protocol-level MUSTs:
 **Breakout is structurally impossible; prompt injection is not prevented.**
 Payload text cannot escape into the computer. Payload text absolutely can steer
 what the model *says* — no daemon can prevent that, and the guarantee here is
-bounded precisely because the model has no tools and the output is inert. We
+bounded precisely because nothing the model says runs on the device: its
+output is inert, and a call to a site's tool is sealed to that site and run
+there. We
 state the boundary rather than blurring it.
 
 ---

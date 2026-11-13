@@ -19,7 +19,8 @@ excuses — the security posture depends on naming these out loud.
 
 - **No OS-level sandbox yet** for process-class backends. The
   guarantee against breakout is structural (fixed argv, stdin,
-  stripped env, no tools) — strong, but there is no
+  stripped env, no tools that run on the device; a process-class
+  backend is never offered a site's tools) — strong, but there is no
   `sandbox-exec`/`seatbelt` (macOS) or `bubblewrap`/Landlock (Linux)
   jail around the child. A future spec adds one for defense in depth;
   it does not change today's honesty, it strengthens it. HTTP-class
@@ -27,7 +28,8 @@ excuses — the security posture depends on naming these out loud.
 - **`HOME` stays in the child env** for the `claude` CLI to find its
   credentials — the child can reach the filesystem the user can
   reach; what stops it is having no tools, not the environment.
-  Stated in `docs/security.md`.
+  That stays true in 0.1.5: site tools run on `http`-class backends
+  only. Stated in `docs/security.md`.
 - **`payload.system` fidelity on process-class backends.** The
   `claude` CLI has no `--system-prompt-file` and argv is forbidden
   for payload text, so a system prompt is folded into stdin, losing
@@ -88,8 +90,12 @@ large break, not a thing you discover after.
 ## Finding from the first integration (2026-08-08)
 
 That suite's fact-checker verification calls the model with WebSearch —
-which byollm_004 §2 forbids ("no tools, functions, retrieval, or
-MCP"), ~96% of that app's calls. The ban is **correct and essential
+which byollm_004 §2 forbade ("no tools, functions, retrieval, or
+MCP"), ~96% of that app's calls. **0.1.5 answered it differently
+from the second consequence below** (byollm_012): the tools are the
+site's and run on the site, the device only seals the model's calls
+to it, and byollm_004 §2 now excepts exactly that. No tool runs on
+the device, for `self` or for `team`. The ban is **correct and essential
 for `team`** (tools + untrusted payload + someone else's
 computer = breakout/exfiltration). But for **`self` jobs on the
 owner's own box, the ban is overbroad** — it's identical to the user

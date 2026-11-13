@@ -674,9 +674,9 @@ the card that applies the cut line takes them out with `llm.tools` (Owl,
 | MUST | Statement | Verified | Checks, and the kind they verify it as |
 |---|---|---|---|
 | `TOOLS_RUN_AT_SITE` | A daemon never executes a tool. A tool call leaves the device only as an envelope signed by the device and sealed to the job's site. Daemon. | conformance + adversarial | C033, C034: the kit (#7116) and the daemon's suites (card 3, #7055) |
-| `TOOLS_MATCH_CONSENT` | On the cloud lane, an `llm.tools` payload whose declarations or limits do not match the grant's `toolsDigest`, or whose `maxToolCalls` is above the purpose's, is refused before any backend sees it. An enqueue whose `toolsDigest` does not match the manifest of record is refused at the hub with nothing queued. A call to an undeclared tool, or with arguments that fail its schema, is a tool error to the model, and nothing is sent. Daemon and hub. | conformance + adversarial | C035, C036: the kit (#7116) and the daemon's suites (card 3, #7055); C035's grant-digest cases, the daemon's suites only; C047: conformance, planned |
+| `TOOLS_MATCH_CONSENT` | On the cloud lane, an `llm.tools` payload whose declarations or limits do not match the grant's `toolsDigest`, or whose `maxToolCalls` is above the purpose's, is refused before any backend sees it. An enqueue whose `toolsDigest` does not match the manifest of record is refused at the hub with nothing queued. A call to an undeclared tool, or with arguments that fail its schema, is a tool error to the model, and nothing is sent. Daemon and hub. | conformance + adversarial | C035, C036: the kit (#7116) and the daemon's suites (card 3, #7055); C035's grant-digest cases, the daemon's suites only; C047: the site SDK's and the relay's suites (card 4, #7056) and the hub's (byollm-cloud, #7061) |
 | `TOOL_ENVELOPES_BOUND` | `tool-call` and `tool-result` are directions inside the signature, and a result is accepted only for an outstanding call of the same job. Daemon. | conformance + adversarial | C037: the kit (#7116) and the daemon's suites (card 3, #7055) |
-| `TOOLS_BUDGETED` | §8's per-job call ceiling, enforced before the call that would exceed it, by the daemon, the relay and the site SDK; and the context cap, counted in the job's size class before it runs and enforced by the daemon before each result reaches the model. | conformance + adversarial | C038, C041, C046: the kit (#7116) and the daemon's suites (card 3, #7055); C039, C040: conformance, planned |
+| `TOOLS_BUDGETED` | §8's per-job call ceiling, enforced before the call that would exceed it, by the daemon, the relay and the site SDK; and the context cap, counted in the job's size class before it runs and enforced by the daemon before each result reaches the model. | conformance + adversarial | C038, C041, C046: the kit (#7116) and the daemon's suites (card 3, #7055); C039: the relay's suite (card 2, #7054); C040: the server's suite (card 4, #7056) |
 
 **Card 3 (#7055) built the daemon's half as the daemon's own suites, not
 as kit checks.** This section planned them as `conformance`, and the kit could
@@ -700,8 +700,11 @@ target does not route, so they stay the daemon suite's alone; and the kit
 cannot prove from outside that a cloud-lane relay keeps no copy of the
 site's keys — on the direct lane the server is the site and holds them by
 right. The checks the relay, the site SDK and the hub owe (C039, C040, C047)
-stay `planned` on their MUSTs, and the cut gate refuses a stable release
-while any tool MUST has a planned check.
+stayed `planned` on their MUSTs, and the cut gate refuses a stable release
+while any tool MUST has a planned check. Cards 2 and 4 and the hub's card
+built them where each party's code lives, not in the kit, and the 0.1.5
+release card (#7064) took them out of `planned` (MUTATIONS.md says where
+each was seen to fail).
 
 The first run of the kit's C033 found that `@byollm/server` parsed every
 sealed result as a text kind's, so it refused every `llm.tools` result on

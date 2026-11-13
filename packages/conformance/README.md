@@ -1,11 +1,14 @@
-<!-- release-note 0.1.1 -->
-> **`0.1.1` is documentation only — nothing to upgrade.** `PROTOCOL_VERSION`
-> is still `2`, so a 0.1.0 party and a 0.1.1 party talk to each other in both
-> directions. No dependency, schema, wire field or on-disk shape moved.
+<!-- release-note 0.1.5 -->
+> **`0.1.5` checks site tools and images.** The kit now plays the site for
+> `llm.tools` (C033–C038, C041–C043, C046) and drives the blob path for
+> `llm.vision` and `llm.image`. **A target you wrote needs a `blobs` field**,
+> and a `site` field to run the tool checks; without `site`, every tool check
+> fails and names the field. `PROTOCOL_VERSION` is still `2`. Full note:
+> `docs/release-notes/0.1.5.md`.
 >
 > This README used to open with a stack of release notes instead of with the
 > package. The history moved to `docs/release-notes/` and `CHANGELOG.md`,
-> where none of it was lost. Full note: `docs/release-notes/0.1.1.md`.
+> where none of it was lost.
 
 # `@byollm/conformance`
 

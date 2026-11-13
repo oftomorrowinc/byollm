@@ -1,11 +1,18 @@
-<!-- release-note 0.1.1 -->
-> **`0.1.1` is documentation only — nothing to upgrade.** `PROTOCOL_VERSION`
-> is still `2`, so a 0.1.0 party and a 0.1.1 party talk to each other in both
-> directions. No dependency, schema, wire field or on-disk shape moved.
+<!-- release-note 0.1.5 -->
+> **`0.1.5` carries site tools and images, and the Supabase adapter needs four
+> migrations.** Apply `20261103230000_tool_calls`,
+> `20261104010000_tool_charges`, `20261104050000_blob_bucket` and
+> `20261104160000_blob_table_grants` before you deploy it: without them the
+> first `llm.tools` or image job fails on a missing table. A store you wrote
+> yourself needs `putBlob`, `getBlob` and `deleteBlob`, and the tool-call
+> methods `recordToolCall`, `outstandingToolCalls`, `answerToolCall`,
+> `toolResults` and `chargeToolCall`. `PROTOCOL_VERSION` is still `2`.
+> "Tools — the site's own" and "Images — direct lane" below are the guides.
+> Full note: `docs/release-notes/0.1.5.md`.
 >
 > This README used to open with a stack of release notes instead of with the
 > package. The history moved to `docs/release-notes/` and `CHANGELOG.md`,
-> where none of it was lost. Full note: `docs/release-notes/0.1.1.md`.
+> where none of it was lost.
 
 # `@byollm/server`
 

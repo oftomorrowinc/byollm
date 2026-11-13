@@ -1,4 +1,4 @@
-<!-- release-note 0.1.1 -->
+<!-- release-note 0.1.5 -->
 > **`0.1.5` carries site tools and images — update the relay first.**
 > `PROTOCOL_VERSION` is still `2`. The relay gains the four tool endpoints
 > (byollm_012) and the blob routes, against a `BlobStore` its host supplies

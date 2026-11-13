@@ -1,11 +1,16 @@
-<!-- release-note 0.1.1 -->
-> **`0.1.1` is documentation only — nothing to upgrade.** `PROTOCOL_VERSION`
-> is still `2`, so a 0.1.0 party and a 0.1.1 party talk to each other in both
-> directions. No dependency, schema, wire field or on-disk shape moved.
+<!-- release-note 0.1.5 -->
+> **`0.1.5` carries site tools and images. Update your hub or server first.**
+> `PROTOCOL_VERSION` is still `2`. `llm.tools` lets the model call a site's
+> own tools, which run on the site and never on this device. It is off until
+> you turn it on for a service, and every call is in `byollm log`.
+> `llm.vision` and `llm.image` work on local and HTTP models. A teammate's
+> images are budgeted by `community.maxImageBytes`. A teammate's large job is
+> now admitted when it could fit (#5738). Full note:
+> `docs/release-notes/0.1.5.md`.
 >
 > This README used to open with a stack of release notes instead of with the
 > package. The history moved to `docs/release-notes/` and `CHANGELOG.md`,
-> where none of it was lost. Full note: `docs/release-notes/0.1.1.md`.
+> where none of it was lost.
 
 # `byollm`
 

@@ -39,7 +39,9 @@ a bug here.
   serious report we can receive**, and we want it.
 - **Prompt injection** — payload text changing what the model _says_. No
   daemon can prevent this and we do not claim to; the consequences are bounded
-  instead (no tools, no retrieval, no MCP; output is inert bytes). A
+  instead: nothing the model says runs on the device (no tools that run
+  there, no retrieval, no MCP; output is inert bytes, and a call to a site's
+  own tool on an `llm.tools` job is sealed to that site and run there). A
   demonstration that a model said something unwanted is not a vulnerability
   report. A demonstration that it _did_ something is.
 

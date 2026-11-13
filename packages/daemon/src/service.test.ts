@@ -1,8 +1,10 @@
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import type { runCli as RunCli } from "./cli.js";
+import type { daemonPaths as DaemonPaths } from "./paths.js";
 import { TEST_YOUR_DEVICE } from "./test-your-device.js";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import {
   refuseToSupervise,
   servicePlan,
@@ -488,9 +490,19 @@ describe("asking whether it is actually running", () => {
 });
 
 describe("the CLI's own service commands", () => {
+  // cli.js is imported once, here, with its own 30 s. Its first import costs
+  // 4.0-4.5 s on klab, and when each case paid it the first case sat at the
+  // edge of the 5 s unit default: a full `pnpm verify` timed it out three
+  // runs in three (#8409 review). A case added to this describe now starts
+  // with the module already loaded.
+  let runCli: typeof RunCli;
+  let daemonPaths: typeof DaemonPaths;
+  beforeAll(async () => {
+    ({ runCli } = await import("./cli.js"));
+    ({ daemonPaths } = await import("./paths.js"));
+  }, 30_000);
+
   it("says on `status` when nothing is supervising, and how to fix it", async () => {
-    const { runCli } = await import("./cli.js");
-    const { daemonPaths } = await import("./paths.js");
     let out = "";
     const code = await runCli(["status"], {
       paths: daemonPaths(home),
@@ -510,8 +522,6 @@ describe("the CLI's own service commands", () => {
   });
 
   it("says loudly on `status` when installed but stopped", async () => {
-    const { runCli } = await import("./cli.js");
-    const { daemonPaths } = await import("./paths.js");
     let out = "";
     await runCli(["status"], {
       paths: daemonPaths(home),
@@ -532,8 +542,6 @@ describe("the CLI's own service commands", () => {
   });
 
   it("exits non-zero when the install refuses, so a script can tell", async () => {
-    const { runCli } = await import("./cli.js");
-    const { daemonPaths } = await import("./paths.js");
     let err = "";
     // `out` as well as `err`: the first version of the assertion below watched
     // only stderr, and a mutant that printed the pointer unconditionally went
@@ -570,8 +578,6 @@ describe("the CLI's own service commands", () => {
   });
 
   it("installs and uninstalls through the CLI", async () => {
-    const { runCli } = await import("./cli.js");
-    const { daemonPaths } = await import("./paths.js");
     const commands: string[][] = [];
     const service = {
       platform: "linux" as const,

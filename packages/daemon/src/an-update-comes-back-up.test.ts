@@ -55,6 +55,12 @@ import { pairedForStart } from "./test-support.js";
  * `/end` returns — so here it dies at the next tick of the clock, and a
  * `stop` that does not wait finds it still alive.
  *
+ * `taskkill /pid N /T /F` — #9735 — ends N and every process whose parent
+ * chain leads to it, before it returns. `/end` is modelled as ending the
+ * task's own process and nothing it started: Microsoft does not say it does
+ * more, and nobody has run it against a busy daemon. If it does end the tree
+ * on a real machine, `stop` is doing the same thing twice, not the wrong thing.
+ *
  * Everything between the doubles is the real code: `watchForUpdate`, the
  * real `update()` and `realUpdateDeps`, and the real `byollm start`.
  */
@@ -129,6 +135,26 @@ class Machine {
     };
     this.#procs.set(pid, proc);
     return proc;
+  }
+
+  /** The daemon starts a CLI for a job; returns it and a helper it started. */
+  startCli(daemon: Proc): [Proc, Proc] {
+    const cli = this.#spawn({ parent: daemon });
+    return [cli, this.#spawn({ parent: cli })];
+  }
+
+  /** Everything running whose parent chain leads to `pid`, and `pid`. */
+  #tree(pid: number): Proc[] {
+    const under = (p: Proc): boolean =>
+      p.pid === pid ||
+      (p.parent !== undefined &&
+        under(this.#procs.get(p.parent) ?? { ...p, parent: undefined }));
+    return [...this.#procs.values()].filter((p) => p.alive && under(p));
+  }
+
+  /** Every process still running that the daemon `pid` started. */
+  childrenOf(pid: number): Proc[] {
+    return this.#tree(pid).filter((p) => p.pid !== pid);
   }
 
   startJob(): Proc {
@@ -206,6 +232,7 @@ class Machine {
       }
       if (file === "launchctl") return this.#launchctl(proc, args);
       if (file === "schtasks") return this.#schtasks(args);
+      if (file === "taskkill") return this.#taskkill(args);
       return { code: 127, output: `no ${String(file)}` };
     };
   }
@@ -291,6 +318,27 @@ class Machine {
     return { code: 1, output: "" };
   }
 
+  /** Every `taskkill` anybody ran, in order. */
+  readonly taskkillRan: string[][] = [];
+
+  #taskkill(args: readonly string[]): { code: number; output: string } {
+    this.taskkillRan.push([...args]);
+    const pid = Number(args[args.indexOf("/pid") + 1]);
+    const target = this.proc(pid);
+    if (target?.alive !== true) {
+      return {
+        code: 128,
+        output: `ERROR: The process "${String(pid)}" not found.`,
+      };
+    }
+    const tree = args.some((a) => a.toUpperCase() === "/T");
+    for (const p of tree ? this.#tree(pid) : [target]) this.#end(p, "killed");
+    return {
+      code: 0,
+      output: `SUCCESS: The process with PID ${String(pid)} has been terminated.`,
+    };
+  }
+
   #start(proc: Proc, env: NodeJS.ProcessEnv): Promise<number> {
     return this.#cli("start", proc, env);
   }
@@ -363,7 +411,7 @@ describe("after an update the service is installed and the new daemon is running
 
   async function machine(
     platform: "darwin" | "win32",
-    heartbeat: "written" | "not yet",
+    heartbeat: "written" | "not yet" | "stale",
   ): Promise<Machine> {
     const home = await mkdtemp(join(tmpdir(), "byollm-9572-"));
     const paths = daemonPaths(join(home, ".byollm"));
@@ -373,10 +421,11 @@ describe("after an update the service is installed and the new daemon is running
     await mkdir(paths.root, { recursive: true });
     /* A daemon that took an update was serving something — #9703. */
     await pairedForStart(paths.pairings);
-    if (heartbeat === "written") {
+    if (heartbeat !== "not yet") {
+      const at = Date.now() - (heartbeat === "stale" ? 10 * 60_000 : 0);
       await writeFile(
         paths.heartbeat,
-        JSON.stringify({ at: Date.now(), pid: m.original.pid }),
+        JSON.stringify({ at, pid: m.original.pid }),
       );
     }
     return m;
@@ -554,6 +603,42 @@ describe("after an update the service is installed and the new daemon is running
       ).toEqual([]);
     },
   );
+
+  /**
+   * `stop` on a busy daemon leaves no `claude` or `codex` behind — #9735.
+   *
+   * Owl, on #9698: after #9692 a Windows `stop` ended the daemon outright,
+   * and the CLI it had started for a job in flight kept running, spending
+   * the owner's subscription on an answer nobody would collect.
+   */
+  it("`stop` on a busy Windows daemon leaves no daemon and no child", async () => {
+    const m = await machine("win32", "written");
+    const daemon = m.original;
+    if (daemon === undefined) throw new Error("no daemon");
+    const [cli, helper] = m.startCli(daemon);
+    expect(await m.asPerson("stop")).toBe(0);
+    const said = m.said.at(-1) ?? "";
+    expect(said).toContain("Removed.");
+    expect(
+      said,
+      "the /end with nothing left to end is not trouble",
+    ).not.toContain("had something to say");
+    expect(m.daemons().map((d) => d.pid)).toEqual([]);
+    expect(cli.alive, "the CLI the job was running").toBe(false);
+    expect(helper.alive, "and what that CLI started").toBe(false);
+    expect(m.childrenOf(daemon.pid)).toEqual([]);
+    expect(m.registered).toBe(false);
+  });
+
+  it("`stop` does not force-end a pid whose heartbeat is stale", async () => {
+    /* A beat ten minutes old may name a pid Windows has handed to somebody
+       else; `/T /F` on it would end their work. The task is still ended. */
+    const m = await machine("win32", "stale");
+    await m.asPerson("stop");
+    expect(m.taskkillRan).toEqual([]);
+    expect(m.schtasksRan.map(([verb]) => verb)).toContain("/end");
+    expect(m.registered).toBe(false);
+  });
 
   it.each(["win32", "darwin"] as const)(
     "`stop` then `start` leaves exactly one daemon (%s)",
@@ -736,8 +821,60 @@ describe("what `stop` waits for", () => {
     const said = result.lines.join("\n");
     expect(said).not.toContain("Removed");
     expect(said).toContain("pid 28928");
-    expect(said).toContain("taskkill /pid 28928 /f");
+    expect(said, "and what it started (#9735)").toContain(
+      "taskkill /pid 28928 /t /f",
+    );
     expect(waits, "bounded, not forever").toBeGreaterThan(0);
+  });
+
+  it("does not force-end a pid when the task is not running — #9735", async () => {
+    const { uninstallService } = await import("./install.js");
+    const { commands, run } = windows("Ready\n");
+    await uninstallService(await target(), run, {
+      pid: 28928,
+      fresh: true,
+      isGone: () => true,
+    });
+    expect(commands.filter((c) => c.startsWith("taskkill"))).toEqual([]);
+  });
+
+  it("ends the daemon's tree before /end, while its children can still be found — #9735", async () => {
+    const { uninstallService } = await import("./install.js");
+    const { commands, run } = windows("Running\n");
+    const result = await uninstallService(await target(), run, {
+      pid: 28928,
+      fresh: true,
+      isGone: () => true,
+    });
+    expect(result.ok).toBe(true);
+    expect(commands[1]).toBe("taskkill /pid 28928 /T /F");
+    expect(commands.some((c) => c.startsWith("schtasks /delete"))).toBe(true);
+  });
+
+  /**
+   * Owl, #9735: a forced end is an exit `RestartOnFailure` can answer, so a
+   * task left behind is a daemon back within a minute of "stopped".
+   */
+  it("says so when the task could not be deleted after the daemon was ended", async () => {
+    const { uninstallService } = await import("./install.js");
+    const run = (command: readonly string[]) =>
+      Promise.resolve(
+        command[1] === "/query"
+          ? { code: 0, output: "Running\n" }
+          : command[1] === "/delete"
+            ? { code: 1, output: "ERROR: Access is denied." }
+            : { code: 0, output: "SUCCESS" },
+      );
+    const result = await uninstallService(await target(), run, {
+      pid: 28928,
+      fresh: true,
+      isGone: () => true,
+    });
+    expect(result.ok).toBe(false);
+    const said = result.lines.join("\n");
+    expect(said).not.toContain("Removed");
+    expect(said).toContain("may start it again");
+    expect(said).toContain("Access is denied");
   });
 
   it("does not wait on a heartbeat pid the supervisor was not running", async () => {

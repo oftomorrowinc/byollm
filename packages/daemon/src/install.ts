@@ -548,6 +548,12 @@ export async function uninstallService(
    */
   daemon: {
     readonly pid?: number;
+    /**
+     * Whether that pid wrote the heartbeat recently — #9735. Only a fresh
+     * beat's pid is ended by force: the wait below costs nothing on a wrong
+     * pid, and `taskkill /T /F` on a reused one ends somebody else's work.
+     */
+    readonly fresh?: boolean;
     readonly isGone?: (pid: number) => boolean;
     readonly wait?: (ms: number) => Promise<void>;
   } = {},
@@ -563,13 +569,40 @@ export async function uninstallService(
       ? daemon.pid
       : undefined;
 
+  /* The daemon and everything under it, before the supervisor is told —
+     #9735. Gated twice: the supervisor says it is running something, and the
+     pid beat recently, so it is that something. */
+  let treeEnded = false;
+  if (pid !== undefined && daemon.fresh === true && plan.endTree) {
+    const command = plan.endTree(pid);
+    const result = await run(command).catch(() => ({ code: 127, output: "" }));
+    treeEnded = result.code === 0;
+    if (!treeEnded && result.output.trim() !== "") {
+      failures.push(`  ${command.join(" ")} — ${result.output.trim()}`);
+    }
+  }
+
+  /** A step that failed after the tree was ended — Owl, #9735. */
+  const refusedAfterKill: string[] = [];
   for (const command of plan.deactivate) {
+    /* Nothing left for it to end, and its "not running" would read as
+       trouble on the one path that went right. */
+    if (treeEnded && command === plan.endsInstance) continue;
     const result = await run(command).catch(() => ({ code: 127, output: "" }));
     // Every deactivation step is allowed to fail: "it was not installed" and
     // "it is now not installed" are the same end state, and an uninstall that
     // errors on a machine with nothing to remove teaches people to ignore it.
     if (result.code !== 0 && result.output.trim() !== "") {
       failures.push(`  ${command.join(" ")} — ${result.output.trim()}`);
+    }
+    /* Except here. The supervisor said the task was running, so it was
+       installed, and the daemon just died by force — an exit the task's
+       restart-on-failure can answer within a minute. A task that is still
+       there is a daemon that comes back after `stop` said it had stopped. */
+    if (treeEnded && result.code !== 0) {
+      refusedAfterKill.push(
+        `  ${command.join(" ")}${result.output.trim() === "" ? "" : ` — ${result.output.trim()}`}`,
+      );
     }
   }
 
@@ -598,6 +631,21 @@ export async function uninstallService(
     await rm(fallbackPath, { force: true });
   }
 
+  if (refusedAfterKill.length > 0) {
+    return {
+      ok: false,
+      plan,
+      lines: [
+        `The daemon and what it was running have been ended, but ${plan.supervisor}`,
+        `still has byollm's task, and may start it again within a minute:`,
+        ...refusedAfterKill,
+        "",
+        `Run \`byollm stop\` again, or the command above yourself, from an`,
+        `elevated prompt if it said access is denied.`,
+      ],
+    };
+  }
+
   if (pid !== undefined) {
     const isGone = daemon.isGone ?? processIsGone;
     const wait =
@@ -620,7 +668,7 @@ export async function uninstallService(
           `running (pid ${String(pid)}) has not exited after ${String(STOP_WAIT_MS / 1000)}s.`,
           "",
           plan.platform === "win32"
-            ? `  end it:  taskkill /pid ${String(pid)} /f`
+            ? `  end it:  taskkill /pid ${String(pid)} /t /f`
             : `  end it:  kill ${String(pid)}`,
           "",
           `Until it exits it is still serving, and \`byollm start\` would run a`,

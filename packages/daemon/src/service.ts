@@ -43,6 +43,14 @@ export type ServicePlatform = "darwin" | "linux" | "win32";
 /** The reverse-DNS name all three platforms key the service by. */
 export const SERVICE_LABEL = "cloud.byollm.daemon";
 
+/** Task Scheduler's "end the running instance", one array so it can be named. */
+const WINDOWS_END_TASK: readonly string[] = [
+  "schtasks",
+  "/end",
+  "/tn",
+  SERVICE_LABEL,
+];
+
 /**
  * Which of the three supervisors this platform has.
  *
@@ -82,6 +90,16 @@ export interface ServicePlan {
   readonly activate: readonly (readonly string[])[];
   /** Run these, in order, to take it away. Tolerant of "already gone". */
   readonly deactivate: readonly (readonly string[])[];
+  /**
+   * End the daemon and every process under it, before {@link deactivate} —
+   * #9735. Windows only; see the win32 plan for why.
+   */
+  readonly endTree?: (pid: number) => readonly string[];
+  /**
+   * The step of {@link deactivate} with nothing left to do once
+   * {@link endTree} has worked, so its "not running" is not reported.
+   */
+  readonly endsInstance?: readonly string[];
   /** Asks the platform whether it is running right now. */
   readonly query: readonly string[];
   /** Where the supervisor sends the daemon's output. */
@@ -420,9 +438,32 @@ WantedBy=default.target
      * ending the daemon that is updating itself.
      */
     deactivate: [
-      ["schtasks", "/end", "/tn", SERVICE_LABEL],
+      WINDOWS_END_TASK,
       ["schtasks", "/delete", "/tn", SERVICE_LABEL, "/f"],
     ],
+    /**
+     * The daemon, and the `claude` or `codex` it is running — #9735.
+     *
+     * `/end` ends the task's own process. Microsoft does not say it ends what
+     * that process started, and the daemon cannot end them itself: on
+     * macOS and Linux `stop` is a SIGTERM the daemon answers by cancelling
+     * its jobs and ending each child's group, but a process Task Scheduler
+     * started hidden has no console and no signal it can be sent, and on
+     * Windows the cancel ends only the direct child anyway. So a job in
+     * flight left its CLI running, spending the owner's subscription on an
+     * answer nobody would collect.
+     *
+     * `/T` is the tree, by parent pid, so helpers and the `cmd` shim go too;
+     * `/F` because a hidden process has no window to ask. This is not the
+     * clean stop: the job's lease is not released and the hub offers the job
+     * again only when it lapses. A clean stop needs a way to ask the daemon,
+     * which Windows does not have yet.
+     *
+     * `uninstallService` runs it only on a pid it has reason to believe is
+     * this task's daemon — see there.
+     */
+    endTree: (pid) => ["taskkill", "/pid", String(pid), "/T", "/F"],
+    endsInstance: WINDOWS_END_TASK,
     query: ["schtasks", "/query", "/tn", SERVICE_LABEL],
     logPath,
     supervisor: "Task Scheduler",

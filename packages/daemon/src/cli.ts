@@ -916,7 +916,12 @@ async function commandUninstall(
     serviceTarget(paths, service),
     service.run,
     {
-      ...(beat === undefined ? {} : { pid: beat.pid }),
+      ...(beat === undefined
+        ? {}
+        : {
+            pid: beat.pid,
+            fresh: Date.now() - beat.at <= HEARTBEAT_STALE_AFTER_MS,
+          }),
       ...(service.isGone === undefined ? {} : { isGone: service.isGone }),
       ...(service.wait === undefined ? {} : { wait: service.wait }),
     },

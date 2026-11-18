@@ -405,7 +405,24 @@ WantedBy=default.target
       ["schtasks", "/create", "/tn", SERVICE_LABEL, "/xml", unitPath, "/f"],
       ["schtasks", "/run", "/tn", SERVICE_LABEL],
     ],
-    deactivate: [["schtasks", "/delete", "/tn", SERVICE_LABEL, "/f"]],
+    /**
+     * End the running instance, then delete the task — #9692.
+     *
+     * This was `/delete` alone, and deleting a task does not end the process
+     * it started. 11-18, Kevin's desktop: `stop` printed "Removed", the
+     * daemon (pid 28928) kept polling the hub, and the `start` after it ran a
+     * second one beside it. launchd's bootout and systemd's `disable --now`
+     * both end the process; Task Scheduler needs to be asked.
+     *
+     * `/end` returning is not the process being gone, so `uninstallService`
+     * waits for the daemon's pid before it says "Removed". Nothing on the
+     * `start` path runs these, which is what keeps #9572's hand-off from
+     * ending the daemon that is updating itself.
+     */
+    deactivate: [
+      ["schtasks", "/end", "/tn", SERVICE_LABEL],
+      ["schtasks", "/delete", "/tn", SERVICE_LABEL, "/f"],
+    ],
     query: ["schtasks", "/query", "/tn", SERVICE_LABEL],
     logPath,
     supervisor: "Task Scheduler",

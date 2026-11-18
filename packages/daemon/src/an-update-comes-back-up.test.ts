@@ -46,6 +46,14 @@ import { SERVICE_LABEL } from "./service.js";
  * `RestartOnFailure` acts on. If any of those is wrong on a real machine the
  * Windows case below is describing a machine that does not exist.
  *
+ * `/delete` and `/end` — #9692. Deleting a task leaves its running instance
+ * alone; that one IS from a real machine: Kevin's desktop on 11-18, where
+ * `byollm stop` deleted the task and the daemon (pid 28928) kept polling.
+ * `/end` terminates the instance, from Microsoft's documentation ("stops a
+ * program started by a task"), and the process is gone only some time after
+ * `/end` returns — so here it dies at the next tick of the clock, and a
+ * `stop` that does not wait finds it still alive.
+ *
  * Everything between the doubles is the real code: `watchForUpdate`, the
  * real `update()` and `realUpdateDeps`, and the real `byollm start`.
  */
@@ -66,6 +74,8 @@ interface Proc {
   readonly version: string | undefined;
   alive: boolean;
   end?: "exited" | "killed";
+  /** `/end` has been asked; the process goes when time next passes. */
+  ending?: boolean;
 }
 
 const never = new Promise<never>(() => undefined);
@@ -78,6 +88,8 @@ class Machine {
   jobPid: number | undefined;
   readonly detachedRuns: Promise<unknown>[] = [];
   readonly said: string[] = [];
+  /** Every `schtasks` command anybody ran, in order. */
+  readonly schtasksRan: string[][] = [];
   #exited: () => void = () => undefined;
   /** Resolves when the original daemon exits on its own. */
   readonly daemonExited = new Promise<void>((resolve) => {
@@ -129,6 +141,20 @@ class Machine {
     proc.alive = false;
     proc.end = how;
     if (proc === this.original) this.#died?.();
+  }
+
+  /** Time passes: anything `/end` was asked to terminate is now gone. */
+  tick(): void {
+    for (const p of this.#procs.values()) {
+      if (p.ending === true) this.#end(p, "killed");
+    }
+  }
+
+  /** Every daemon alive on the machine, whoever started it. */
+  daemons(): Proc[] {
+    return [...this.#procs.values()].filter(
+      (p) => p.alive && p.version !== undefined,
+    );
   }
 
   /** launchd's bootout: the job's whole process group goes, mid-command. */
@@ -219,8 +245,10 @@ class Machine {
   }
 
   #schtasks(args: readonly string[]): { code: number; output: string } {
+    this.schtasksRan.push([...args]);
     const [verb] = args;
-    const running = this.proc(this.jobPid)?.alive === true;
+    const job = this.proc(this.jobPid);
+    const running = job?.alive === true;
     if (verb === "/create") {
       this.registered = true;
       return { code: 0, output: "SUCCESS" };
@@ -234,16 +262,55 @@ class Machine {
       if (!this.registered) return { code: 1, output: "" };
       return { code: 0, output: running ? "Running\n" : "Ready\n" };
     }
+    if (verb === "/delete") {
+      // The definition goes; the instance it started does not (11-18).
+      if (!this.registered) {
+        return {
+          code: 1,
+          output: "ERROR: The system cannot find the file specified.",
+        };
+      }
+      this.registered = false;
+      return { code: 0, output: "SUCCESS" };
+    }
+    if (verb === "/end") {
+      if (!this.registered) {
+        return {
+          code: 1,
+          output: "ERROR: The system cannot find the file specified.",
+        };
+      }
+      if (!running) {
+        return { code: 1, output: "ERROR: The task is not running." };
+      }
+      // Terminated, and gone when time next passes — not on return.
+      job.ending = true;
+      return { code: 0, output: "SUCCESS" };
+    }
     return { code: 1, output: "" };
   }
 
   #start(proc: Proc, env: NodeJS.ProcessEnv): Promise<number> {
+    return this.#cli("start", proc, env);
+  }
+
+  /** A person at a terminal types `byollm <verb>`: a shell's child, no job. */
+  asPerson(verb: "start" | "stop"): Promise<number> {
+    const shell = this.#spawn({});
+    return this.#cli(verb, this.#spawn({ parent: shell }), {});
+  }
+
+  #cli(
+    verb: "start" | "stop",
+    proc: Proc,
+    env: NodeJS.ProcessEnv,
+  ): Promise<number> {
     let said = "";
     const io = {
       out: (t: string) => (said += t),
       err: (t: string) => (said += t),
     };
-    return this.runCli(["start"], {
+    return this.runCli([verb], {
       paths: this.paths,
       io,
       interactive: false,
@@ -261,7 +328,10 @@ class Machine {
         /* Only the detached copy ever waits for the old daemon, and it
            waits for real: until that daemon has exited. Every other wait
            (the install's own probes) is immediate. */
-        wait: () => (proc.detached ? this.daemonGone : Promise.resolve()),
+        wait: () => {
+          this.tick();
+          return proc.detached ? this.daemonGone : Promise.resolve();
+        },
         isGone: (pid) => this.proc(pid)?.alive !== true,
         detach: (_command, childEnv) => {
           const copy = this.#spawn({ parent: proc, detached: true });
@@ -384,6 +454,9 @@ describe("after an update the service is installed and the new daemon is running
     const m = await machine("win32", "written");
     expectHandedOff(await takeTheUpdate(m));
     expectServing(m);
+    /* #9692 put `/end` in `stop`. Nothing on the update's path may run it:
+       that would end the daemon in the middle of updating itself. */
+    expect(m.schtasksRan.map(([verb]) => verb)).not.toContain("/end");
   });
 
   /**
@@ -424,6 +497,70 @@ describe("after an update the service is installed and the new daemon is running
       m.daemonExits(daemon);
       await Promise.all(m.detachedRuns);
       expectServing(m);
+      expect(m.schtasksRan.map(([verb]) => verb)).not.toContain("/end");
+    },
+  );
+
+  /**
+   * `stop` ends the daemon, and `start` after it runs one — #9692.
+   *
+   * 11-18, Kevin's desktop, following the steps for turning on autoUpdate:
+   * `byollm stop` printed "Removed" and exited 0 with the daemon (pid 28928)
+   * still running, and `byollm start` registered the task again and ran a
+   * second (pid 7960). Both wrote the heartbeat and polled the hub.
+   */
+  it("the Task Scheduler double: /delete leaves the instance running, /end ends it", async () => {
+    const m = await machine("win32", "written");
+    const shell = m.runAs({
+      pid: 1,
+      group: 1,
+      parent: undefined,
+      detached: false,
+      version: undefined,
+      alive: true,
+    });
+    const job = m.proc(m.jobPid);
+    expect(
+      (await shell(["schtasks", "/delete", "/tn", SERVICE_LABEL, "/f"])).code,
+    ).toBe(0);
+    expect(m.registered).toBe(false);
+    expect(job?.alive, "deleting the task leaves its daemon").toBe(true);
+
+    m.registered = true;
+    expect((await shell(["schtasks", "/end", "/tn", SERVICE_LABEL])).code).toBe(
+      0,
+    );
+    expect(job?.alive, "gone some time after /end, not on return").toBe(true);
+    m.tick();
+    expect(job?.alive).toBe(false);
+    expect((await shell(["schtasks", "/end", "/tn", SERVICE_LABEL])).code).toBe(
+      1,
+    );
+  });
+
+  it.each(["win32", "darwin"] as const)(
+    "`stop` leaves no daemon running (%s)",
+    async (platform) => {
+      const m = await machine(platform, "written");
+      expect(await m.asPerson("stop")).toBe(0);
+      expect(m.said.at(-1)).toContain("Removed.");
+      expect(m.registered).toBe(false);
+      expect(
+        m.daemons().map((d) => d.pid),
+        "no daemon outlives `stop`",
+      ).toEqual([]);
+    },
+  );
+
+  it.each(["win32", "darwin"] as const)(
+    "`stop` then `start` leaves exactly one daemon (%s)",
+    async (platform) => {
+      const m = await machine(platform, "written");
+      expect(await m.asPerson("stop")).toBe(0);
+      expect(await m.asPerson("start")).toBe(0);
+      expect(m.registered).toBe(true);
+      expect(m.daemons().map((d) => d.pid)).toEqual([m.jobPid]);
+      expect(m.original?.alive).toBe(false);
     },
   );
 
@@ -536,5 +673,83 @@ describe("the hand-off's real process calls — #9572", () => {
   it("calls the running process alive", async () => {
     const { processIsGone } = await import("./install.js");
     expect(processIsGone(process.pid)).toBe(false);
+  });
+});
+
+/**
+ * `stop` does not say "Removed" about a daemon that is still running — #9692.
+ */
+describe("what `stop` waits for", () => {
+  function windows(query: string) {
+    const commands: string[] = [];
+    return {
+      commands,
+      run: (command: readonly string[]) => {
+        commands.push(command.join(" "));
+        return Promise.resolve(
+          command[1] === "/query"
+            ? { code: 0, output: query }
+            : { code: 0, output: "SUCCESS" },
+        );
+      },
+    };
+  }
+
+  async function target() {
+    const home = await mkdtemp(join(tmpdir(), "byollm-9692-"));
+    return {
+      platform: "win32" as const,
+      execPath: "C:\\node.exe",
+      scriptPath: "C:\\byollm\\bin.js",
+      home,
+      appData: join(home, "AppData"),
+      root: join(home, ".byollm"),
+    };
+  }
+
+  it("ends the task's instance before it deletes the task", async () => {
+    const { uninstallService } = await import("./install.js");
+    const { commands, run } = windows("Ready\n");
+    await uninstallService(await target(), run);
+    const end = commands.findIndex((c) => c.startsWith("schtasks /end"));
+    const del = commands.findIndex((c) => c.startsWith("schtasks /delete"));
+    expect(end).toBeGreaterThanOrEqual(0);
+    expect(end).toBeLessThan(del);
+  });
+
+  it("names a daemon that has not exited, and does not say Removed", async () => {
+    const { uninstallService } = await import("./install.js");
+    const { run } = windows("Running\n");
+    let waits = 0;
+    const result = await uninstallService(await target(), run, {
+      pid: 28928,
+      isGone: () => false,
+      wait: () => {
+        waits++;
+        return Promise.resolve();
+      },
+    });
+    expect(result.ok).toBe(false);
+    const said = result.lines.join("\n");
+    expect(said).not.toContain("Removed");
+    expect(said).toContain("pid 28928");
+    expect(said).toContain("taskkill /pid 28928 /f");
+    expect(waits, "bounded, not forever").toBeGreaterThan(0);
+  });
+
+  it("does not wait on a heartbeat pid the supervisor was not running", async () => {
+    /* A `byollm run` in a terminal, or a long-dead daemon's reused id: not
+       the supervisor's to end, so not `stop`'s to wait for. */
+    const { uninstallService } = await import("./install.js");
+    const { run } = windows("Ready\n");
+    const result = await uninstallService(await target(), run, {
+      pid: 28928,
+      isGone: () => false,
+      wait: () => {
+        throw new Error("must not wait");
+      },
+    });
+    expect(result.ok).toBe(true);
+    expect(result.lines.join("\n")).toContain("Removed.");
   });
 });

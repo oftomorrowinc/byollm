@@ -527,12 +527,41 @@ export async function installService(
   return { ok: true, plan, lines };
 }
 
+/**
+ * How long `stop` waits for the daemon to exit after the supervisor was told
+ * to end it. Task Scheduler's `/end` terminates rather than asks, so this is
+ * seconds of margin, not a grace period.
+ */
+const STOP_WAIT_MS = 15_000;
+
 export async function uninstallService(
   target: ServiceTarget,
   run: CommandRunner,
+  /**
+   * The daemon `stop` must see exit before it says "Removed" — #9692.
+   *
+   * `pid` is the heartbeat's, and it is waited on only when the supervisor
+   * says it is running something before we start: a heartbeat pid from a
+   * `byollm run` in a terminal, or from a daemon long dead and its id reused,
+   * is not the supervisor's to end, and waiting on it would only cost the
+   * bound and a false warning.
+   */
+  daemon: {
+    readonly pid?: number;
+    readonly isGone?: (pid: number) => boolean;
+    readonly wait?: (ms: number) => Promise<void>;
+  } = {},
 ): Promise<InstallResult> {
   const plan = servicePlan(target);
   const failures: string[] = [];
+
+  const pid =
+    daemon.pid !== undefined &&
+    Number.isInteger(daemon.pid) &&
+    daemon.pid > 0 &&
+    (await serviceState(plan, run)).state === "running"
+      ? daemon.pid
+      : undefined;
 
   for (const command of plan.deactivate) {
     const result = await run(command).catch(() => ({ code: 127, output: "" }));
@@ -567,6 +596,41 @@ export async function uninstallService(
   const fallbackPath = plan.fallback?.unitPath;
   if (fallbackPath !== undefined) {
     await rm(fallbackPath, { force: true });
+  }
+
+  if (pid !== undefined) {
+    const isGone = daemon.isGone ?? processIsGone;
+    const wait =
+      daemon.wait ??
+      ((ms) => new Promise((resolve) => setTimeout(resolve, ms)));
+    const STEP_MS = 250;
+    let gone = isGone(pid);
+    for (let waited = 0; !gone && waited < STOP_WAIT_MS; waited += STEP_MS) {
+      await wait(STEP_MS);
+      gone = isGone(pid);
+    }
+    if (!gone) {
+      /* Not "Removed": the service is gone and the daemon may not be, and a
+         second `start` beside it is how 11-18 ended up with two. */
+      return {
+        ok: false,
+        plan,
+        lines: [
+          `${plan.supervisor} no longer starts byollm, and the daemon it was`,
+          `running (pid ${String(pid)}) has not exited after ${String(STOP_WAIT_MS / 1000)}s.`,
+          "",
+          plan.platform === "win32"
+            ? `  end it:  taskkill /pid ${String(pid)} /f`
+            : `  end it:  kill ${String(pid)}`,
+          "",
+          `Until it exits it is still serving, and \`byollm start\` would run a`,
+          `second daemon beside it.`,
+          ...(failures.length === 0
+            ? []
+            : ["", "The supervisor had something to say:", ...failures]),
+        ],
+      };
+    }
   }
 
   return {

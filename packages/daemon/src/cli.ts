@@ -843,12 +843,20 @@ async function commandUninstall(
     io.out(`${keptRunningSentence(keeper.by)}\n`);
     return 0;
   }
+  /* The daemon the supervisor is running, so `stop` can see it exit before it
+     says "Removed" — #9692. */
+  const beat = await readHeartbeat(paths.heartbeat);
   const result = await uninstallService(
     serviceTarget(paths, service),
     service.run,
+    {
+      ...(beat === undefined ? {} : { pid: beat.pid }),
+      ...(service.isGone === undefined ? {} : { isGone: service.isGone }),
+      ...(service.wait === undefined ? {} : { wait: service.wait }),
+    },
   );
-  for (const line of result.lines) io.out(`${line}\n`);
-  return 0;
+  for (const line of result.lines) (result.ok ? io.out : io.err)(`${line}\n`);
+  return result.ok ? 0 : 1;
 }
 
 /**

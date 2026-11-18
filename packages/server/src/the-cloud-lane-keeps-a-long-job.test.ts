@@ -425,4 +425,72 @@ describe.each(CASES)("over $name", (storeCase) => {
       });
     }
   });
+
+  describe("a job whose first claimant died", () => {
+    /**
+     * #9585. The relay reclaims a lease when its device stops answering and
+     * grants the job to the next claimant. The site's row still holds the
+     * first adopted lease, and refusing the second left the job refused on
+     * every pump until its deadline — a healthy device never sealed to.
+     */
+    const adoptTwice = async () => {
+      const { h, owner } = await storeCase.make();
+      const handle = await h.app.enqueue({
+        kind: "llm.generate",
+        payload: { prompt: "outlives its first device" },
+        owner,
+      });
+      const lease = () => ({
+        jobId: handle.id,
+        leaseId: randomUUID(),
+        expiresAt: h.clock.now() + LEASE_MS,
+        now: h.clock.now(),
+      });
+      const first = lease();
+      expect(await h.store.adopt(first)).not.toBeNull();
+      h.clock.advance(LEASE_MS + 1);
+      const second = lease();
+      const adopted = await h.store.adopt(second);
+      return { h, owner, jobId: handle.id, first, second, adopted };
+    };
+
+    const finishedBy = (owner: string, leaseId: string) => ({
+      runnerId: "runner_from_the_relay",
+      holder: { by: "lease" as const, leaseId },
+      outcome: { outcome: "ok" as const, text: "answered" },
+      provenance: {
+        audience: "private" as const,
+        runnerId: "runner_from_the_relay",
+        runnerOwner: owner,
+        backendClass: "http" as const,
+        model: "a-model",
+        untrusted: false,
+      },
+    });
+
+    it("adopts the second claimant's lease in place of the first", async () => {
+      const { h, jobId, second, adopted } = await adoptTwice();
+      expect(
+        adopted,
+        "the store refused the job's second claimant",
+      ).not.toBeNull();
+      expect((await h.store.get(jobId))?.lease?.id).toBe(second.leaseId);
+    });
+
+    it("takes the second claimant's result, and not the first's", async () => {
+      const { h, owner, jobId, first, second } = await adoptTwice();
+      const late = await h.store.complete({
+        jobId,
+        ...finishedBy(owner, first.leaseId),
+        now: h.clock.now(),
+      });
+      expect(late.accepted, "a reclaimed grant completed the job").toBe(false);
+      const done = await h.store.complete({
+        jobId,
+        ...finishedBy(owner, second.leaseId),
+        now: h.clock.now(),
+      });
+      expect(done.accepted).toBe(true);
+    });
+  });
 });

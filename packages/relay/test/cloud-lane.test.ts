@@ -384,6 +384,98 @@ describe.each(CASES)("the cloud lane over $name", (storeCase) => {
       text: "echo: across a deploy",
     });
   });
+
+  it("seals again to the device that claims a job after its first claimant died", async () => {
+    /**
+     * #9585 — job 911c5d84 on the 11-18 hub roll.
+     *
+     * Device A claimed, the site sealed to it, A fetched the prompt, and A's
+     * container died before it answered. The relay did its part: A's lease
+     * lapsed, the job went back in the queue, and device B claimed it. The
+     * site then refused B on every pump until the job's deadline, because its
+     * own row still held A's adopted lease and `adopt` would not take a
+     * second one. B, never sealed to, waited out the relay's ten-second
+     * awaiting-payload clock, lost its grant, and read "unknown job".
+     *
+     * The relay grants and reclaims leases on this lane; the site's row is a
+     * cache of the relay's answer. A new claim on a job the relay has
+     * reclaimed is the relay saying the old grant is over.
+     */
+    const { store, owner } = await storeCase.make();
+    const siteKeys = generateSiteKeys();
+    const site = publicIdentityOf(siteKeys);
+    const fixture = fixtureFor(site, {
+      consents: [{ owner, siteId: SITE_ID, paused: false }],
+    });
+    const relay = new Relay({ fixture });
+    const app = new ByollmApp({
+      store,
+      siteKeys,
+      lane: {
+        relayOrigin: "http://relay.test",
+        siteId: SITE_ID,
+        fetch: (i, init) => relay.handle(new Request(i, init)),
+      },
+    });
+
+    const handle = await app.enqueue({
+      kind: "llm.generate",
+      owner,
+      payload: { prompt: "outlives its first device" },
+    });
+
+    // Device A: claims with a short lease, is sealed to, takes the payload —
+    // box-1 logged the prompt — and then is never heard from again.
+    const deviceA = publicIdentityOf(generateKeys(Date.now()));
+    fixture.devices.push({ owner, runnerId: "runner_a", device: deviceA });
+    relay.project(fixture);
+    const [claimA] = await relay.state.claim({
+      runnerId: "runner_a",
+      owner,
+      device: deviceA,
+      kinds: new Set(["llm.generate"]),
+      routes: new Set([routeKey(SITE_ID, owner)]),
+      max: 1,
+      leaseMs: 50,
+    });
+    expect(claimA?.id).toBe(handle.id);
+    const first = await app.cloud!.pump();
+    expect(first.sealed).toEqual([handle.id]);
+    const taken = await relay.state.takePayload({
+      jobId: handle.id,
+      runnerId: "runner_a",
+      leaseId: claimA!.lease.id,
+    });
+    expect("envelope" in taken).toBe(true);
+
+    // A dies. Its lease lapses at the relay, which requeues the job.
+    await new Promise((r) => setTimeout(r, 100));
+
+    // Device B, a healthy daemon, comes along and claims it.
+    const deviceB = await makeDaemon(relay, fixture, {
+      owner,
+      site,
+      offer: "private",
+    });
+    disposers.push(deviceB.dispose);
+
+    const refused: string[] = [];
+    for (let i = 0; i < 100; i += 1) {
+      await deviceB.runner.tick();
+      const report = await app.cloud!.pump();
+      refused.push(...report.refused);
+      if ((await app.job(handle.id))?.state === "ok") break;
+      await new Promise((r) => setTimeout(r, 20));
+    }
+
+    expect(refused, "the site refused the second claimant").toEqual([]);
+    expect(deviceB.backend.seen).toEqual(["outlives its first device"]);
+    const delivered = await app.result(handle.id);
+    expect(delivered?.outcome).toMatchObject({
+      outcome: "ok",
+      text: "echo: outlives its first device",
+    });
+  });
 });
 
 describe("provenance names a person, not a key", () => {

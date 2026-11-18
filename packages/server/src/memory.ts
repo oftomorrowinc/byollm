@@ -266,7 +266,17 @@ export class MemoryStore implements ByollmStore {
     if (job.state !== "queued" && job.state !== "claimed") {
       return Promise.resolve(null);
     }
-    if (job.lease && job.lease.id !== args.leaseId) {
+    // A lease this site granted itself is not the relay's to replace. An
+    // ADOPTED one is — #9585. The relay grants and reclaims those, and this
+    // row is a cache of its answer: a new claim on a job the row says is
+    // leased means the relay reclaimed the old grant (its device died) and
+    // gave the job to somebody else. Refusing it held a dead device's lease
+    // until the deadline, so the second claimant was never sealed to.
+    if (
+      job.lease &&
+      job.lease.id !== args.leaseId &&
+      job.lease.runnerId !== ""
+    ) {
       return Promise.resolve(null);
     }
     const updated: JobRecord = {

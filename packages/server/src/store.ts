@@ -69,6 +69,11 @@ export interface JobStore {
    * in a state that can accept it. The authority over who holds what remains
    * the upstream that granted it — a store adopting a lease is bookkeeping,
    * not a decision.
+   *
+   * Which is why a second adoption REPLACES the first — #9585. The upstream
+   * only grants a new lease on a job after reclaiming the old one, usually
+   * because the device holding it died, so a store that kept the earlier
+   * lease would refuse the job's next claimant until its deadline.
    */
   adopt(args: AdoptArgs): Promise<JobRecord | null>;
 

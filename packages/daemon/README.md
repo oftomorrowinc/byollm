@@ -1,8 +1,11 @@
 <!-- release-note 0.1.7 -->
 > **`0.1.7`: a Windows device can update itself.** **On Windows 0.1.6 or
-> earlier, run `npm install -g byollm@0.1.7` and then `byollm start`, once:**
-> a device runs the updater of the version it is on, and before 0.1.7 the
-> Windows updater could not start npm (#9726). macOS and Linux with
+> earlier, run `npm install -g byollm@0.1.7`, then `byollm stop`, then
+> `byollm start`, once, in that order:** a device runs the updater of the
+> version it is on, and before 0.1.7 the Windows updater could not start npm
+> (#9726). Without the `stop`, the 0.1.6 daemon keeps running, because Task
+> Scheduler ignores a `start` while it runs. To confirm, `byollm status`
+> should begin `byollm 0.1.7` and say it is running under supervision. macOS and Linux with
 > `autoUpdate` on take 0.1.7 as usual. `byollm start` now installs nothing on
 > a machine that was never set up or is not paired, says what to run first,
 > and exits 1, instead of leaving systemd or launchd restarting it every ten
@@ -126,8 +129,14 @@ account is the one after 0.1.6.
 **On Windows, automatic updates work from 0.1.7.** Before it, the Windows
 updater could not start npm and every update failed with exit 127, leaving
 the device on the version it had. A device runs the updater of the version it
-is on, so a Windows device on 0.1.6 or earlier takes 0.1.7 by hand, once:
-`npm install -g byollm@0.1.7`, then `byollm start`.
+is on, so a Windows device on 0.1.6 or earlier takes 0.1.7 by hand, once, in
+this order: `npm install -g byollm@0.1.7`, then `byollm stop`, then
+`byollm start`. Without the `stop`, the 0.1.6 daemon keeps running, because
+Task Scheduler ignores a `start` while it runs. The `stop` is 0.1.7's, so it
+ends that daemon and everything under it and waits for it to exit. To
+confirm, `byollm status` should begin `byollm 0.1.7` and say it is running
+under supervision: its first line is the version installed, and after the
+`stop` the only daemon running is the one `start` brought up from it.
 
 You do not have to write any of this by hand. `byollm services manage` asks
 what this machine has and writes the file for you, and it is safe to re-run:

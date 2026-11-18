@@ -680,8 +680,15 @@ the Node already running the daemon: npm's `npm-cli.js`, found beside
 `dist/bin.js` that `npm root --global` says the install put in place, checked
 to exist. The argv stays literal and the version still passes the same
 exact-version check. Because it is the outgoing updater that runs, a Windows device
-on 0.1.6 or earlier takes 0.1.7 by hand, once (`npm install -g byollm@0.1.7`,
-then `byollm start`), and updates itself from there.
+on 0.1.6 or earlier takes 0.1.7 by hand, once, in this order:
+`npm install -g byollm@0.1.7`, then `byollm stop`, then `byollm start`, and
+updates itself from there. Without the `stop`, the 0.1.6 daemon keeps running,
+because Task Scheduler ignores a `start` while it runs (the task is
+`IgnoreNew`). The `stop` is 0.1.7's, so it ends that daemon and everything
+under it and waits for it to exit. To confirm, `byollm status` should begin
+`byollm 0.1.7` and say it is running under supervision: its first line is the
+version installed, and after the `stop` the only daemon running is the one
+`start` brought up from it.
 
 Tests: `update.test.ts`, `provenance.test.ts` (against the registry's real
 answer for `byollm@0.1.1`), `update-when-offered.test.ts`, `update-deps.test.ts`,

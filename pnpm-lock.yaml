@@ -153,6 +153,12 @@ importers:
       byollm:
         specifier: workspace:*
         version: link:../daemon
+      byollm-0.1.4:
+        specifier: npm:byollm@0.1.4
+        version: byollm@0.1.4
+      byollm-protocol-0.1.4:
+        specifier: npm:@byollm/protocol@0.1.4
+        version: '@byollm/protocol@0.1.4'
       vitest:
         specifier: ^4.1.10
         version: 4.1.10(@types/node@26.2.0)(@vitest/coverage-v8@4.1.10)(vite@8.2.1(@types/node@26.2.0)(esbuild@0.27.7)(jiti@2.7.0)(yaml@2.9.0))
@@ -1461,6 +1467,11 @@ packages:
     engines: {node: ^12.20.0 || ^14.13.1 || >=16.0.0}
     peerDependencies:
       esbuild: '>=0.18'
+
+  byollm@0.1.4:
+    resolution: {integrity: sha512-j0+oIKSzbN8S1XOxgZqZBBnHRFrcOkJsO5tkTW0qM5bPp0gABLiF5E9RIsErRROsxj1zVL0b4B6uQsHXPEHy/g==}
+    engines: {node: '>=22.14'}
+    hasBin: true
 
   cac@6.7.14:
     resolution: {integrity: sha512-b6Ilus+c3RrdDk+JhLKUAQfzzgLEPy6wcXqS7f/xe1EETvsDP6GORG7SFuOs6cID5YkqchW/LXZbX5bc8j7ZcQ==}
@@ -3554,6 +3565,11 @@ snapshots:
     dependencies:
       esbuild: 0.27.7
       load-tsconfig: 0.2.5
+
+  byollm@0.1.4:
+    dependencies:
+      '@byollm/protocol': 0.1.4
+      zod: 4.4.3
 
   cac@6.7.14: {}
 

@@ -48,6 +48,8 @@
     "@byollm/server": "workspace:*",
     "@supabase/supabase-js": "^2.112.2",
     "byollm": "workspace:*",
+    "byollm-0.1.4": "npm:byollm@0.1.4",
+    "byollm-protocol-0.1.4": "npm:@byollm/protocol@0.1.4",
     "vitest": "^4.1.10"
   },
   "peerDependencies": {

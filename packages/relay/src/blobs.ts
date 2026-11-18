@@ -813,6 +813,15 @@ export class RelayBlobs {
   /**
    * Why an `ok` result may not be accepted, or `null` when it may — the
    * same check an input gets, on the outputs issued under this lease.
+   *
+   * Unlike `inputFault`, a lost record is not rebuilt from the store,
+   * so a ledger that forgot this job while its lease survived accepts the
+   * result unchecked. That is a documented limit (README, "A limit: keep the
+   * ledger with the leases"; decision #8559). Copying `inputFault`'s rebuild
+   * here would not close it: the object name carries no lease, so the
+   * rebuilt slots have none, and the loop below skips every slot whose lease
+   * is not this job's. The fix is the lease in the object name, at the next
+   * change to the blob path (byollm_021).
    */
   async outputFault(
     job: JobRef & { readonly leaseId: string },

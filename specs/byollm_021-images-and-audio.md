@@ -892,3 +892,8 @@ run is on the beta.
 **CW edits `cw/RULEBOOK.md` §2** to the ruled wording: "adding a blob path —
 exists since #6933 (11-03), by reference only, never inline; a change to it
 takes the two steps above". That is CW's edit, not a byollm card.
+
+**The next change to the blob path puts the lease in the object name**
+(decision #8559, ruled 2026-11-17), which is what lets `outputFault` rebuild
+lost output slots from the store as `inputFault` does. Until then it is the
+documented limit in `packages/relay/README.md`.

@@ -139,7 +139,7 @@ What the package decides, whatever the store:
 - **Sizes are read, not trusted.** A slot's size is in the blob id the relay
   mints. A job is queued only if every input it was issued a slot for is
   stored at that size, and an `ok` result is accepted only if its outputs
-  are.
+  are, with the one limit below.
 - **Blobs go with the job.** Inputs when the result is accepted; outputs when
   the site says it holds them, or an hour after it collected the result; and
   whatever is left a day after the job's deadline. `Relay.sweep()` runs the
@@ -149,6 +149,28 @@ What the package decides, whatever the store:
   is 48 hours old (`ORPHAN_BLOB_AGE_MS`). The two earlier deletions, at the
   result and an hour after collection, need the record: keep the ledger
   somewhere that survives a restart if you want them kept across one.
+
+### A limit: keep the ledger with the leases
+
+`RelayBlobs.outputFault` checks the output slots it finds in the ledger under
+the job's lease. Unlike `inputFault`, it does not rebuild lost slots from the
+store. So if the ledger loses its records while the lease survives, an `ok`
+`llm.image` result is accepted without its outputs' sizes being checked. That
+happens with a `MemoryBlobLedger` behind a durable or shared `RoutingStore`,
+or with a ledger and a routing store in different Valkeys.
+
+What still protects the site:
+
+- `downloadUrl` refuses any object whose stored size is not the size in its
+  id, so the site gets a 404, not a wrong image.
+- A store that enforces the signed length, such as GCS, cannot hold a
+  wrong-size object at all.
+
+What to do about it: keep the `BlobLedger` and the leases in the same store,
+as the hosted hub does. Then whatever loses the ledger loses the lease too,
+and the result is refused before `outputFault` runs. The fix is to put the
+lease in the object name the next time the blob path changes (byollm_021,
+decision #8559).
 
 ## Breaking before `0.1.0`: `RelayState` is async
 

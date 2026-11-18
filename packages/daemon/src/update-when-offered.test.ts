@@ -62,7 +62,7 @@ function fakeRunner() {
     runner: {
       drain: (ms: number) => {
         calls.push(`drain:${String(ms)}`);
-        return Promise.resolve();
+        return Promise.resolve({ finished: 0, stillRunning: 0 });
       },
       resumeClaiming: () => {
         calls.push("resume");

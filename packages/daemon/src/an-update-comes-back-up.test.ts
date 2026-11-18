@@ -275,7 +275,7 @@ class Machine {
 
 function fakeRunner(): Runner {
   return {
-    drain: () => Promise.resolve(),
+    drain: () => Promise.resolve({ finished: 0, stillRunning: 0 }),
     resumeClaiming: () => undefined,
   } as unknown as Runner;
 }

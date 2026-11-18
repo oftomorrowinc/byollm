@@ -4713,13 +4713,22 @@ export class Runner {
    * Resolves when nothing is held, or when `waitMs` has passed — because a
    * job that outlives its own lease must not hold a machine out of service
    * indefinitely, and the lease is the thing that bounds it either way.
+   *
+   * Says how many it waited for and how many it gave up on, for the
+   * update's line in the service log (#9594).
    */
-  async drain(waitMs: number, sleep = pause): Promise<void> {
+  async drain(
+    waitMs: number,
+    sleep = pause,
+  ): Promise<{ finished: number; stillRunning: number }> {
     this.#draining = true;
+    const running = this.#active.size;
     const until = Date.now() + waitMs;
     while (this.#active.size > 0 && Date.now() < until) {
       await sleep(DRAIN_POLL_MS);
     }
+    const stillRunning = this.#active.size;
+    return { finished: Math.max(0, running - stillRunning), stillRunning };
   }
 
   /** Undo a drain — the machine claims again. */

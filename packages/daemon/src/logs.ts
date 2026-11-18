@@ -210,6 +210,8 @@ export class LogRenderer {
         );
       case "tool-dropped":
         return `tool result dropped: ${said(entry.why, env)}`;
+      case "update":
+        return `update: ${said(entry.line, env, 600)}`;
     }
   }
 }

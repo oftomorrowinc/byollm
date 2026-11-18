@@ -27,8 +27,7 @@ function recorder() {
           ran.push([...command]);
           return Promise.resolve(answer(command));
         },
-        drain: () => Promise.resolve(),
-        reregister: () => Promise.resolve(true),
+        drain: () => Promise.resolve({ finished: 0, stillRunning: 0 }),
         report: (line) => said.push(line),
       }),
   };

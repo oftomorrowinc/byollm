@@ -88,6 +88,12 @@ export interface DaemonPaths {
    * set to an empty one of these and nothing else (byollm_004 §2).
    */
   readonly scratch: string;
+  /**
+   * An update in flight between two daemons — #9594. Written by the one
+   * that installed it, just before it exits; read and removed by the next
+   * one to start, which is the only process that can say what it is.
+   */
+  readonly lastUpdate: string;
 }
 
 /** Resolve the daemon's paths, rooted at `~/.byollm` unless overridden. */
@@ -109,6 +115,7 @@ export function daemonPaths(root = defaultRoot()): DaemonPaths {
     supervisor: join(root, "supervisor.json"),
     label: join(root, "label"),
     scratch: join(root, "scratch"),
+    lastUpdate: join(root, "update.json"),
   };
 }
 

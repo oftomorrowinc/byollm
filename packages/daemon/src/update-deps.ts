@@ -38,8 +38,7 @@ import type { UpdateDeps } from "./update.js";
  */
 export function realUpdateDeps(input: {
   readonly run: CommandRunner;
-  readonly drain: () => Promise<void>;
-  readonly reregister: () => Promise<boolean>;
+  readonly drain: UpdateDeps["drain"];
   readonly report: (line: string) => void;
   /** Injected in tests; the registry's provenance for the real thing. */
   readonly verify?: (version: string) => Promise<Provenance>;
@@ -74,7 +73,23 @@ export function realUpdateDeps(input: {
       return result.code === 0;
     },
     verify: input.verify ?? ((version) => verifyProvenance(version)),
-    reregister: async () => (await input.run([binary, "start"])).code === 0,
+    /* `byollm start` re-registers with the supervisor, which is what the new
+       entry point needs. It is not this process's own restart — that is the
+       supervisor's, after we exit. What it says goes into the update's
+       account (#9594): it is where #9572's hand-off says it will finish once
+       this daemon exits, and the only record of a re-register that failed. */
+    reregister: async () => {
+      const result = await input.run([binary, "start"]);
+      const said = result.output.trim().split("\n").slice(-3).join(" ");
+      input.report(
+        result.code !== 0
+          ? `byollm start failed (exit ${String(result.code)})${said === "" ? "" : `: ${said}`}`
+          : said === ""
+            ? "byollm start finished and said nothing"
+            : `byollm start said: ${said}`,
+      );
+      return result.code === 0;
+    },
     installedVersion: async () => {
       const result = await input.run([binary, "--version"]);
       if (result.code !== 0) return undefined;

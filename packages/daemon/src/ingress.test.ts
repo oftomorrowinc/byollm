@@ -85,7 +85,11 @@ describe("IngressLog [INGRESS_LOGGED_BEFORE_EXECUTION]", () => {
     );
     await Promise.all(writes);
 
-    expect((await log.read()).map((entry) => entry.jobId)).toEqual(ids);
+    expect(
+      (await log.read()).map((entry) =>
+        "jobId" in entry ? entry.jobId : undefined,
+      ),
+    ).toEqual(ids);
   });
 
   it("can omit the owner's own prompt text when they ask", async () => {

@@ -6,6 +6,12 @@ import { backendVerifier, setModel, showModel } from "./model.js";
 import { preflight } from "./preflight.js";
 import { offerInbox, update } from "./update.js";
 import { realUpdateDeps } from "./update-deps.js";
+import {
+  announceArrival,
+  rememberUpdate,
+  updateJournal,
+  type UpdateJournal,
+} from "./update-journal.js";
 import type { Provenance } from "./provenance.js";
 import { runLogin, type LoginCommand } from "./login.js";
 import { createBackend } from "./backends/index.js";
@@ -1933,6 +1939,27 @@ async function commandRun(
     });
   }
 
+  /* The last line of an update's account — #9594. If the daemon before this
+     one installed an update and exited for it, this is the process that can
+     say what came up. First, before preflight or pairings can park or end
+     this run: a daemon that cannot serve is still the version it is. The log
+     is opened for this one append, so a config being edited cannot stop it;
+     retention is not this instance's business. */
+  await announceArrival({
+    path: paths.lastUpdate,
+    running: DAEMON_VERSION,
+    journal: updateJournal({
+      err: (text) => {
+        io.err(text);
+      },
+      ingress: new IngressLog({
+        path: paths.ingressLog,
+        communityPromptDays: 0,
+        keepSelfPrompts: false,
+      }),
+    }),
+  });
+
   await preflightFor(paths, io, interactive, preflightOptions);
 
   /*
@@ -2259,6 +2286,13 @@ async function runLoop(
   if (moved !== undefined) io.out(`${moved}\n`);
 
   const { loaded, ingress, budgets, spend, spentGrants } = await context(paths);
+  /* Every update's account, in the service log and in `byollm logs` — #9594. */
+  const journal = updateJournal({
+    err: (text) => {
+      io.err(text);
+    },
+    ingress,
+  });
   const identity = new DeviceIdentity(paths.keys);
   const pairings = new Pairings(paths.pairings);
   await pairings.load();
@@ -2298,9 +2332,7 @@ async function runLoop(
         ),
         hasControlPlane: (origin) =>
           pairings.get(origin)?.controlPlanePublic !== undefined,
-        report: (line) => {
-          io.err(`update: ${line}\n`);
-        },
+        report: journal.say,
       })
     : undefined;
 
@@ -2562,6 +2594,9 @@ async function runLoop(
         io,
         signal: controller.signal,
         offered: inbox.current,
+        offeredBy: inbox.origin,
+        journal,
+        lastUpdate: paths.lastUpdate,
       })
     : new Promise<boolean>(() => undefined);
 
@@ -2577,7 +2612,8 @@ async function runLoop(
     /* Exit so the supervisor starts the new binary. This process is the old
        one — it cannot become the new one, and a daemon that installed an
        update and went on running would report a version it is not. */
-    io.err("updated — exiting so the supervisor starts the new version.\n");
+    journal.say("updated — exiting so the supervisor starts the new version");
+    await journal.settled();
   }
   return 0;
 }
@@ -2599,6 +2635,15 @@ export async function watchForUpdate(input: {
   readonly io: CliIo;
   readonly signal: AbortSignal;
   readonly offered: () => string | undefined;
+  /** Which origin made the offer, for the account's first line — #9594. */
+  readonly offeredBy?: () => string | undefined;
+  /**
+   * Where the update's lines go. The service log alone (`io.err`) unless the
+   * caller has the ingress log to hand, which is what `byollm logs` reads.
+   */
+  readonly journal?: UpdateJournal;
+  /** Where a kept update is left for the next daemon to announce. */
+  readonly lastUpdate?: string;
   readonly wait?: (ms: number) => Promise<void>;
   readonly run?: CommandRunner;
   readonly drainMs?: number;
@@ -2616,32 +2661,61 @@ export async function watchForUpdate(input: {
    * has and waits for a different answer — which is what a rollback means.
    */
   const tried = new Set<string>();
+  const journal =
+    input.journal ??
+    updateJournal({
+      err: (text) => {
+        input.io.err(text);
+      },
+    });
   for (;;) {
     if (input.signal.aborted) return false;
     const version = input.offered();
     if (version !== undefined && !tried.has(version)) {
       tried.add(version);
-      const outcome = await update(DAEMON_VERSION, version, {
-        ...realUpdateDeps({
-          run: input.run ?? spawnCommand,
-          ...(input.verify === undefined ? {} : { verify: input.verify }),
-          drain: async () => {
-            await Promise.all(
-              input.runners.map((runner) =>
-                runner.drain(input.drainMs ?? UPDATE_DRAIN_MS),
-              ),
-            );
-          },
-          /* `byollm start` re-registers with the supervisor, which is what
-             the new entry point needs. It is not this process's own restart
-             — that is the supervisor's job, after we exit. */
-          reregister: async () =>
-            (await (input.run ?? spawnCommand)(["byollm", "start"])).code === 0,
-          report: (line) => {
-            input.io.err(`update: ${line}\n`);
-          },
-        }),
+      const began = Date.now();
+      const deps = realUpdateDeps({
+        run: input.run ?? spawnCommand,
+        ...(input.verify === undefined ? {} : { verify: input.verify }),
+        drain: async () => {
+          const tallies = await Promise.all(
+            input.runners.map((runner) =>
+              runner.drain(input.drainMs ?? UPDATE_DRAIN_MS),
+            ),
+          );
+          /* A runner per paired origin; the machine drained all of them. */
+          return {
+            finished: tallies.reduce((n, t) => n + t.finished, 0),
+            stillRunning: tallies.reduce((n, t) => n + t.stillRunning, 0),
+          };
+        },
+        report: journal.say,
       });
+      const lastUpdate = input.lastUpdate;
+      const outcome = await update(
+        DAEMON_VERSION,
+        version,
+        {
+          ...deps,
+          /* Left for the daemon the supervisor starts next, the only one
+             that can say "now running" — #9594. Before the re-register, not
+             after: that is the step that may not return to this process. A
+             failed write costs that one line and nothing else. */
+          reregister: async () => {
+            if (lastUpdate !== undefined) {
+              await rememberUpdate(lastUpdate, {
+                from: DAEMON_VERSION,
+                to: version,
+                at: began,
+              }).catch(() => undefined);
+            }
+            await journal.settled();
+            return deps.reregister();
+          },
+        },
+        input.offeredBy?.(),
+      );
+      await journal.settled();
       if (outcome.kind === "updated") return true;
       /* Nothing moved, or it moved back. Either way this machine is still
          the one it was, so it goes back to work rather than sitting drained
@@ -3748,6 +3822,9 @@ async function commandLog(
       );
       continue;
     }
+    /* An update's lines are the event reader's — `byollm logs` — and the
+       service log's (#9594). This reader's subject is what ran. */
+    if (entry.type === "update") continue;
 
     if (entry.type === "claim") {
       io.out(`${at}  ${"claimed".padEnd(8)} ${entry.jobId} ${entry.kind}\n`);

@@ -15,7 +15,7 @@ function deps(over: Partial<UpdateDeps> & { installs?: string[] } = {}) {
   const base: UpdateDeps = {
     drain: () => {
       order.push("drain");
-      return Promise.resolve();
+      return Promise.resolve({ finished: 0, stillRunning: 0 });
     },
     install: (version) => {
       order.push(`install:${version}`);

@@ -256,7 +256,28 @@ const ToolDroppedEntry = z
   })
   .strict();
 
+/**
+ * One step of an update of this daemon — #9594.
+ *
+ * The same line the service log gets, kept here too so `byollm logs` shows
+ * it: a hosted box's owner has a `byollm>` console and no service log they
+ * can read, and the lines exist for the owner. `line` has already been
+ * through `redact` when it is written; it names versions, an origin, times
+ * and npm's words, never a key.
+ *
+ * A daemon from before this skips the type, as it skips any line it does
+ * not know.
+ */
+const UpdateEntry = z
+  .object({
+    type: z.literal("update"),
+    at: z.number().int().positive(),
+    line: z.string().min(1),
+  })
+  .strict();
+
 export const IngressEntry = z.discriminatedUnion("type", [
+  UpdateEntry,
   ClaimEntry,
   PromptEntry,
   OutcomeEntry,
@@ -439,6 +460,11 @@ export class IngressLog {
           }),
       ...(input.detail === undefined ? {} : { detail: input.detail }),
     });
+  }
+
+  /** A step of an update — see {@link UpdateEntry}. */
+  async recordUpdate(input: { at: number; line: string }): Promise<void> {
+    await this.#append({ type: "update", at: input.at, line: input.line });
   }
 
   /** A result the model never saw — see {@link ToolDroppedEntry}. */

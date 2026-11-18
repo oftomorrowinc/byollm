@@ -77,9 +77,20 @@ export function exactVersion(value: string): ExactVersion | undefined {
     : undefined;
 }
 
+/** What a drain left behind — #9594, for the line that says it happened. */
+interface DrainTally {
+  /** Jobs that were running when the drain began and finished inside it. */
+  readonly finished: number;
+  /** Jobs still running when the drain gave up waiting. */
+  readonly stillRunning: number;
+}
+
 export interface UpdateDeps {
-  /** Finish the running job and claim nothing. Resolves when idle. */
-  readonly drain: () => Promise<void>;
+  /**
+   * Finish the running job and claim nothing. Resolves when idle, saying how
+   * many jobs it waited for — the step's line in the service log.
+   */
+  readonly drain: () => Promise<DrainTally>;
   /** `npm i -g byollm@<version>`. Resolves to whether it succeeded. */
   readonly install: (version: string) => Promise<boolean>;
   /**
@@ -125,6 +136,8 @@ export async function update(
   from: string,
   to: string,
   deps: UpdateDeps,
+  /** Which origin made the offer, for the first line of the account. */
+  offeredBy?: string,
 ): Promise<UpdateOutcome> {
   const target = exactVersion(to);
   if (target === undefined) {
@@ -158,8 +171,22 @@ export async function update(
     return { kind: "refused", why };
   }
 
-  await deps.drain();
+  /* From here every step says it happened — #9594. On 11-18 two Macs took
+     0.1.5 and ended with no daemon, and `grep update ~/.byollm/service.log`
+     on the Mac Studio found nothing: this reported only its failures, so the
+     one event that had just changed the machine left no account of itself.
+     An update is rare, so a line per step is cheap, and the line nobody
+     wrote is the one somebody needs. */
+  const now = Date.now;
+  deps.report(
+    `offer of ${target} taken${offeredBy === undefined ? "" : ` from ${offeredBy}`}, while running ${from}`,
+  );
 
+  const drainStarted = now();
+  const tally = await deps.drain();
+  deps.report(`drained in ${took(now() - drainStarted)} — ${counted(tally)}`);
+
+  const installStarted = now();
   if (!(await deps.install(target))) {
     /* Nothing was replaced, so there is nothing to undo — npm leaves the
        previous global in place when an install fails. No re-register: this
@@ -168,9 +195,13 @@ export async function update(
        a re-register from inside the daemon is a bootout of the daemon
        (#9572). The supervised process never changed; leave it serving. */
     const why = `could not install ${target} — staying on ${from}`;
-    deps.report(why);
+    deps.report(
+      `${why}: npm left ${from} in place after ${took(now() - installStarted)}, ` +
+        `so nothing needs rolling back, and this daemon goes back to work`,
+    );
     return { kind: "refused", why };
   }
+  deps.report(`installed ${target} in ${took(now() - installStarted)}`);
 
   /* Before the canary, because that is what first runs the new binary.
      A package nobody can vouch for goes back out without having executed —
@@ -183,6 +214,7 @@ export async function update(
       deps,
     );
   }
+  deps.report(`provenance verified: our release workflow built ${target}`);
 
   /* The canary before the re-register, not after it — #9572. Asking the
      installed binary its version needs no supervisor, and re-registering
@@ -190,7 +222,17 @@ export async function update(
      only taken once the daemon is committed to exiting. */
   const reported = await deps.installedVersion();
   if (reported === target) {
-    await deps.reregister();
+    deps.report(
+      `the installed binary says ${target}; re-registering with the supervisor (byollm start)`,
+    );
+    const registered = await deps.reregister();
+    deps.report(
+      registered
+        ? `re-registered; ${target} is kept and this daemon exits so the supervisor starts it`
+        : `re-registering did not succeed (its words are above); ${target} is ` +
+            `installed and kept, and this daemon exits so the supervisor starts it — ` +
+            `if \`byollm status\` says nothing is running, run \`byollm start\``,
+    );
     return { kind: "updated", to: target };
   }
 
@@ -219,9 +261,10 @@ async function rollBack(
   why: string,
   deps: UpdateDeps,
 ): Promise<UpdateOutcome> {
+  deps.report(`${why}; rolling back to ${from}`);
   if (!(await deps.install(from))) {
     const stranded = `${why}; rolling back to ${from} also failed`;
-    deps.report(stranded);
+    deps.report(`${stranded}${strandedRemedy(from)}`);
     return { kind: "stranded", why: stranded };
   }
 
@@ -232,12 +275,54 @@ async function rollBack(
     const stranded = `${why}; rolled back to ${from} and the binary reports ${
       back ?? "nothing"
     }`;
-    deps.report(stranded);
+    deps.report(`${stranded}${strandedRemedy(from)}`);
     return { kind: "stranded", why: stranded };
   }
 
-  deps.report(`${why}; rolled back to ${from}`);
+  deps.report(
+    `${why}; rolled back to ${from}, which the installed binary confirms — ` +
+      `this daemon goes back to work on it`,
+  );
   return { kind: "rolled-back", to: from, why };
+}
+
+/**
+ * What a stranded machine's owner should run — #9594.
+ *
+ * The daemon writing this is still the old version in memory and goes on
+ * serving, but whatever is on disk is neither version for certain, and the
+ * next restart starts it. These two commands put back the version that was
+ * running and re-register it, from a terminal, where a person can see npm's
+ * own answer.
+ */
+function strandedRemedy(from: string): string {
+  return (
+    ` — this machine is stranded: what is installed is not a version this ` +
+    `daemon could confirm. Run \`npm install --global byollm@${from}\` and then \`byollm start\``
+  );
+}
+
+/** `0.4 s`, `12 s`, `3 min 5 s` — a step's length, in the service log. */
+function took(ms: number): string {
+  const s = Math.max(0, ms) / 1000;
+  if (s < 10) return `${s.toFixed(1)} s`;
+  if (s < 120) return `${String(Math.round(s))} s`;
+  const whole = Math.round(s);
+  return `${String(Math.floor(whole / 60))} min ${String(whole % 60)} s`;
+}
+
+/** How many jobs a drain waited for, in words. */
+function counted(tally: DrainTally): string {
+  const jobs = (n: number) => `${String(n)} job${n === 1 ? "" : "s"}`;
+  if (tally.finished === 0 && tally.stillRunning === 0) {
+    return "nothing was running";
+  }
+  return [
+    ...(tally.finished > 0 ? [`${jobs(tally.finished)} finished`] : []),
+    ...(tally.stillRunning > 0
+      ? [`${jobs(tally.stillRunning)} still running when the wait ran out`]
+      : []),
+  ].join(", ");
 }
 
 /**
@@ -264,8 +349,11 @@ export function offerInbox(input: {
 }): {
   readonly receive: (origin: string, version: string) => void;
   readonly current: () => string | undefined;
+  /** Who made {@link current}'s offer — the authority, by construction. */
+  readonly origin: () => string | undefined;
 } {
   let offered: string | undefined;
+  let offeredBy: string | undefined;
   const refused = new Set<string>();
   return {
     receive: (origin, version) => {
@@ -281,6 +369,7 @@ export function offerInbox(input: {
            updated again until restarted (B053); the watcher refuses to retry
            a version it has already tried, which is what makes this safe. */
         offered = version;
+        offeredBy = origin;
         return;
       }
       if (refused.has(origin)) return;
@@ -288,5 +377,6 @@ export function offerInbox(input: {
       input.report(`ignoring an offer of ${version} from ${origin} — ${why}`);
     },
     current: () => offered,
+    origin: () => offeredBy,
   };
 }

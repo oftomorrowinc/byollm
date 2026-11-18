@@ -222,7 +222,11 @@ describe("the site's input images — byollm_021 §2, §4", () => {
     });
     const [stored] = h.store.allBlobs();
     expect(stored?.data?.length).toBe(blobObjectBytes(image.length));
-    expect(Buffer.from(stored?.data ?? []).includes("GPS")).toBe(false);
+    // The whole planted string, not "GPS": three bytes turn up by chance in
+    // about 1.5% of 256 KiB ciphertexts, and this test failed a landing so.
+    const ciphertext = Buffer.from(stored?.data ?? []);
+    expect(ciphertext.includes("GPS 51.5007N")).toBe(false);
+    expect(ciphertext.includes("Westminster")).toBe(false);
 
     const job = await claim(h, runner);
     const fetched = await h.call(

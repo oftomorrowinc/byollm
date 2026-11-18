@@ -60,8 +60,6 @@
 import { compareVersions } from "@byollm/protocol";
 import type { Provenance } from "./provenance.js";
 
-/** A version this updater is willing to install. */
-
 /** What `byollm start`, run by the updater, did about the supervisor. */
 type Reregistered = "registered" | "handed-off" | "failed";
 
@@ -76,6 +74,7 @@ type Reregistered = "registered" | "handed-off" | "failed";
  */
 export const HANDED_OFF_SAYS = "it finishes once that daemon exits";
 
+/** A version this updater is willing to install. */
 export type ExactVersion = string & { readonly __exact: unique symbol };
 
 /**

@@ -42,9 +42,15 @@ const NEW = above(1);
 const HUB = "https://hub.byo-llm.com";
 const OLD = DAEMON_VERSION;
 
-/** A value the daemon's environment holds and no line may ever carry. */
+/**
+ * A value the daemon's environment holds and no line may ever carry.
+ *
+ * Deliberately not shaped like any credential: it must be removed because
+ * the environment holds it under a credential's name, not because a pattern
+ * recognises it — and a real token's shape in the tree fails the secret scan.
+ */
 const SECRET_NAME = "NPM_TOKEN";
-const SECRET = "npm_Q2xhdWRlU2VjcmV0VmFsdWUxMjM0NTY";
+const SECRET = "planted-value-not-a-credential-7f3a";
 
 beforeEach(() => {
   vi.stubEnv(SECRET_NAME, SECRET);

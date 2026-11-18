@@ -28,7 +28,7 @@ function deps(over: Partial<UpdateDeps> & { installs?: string[] } = {}) {
     },
     reregister: () => {
       order.push("reregister");
-      return Promise.resolve(true);
+      return Promise.resolve("registered" as const);
     },
     installedVersion: () => Promise.resolve(installs.at(-1)),
     report: (line) => {

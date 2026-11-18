@@ -147,10 +147,33 @@ describe("re-registering", () => {
     expect(r.ran[0]).toEqual(["byollm", "start"]);
   });
 
-  it("is false when the supervisor refused", async () => {
+  it("fails when the supervisor refused", async () => {
     const r = recorder();
     expect(await r.deps(() => ({ code: 1, output: "" })).reregister()).toBe(
-      false,
+      "failed",
     );
+  });
+
+  it("registered when start registered (Linux, the box)", async () => {
+    const r = recorder();
+    expect(
+      await r
+        .deps(() => ({ code: 0, output: "byollm is running under systemd\n" }))
+        .reregister(),
+    ).toBe("registered");
+  });
+
+  it("handed off when start handed off — #9572, Owl on #9594", async () => {
+    const r = recorder();
+    expect(
+      await r
+        .deps(() => ({
+          code: 0,
+          output:
+            "byollm start was run by the daemon it re-registers (pid 7); " +
+            "it finishes once that daemon exits. See /x/service.log\n",
+        }))
+        .reregister(),
+    ).toBe("handed-off");
   });
 });

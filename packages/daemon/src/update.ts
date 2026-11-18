@@ -61,6 +61,21 @@ import { compareVersions } from "@byollm/protocol";
 import type { Provenance } from "./provenance.js";
 
 /** A version this updater is willing to install. */
+
+/** What `byollm start`, run by the updater, did about the supervisor. */
+type Reregistered = "registered" | "handed-off" | "failed";
+
+/**
+ * The words by which a handed-off `start` says so — #9572, #9594.
+ *
+ * Written by the `start` just INSTALLED and read by the updater of the
+ * version being left, so it crosses versions: change it and every older
+ * updater reads a hand-off as a registration. `cli.ts` prints it; the
+ * hand-off tests in an-update-comes-back-up.test.ts read it back through the
+ * real updater.
+ */
+export const HANDED_OFF_SAYS = "it finishes once that daemon exits";
+
 export type ExactVersion = string & { readonly __exact: unique symbol };
 
 /**
@@ -105,8 +120,15 @@ export interface UpdateDeps {
    *
    * Called once, last, and only when the update is kept: the daemon exits
    * straight after. Never on a failure path — #9572.
+   *
+   * `handed-off` is a `start` that registered nothing yet: run by the daemon
+   * it re-registers (launchd, Task Scheduler), it started a detached copy
+   * that registers once this daemon exits — `cli.ts`, `handOffFromTheDaemon`.
+   * The account must not say "re-registered" for it (Owl, #9594): the copy's
+   * lines carry no "update:" prefix, so a hand-off that then fails would
+   * leave an account ending on a success claim.
    */
-  readonly reregister: () => Promise<boolean>;
+  readonly reregister: () => Promise<Reregistered>;
   /**
    * What the installed binary says its version is.
    *
@@ -227,9 +249,14 @@ export async function update(
     );
     const registered = await deps.reregister();
     deps.report(
-      registered
+      registered === "registered"
         ? `re-registered; ${target} is kept and this daemon exits so the supervisor starts it`
-        : `re-registering did not succeed (its words are above); ${target} is ` +
+        : registered === "handed-off"
+          ? `byollm start handed the re-register to a copy that finishes after this ` +
+            `daemon exits (its lines follow in this log, without "update:"); ` +
+            `${target} is kept and this daemon exits — if no "update: now running" ` +
+            `line follows, run \`byollm start\``
+          : `re-registering did not succeed (its words are above); ${target} is ` +
             `installed and kept, and this daemon exits so the supervisor starts it — ` +
             `if \`byollm status\` says nothing is running, run \`byollm start\``,
     );

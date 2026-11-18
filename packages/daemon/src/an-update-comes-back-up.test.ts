@@ -172,7 +172,10 @@ class Machine {
            environment — launchd's XPC_SERVICE_NAME included. */
         const child = this.#spawn({ parent: proc });
         const code = await this.#start(child, this.#envOf(proc));
-        return child.alive ? { code, output: "" } : never;
+        /* What it said, as spawnCommand returns it: the updater reads a
+           hand-off from these words (#9594), so a double that drops them
+           would hide the hand-off from the very test that has one. */
+        return child.alive ? { code, output: this.said.at(-1) ?? "" } : never;
       }
       if (file === "launchctl") return this.#launchctl(proc, args);
       if (file === "schtasks") return this.#schtasks(args);
@@ -307,14 +310,15 @@ describe("after an update the service is installed and the new daemon is running
   }
 
   /** The daemon takes the offer; if it survives that, it exits, as `run` does. */
-  async function takeTheUpdate(m: Machine): Promise<void> {
+  async function takeTheUpdate(m: Machine): Promise<string> {
     const daemon = m.original;
     if (daemon === undefined) throw new Error("no daemon");
+    let account = "";
     const updating = watchForUpdate({
       runners: [fakeRunner()],
       io: {
         out: () => undefined,
-        err: () => undefined,
+        err: (t) => (account += t),
         confirm: () => Promise.resolve(false),
       },
       signal: new AbortController().signal,
@@ -333,6 +337,21 @@ describe("after an update the service is installed and the new daemon is running
     ]);
     if (took === true) m.daemonExits(daemon);
     await Promise.all(m.detachedRuns);
+    return account;
+  }
+
+  /**
+   * The updater's account names a hand-off as one — Owl, #9594.
+   *
+   * Read from the real `start`'s real words through the real updater: the
+   * updater recognises a hand-off by what `start` prints, and only the two
+   * of them together can show the sentence and its reader still agree.
+   */
+  function expectHandedOff(account: string): void {
+    expect(account).toMatch(
+      /update: .*byollm start handed the re-register to a copy that finishes after this daemon exits/u,
+    );
+    expect(account).not.toMatch(/update: .*re-registered;/u);
   }
 
   function expectServing(m: Machine): void {
@@ -344,7 +363,7 @@ describe("after an update the service is installed and the new daemon is running
 
   it("on launchd, as on Todd's Mac: the heartbeat names the daemon", async () => {
     const m = await machine("darwin", "written");
-    await takeTheUpdate(m);
+    expectHandedOff(await takeTheUpdate(m));
     expectServing(m);
     /* It exited on its own, after the update was kept — not booted out from
        under the updater, which is what happened on 11-18. */
@@ -356,14 +375,14 @@ describe("after an update the service is installed and the new daemon is running
        is fire-and-forget, so `start` cannot count on it; launchd's
        XPC_SERVICE_NAME in the inherited environment is what says it. */
     const m = await machine("darwin", "not yet");
-    await takeTheUpdate(m);
+    expectHandedOff(await takeTheUpdate(m));
     expectServing(m);
     expect(m.original?.end).toBe("exited");
   });
 
   it("on Task Scheduler, where re-running a running task starts nothing", async () => {
     const m = await machine("win32", "written");
-    await takeTheUpdate(m);
+    expectHandedOff(await takeTheUpdate(m));
     expectServing(m);
   });
 

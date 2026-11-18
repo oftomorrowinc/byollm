@@ -98,7 +98,9 @@ function runner(tally: { finished: number; stillRunning: number }): Runner {
  * unless `failInstall` names that version; `--version` answers with what is
  * installed; `start` says what #9572's hand-off says.
  */
-function machine(options: { failInstall?: readonly string[] } = {}): {
+function machine(
+  options: { failInstall?: readonly string[]; startSays?: string } = {},
+): {
   run: CommandRunner;
 } {
   let installed = OLD;
@@ -129,8 +131,9 @@ function machine(options: { failInstall?: readonly string[] } = {}): {
         return Promise.resolve({
           code: 0,
           output:
+            options.startSays ??
             `byollm start was run by the daemon it re-registers (pid 32458); ` +
-            `it finishes once that daemon exits. See /Users/todd/.byollm/service.log\n`,
+              `it finishes once that daemon exits. See /Users/todd/.byollm/service.log\n`,
         });
       }
       return Promise.resolve({ code: 127, output: `no ${String(file)}` });
@@ -247,7 +250,11 @@ describe("every update writes its own account to the service log — #9594", () 
         `^the installed binary says ${V}; re-registering with the supervisor \\(byollm start\\)$`,
       ),
       /^byollm start said: .*re-registers \(pid 32458\); it finishes once that daemon exits/u,
-      new RegExp(`^re-registered; ${V} is kept and this daemon exits`),
+      new RegExp(
+        `^byollm start handed the re-register to a copy that finishes after this daemon exits ` +
+          `\\(its lines follow in this log, without "update:"\\); ${V} is kept and this daemon exits — ` +
+          `if no "update: now running" line follows, run \`byollm start\`$`,
+      ),
       new RegExp(
         `^now running ${V}, was ${W} \\(the update to it began \\d{4}-\\d\\d-\\d\\dT\\d\\d:\\d\\d:\\d\\dZ\\)$`,
       ),
@@ -258,6 +265,26 @@ describe("every update writes its own account to the service log — #9594", () 
 
     const shown = await byollmLogs(d);
     for (const line of lines) expect(shown).toContain(`update: ${line}`);
+  });
+
+  it("a start that registered (systemd, the box) says re-registered", async () => {
+    /* No hand-off off launchd and Task Scheduler: `start` registers before
+       it returns, so the account may say it happened — Owl on #9594. */
+    const d = await device();
+    const took = await takeOffer(d, {
+      run: machine({ startSays: "Installed and started the systemd unit.\n" })
+        .run,
+    });
+    expect(took).toBe(true);
+    const lines = await serviceLines(d);
+    expect(lines.at(-2)).toBe(
+      "byollm start said: Installed and started the systemd unit.",
+    );
+    expect(lines.at(-1)).toMatch(
+      new RegExp(
+        `^re-registered; ${V} is kept and this daemon exits so the supervisor starts it$`,
+      ),
+    );
   });
 
   it("a failed install: the steps up to it, npm's words, and that nothing changed", async () => {

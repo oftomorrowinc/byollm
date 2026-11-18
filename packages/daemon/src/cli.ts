@@ -4,7 +4,7 @@ import { access } from "node:fs/promises";
 import { emphasise, terminalContext } from "./emphasis.js";
 import { backendVerifier, setModel, showModel } from "./model.js";
 import { preflight } from "./preflight.js";
-import { offerInbox, update } from "./update.js";
+import { HANDED_OFF_SAYS, offerInbox, update } from "./update.js";
 import { realUpdateDeps } from "./update-deps.js";
 import {
   announceArrival,
@@ -798,7 +798,7 @@ async function handOffFromTheDaemon(
   }
   io.out(
     `byollm start was run by the daemon it re-registers (pid ${String(parent)}); ` +
-      `it finishes once that daemon exits. See ${logPath}\n`,
+      `${HANDED_OFF_SAYS}. See ${logPath}\n`,
   );
   return 0;
 }

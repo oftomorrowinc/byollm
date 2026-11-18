@@ -4,7 +4,7 @@ import {
   verifyProvenance,
   type Provenance,
 } from "./provenance.js";
-import type { UpdateDeps } from "./update.js";
+import { HANDED_OFF_SAYS, type UpdateDeps } from "./update.js";
 
 /**
  * The real hands behind {@link update} — B053.
@@ -88,7 +88,10 @@ export function realUpdateDeps(input: {
             ? "byollm start finished and said nothing"
             : `byollm start said: ${said}`,
       );
-      return result.code === 0;
+      if (result.code !== 0) return "failed";
+      return result.output.includes(HANDED_OFF_SAYS)
+        ? "handed-off"
+        : "registered";
     },
     installedVersion: async () => {
       const result = await input.run([binary, "--version"]);

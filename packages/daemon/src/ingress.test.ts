@@ -69,6 +69,25 @@ describe("IngressLog [INGRESS_LOGGED_BEFORE_EXECUTION]", () => {
     expect(entries[0]).toMatchObject({ prompt: hostile, jobId: "job_1" });
   });
 
+  it("lands unawaited appends in the order they were called — #9547", async () => {
+    /* The runner records a claim without awaiting it, and `byollm logs` reads
+       a job's standing from the order of its lines. Without the append chain
+       (#tail) these land shuffled: 1,2,5,6,8,3,… */
+    const log = new IngressLog(options(join(dir, "i.log")));
+    const ids = Array.from({ length: 200 }, (_, i) => `job_${String(i)}`);
+    const writes = ids.map((jobId, i) =>
+      log.recordClaim({
+        at: 1_000 + i,
+        jobId,
+        kind: "llm.generate",
+        audience: "private",
+      }),
+    );
+    await Promise.all(writes);
+
+    expect((await log.read()).map((entry) => entry.jobId)).toEqual(ids);
+  });
+
   it("can omit the owner's own prompt text when they ask", async () => {
     const log = new IngressLog({
       path: join(dir, "i.log"),

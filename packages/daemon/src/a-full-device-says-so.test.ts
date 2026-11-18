@@ -255,8 +255,10 @@ describe("a device with every slot held", () => {
 
   it("leaves the held job on its own log as claimed, then started — #9547", async () => {
     /* Box-1's case on two hub rolls: a job claimed, its prompt line written,
-       and no result. The claim is recorded without being awaited, so this is
-       also the check that it still lands BEFORE the prompt. */
+       and no result. This does NOT check the claim-before-prompt order: the
+       prompt write starts several awaits after the unawaited claim, so it
+       loses the race with or without the append chain. ingress.test.ts
+       checks the chain itself ("lands unawaited appends in the order…"). */
     const { tick, ingress } = await makeRunner();
     await tick();
 

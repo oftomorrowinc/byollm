@@ -487,8 +487,19 @@ describe("the hand-off's real process calls — #9572", () => {
       const found = /pgid (\d+) pid (\d+)/.exec(text);
       expect(found?.[1]).toBe(found?.[2]);
       expect(found?.[1]).not.toBe(String(process.pid));
-      expect(processIsGone(Number(found?.[2]))).toBe(true);
+      /* 'done' is written before the child exits, and the exit is reaped some
+       time after that, so kill(pid, 0) can still succeed for a moment. Poll
+       for the exit (bounded), then assert it. */
+      const pid = Number(found?.[2]);
+      let gone = processIsGone(pid);
+      for (let i = 0; i < 40 && !gone; i++) {
+        await new Promise((r) => setTimeout(r, 50));
+        gone = processIsGone(pid);
+      }
+      expect(gone).toBe(true);
     },
+    /* Bounded waits: up to 3s for 'done', then up to 2s for the exit. */
+    10_000,
   );
 
   it("says false when the command cannot be started at all", async () => {

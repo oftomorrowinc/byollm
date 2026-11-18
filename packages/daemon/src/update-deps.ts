@@ -1,3 +1,5 @@
+import { existsSync } from "node:fs";
+import { dirname, join } from "node:path";
 import type { CommandRunner } from "./install.js";
 import {
   NPM_REGISTRY,
@@ -42,15 +44,31 @@ export function realUpdateDeps(input: {
   readonly report: (line: string) => void;
   /** Injected in tests; the registry's provenance for the real thing. */
   readonly verify?: (version: string) => Promise<Provenance>;
-  /** How the installed CLI is asked its version. `byollm`, normally. */
-  readonly binary?: string;
+  /** Where npm and byollm are looked for. This process's, normally. */
+  readonly host?: Host;
 }): UpdateDeps {
-  const binary = input.binary ?? "byollm";
+  const host = input.host ?? thisHost();
+  const npm = npmCommand(host);
+  /* byollm is asked for afresh each time: it is the binary npm has just put
+     down, and on Windows that is found by asking npm where it put it. */
+  const byollm = async (...args: readonly string[]) => {
+    const command = await byollmCommand(host, npm, input.run);
+    return command === undefined
+      ? { code: 127, output: "" }
+      : input.run([...command, ...args]);
+  };
   return {
     drain: input.drain,
     install: async (version) => {
+      if (npm === undefined) {
+        input.report(
+          `npm install byollm@${version} failed: no npm-cli.js beside ` +
+            `${host.execPath} or on PATH, so there is no npm to run`,
+        );
+        return false;
+      }
       const result = await input.run([
-        "npm",
+        ...npm,
         "install",
         "--global",
         "--ignore-scripts",
@@ -79,7 +97,7 @@ export function realUpdateDeps(input: {
        account (#9594): it is where #9572's hand-off says it will finish once
        this daemon exits, and the only record of a re-register that failed. */
     reregister: async () => {
-      const result = await input.run([binary, "start"]);
+      const result = await byollm("start");
       const said = result.output.trim().split("\n").slice(-3).join(" ");
       input.report(
         result.code !== 0
@@ -94,7 +112,7 @@ export function realUpdateDeps(input: {
         : "registered";
     },
     installedVersion: async () => {
-      const result = await input.run([binary, "--version"]);
+      const result = await byollm("--version");
       if (result.code !== 0) return undefined;
       /**
        * The version, from a line that carries more than the version.
@@ -120,4 +138,87 @@ export function realUpdateDeps(input: {
     },
     report: input.report,
   };
+}
+
+/** What {@link npmCommand} and {@link byollmCommand} look at. */
+export interface Host {
+  readonly platform: NodeJS.Platform;
+  readonly env: NodeJS.ProcessEnv;
+  /** The Node binary running this daemon. */
+  readonly execPath: string;
+  readonly exists: (path: string) => boolean;
+}
+
+function thisHost(): Host {
+  return {
+    platform: process.platform,
+    env: process.env,
+    execPath: process.execPath,
+    exists: existsSync,
+  };
+}
+
+/**
+ * How to run npm here — #9726.
+ *
+ * Everywhere but Windows, `npm` by name, as it always was. On Windows `npm`
+ * is `npm.cmd`, and Node will not start a `.cmd` without a shell (hardened
+ * after CVE-2024-27980): `spawn("npm")` is ENOENT, which the runner reports
+ * as exit 127, and `spawn("npm.cmd")` throws EINVAL. Every Windows daemon
+ * failed its update that way, at 0.1.5 to 0.1.6 on Kevin's desktop.
+ *
+ * `shell: true` breaches {@link MUSTS.NO_SHELL_INTERPOLATION} — the version
+ * is in this argv — so, as `findWindowsEntry` does for `claude`, this runs
+ * the JavaScript the shim would have run under the Node already running the
+ * daemon. Beside `node.exe` first, which is where the Node installer puts
+ * it; then each PATH directory, the order `npm` by name is looked up in.
+ *
+ * Not `findWindowsEntry` itself: the first path npm's own shim names is
+ * `%~dp0\node.exe`, which that function's reading would take as the entry.
+ *
+ * `undefined` when there is no npm to be found, which the install reports.
+ */
+export function npmCommand(host: Host): readonly string[] | undefined {
+  if (host.platform !== "win32") return ["npm"];
+  const dirs = [
+    dirname(host.execPath),
+    ...(host.env["PATH"] ?? host.env["Path"] ?? "").split(";").filter(Boolean),
+  ];
+  for (const dir of dirs) {
+    const cli = join(dir, "node_modules", "npm", "bin", "npm-cli.js");
+    if (host.exists(cli)) return [host.execPath, cli];
+  }
+  return undefined;
+}
+
+/**
+ * How to run the byollm npm just installed — #9726.
+ *
+ * `byollm` by name everywhere but Windows, where it is `byollm.cmd` and fails
+ * exactly as `npm` did. There it is `dist/bin.js` in npm's global root,
+ * asked of npm (`npm root --global`) rather than assumed: that is where the
+ * `--global` install above put it, whatever prefix this machine's npm has.
+ * The same file a supervised daemon was started from, now holding the new
+ * version — so the `start` it re-registers with names the path it always
+ * did.
+ *
+ * Checked to exist before it is run: a root with no byollm in it is
+ * `undefined`, which the caller treats as a binary that will not run.
+ */
+export async function byollmCommand(
+  host: Host,
+  npm: readonly string[] | undefined,
+  run: CommandRunner,
+): Promise<readonly string[] | undefined> {
+  if (host.platform !== "win32") return ["byollm"];
+  if (npm === undefined) return undefined;
+  const result = await run([...npm, "root", "--global"]);
+  if (result.code !== 0) return undefined;
+  /* stdout and stderr arrive as one stream, and npm warns on stderr; the
+     root is the line under which byollm actually is. */
+  for (const line of result.output.split(/\r?\n/).reverse()) {
+    const bin = join(line.trim(), "byollm", "dist", "bin.js");
+    if (line.trim() !== "" && host.exists(bin)) return [host.execPath, bin];
+  }
+  return undefined;
 }

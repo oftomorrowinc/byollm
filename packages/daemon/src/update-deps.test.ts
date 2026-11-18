@@ -1,6 +1,13 @@
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { DAEMON_VERSION, formatVersion } from "./index.js";
-import { realUpdateDeps } from "./update-deps.js";
+import { spawnCommand } from "./install.js";
+import {
+  byollmCommand,
+  npmCommand,
+  realUpdateDeps,
+  type Host,
+} from "./update-deps.js";
 
 /**
  * The four commands behind the updater — B053.
@@ -10,7 +17,7 @@ import { realUpdateDeps } from "./update-deps.js";
  * testing here is the seam where this module reads something another module
  * writes, because that is where it can silently stop working.
  */
-function recorder() {
+function recorder(host?: Host) {
   const ran: string[][] = [];
   const said: string[] = [];
   return {
@@ -29,6 +36,7 @@ function recorder() {
         },
         drain: () => Promise.resolve({ finished: 0, stillRunning: 0 }),
         report: (line) => said.push(line),
+        ...(host === undefined ? {} : { host }),
       }),
   };
 }
@@ -176,4 +184,143 @@ describe("re-registering", () => {
         .reregister(),
     ).toBe("handed-off");
   });
+});
+
+describe("on Windows, where npm and byollm are .cmd shims — #9726", () => {
+  /**
+   * Node will not start a `.cmd` without a shell, so `npm` and `byollm` by
+   * name are ENOENT, reported as exit 127: every Windows daemon failed its
+   * update at the install. The doubles above answer whatever argv they are
+   * given, which is why this never failed. Here every command is checked for
+   * what Windows would actually be asked to start.
+   */
+  const node = join("C:", "Program Files", "nodejs", "node.exe");
+  const npmCli = join(
+    "C:",
+    "Program Files",
+    "nodejs",
+    "node_modules",
+    "npm",
+    "bin",
+    "npm-cli.js",
+  );
+  const root = join(
+    "C:",
+    "Users",
+    "kevin",
+    "AppData",
+    "Roaming",
+    "npm",
+    "node_modules",
+  );
+  const bin = join(root, "byollm", "dist", "bin.js");
+  const windows = (present: readonly string[], PATH = ""): Host => ({
+    platform: "win32",
+    env: { PATH },
+    execPath: node,
+    exists: (path) => present.includes(path),
+  });
+  const answer = (command: readonly string[]) =>
+    command.includes("root")
+      ? { code: 0, output: `${root}\n` }
+      : command.includes("--version")
+        ? { code: 0, output: formatVersion() }
+        : { code: 0, output: "" };
+
+  it("starts every command with this Node and a .js, never a bare shim", async () => {
+    const r = recorder(windows([npmCli, bin]));
+    const deps = r.deps(answer);
+    expect(await deps.install("0.1.7")).toBe(true);
+    expect(await deps.installedVersion()).toBe(DAEMON_VERSION);
+    await deps.reregister();
+
+    expect(r.ran.length).toBeGreaterThanOrEqual(3);
+    for (const command of r.ran) {
+      expect(command[0]).toBe(node);
+      expect(command[1]).toMatch(/\.js$/);
+      expect(command[0]).not.toMatch(/^(npm|byollm)(\.cmd)?$/);
+    }
+    expect(r.ran).toContainEqual([
+      node,
+      npmCli,
+      "install",
+      "--global",
+      "--ignore-scripts",
+      "--registry=https://registry.npmjs.org",
+      "byollm@0.1.7",
+    ]);
+    expect(r.ran).toContainEqual([node, bin, "--version"]);
+    expect(r.ran).toContainEqual([node, bin, "start"]);
+  });
+
+  it("finds npm on PATH when it is not beside node.exe", () => {
+    const elsewhere = join("D:", "tools", "node");
+    const cli = join(elsewhere, "node_modules", "npm", "bin", "npm-cli.js");
+    expect(npmCommand(windows([cli], `C:\\Windows;${elsewhere}`))).toEqual([
+      node,
+      cli,
+    ]);
+  });
+
+  it("says so, and runs nothing, when there is no npm to find", async () => {
+    const r = recorder(windows([]));
+    expect(await r.deps(answer).install("0.1.7")).toBe(false);
+    expect(r.ran).toEqual([]);
+    expect(r.said.join("")).toContain("npm-cli.js");
+  });
+
+  it("takes byollm from npm's own root, and only where it is", async () => {
+    /* npm warns on stderr, which arrives in the same stream; the root is
+       the line with byollm under it. A root without it is no binary. */
+    const host = windows([npmCli, bin]);
+    const npm = npmCommand(host);
+    expect(
+      await byollmCommand(host, npm, () =>
+        Promise.resolve({ code: 0, output: `${root}\nnpm warn something\n` }),
+      ),
+    ).toEqual([node, bin]);
+    expect(
+      await byollmCommand(windows([npmCli]), npm, () =>
+        Promise.resolve({ code: 0, output: `${root}\n` }),
+      ),
+    ).toBeUndefined();
+  });
+
+  it("is a failed canary when the installed byollm cannot be found", async () => {
+    const r = recorder(windows([npmCli]));
+    expect(await r.deps(answer).installedVersion()).toBeUndefined();
+    expect(await r.deps(answer).reregister()).toBe("failed");
+  });
+
+  it("leaves macOS and Linux as they were", async () => {
+    const r = recorder({ ...windows([npmCli, bin]), platform: "linux" });
+    const deps = r.deps(answer);
+    await deps.install("0.1.7");
+    await deps.installedVersion();
+    await deps.reregister();
+    expect(r.ran.map((command) => command[0])).toEqual([
+      "npm",
+      "byollm",
+      "byollm",
+    ]);
+  });
+});
+
+describe("the real runner starts the npm it resolves — #9726", () => {
+  /**
+   * On this machine, whichever of the three CI runs it on. The test above
+   * proves the argv's shape; only Windows can say that Windows starts it.
+   */
+  it("npm --version exits 0", async () => {
+    const npm = npmCommand({
+      platform: process.platform,
+      env: process.env,
+      execPath: process.execPath,
+      exists: (await import("node:fs")).existsSync,
+    });
+    expect(npm, "no npm found for this Node").toBeDefined();
+    const result = await spawnCommand([...(npm ?? []), "--version"]);
+    expect(result.code, result.output).toBe(0);
+    expect(result.output.trim()).toMatch(/^\d+\.\d+\.\d+/m);
+  }, 30_000);
 });

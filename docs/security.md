@@ -639,15 +639,39 @@ every machine offered a version takes it on its next heartbeat.
 
 **What a rollback looks like.** If the provenance check fails, or the new
 binary does not answer with the version asked for, the daemon reinstalls the
-version it came from — once — restarts it, and says on the owner's surfaces
-what failed and that it rolled back, e.g. `update: 0.1.2 failed its
-provenance check: there is no SLSA provenance for it; rolled back to 0.1.1`.
-It goes back to serving and does not try that version again. If the rollback
-itself fails, it says so and stops there rather than reinstalling in a loop:
-the machine is left to a person.
+version it came from — once — checks that the installed binary answers with
+that version, and goes back to serving. Nothing is re-registered with the
+supervisor on a rollback or a failed install: the re-register happens only
+after the new version has answered, so the supervisor still holds the unit
+it held before (0.1.6, #9572). It says what failed and that it rolled back,
+e.g. `update: 2026-11-18T09:14:03Z 0.1.2 failed its provenance check: there
+is no SLSA provenance for it; rolled back to 0.1.1, which the installed
+binary confirms — this daemon goes back to work on it`, and does not try that
+version again. If the rollback itself fails, it says so and stops there
+rather than reinstalling in a loop, and names the two commands that put the
+old version back: `npm install --global byollm@<old>` and `byollm start`.
+The machine is left to a person.
+
+**What an update writes down** (0.1.6, #9594). Every step says it happened,
+in a line beginning `update:` and the UTC time: the offer taken (its
+version, the origin that made it, and the version running), the drain (how
+long, jobs finished and still running), the install (how long), the
+provenance check, the re-register and what `byollm start` said, and — from
+the daemon the supervisor starts next — `now running <new>, was <old>`, or
+that it is not running the version installed. A failure adds npm's own
+words and what the machine did: stayed on the old version, rolled back, or
+stranded. The lines go to stderr, which is `~/.byollm/service.log` under
+launchd, systemd and Task Scheduler, and into the ingress log as an `update`
+entry, which `byollm logs` shows. Every line passes the same redactor as
+`byollm logs` (key and token shapes, and the values of credential-named
+environment variables) and has its control characters replaced before it is
+written anywhere. It is the updater already on a device that writes this,
+so a device's first full account is the update after the one that brought
+it to 0.1.6.
 
 Tests: `update.test.ts`, `provenance.test.ts` (against the registry's real
-answer for `byollm@0.1.1`), `update-when-offered.test.ts`, `update-deps.test.ts`
+answer for `byollm@0.1.1`), `update-when-offered.test.ts`, `update-deps.test.ts`,
+`an-update-comes-back-up.test.ts` and `an-update-writes-its-own-account.test.ts`
 in `packages/daemon/src`.
 
 ---

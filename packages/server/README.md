@@ -1,14 +1,16 @@
-<!-- release-note 0.1.5 -->
-> **`0.1.5` carries site tools and images, and the Supabase adapter needs four
-> migrations.** Apply `20261103230000_tool_calls`,
-> `20261104010000_tool_charges`, `20261104050000_blob_bucket` and
-> `20261104160000_blob_table_grants` before you deploy it: without them the
-> first `llm.tools` or image job fails on a missing table. A store you wrote
-> yourself needs `putBlob`, `getBlob` and `deleteBlob`, and the tool-call
-> methods `recordToolCall`, `outstandingToolCalls`, `answerToolCall`,
-> `toolResults` and `chargeToolCall`. `PROTOCOL_VERSION` is still `2`.
-> "Tools — the site's own" and "Images — direct lane" below are the guides.
-> Full note: `docs/release-notes/0.1.5.md`.
+<!-- release-note 0.1.6 -->
+> **`0.1.6`: a cloud-lane job whose first device died is sealed to the next
+> one.** `MemoryStore.adopt` now replaces an adopted lease with the relay's
+> next grant, so a job no longer sits in `refused` until its deadline after
+> the device holding it dies (#9585). A lease this site granted itself is
+> still refused, and the Supabase adapter already behaved this way. No
+> migration, no new store method. `PROTOCOL_VERSION` is still `2`. **Coming
+> from 0.1.4, the Supabase adapter still needs 0.1.5's four migrations**
+> (`20261103230000_tool_calls`, `20261104010000_tool_charges`,
+> `20261104050000_blob_bucket`, `20261104160000_blob_table_grants`) before
+> you deploy, and a store you wrote needs 0.1.5's blob and tool-call
+> methods: `docs/release-notes/0.1.5.md`. Full note:
+> `docs/release-notes/0.1.6.md`.
 >
 > This README used to open with a stack of release notes instead of with the
 > package. The history moved to `docs/release-notes/` and `CHANGELOG.md`,

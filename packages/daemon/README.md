@@ -1,12 +1,14 @@
-<!-- release-note 0.1.5 -->
-> **`0.1.5` carries site tools and images. Update your hub or server first.**
-> `PROTOCOL_VERSION` is still `2`. `llm.tools` lets the model call a site's
-> own tools, which run on the site and never on this device. It is off until
-> you turn it on for a service, and every call is in `byollm log`.
-> `llm.vision` and `llm.image` work on local and HTTP models. A teammate's
-> images are budgeted by `community.maxImageBytes`. A teammate's large job is
-> now admitted when it could fit (#5738). Full note:
-> `docs/release-notes/0.1.5.md`.
+<!-- release-note 0.1.6 -->
+> **`0.1.6`: an automatic update brings this device back up, and every update
+> writes down what it did.** `PROTOCOL_VERSION` is still `2`; update in any
+> order. On macOS an update no longer ends with no service and nothing
+> running (#9572): `byollm start` hands the re-register to a copy that waits
+> for the old daemon to exit. **If an update to 0.1.5 left a Mac on
+> `NOT RUNNING`, run `byollm start` once.** New: `byollm logs`, what this
+> device did with each job, one line per event (#9547). Every update now
+> writes `update:` lines to `~/.byollm/service.log` and `byollm logs`, from
+> the update after this one (#9594). Full note:
+> `docs/release-notes/0.1.6.md`.
 >
 > This README used to open with a stack of release notes instead of with the
 > package. The history moved to `docs/release-notes/` and `CHANGELOG.md`,
@@ -106,6 +108,21 @@ version. Every update is checked against its npm provenance before it runs and
 rolled back if it fails; [`docs/security.md` §7a](https://github.com/oftomorrowinc/byollm/blob/main/docs/security.md#7a-updates)
 says exactly what is checked.
 
+Every update writes down what it did, one line per step, each beginning
+`update:` and the time in UTC: the offer it took and from where, the drain,
+the install, the provenance check, the re-register, and then the new
+daemon's `now running 0.1.7, was 0.1.6`. A failure says which step failed,
+npm's words, and whether the machine stayed, rolled back, or needs you, with
+the two commands to run. They are in `~/.byollm/service.log` and in
+`byollm logs`:
+
+```bash
+grep update: ~/.byollm/service.log
+```
+
+Written by the updater already on the device, so the first update with an
+account is the one after 0.1.6.
+
 You do not have to write any of this by hand. `byollm services manage` asks
 what this machine has and writes the file for you, and it is safe to re-run:
 it shows what is already there.
@@ -138,6 +155,8 @@ It installs at the user level on every platform — a launchd `LaunchAgent` on
 macOS, a `systemd --user` unit on Linux, a logon task on Windows. No root, no
 system directories: it runs as you, it stops when you say so, and you can read
 every file it wrote. Output goes to `~/.byollm/service.log` on all three.
+`byollm logs` reads the device's own event log rather than this file, so it
+works the same under any supervisor and at a hosted box's `byollm>` console.
 
 Two things worth knowing:
 
@@ -164,6 +183,7 @@ byollm log            # every prompt that has ever run here
 byollm log --full     # the whole text, not the first line
 byollm logs           # what happened, one line per event: claimed, started, answered, failed
 byollm logs --job 911c5d84   # one job's lines, and where it stands
+byollm logs --follow  # and keep printing as they happen (--tail N for more than 20)
 byollm stop           # stop running in the background — the off switch, always yours
 byollm start          # and bring it back
 byollm forget <url>   # drop a pairing entirely

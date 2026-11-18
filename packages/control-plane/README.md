@@ -1,9 +1,7 @@
-<!-- release-note 0.1.5 -->
-> **`0.1.5`: nothing in this package changed.** It moves in lockstep with
-> `@byollm/protocol`, which adds the kinds `llm.tools`, `llm.vision` and
-> `llm.image`. A mapping is keyed by kind, so a grant for a new kind needs
-> nothing new from you. `PROTOCOL_VERSION` is still `2`. Full note:
-> `docs/release-notes/0.1.5.md`.
+<!-- release-note 0.1.6 -->
+> **`0.1.6`: nothing in this package changed.** It moves in lockstep with
+> the daemon and server, whose fixes are in the note. `PROTOCOL_VERSION` is
+> still `2`. Full note: `docs/release-notes/0.1.6.md`.
 >
 > This README used to open with a stack of release notes instead of with the
 > package. The history moved to `docs/release-notes/` and `CHANGELOG.md`,

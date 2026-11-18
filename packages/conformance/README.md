@@ -1,10 +1,8 @@
-<!-- release-note 0.1.5 -->
-> **`0.1.5` checks site tools and images.** The kit now plays the site for
-> `llm.tools` (C033–C038, C041–C043, C046) and drives the blob path for
-> `llm.vision` and `llm.image`. **A target you wrote needs a `blobs` field**,
-> and a `site` field to run the tool checks; without `site`, every tool check
-> fails and names the field. `PROTOCOL_VERSION` is still `2`. Full note:
-> `docs/release-notes/0.1.5.md`.
+<!-- release-note 0.1.6 -->
+> **`0.1.6`: nothing in this kit changed.** No check was added or moved, so
+> a target that passed on 0.1.5 passes here. `PROTOCOL_VERSION` is still
+> `2`. Coming from 0.1.4, a target you wrote needs 0.1.5's `blobs` field,
+> and `site` for the tool checks. Full note: `docs/release-notes/0.1.6.md`.
 >
 > This README used to open with a stack of release notes instead of with the
 > package. The history moved to `docs/release-notes/` and `CHANGELOG.md`,

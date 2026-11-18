@@ -1,12 +1,9 @@
-<!-- release-note 0.1.6 -->
-> **`0.1.6`: no change to what the relay does.** A new section, "A limit:
-> keep the ledger with the leases", names what an operator who splits the
-> blob ledger from the routing store gives up (#9522), and the suite now runs
-> the published `byollm@0.1.4` daemon against this relay with the 0.1.5
-> kinds queued (#9552). `PROTOCOL_VERSION` is still `2`. Coming from 0.1.4,
-> update the relay before any daemon or site that turns on a 0.1.5 kind, and
-> give it a `BlobStore`: `docs/release-notes/0.1.5.md`. Full note:
-> `docs/release-notes/0.1.6.md`.
+<!-- release-note 0.1.7 -->
+> **`0.1.7`: nothing in this package changed.** It moves in lockstep with
+> the daemon, whose three fixes are in the note. `PROTOCOL_VERSION` is still
+> `2`. Coming from 0.1.4, update the relay before any daemon or site that
+> turns on a 0.1.5 kind, and give it a `BlobStore`:
+> `docs/release-notes/0.1.5.md`. Full note: `docs/release-notes/0.1.7.md`.
 >
 > This README used to open with a stack of release notes instead of with the
 > package. The history moved to `docs/release-notes/` and `CHANGELOG.md`,

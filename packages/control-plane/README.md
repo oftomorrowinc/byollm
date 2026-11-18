@@ -1,7 +1,7 @@
-<!-- release-note 0.1.6 -->
-> **`0.1.6`: nothing in this package changed.** It moves in lockstep with
-> the daemon and server, whose fixes are in the note. `PROTOCOL_VERSION` is
-> still `2`. Full note: `docs/release-notes/0.1.6.md`.
+<!-- release-note 0.1.7 -->
+> **`0.1.7`: nothing in this package changed.** It moves in lockstep with
+> the daemon, whose three fixes are in the note. `PROTOCOL_VERSION` is still
+> `2`. Full note: `docs/release-notes/0.1.7.md`.
 >
 > This README used to open with a stack of release notes instead of with the
 > package. The history moved to `docs/release-notes/` and `CHANGELOG.md`,

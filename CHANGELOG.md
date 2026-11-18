@@ -6,6 +6,7 @@ Every release note, newest first. Each links to the full note in
 **This file is generated.** Add a note to the directory, then run
 `node scripts/changelog.mjs`; `--check` refuses a stale one in `verify`.
 
+- [`0.1.7`](docs/release-notes/0.1.7.md) — A Windows device can update itself, and `byollm start` and `byollm stop` are fixed.
 - [`0.1.6`](docs/release-notes/0.1.6.md) — Updates come back up and say what they did, a job outlives a dead device, and `byollm logs`.
 - [`0.1.5`](docs/release-notes/0.1.5.md) — Site tools, images, and two fixes.
 - [`0.1.5-beta.2`](docs/release-notes/0.1.5-beta.2.md) — A second prerelease for the servers that run byollm: images now travel through a relay.

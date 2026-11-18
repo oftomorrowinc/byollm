@@ -1,16 +1,12 @@
-<!-- release-note 0.1.6 -->
-> **`0.1.6`: a cloud-lane job whose first device died is sealed to the next
-> one.** `MemoryStore.adopt` now replaces an adopted lease with the relay's
-> next grant, so a job no longer sits in `refused` until its deadline after
-> the device holding it dies (#9585). A lease this site granted itself is
-> still refused, and the Supabase adapter already behaved this way. No
-> migration, no new store method. `PROTOCOL_VERSION` is still `2`. **Coming
-> from 0.1.4, the Supabase adapter still needs 0.1.5's four migrations**
-> (`20261103230000_tool_calls`, `20261104010000_tool_charges`,
-> `20261104050000_blob_bucket`, `20261104160000_blob_table_grants`) before
-> you deploy, and a store you wrote needs 0.1.5's blob and tool-call
-> methods: `docs/release-notes/0.1.5.md`. Full note:
-> `docs/release-notes/0.1.6.md`.
+<!-- release-note 0.1.7 -->
+> **`0.1.7`: nothing in this package changed.** It moves in lockstep with
+> the daemon, whose three fixes are in the note. No migration, no new store
+> method. `PROTOCOL_VERSION` is still `2`. **Coming from 0.1.4, the Supabase
+> adapter still needs 0.1.5's four migrations** (`20261103230000_tool_calls`,
+> `20261104010000_tool_charges`, `20261104050000_blob_bucket`,
+> `20261104160000_blob_table_grants`) before you deploy, and a store you
+> wrote needs 0.1.5's blob and tool-call methods:
+> `docs/release-notes/0.1.5.md`. Full note: `docs/release-notes/0.1.7.md`.
 >
 > This README used to open with a stack of release notes instead of with the
 > package. The history moved to `docs/release-notes/` and `CHANGELOG.md`,

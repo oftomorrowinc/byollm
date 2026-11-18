@@ -1,14 +1,14 @@
-<!-- release-note 0.1.6 -->
-> **`0.1.6`: an automatic update brings this device back up, and every update
-> writes down what it did.** `PROTOCOL_VERSION` is still `2`; update in any
-> order. On macOS an update no longer ends with no service and nothing
-> running (#9572): `byollm start` hands the re-register to a copy that waits
-> for the old daemon to exit. **If an update to 0.1.5 left a Mac on
-> `NOT RUNNING`, run `byollm start` once.** New: `byollm logs`, what this
-> device did with each job, one line per event (#9547). Every update now
-> writes `update:` lines to `~/.byollm/service.log` and `byollm logs`, from
-> the update after this one (#9594). Full note:
-> `docs/release-notes/0.1.6.md`.
+<!-- release-note 0.1.7 -->
+> **`0.1.7`: a Windows device can update itself.** **On Windows 0.1.6 or
+> earlier, run `npm install -g byollm@0.1.7` and then `byollm start`, once:**
+> a device runs the updater of the version it is on, and before 0.1.7 the
+> Windows updater could not start npm (#9726). macOS and Linux with
+> `autoUpdate` on take 0.1.7 as usual. `byollm start` now installs nothing on
+> a machine that was never set up or is not paired, says what to run first,
+> and exits 1, instead of leaving systemd or launchd restarting it every ten
+> seconds (#9703). On Windows, `byollm stop` ends the daemon and the `claude`
+> or `codex` it started for a job in flight (#9735). `PROTOCOL_VERSION` is
+> still `2`; update in any order. Full note: `docs/release-notes/0.1.7.md`.
 >
 > This README used to open with a stack of release notes instead of with the
 > package. The history moved to `docs/release-notes/` and `CHANGELOG.md`,
@@ -123,6 +123,12 @@ grep update: ~/.byollm/service.log
 Written by the updater already on the device, so the first update with an
 account is the one after 0.1.6.
 
+**On Windows, automatic updates work from 0.1.7.** Before it, the Windows
+updater could not start npm and every update failed with exit 127, leaving
+the device on the version it had. A device runs the updater of the version it
+is on, so a Windows device on 0.1.6 or earlier takes 0.1.7 by hand, once:
+`npm install -g byollm@0.1.7`, then `byollm start`.
+
 You do not have to write any of this by hand. `byollm services manage` asks
 what this machine has and writes the file for you, and it is safe to re-run:
 it shows what is already there.
@@ -158,8 +164,13 @@ every file it wrote. Output goes to `~/.byollm/service.log` on all three.
 `byollm logs` reads the device's own event log rather than this file, so it
 works the same under any supervisor and at a hosted box's `byollm>` console.
 
-Two things worth knowing:
+Three things worth knowing:
 
+- **Pair it first.** `byollm start` on a machine that was never set up, or
+  that is not paired with any app, installs nothing: a service there would
+  have nothing to run and would only be restarted, over and over. It names
+  the step to take (`byollm setup`, or `byollm connect`) and exits 1. A
+  service you installed earlier is left as it was.
 - **Install `byollm` properly first.** `byollm start` refuses to supervise a
   copy running from `npx`'s cache, because npm deletes that directory without
   warning and the service would stop working at some later boot with nothing
@@ -167,6 +178,12 @@ Two things worth knowing:
 - **On Linux, `systemd --user` stops when you log out** unless lingering is
   enabled. `byollm start` prints the one command for that rather than
   running it — it changes something outside your session, so it is your call.
+
+`byollm stop` ends the daemon and anything it is running for a job. On
+Windows, where a Task Scheduler process cannot be asked to shut down, that
+means ending the daemon's whole process tree (`taskkill /T /F`), and only
+when its heartbeat is less than a minute old. A job in flight is ended, not
+finished, and the site holds it until its lease runs out.
 
 `byollm status` reports three states, not two: running under supervision,
 *installed but not running* (the one that looks fine from an app's dashboard

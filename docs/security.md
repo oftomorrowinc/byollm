@@ -669,6 +669,20 @@ written anywhere. It is the updater already on a device that writes this,
 so a device's first full account is the update after the one that brought
 it to 0.1.6.
 
+**How it runs npm on Windows** (0.1.7, #9726). Nowhere with a shell: the
+version is in the argv, and a shell would read it. On macOS and Linux the
+updater runs `npm` and `byollm` by name. On Windows both are `.cmd` shims,
+which Node will not start without a shell, so every Windows update before
+0.1.7 failed at the install with exit 127 and left the device on the version
+it had. The updater now runs the JavaScript each shim would have run under
+the Node already running the daemon: npm's `npm-cli.js`, found beside
+`node.exe` or in a `PATH` directory's `node_modules/npm/bin`, and the
+`dist/bin.js` that `npm root --global` says the install put in place, checked
+to exist. The argv stays literal and the version still passes the same
+exact-version check. Because it is the outgoing updater that runs, a Windows device
+on 0.1.6 or earlier takes 0.1.7 by hand, once (`npm install -g byollm@0.1.7`,
+then `byollm start`), and updates itself from there.
+
 Tests: `update.test.ts`, `provenance.test.ts` (against the registry's real
 answer for `byollm@0.1.1`), `update-when-offered.test.ts`, `update-deps.test.ts`,
 `an-update-comes-back-up.test.ts` and `an-update-writes-its-own-account.test.ts`

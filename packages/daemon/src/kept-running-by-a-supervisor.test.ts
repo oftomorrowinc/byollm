@@ -11,7 +11,7 @@ import {
   supervisorName,
   writeKeptRunningBy,
 } from "./supervised.js";
-import { noSupervisor, removeTemp } from "./test-support.js";
+import { noSupervisor, pairedForStart, removeTemp } from "./test-support.js";
 
 /**
  * `byollm run --supervised <name>` — decision #8404 part 4, the daemon half.
@@ -150,6 +150,7 @@ describe("without the flag, nothing changes", () => {
   });
 
   it("start and stop still go to the service manager", async () => {
+    await pairedForStart(paths.pairings);
     await cli(["start"]);
     expect(ran.length).toBeGreaterThan(0);
     ran = [];

@@ -668,6 +668,8 @@ async function commandInstall(
     io.out(`${keptRunningSentence(keeper.by)}\n`);
     return 0;
   }
+  const notYet = await nothingToSupervise(paths, io);
+  if (notYet !== undefined) return notYet;
   const handed = await handOffFromTheDaemon(paths, io, service);
   if (handed !== undefined) return handed;
   await waitForTheDaemonWeReplace(io, service);
@@ -711,6 +713,70 @@ async function commandInstall(
     io.out(`\n${TEST_YOUR_DEVICE}\n`);
   }
   return result.ok ? 0 : 1;
+}
+
+/**
+ * `start` on a machine with nothing to serve installs nothing — #9703.
+ *
+ * **What happened.** 11-18, Kevin on klab (systemd, user session): `byollm
+ * start` on a machine where byollm was never set up wrote a unit whose output
+ * went to `~/.byollm/service.log`, in a directory that did not exist, and
+ * systemd failed it with 209/STDOUT every ten seconds. Set up but unpaired, the
+ * unit got further and fared no better: `run` with no pairing exits 2 (see
+ * {@link nothingToServe}), and `Restart=always` started it again ten seconds
+ * later, forever.
+ *
+ * **The other two were no better.** launchd's `KeepAlive` with a ten-second
+ * `ThrottleInterval` is the same loop. Task Scheduler does not loop — its
+ * `RestartOnFailure` answers a task that failed to launch, not one that exited
+ * 2 — so Windows got a registered task whose daemon exits at once and stays
+ * down until the next logon, with `start` having reported an install. None of
+ * them can make an unpaired daemon useful, so the only right number of times
+ * to start it is zero.
+ *
+ * **What it checks.** A pairing this version can read — that is what `run`
+ * serves, so it is the one fact that decides whether the service can do
+ * anything. A config file only chooses which first step to name: nothing
+ * written means setup never ran, and `byollm setup` pairs as well; a config
+ * with no pairing means `byollm connect` is the one step left.
+ *
+ * A revoked pairing is still a pairing here. The daemon parks over it rather
+ * than exiting, so it is not a restart loop, and `installService` already
+ * names that remedy.
+ *
+ * **What it does not touch.** The supervisor. A service installed earlier is
+ * left exactly as it was: refusing to add a broken one is not a licence to
+ * remove a working one, and `byollm stop` is the command for that.
+ */
+async function nothingToSupervise(
+  paths: DaemonPaths,
+  io: CliIo,
+): Promise<ExitCode | undefined> {
+  const pairings = new Pairings(paths.pairings);
+  await pairings.load();
+  if (pairings.list().length > 0) return undefined;
+  reportSkipped(pairings, io);
+  const configured = await access(paths.config).then(
+    () => true,
+    () => false,
+  );
+  io.err(
+    configured
+      ? "byollm start: this device is not paired with any app, so a " +
+          "background service would have nothing to run and would only be " +
+          "restarted, over and over.\n" +
+          "Pair it first, then start it:\n" +
+          "  byollm connect   pair this device\n" +
+          "  byollm start     then keep it running\n" +
+          "Nothing was installed.\n"
+      : "byollm start: byollm has not been set up on this machine, so a " +
+          "background service would have nothing to run and would only be " +
+          "restarted, over and over.\n" +
+          "Set it up first — this pairs the device and starts it for you:\n" +
+          "  byollm setup\n" +
+          "Nothing was installed.\n",
+  );
+  return 1;
 }
 
 /**

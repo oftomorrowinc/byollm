@@ -11,6 +11,7 @@ import type { CommandRunner } from "./install.js";
 import { daemonPaths, type DaemonPaths } from "./paths.js";
 import type { Runner } from "./runner.js";
 import { SERVICE_LABEL } from "./service.js";
+import { pairedForStart } from "./test-support.js";
 
 /**
  * After an update the service is installed and the new daemon is running —
@@ -370,6 +371,8 @@ describe("after an update the service is installed and the new daemon is running
     m.registered = true;
     m.original = m.startJob();
     await mkdir(paths.root, { recursive: true });
+    /* A daemon that took an update was serving something — #9703. */
+    await pairedForStart(paths.pairings);
     if (heartbeat === "written") {
       await writeFile(
         paths.heartbeat,

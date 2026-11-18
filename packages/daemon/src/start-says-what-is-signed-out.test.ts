@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { runCli, type CliIo } from "./cli.js";
 import { daemonPaths, type DaemonPaths } from "./paths.js";
 import { writeServiceStates } from "./service-states.js";
-import { removeTemp } from "./test-support.js";
+import { pairedForStart, removeTemp } from "./test-support.js";
 
 /**
  * `start` names a service that cannot sign in — B036b, rebuilt as B047.
@@ -96,6 +96,10 @@ afterEach(async () => {
 });
 
 describe("byollm start, when a backend is signed out", () => {
+  /* `start` installs nothing unpaired — #9703. The `run` cases below stay
+     unpaired on purpose: they end at "nothing to serve" after the check. */
+  beforeEach(() => pairedForStart(paths.pairings));
+
   it("says which, and how to fix it, without calling the start a failure", async () => {
     await configWithClaude();
 

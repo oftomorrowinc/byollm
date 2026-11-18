@@ -62,6 +62,7 @@ const ALLOWED: Readonly<Record<string, string>> = {
     "the file is named for what it is; its callers are tests by design",
   "daemon/src/test-support.ts: noSupervisor": "same file, same reason",
   "daemon/src/test-support.ts: testControlPlane": "same file, same reason",
+  "daemon/src/test-support.ts: pairedForStart": "same file, same reason",
   "daemon/src/test-support.ts: treeOf":
     "same file, same reason — and this check is one of its callers: B209 " +
     "moved the recursive walk here so the separator assumption lives in one " +

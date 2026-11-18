@@ -180,3 +180,27 @@ export function treeOf(dir: string): { relative: string; path: string }[] {
     }),
   );
 }
+
+/**
+ * Give a test's state directory one pairing — #9703.
+ *
+ * `byollm start` installs nothing on a machine with no pairing, because the
+ * daemon it would supervise exits at once and the supervisor restarts it
+ * forever. A test about what `start` does once that is settled pairs first,
+ * the way `byollm setup` does before it runs `start`.
+ */
+export async function pairedForStart(
+  pairingsPath: string,
+  origin = "https://hub.test",
+): Promise<void> {
+  const { Pairings } = await import("./pairings.js");
+  const pairings = new Pairings(pairingsPath);
+  await pairings.load();
+  await pairings.put({
+    origin,
+    runnerId: "runner_1",
+    owner: "me",
+    sites: {},
+    pairedAt: Date.now(),
+  });
+}

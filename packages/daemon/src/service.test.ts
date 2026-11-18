@@ -4,6 +4,7 @@ import { join } from "node:path";
 import type { runCli as RunCli } from "./cli.js";
 import type { daemonPaths as DaemonPaths } from "./paths.js";
 import { TEST_YOUR_DEVICE } from "./test-your-device.js";
+import { pairedForStart } from "./test-support.js";
 import { afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import {
   refuseToSupervise,
@@ -548,6 +549,7 @@ describe("the CLI's own service commands", () => {
     // to stdout and passed. A check pointed at one stream says nothing about
     // the other.
     let out = "";
+    await pairedForStart(join(home, ".byollm", "pairings.json"));
     const code = await runCli(["start"], {
       paths: daemonPaths(join(home, ".byollm")),
       io: { err: (text) => (err += text), out: (text) => (out += text) },
@@ -598,6 +600,7 @@ describe("the CLI's own service commands", () => {
       home,
     };
     const paths = daemonPaths(join(home, ".byollm"));
+    await pairedForStart(paths.pairings);
 
     let out = "";
     expect(

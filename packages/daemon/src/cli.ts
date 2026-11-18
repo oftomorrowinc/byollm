@@ -94,13 +94,16 @@ import { Runner, type RunnerEvent } from "./runner.js";
 import {
   installedProgram,
   installService,
+  processIsGone,
   serviceState,
   spawnCommand,
+  spawnDetached,
   uninstallService,
   type CommandRunner,
   type ServiceState,
 } from "./install.js";
 import {
+  SERVICE_LABEL,
   serviceIsInstalled,
   servicePlan,
   servicePlatform,
@@ -559,6 +562,22 @@ export interface ServiceIo {
    * suite somebody starts skipping.
    */
   readonly wait?: (ms: number) => Promise<void>;
+  /**
+   * The three facts `start` needs to tell "a person ran me" from "the daemon
+   * I am about to boot out ran me" — #9572. All absent in a test that does
+   * not set them, which is the person case: nothing here reads the real
+   * environment or the real parent unless {@link defaultServiceIo} put it in.
+   */
+  readonly env?: NodeJS.ProcessEnv;
+  readonly parentPid?: number;
+  /** Run a command in its own session, output to a file. See `spawnDetached`. */
+  readonly detach?: (
+    command: readonly string[],
+    env: NodeJS.ProcessEnv,
+    logPath: string,
+  ) => Promise<boolean>;
+  /** Has `pid` certainly exited? See `processIsGone`. */
+  readonly isGone?: (pid: number) => boolean;
 }
 
 /**
@@ -580,6 +599,10 @@ export function defaultServiceIo(): ServiceIo {
     execPath: process.execPath,
     scriptPath: process.argv[1] ?? "",
     run: spawnCommand,
+    env: process.env,
+    parentPid: process.ppid,
+    detach: spawnDetached,
+    isGone: processIsGone,
     // `getuid` is absent on Windows, where nothing reads it.
     uid: process.getuid?.() ?? 0,
     /* Who the Windows task belongs to — B036. `USERDOMAIN` is absent on a
@@ -639,6 +662,9 @@ async function commandInstall(
     io.out(`${keptRunningSentence(keeper.by)}\n`);
     return 0;
   }
+  const handed = await handOffFromTheDaemon(paths, io, service);
+  if (handed !== undefined) return handed;
+  await waitForTheDaemonWeReplace(io, service);
   const result = await installService(
     serviceTarget(paths, service),
     service.run,
@@ -679,6 +705,123 @@ async function commandInstall(
     io.out(`\n${TEST_YOUR_DEVICE}\n`);
   }
   return result.ok ? 0 : 1;
+}
+
+/**
+ * The variable a handed-off `start` carries: the pid it must outlive.
+ *
+ * Set only by {@link handOffFromTheDaemon}, on the one copy it starts, and
+ * its presence is also what stops that copy handing off again.
+ */
+const START_AFTER_ENV = "BYOLLM_START_AFTER";
+
+/**
+ * How long a handed-off `start` waits for the daemon to exit before it
+ * registers anyway. The daemon exits within seconds of a kept update; this
+ * bound is for one that does not, and registering then (which restarts it)
+ * is still the right end state: a supervised daemon on the installed code.
+ */
+const HAND_OFF_WAIT_MS = 120_000;
+
+/**
+ * `start`, run by the daemon it is about to re-register — #9572.
+ *
+ * **What happened.** 11-18, Todd's Mac Studio, the first device to take an
+ * update offer: 0.1.4's updater installed 0.1.5 and ran `byollm start` as a
+ * child to re-register. On launchd `start` begins with `launchctl bootout`
+ * of the job — and the job is the daemon running it. launchd's own log:
+ *
+ *     booting out service: caller = launchctl[33584]<-node[33561]<-node[32458]
+ *     service inactive: cloud.byollm.daemon
+ *     removing service: cloud.byollm.daemon
+ *
+ * and no `bootstrap` after it, ever: removing the job killed its process
+ * group, which held the `start` that was going to add it back. The update
+ * worked and the machine was left with no service and no daemon.
+ *
+ * **Why the fix is here and not only in the updater.** A device runs the
+ * updater of the version it is ON, so a fix in the updater reaches nobody
+ * until they have already updated past it. But the `start` that updater runs
+ * is the one it just INSTALLED. Putting the hand-off in `start` is what lets
+ * a 0.1.4 or 0.1.5 device take the next release and come back up.
+ *
+ * **How it knows.** Either signal is enough:
+ * - on macOS, `XPC_SERVICE_NAME` is our job label — launchd sets it in the
+ *   job's environment and every child inherits it, and nothing a person
+ *   types in a terminal carries it;
+ * - anywhere, this process's parent is the pid the running daemon wrote in
+ *   its heartbeat. (A beat is fire-and-forget, so this one alone could miss
+ *   an update taken in the first seconds after start — as Todd's was, four
+ *   seconds in — which is why launchd does not rely on it.)
+ *
+ * **What it does.** Starts a detached copy of itself carrying
+ * {@link START_AFTER_ENV}, writing to the service log, and returns at once.
+ * That copy waits for the daemon to exit and then does the ordinary install,
+ * from outside the job it replaces. On Windows this is also what makes the
+ * new daemon start at all: `schtasks /run` against a running task is ignored
+ * (`IgnoreNew`), and the daemon's clean exit after an update is not a failure
+ * Task Scheduler restarts.
+ */
+async function handOffFromTheDaemon(
+  paths: DaemonPaths,
+  io: CliIo,
+  service: ServiceIo,
+): Promise<ExitCode | undefined> {
+  const env = service.env ?? {};
+  if (env[START_AFTER_ENV] !== undefined) return undefined;
+  const parent = service.parentPid;
+  if (parent === undefined) return undefined;
+  const inOurJob =
+    service.platform === "darwin" && env["XPC_SERVICE_NAME"] === SERVICE_LABEL;
+  const beat = await readHeartbeat(paths.heartbeat);
+  if (!inOurJob && beat?.pid !== parent) return undefined;
+
+  const logPath = servicePlan(serviceTarget(paths, service)).logPath;
+  const started = await (service.detach ?? spawnDetached)(
+    [service.execPath, service.scriptPath, "start"],
+    { ...env, [START_AFTER_ENV]: String(parent) },
+    logPath,
+  );
+  if (!started) {
+    io.err(
+      `byollm start was run by the daemon it re-registers (pid ${String(parent)}), ` +
+        `and could not start a copy of itself to finish after that daemon exits.\n` +
+        `Run \`byollm start\` from a terminal.\n`,
+    );
+    return 1;
+  }
+  io.out(
+    `byollm start was run by the daemon it re-registers (pid ${String(parent)}); ` +
+      `it finishes once that daemon exits. See ${logPath}\n`,
+  );
+  return 0;
+}
+
+/** The handed-off copy's half: let the old daemon go first, within a bound. */
+async function waitForTheDaemonWeReplace(
+  io: CliIo,
+  service: ServiceIo,
+): Promise<void> {
+  const raw = service.env?.[START_AFTER_ENV];
+  if (raw === undefined) return;
+  const pid = Number(raw);
+  if (!Number.isInteger(pid) || pid <= 0) return;
+  const isGone = service.isGone ?? processIsGone;
+  const wait = service.wait ?? ((ms) => new Promise((r) => setTimeout(r, ms)));
+  const STEP_MS = 500;
+  for (let waited = 0; waited < HAND_OFF_WAIT_MS; waited += STEP_MS) {
+    if (isGone(pid)) {
+      io.out(
+        `re-registering: the daemon that ran this (pid ${raw}) has exited.\n`,
+      );
+      return;
+    }
+    await wait(STEP_MS);
+  }
+  io.out(
+    `re-registering: the daemon that ran this (pid ${raw}) is still running ` +
+      `after ${String(HAND_OFF_WAIT_MS / 1000)}s — re-registering anyway, which restarts it.\n`,
+  );
 }
 
 async function commandUninstall(

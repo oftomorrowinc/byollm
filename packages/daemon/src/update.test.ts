@@ -66,10 +66,33 @@ describe("updating", () => {
     );
   });
 
-  it("re-registers, because the entry point moved", async () => {
+  it("re-registers, because the unit may have moved", async () => {
     const d = deps();
     await update("0.1.0-alpha.81", "0.1.0-alpha.82", d.deps);
     expect(d.order).toContain("reregister");
+  });
+
+  it("re-registers last, after the canary has passed — #9572", async () => {
+    /* On launchd, re-registering from inside the daemon boots the daemon out.
+       Before this it ran BEFORE the canary, so it was never the last thing a
+       daemon did — and on Todd's Mac it was the last thing it did at all. */
+    const asked: string[] = [];
+    const d = deps({
+      installedVersion: () => {
+        d.order.push("canary");
+        asked.push("?");
+        return Promise.resolve("0.1.2");
+      },
+    });
+    const outcome = await update("0.1.1", "0.1.2", d.deps);
+    expect(outcome).toEqual({ kind: "updated", to: "0.1.2" });
+    expect(d.order).toEqual([
+      "drain",
+      "install:0.1.2",
+      "verify:0.1.2",
+      "canary",
+      "reregister",
+    ]);
   });
 
   it("reports updated when the binary says what was asked for", async () => {
@@ -162,17 +185,17 @@ describe("checking provenance before the new binary runs — B360", () => {
   it("verifies after the install and before anything starts the new binary", async () => {
     const d = deps();
     await update("0.1.1", "0.1.2", d.deps);
-    expect(d.order).toEqual([
+    expect(d.order.slice(0, 3)).toEqual([
       "drain",
       "install:0.1.2",
       "verify:0.1.2",
-      "reregister",
     ]);
   });
 
-  it("rolls back without ever re-registering the package that failed", async () => {
-    /* `reregister` is what first executes the new binary, so the only
-       re-register allowed is the one after `from` is back. */
+  it("rolls back without re-registering anything", async () => {
+    /* The supervisor never heard of the package that failed, so there is
+       nothing to undo there — and re-registering the running daemon from
+       inside it is what takes it down on launchd (#9572). */
     const d = deps({
       verify: (version) => {
         d.order.push(`verify:${version}`);
@@ -193,7 +216,6 @@ describe("checking provenance before the new binary runs — B360", () => {
       "install:0.1.2",
       "verify:0.1.2",
       "install:0.1.1",
-      "reregister",
     ]);
     expect(d.said.join("")).toContain("rolled back to 0.1.1");
   });
@@ -302,14 +324,17 @@ describe("un-updating", () => {
     expect(d.said.join("")).toContain("did not answer");
   });
 
-  it("re-registers after rolling back, not only after updating", async () => {
-    /* A machine that rolled back and did not re-register is on the right
-       version and unsupervised, which is worse than the state it started in. */
+  it("never re-registers after a failed canary — #9572", async () => {
+    /* This once asserted TWO re-registers here, reasoning that a rolled-back
+       machine that did not re-register is unsupervised. The re-register is
+       what unsupervised it: on launchd it boots the daemon out, killing the
+       `start` before its bootstrap. Now nothing is registered until the
+       canary passes, so a failed one leaves the supervisor untouched. */
     const d = deps({
       installedVersion: () => Promise.resolve("0.1.0-alpha.81"),
     });
     await update("0.1.0-alpha.81", "0.1.0-alpha.82", d.deps);
-    expect(d.order.filter((step) => step === "reregister")).toHaveLength(2);
+    expect(d.order).not.toContain("reregister");
   });
 
   it("says so and stops when the rollback itself fails", async () => {
@@ -343,14 +368,15 @@ describe("un-updating", () => {
     expect(d.said.join("")).toContain("0.1.0-alpha.99");
   });
 
-  it("stays put and re-registers when the install fails outright", async () => {
-    /* npm leaves the previous global in place, so there is nothing to undo —
-       but the drain already stopped this daemon claiming, and leaving it
-       drained is a machine that quietly serves nothing. */
+  it("stays put, and does not re-register, when the install fails outright", async () => {
+    /* npm leaves the previous global in place, so there is nothing to undo.
+       Getting back to work after the drain is the watcher's job (it resumes
+       claiming on every outcome but `updated`, update-when-offered.test.ts);
+       a re-register here would boot the daemon out on launchd — #9572. */
     const d = deps({ install: () => Promise.resolve(false) });
     const outcome = await update("0.1.0-alpha.81", "0.1.0-alpha.82", d.deps);
     expect(outcome.kind).toBe("refused");
-    expect(d.order).toContain("reregister");
+    expect(d.order).not.toContain("reregister");
     expect(d.said.join("")).toContain("staying on 0.1.0-alpha.81");
   });
 });

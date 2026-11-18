@@ -8,8 +8,8 @@
  *
  * ## The order is the safety
  *
- * Drain, install, re-register, canary, and only then keep it. Each step
- * exists because skipping it breaks something specific:
+ * Drain, install, verify, canary, and only then re-register and keep it.
+ * Each step exists because skipping it breaks something specific:
  *
  * - **Drain** — finish the running job, claim nothing new. `shutdown` was
  *   the nearest existing behaviour and it is the wrong one: it cancels the
@@ -35,6 +35,19 @@
  * - **Rollback**, which is the same install run with the version we came
  *   from. Kept as a value rather than discovered later: after a bad install
  *   the machine can no longer be asked what it used to be.
+ * - **Re-register last, and only on success** — #9572. Re-registering is
+ *   `byollm start`, and on launchd `start` begins with a `bootout` of the
+ *   job this daemon IS. Run from inside the daemon, that bootout killed the
+ *   daemon and, with its process group, the `start` that was about to
+ *   `bootstrap` it back: Todd's Mac on 11-18 took 0.1.5 and was left with no
+ *   service and no daemon (launchd's own log: "booting out service: caller =
+ *   launchctl<-node<-node[the daemon]", and no bootstrap after it). So it is
+ *   the last step, after the canary, on the one path where the daemon exits
+ *   anyway — and `start` itself now hands the work to a detached copy that
+ *   waits for this process to exit (`cli.ts`, `handOffFromTheDaemon`). A
+ *   failed install or a rollback re-registers nothing: the running daemon
+ *   never stopped being the supervised one, and re-registering it from
+ *   inside is the operation that takes it down.
  *
  * ## What it does when it cannot fix itself
  *
@@ -76,7 +89,12 @@ export interface UpdateDeps {
    * first thing that would run the new binary.
    */
   readonly verify: (version: string) => Promise<Provenance>;
-  /** Re-register with the supervisor, since the entry point moved. */
+  /**
+   * Re-register with the supervisor, since the unit may have moved.
+   *
+   * Called once, last, and only when the update is kept: the daemon exits
+   * straight after. Never on a failure path — #9572.
+   */
   readonly reregister: () => Promise<boolean>;
   /**
    * What the installed binary says its version is.
@@ -144,16 +162,17 @@ export async function update(
 
   if (!(await deps.install(target))) {
     /* Nothing was replaced, so there is nothing to undo — npm leaves the
-       previous global in place when an install fails. Re-register anyway:
-       the drain stopped this daemon claiming, and leaving it drained would
-       be a machine that quietly serves nothing after a failed update. */
-    await deps.reregister();
+       previous global in place when an install fails. No re-register: this
+       once ran one "because the drain stopped this daemon claiming", but the
+       caller resumes claiming on every outcome but `updated`, and on launchd
+       a re-register from inside the daemon is a bootout of the daemon
+       (#9572). The supervised process never changed; leave it serving. */
     const why = `could not install ${target} — staying on ${from}`;
     deps.report(why);
     return { kind: "refused", why };
   }
 
-  /* Before `reregister`, because that is what first runs the new binary.
+  /* Before the canary, because that is what first runs the new binary.
      A package nobody can vouch for goes back out without having executed —
      the install itself runs no scripts (`update-deps.ts`). */
   const proof = await deps.verify(target);
@@ -165,10 +184,13 @@ export async function update(
     );
   }
 
-  await deps.reregister();
-
+  /* The canary before the re-register, not after it — #9572. Asking the
+     installed binary its version needs no supervisor, and re-registering
+     is the one step the daemon cannot come back from in-process: it is
+     only taken once the daemon is committed to exiting. */
   const reported = await deps.installedVersion();
   if (reported === target) {
+    await deps.reregister();
     return { kind: "updated", to: target };
   }
 
@@ -184,7 +206,14 @@ export async function update(
   );
 }
 
-/** Put `from` back, once, and say how that went. */
+/**
+ * Put `from` back, once, and say how that went.
+ *
+ * No re-register — #9572. Nothing was registered with the version being
+ * rolled back (that happens only after a passing canary), so the supervisor
+ * still holds the unit it held before, which names the same entry point
+ * `from` is now back at. The daemon running this is that unit's process.
+ */
 async function rollBack(
   from: string,
   why: string,
@@ -195,7 +224,6 @@ async function rollBack(
     deps.report(stranded);
     return { kind: "stranded", why: stranded };
   }
-  await deps.reregister();
 
   const back = await deps.installedVersion();
   if (back !== from) {

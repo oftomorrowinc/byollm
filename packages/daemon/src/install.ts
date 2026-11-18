@@ -637,6 +637,78 @@ export const spawnCommand: CommandRunner = async (command) => {
 };
 
 /**
+ * Start a command that outlives the process starting it — #9572.
+ *
+ * `detached` is the whole point, and it was proven on launchd before it was
+ * relied on: a child left in a launchd job's process group is killed when
+ * the job is booted out, mid-command, and a detached one (its own session)
+ * finished its `bootout` and its `bootstrap` and the job came back. That is
+ * the difference between Todd's Mac after the 0.1.5 update and a working one.
+ *
+ * Its output goes to a file, never to a pipe it inherited. The daemon runs
+ * `byollm start` through {@link spawnCommand}, which waits for every holder
+ * of the child's stdout to close — so a detached grandchild still holding
+ * that pipe would hold the daemon's `await` open until it finished, and it
+ * is waiting for the daemon to exit. That is a deadlock with a timeout on
+ * one side, not a hand-off.
+ *
+ * Resolves `false` when the command could not be started at all, so the
+ * caller can say so instead of claiming a hand-off that never happened.
+ */
+export async function spawnDetached(
+  command: readonly string[],
+  env: NodeJS.ProcessEnv,
+  logPath: string,
+): Promise<boolean> {
+  const { spawn } = await import("node:child_process");
+  const { closeSync, mkdirSync, openSync } = await import("node:fs");
+  const [file, ...args] = command;
+  let fd: number;
+  try {
+    mkdirSync(dirname(logPath), { recursive: true });
+    fd = openSync(logPath, "a");
+  } catch {
+    return false;
+  }
+  try {
+    const child = spawn(file ?? "", args, {
+      detached: true,
+      env,
+      stdio: ["ignore", fd, fd],
+      windowsHide: true,
+    });
+    const started = await new Promise<boolean>((resolve) => {
+      child.once("spawn", () => {
+        resolve(true);
+      });
+      child.once("error", () => {
+        resolve(false);
+      });
+    });
+    child.unref();
+    return started;
+  } finally {
+    closeSync(fd);
+  }
+}
+
+/**
+ * Has this process certainly exited? `ESRCH` is proof; anything else is not.
+ *
+ * The same asymmetry as `beatWriterIsGone`: `EPERM` means something holds the
+ * id, and success can be a reused id. Wrong only toward "still there", which
+ * costs a wait up to its bound, never an early bootout of a live daemon.
+ */
+export function processIsGone(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return false;
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code === "ESRCH";
+  }
+}
+
+/**
  * Write a unit file as the thing it says it is.
  *
  * This was `writeFile(path, contents, "utf8")` for every platform, and the

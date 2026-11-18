@@ -164,11 +164,10 @@ describe("taking an offered update", () => {
 
     expect(await watching).toBe(false);
     expect(installed).toEqual([NEWER_OFFER, DAEMON_VERSION]);
-    const firstStart = ran.findIndex((c) => c[1] === "start");
-    const rollback = ran.findIndex(
-      (c) => c.at(-1) === `byollm@${DAEMON_VERSION}`,
-    );
-    expect(firstStart).toBeGreaterThan(rollback);
+    /* No `start` at all — #9572. Nothing was registered with the package
+       that failed, and re-registering the running daemon from inside it is
+       a bootout of that daemon on launchd. */
+    expect(ran.some((c) => c[1] === "start")).toBe(false);
     expect(r.calls).toContain("resume");
     expect(surface.said.join("")).toContain("provenance check");
   });

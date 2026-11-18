@@ -11,7 +11,7 @@ import { runLogin, type LoginCommand } from "./login.js";
 import { createBackend } from "./backends/index.js";
 import { fileImageProbeStore } from "./images.js";
 import type { Backend } from "./backends/types.js";
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, open, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { hostname, userInfo } from "node:os";
 import { dirname } from "node:path";
 import { createInterface } from "node:readline/promises";
@@ -51,7 +51,13 @@ import {
   type CommunityBudget,
 } from "./config.js";
 import { connect } from "./connect.js";
-import { IngressLog, stripControlChars, type IngressEntry } from "./ingress.js";
+import {
+  IngressLog,
+  parseIngressLine,
+  stripControlChars,
+  type IngressEntry,
+} from "./ingress.js";
+import { isOf, jobsMatching, LogRenderer, standing } from "./logs.js";
 import { readHostMemory } from "./memory.js";
 import { modelLoadQuestion } from "./model-memory.js";
 import { probeLocalServers } from "./probe-local.js";
@@ -119,6 +125,8 @@ const USAGE = `byollm — run an app's LLM jobs on your own models.
                               status, start and stop then defer to <name>
   byollm status               what is connected, what is running, what it cost
   byollm log [--full] [-n N]  every prompt that has run on this device
+  byollm logs [--tail N] [--follow]  what this device did, one line per event
+  byollm logs --job <id>      one job's lines, and where it stands
   byollm services             each service: health, who it is offered to, model
   byollm services manage      turn services on and off, and share them
   byollm model <svc> <name>   check a model answers, then use it
@@ -439,6 +447,8 @@ export async function runCli(
       return commandStatus(paths, io, service);
     case "log":
       return commandLog(paths, rest, io);
+    case "logs":
+      return commandLogs(paths, rest, io, signal);
     case "start":
       return commandInstall(paths, io, service, options.interactive, {
         ...(options.platform === undefined
@@ -3404,7 +3414,7 @@ async function commandStatus(
       `${String(outcomes.filter((o) => o.outcome === "refused").length)} refused\n`,
   );
   io.out(
-    `  full log: ${paths.ingressLog}\n` +
+    `  full log: ${paths.ingressLog} — \`byollm logs\` reads it\n` +
       `  other people's prompts are kept ` +
       `${String(loaded.config.ingress.communityPromptDays)} days, then hashed\n`,
   );
@@ -3596,6 +3606,11 @@ async function commandLog(
       continue;
     }
 
+    if (entry.type === "claim") {
+      io.out(`${at}  ${"claimed".padEnd(8)} ${entry.jobId} ${entry.kind}\n`);
+      continue;
+    }
+
     if (entry.type === "memory") {
       const gb = gigabytes;
       io.out(
@@ -3634,6 +3649,224 @@ async function commandLog(
   }
   if (!full) {
     io.out(`\n(${String(entries.length)} entries; --full for whole prompts)\n`);
+  }
+  return 0;
+}
+
+// -- logs --------------------------------------------------------------------
+
+/** How often `--follow` looks at the file. A person is reading, not a meter. */
+const FOLLOW_POLL_MS = 250;
+
+/** What `byollm logs` says to arguments it cannot use. */
+const LOGS_USAGE =
+  `  byollm logs                 the last 20 events on this device\n` +
+  `  byollm logs --tail <n>      the last n\n` +
+  `  byollm logs --follow        and keep printing as they happen\n` +
+  `  byollm logs --job <id>      one job (a prefix of its id is enough)\n`;
+
+/**
+ * `byollm logs` — see {@link LogRenderer} for what it prints and why.
+ *
+ * Reads the file itself rather than through {@link context}: it needs the
+ * log's path and nothing else, and a console reading a log should not stop
+ * working because a config somebody is mid-way through editing will not
+ * parse.
+ */
+async function commandLogs(
+  paths: DaemonPaths,
+  args: readonly string[],
+  io: CliIo,
+  signal: AbortSignal | undefined,
+): Promise<ExitCode> {
+  let job: string | undefined;
+  let tail: number | undefined;
+  let follow = false;
+  for (let i = 0; i < args.length; i += 1) {
+    const arg = args[i] ?? "";
+    const [flag, inline] = arg.includes("=")
+      ? [arg.slice(0, arg.indexOf("=")), arg.slice(arg.indexOf("=") + 1)]
+      : [arg, undefined];
+    if (flag === "--follow" || flag === "-f") {
+      follow = true;
+      continue;
+    }
+    if (flag === "--job" || flag === "--tail" || flag === "-n") {
+      const value = inline ?? args[(i += 1)];
+      if (value === undefined || value === "" || value.startsWith("-")) {
+        io.err(`byollm logs: ${flag} needs a value.\n\n${LOGS_USAGE}`);
+        return 2;
+      }
+      if (flag === "--job") {
+        job = value;
+        continue;
+      }
+      if (!/^\d+$/.test(value) || Number(value) < 1) {
+        io.err(
+          `byollm logs: ${flag} takes a number of lines, and got ` +
+            `${JSON.stringify(stripControlChars(value))}.\n\n${LOGS_USAGE}`,
+        );
+        return 2;
+      }
+      tail = Number(value);
+      continue;
+    }
+    io.err(
+      `byollm logs does not know ${JSON.stringify(stripControlChars(arg))}.\n\n${LOGS_USAGE}`,
+    );
+    return 2;
+  }
+
+  /* Whole lines only: a slice that ends mid-line keeps its tail for the next
+     read, so `--follow` never parses half an entry and drops it. */
+  let offset = 0;
+  let pending = Buffer.alloc(0);
+  const readNew = async (): Promise<IngressEntry[]> => {
+    let size: number;
+    try {
+      size = (await stat(paths.ingressLog)).size;
+    } catch {
+      return [];
+    }
+    if (size < offset) {
+      /* Retention rewrote the file, or the owner deleted it. What is there
+         now was already printed or is older than what was. */
+      offset = size;
+      pending = Buffer.alloc(0);
+      return [];
+    }
+    if (size === offset) return [];
+    const handle = await open(paths.ingressLog, "r");
+    let chunk: Buffer;
+    try {
+      chunk = Buffer.alloc(size - offset);
+      const { bytesRead } = await handle.read(chunk, 0, chunk.length, offset);
+      chunk = chunk.subarray(0, bytesRead);
+    } finally {
+      await handle.close();
+    }
+    offset += chunk.length;
+    const bytes = Buffer.concat([pending, chunk]);
+    const end = bytes.lastIndexOf(0x0a);
+    pending = bytes.subarray(end + 1);
+    if (end === -1) return [];
+    return bytes
+      .subarray(0, end)
+      .toString("utf8")
+      .split("\n")
+      .map(parseIngressLine)
+      .filter((entry): entry is IngressEntry => entry !== undefined);
+  };
+
+  const renderer = new LogRenderer();
+  const entries = await readNew();
+  const lines = entries.map((entry) => renderer.render(entry));
+
+  const header = `${paths.ingressLog} — times UTC, newest last\n`;
+  const waitForMore = (): Promise<void> =>
+    new Promise((resolve) => {
+      const timer = setTimeout(resolve, FOLLOW_POLL_MS);
+      signal?.addEventListener(
+        "abort",
+        () => {
+          clearTimeout(timer);
+          resolve();
+        },
+        { once: true },
+      );
+    });
+
+  if (job === undefined) {
+    io.out(header);
+    if (lines.length === 0) io.out("nothing in this device's log yet\n");
+    for (const line of lines.slice(-(tail ?? 20))) io.out(`${line}\n`);
+    if (!follow) return 0;
+    io.out("following — Ctrl-C to stop\n");
+    while (signal?.aborted !== true) {
+      await waitForMore();
+      for (const entry of await readNew()) {
+        io.out(`${renderer.render(entry)}\n`);
+      }
+    }
+    return 0;
+  }
+
+  const prefix = job;
+  const matches = jobsMatching(entries, prefix);
+  if (matches.length > 1) {
+    io.err(
+      `${String(matches.length)} jobs in this device's log start ` +
+        `${JSON.stringify(stripControlChars(prefix))} — give more of the id:\n` +
+        matches
+          .map(
+            (m) =>
+              `  ${m.jobId}${m.site === undefined ? "" : `  from ${stripControlChars(m.site)}`}\n`,
+          )
+          .join(""),
+    );
+    return 2;
+  }
+  let target = matches[0];
+  if (target === undefined && !follow) {
+    io.out(
+      `no line in this device's log names a job starting ` +
+        `${JSON.stringify(stripControlChars(prefix))}.\n` +
+        `This device never claimed it — or the log was deleted since.\n`,
+    );
+    return 1;
+  }
+
+  const mine: IngressEntry[] = [];
+  const show = (rendered: readonly string[]): void => {
+    for (const line of rendered) io.out(`${line}\n`);
+  };
+  if (target !== undefined) {
+    const found = target;
+    io.out(
+      `job ${stripControlChars(found.jobId)}` +
+        `${found.site === undefined ? "" : ` from ${stripControlChars(found.site)}`}\n` +
+        header,
+    );
+    const rendered: string[] = [];
+    entries.forEach((entry, i) => {
+      if (!isOf(entry, found)) return;
+      mine.push(entry);
+      rendered.push(lines[i] ?? "");
+    });
+    show(tail === undefined ? rendered : rendered.slice(-tail));
+    const now = standing(mine, Date.now());
+    io.out(`\nwhere it stands: ${now.text}\n`);
+    if (!follow || now.settled) return 0;
+  } else {
+    io.out(
+      `waiting for a job starting ${JSON.stringify(stripControlChars(prefix))}` +
+        ` — Ctrl-C to stop\n`,
+    );
+  }
+
+  if (target !== undefined) io.out("following — Ctrl-C to stop\n");
+  while (signal?.aborted !== true) {
+    await waitForMore();
+    for (const entry of await readNew()) {
+      const line = renderer.render(entry);
+      if (target === undefined) {
+        const [first] = jobsMatching([entry], prefix);
+        if (first === undefined) continue;
+        target = first;
+        io.out(
+          `job ${stripControlChars(first.jobId)}` +
+            `${first.site === undefined ? "" : ` from ${stripControlChars(first.site)}`}\n` +
+            header,
+        );
+      }
+      if (!isOf(entry, target)) continue;
+      mine.push(entry);
+      io.out(`${line}\n`);
+      if (entry.type === "outcome") {
+        io.out(`\nwhere it stands: ${standing(mine, Date.now()).text}\n`);
+        return 0;
+      }
+    }
   }
   return 0;
 }

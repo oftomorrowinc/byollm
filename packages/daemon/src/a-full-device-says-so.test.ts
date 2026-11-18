@@ -10,7 +10,7 @@ import {
   seal,
   signRequest,
 } from "@byollm/protocol";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type {
   Backend,
   BackendRequest,
@@ -20,6 +20,7 @@ import { Budgets } from "./budgets.js";
 import { ProtocolClient } from "./client.js";
 import { DaemonConfig, resolveConfig } from "./config.js";
 import { IngressLog } from "./ingress.js";
+import { standing } from "./logs.js";
 import { Runner } from "./runner.js";
 import { SpendLedger } from "./spend.js";
 import { removeTemp } from "./test-support.js";
@@ -227,7 +228,7 @@ async function makeRunner() {
     await runner.tick();
     for (let i = 0; i < 20; i += 1) await Promise.resolve();
   };
-  return { runner, tick, events, claims: () => served };
+  return { runner, tick, events, claims: () => served, ingress };
 }
 
 describe("a device with every slot held", () => {
@@ -250,6 +251,24 @@ describe("a device with every slot held", () => {
     await tick();
 
     expect(claims()).toBe(afterFirst);
+  });
+
+  it("leaves the held job on its own log as claimed, then started — #9547", async () => {
+    /* Box-1's case on two hub rolls: a job claimed, its prompt line written,
+       and no result. The claim is recorded without being awaited, so this is
+       also the check that it still lands BEFORE the prompt. */
+    const { tick, ingress } = await makeRunner();
+    await tick();
+
+    await vi.waitFor(async () => {
+      expect((await ingress.read()).map((entry) => entry.type)).toEqual([
+        "claim",
+        "prompt",
+      ]);
+    });
+    expect(standing(await ingress.read(), NOW + 412_000).text).toMatch(
+      /^started at .* and no result after 412 s \(6 min\)$/,
+    );
   });
 
   it("says it once, not on every poll", async () => {

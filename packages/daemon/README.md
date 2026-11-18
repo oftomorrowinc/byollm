@@ -162,6 +162,8 @@ byollm status         # what's connected, what's running, what you've done for o
 byollm sites          # which sites this device serves, and which keys it still holds
 byollm log            # every prompt that has ever run here
 byollm log --full     # the whole text, not the first line
+byollm logs           # what happened, one line per event: claimed, started, answered, failed
+byollm logs --job 911c5d84   # one job's lines, and where it stands
 byollm stop           # stop running in the background — the off switch, always yours
 byollm start          # and bring it back
 byollm forget <url>   # drop a pairing entirely

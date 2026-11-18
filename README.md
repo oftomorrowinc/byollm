@@ -256,6 +256,7 @@ subscriptions are locked to `private` whatever the file says.
 byollm services       # what's installed, healthy, advertised — and who each is offered to
 byollm sites          # which sites this device serves, and which keys it holds
 byollm log            # every prompt that ran here, ever
+byollm logs --job <id>  # what this device did with one job, and where it stands
 byollm stop           # stop running in the background — the off switch, always yours
 byollm offer <service> team --cap 250     # share a paid service, deliberately
 ```

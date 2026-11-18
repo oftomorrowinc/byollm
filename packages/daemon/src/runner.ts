@@ -3659,6 +3659,32 @@ export class Runner {
       jobId: job.id,
       kind: job.kind,
     });
+    /**
+     * On the device's own record before anything below can stall — #9547.
+     *
+     * A job that wedges between here and its prompt line otherwise leaves
+     * nothing for `byollm logs --job` to find. Not awaited: the log orders
+     * its own writes, so this still lands before the prompt line, and the
+     * job does not wait on a disk to take its slot. A write that fails is
+     * said, like any other, and the job goes on — the claim line is a
+     * convenience for the reader; the prompt line is the meter.
+     */
+    void this.#options.ingress
+      .recordClaim({
+        at: this.#now(),
+        jobId: job.id,
+        site: job.site,
+        kind: job.kind,
+        audience: job.audience,
+      })
+      .catch((error: unknown) => {
+        this.#options.onEvent?.({
+          type: "error",
+          message: `could not log the claim of ${job.id}: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        });
+      });
 
     /**
      * The circuit breaker, before anything else looks at this job — B041.

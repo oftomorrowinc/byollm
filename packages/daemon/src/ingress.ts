@@ -56,6 +56,31 @@ export const PromptEntry = z
   .strict();
 export type PromptEntry = z.infer<typeof PromptEntry>;
 
+/**
+ * A job this device claimed — #9547, `byollm logs`.
+ *
+ * Written first thing when a claimed job reaches the runner, before the
+ * breaker, admission, or the payload fetch. Without it the log began at the
+ * prompt line, so a job that was claimed and then wedged before a prompt was
+ * written left no trace on the device at all, and "claimed and never started"
+ * could not be told apart from "never claimed".
+ *
+ * No content: the id, the site, the kind and the audience — what the stub
+ * already says to anybody routing it. Optional fields stay optional for the
+ * reason every other line's do; an older build reads this whole line as
+ * malformed and skips it.
+ */
+const ClaimEntry = z
+  .object({
+    type: z.literal("claim"),
+    at: z.number().int().positive(),
+    jobId: z.string().min(1),
+    site: z.string().min(1).optional(),
+    kind: z.string().min(1),
+    audience: z.string().min(1),
+  })
+  .strict();
+
 /** How a job ended. A separate line, so the prompt line is never rewritten. */
 export const OutcomeEntry = z
   .object({
@@ -232,6 +257,7 @@ const ToolDroppedEntry = z
   .strict();
 
 export const IngressEntry = z.discriminatedUnion("type", [
+  ClaimEntry,
   PromptEntry,
   OutcomeEntry,
   MemoryEntry,
@@ -261,6 +287,24 @@ export class IngressLog {
 
   constructor(options: IngressOptions) {
     this.#options = options;
+  }
+
+  /** Record a claim — see {@link ClaimEntry}. */
+  async recordClaim(input: {
+    at: number;
+    jobId: string;
+    site?: string;
+    kind: string;
+    audience: Audience;
+  }): Promise<void> {
+    await this.#append({
+      type: "claim",
+      at: input.at,
+      jobId: input.jobId,
+      ...(input.site === undefined ? {} : { site: input.site }),
+      kind: input.kind,
+      audience: input.audience,
+    });
   }
 
   /** Record a prompt. Await this before starting the backend call. */
@@ -447,14 +491,30 @@ export class IngressLog {
     });
   }
 
-  async #append(entry: IngressEntry): Promise<void> {
-    await mkdir(dirname(this.#options.path), { recursive: true });
-    // JSON.stringify escapes control characters, so a prompt containing ANSI
-    // escapes or newlines cannot forge a log line or repaint the terminal of
-    // whoever later reads the file ({@link MUSTS.OUTPUT_INERT}).
-    await appendFile(this.#options.path, `${JSON.stringify(entry)}\n`, {
-      mode: 0o600,
+  /**
+   * The previous append, so the next one waits for it — #9547.
+   *
+   * Lines land in the order they were asked for, whether or not the caller
+   * awaited. The runner records a claim without awaiting it (a file write is
+   * not something a slot should wait on), and `byollm logs` reads a job's
+   * standing from the order of its lines: a claim landing after its own
+   * prompt would read as "claimed and not started" for a job that ran.
+   */
+  #tail: Promise<void> = Promise.resolve();
+
+  #append(entry: IngressEntry): Promise<void> {
+    const next = this.#tail.then(async () => {
+      await mkdir(dirname(this.#options.path), { recursive: true });
+      // JSON.stringify escapes control characters, so a prompt containing ANSI
+      // escapes or newlines cannot forge a log line or repaint the terminal of
+      // whoever later reads the file ({@link MUSTS.OUTPUT_INERT}).
+      await appendFile(this.#options.path, `${JSON.stringify(entry)}\n`, {
+        mode: 0o600,
+      });
     });
+    /* One failed write is that caller's error, not every later caller's. */
+    this.#tail = next.catch(() => undefined);
+    return next;
   }
 
   /** Read the log, oldest first. Malformed lines are skipped, not fatal. */
@@ -467,13 +527,8 @@ export class IngressLog {
     }
     const entries: IngressEntry[] = [];
     for (const line of raw.split("\n")) {
-      if (line.trim() === "") continue;
-      try {
-        const parsed = IngressEntry.safeParse(JSON.parse(line));
-        if (parsed.success) entries.push(parsed.data);
-      } catch {
-        // A truncated final line after a hard kill is expected, not an error.
-      }
+      const entry = parseIngressLine(line);
+      if (entry !== undefined) entries.push(entry);
     }
     return entries;
   }
@@ -540,6 +595,23 @@ export class IngressLog {
       );
     }
     return reduced;
+  }
+}
+
+/**
+ * One line of the log, or `undefined` for a blank, truncated or unknown one.
+ *
+ * Shared by {@link IngressLog.read} and `byollm logs --follow`, which reads
+ * the file a slice at a time and must skip exactly what a whole read skips.
+ */
+export function parseIngressLine(line: string): IngressEntry | undefined {
+  if (line.trim() === "") return undefined;
+  try {
+    const parsed = IngressEntry.safeParse(JSON.parse(line));
+    return parsed.success ? parsed.data : undefined;
+  } catch {
+    // A truncated final line after a hard kill is expected, not an error.
+    return undefined;
   }
 }
 

@@ -38,6 +38,7 @@ export async function removeTemp(dir: string): Promise<void> {
 }
 
 import type { ServiceIo } from "./cli.js";
+import type { Host } from "./update-deps.js";
 
 /**
  * A machine with no service supervisor, for tests.
@@ -204,3 +205,20 @@ export async function pairedForStart(
     pairedAt: Date.now(),
   });
 }
+
+/**
+ * A Linux machine, for the updater's tests that are not about Windows — #9858.
+ *
+ * `realUpdateDeps` reads the host it runs on when none is given, and on a
+ * Windows runner that turns `npm` into `node npm-cli.js` and `byollm` into a
+ * question to `npm root --global`. A test that expects `["npm", ...]` and
+ * leaves the host to the runner passes on Linux and macOS by luck and hangs
+ * the Windows job. Every such test names this host; the Windows cases name
+ * their own.
+ */
+export const POSIX_HOST: Host = {
+  platform: "linux",
+  env: {},
+  execPath: "/usr/bin/node",
+  exists: () => false,
+};

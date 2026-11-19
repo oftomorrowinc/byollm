@@ -5,7 +5,7 @@ import { emphasise, terminalContext } from "./emphasis.js";
 import { backendVerifier, setModel, showModel } from "./model.js";
 import { preflight } from "./preflight.js";
 import { HANDED_OFF_SAYS, offerInbox, update } from "./update.js";
-import { realUpdateDeps } from "./update-deps.js";
+import { realUpdateDeps, type Host } from "./update-deps.js";
 import {
   announceArrival,
   rememberUpdate,
@@ -2728,6 +2728,8 @@ export async function watchForUpdate(input: {
   readonly drainMs?: number;
   /** The provenance check, stubbed in tests; the registry's otherwise. */
   readonly verify?: (version: string) => Promise<Provenance>;
+  /** Where npm and byollm are looked for, pinned in tests; this process's otherwise. */
+  readonly host?: Host;
 }): Promise<boolean> {
   const wait =
     input.wait ?? ((ms: number) => new Promise<void>((w) => setTimeout(w, ms)));
@@ -2756,6 +2758,7 @@ export async function watchForUpdate(input: {
       const deps = realUpdateDeps({
         run: input.run ?? spawnCommand,
         ...(input.verify === undefined ? {} : { verify: input.verify }),
+        ...(input.host === undefined ? {} : { host: input.host }),
         drain: async () => {
           const tallies = await Promise.all(
             input.runners.map((runner) =>

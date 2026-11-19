@@ -11,7 +11,7 @@ import type { CommandRunner } from "./install.js";
 import { daemonPaths, type DaemonPaths } from "./paths.js";
 import type { Runner } from "./runner.js";
 import { SERVICE_LABEL } from "./service.js";
-import { pairedForStart } from "./test-support.js";
+import { pairedForStart, POSIX_HOST } from "./test-support.js";
 
 /**
  * After an update the service is installed and the new daemon is running —
@@ -437,6 +437,7 @@ describe("after an update the service is installed and the new daemon is running
     if (daemon === undefined) throw new Error("no daemon");
     let account = "";
     const updating = watchForUpdate({
+      host: POSIX_HOST,
       runners: [fakeRunner()],
       io: {
         out: () => undefined,

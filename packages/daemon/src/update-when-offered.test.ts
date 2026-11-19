@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { withoutComments } from "@byollm/protocol";
 import { describe, expect, it } from "vitest";
 import { watchForUpdate } from "./cli.js";
+import { POSIX_HOST } from "./test-support.js";
 import { DAEMON_VERSION } from "./index.js";
 
 /**
@@ -89,6 +90,7 @@ describe("taking an offered update", () => {
     const surface = io();
     const ran: string[][] = [];
     const took = await watchForUpdate({
+      host: POSIX_HOST,
       runners: [r.runner],
       io: surface.io,
       signal: new AbortController().signal,
@@ -133,6 +135,7 @@ describe("taking an offered update", () => {
     const ran: string[][] = [];
     const installed: string[] = [];
     const watching = watchForUpdate({
+      host: POSIX_HOST,
       runners: [r.runner],
       io: surface.io,
       signal: controller.signal,
@@ -183,6 +186,7 @@ describe("taking an offered update", () => {
     const surface = io();
     const controller = new AbortController();
     const watching = watchForUpdate({
+      host: POSIX_HOST,
       runners: [r.runner],
       io: surface.io,
       signal: controller.signal,
@@ -238,6 +242,7 @@ describe("taking an offered update", () => {
     const NEWER_STILL = above(2);
     let offering = NEWER;
     const took = await watchForUpdate({
+      host: POSIX_HOST,
       runners: [r.runner],
       io: surface.io,
       signal: new AbortController().signal,
@@ -286,6 +291,7 @@ describe("taking an offered update", () => {
        passed with the memory deleted. */
     let cycles = 0;
     const watching = watchForUpdate({
+      host: POSIX_HOST,
       runners: [r.runner],
       io: surface.io,
       signal: controller.signal,
@@ -325,6 +331,7 @@ describe("taking an offered update", () => {
        stop serving, or to stop listening for a better one — so the test
        stops it rather than waiting for it to finish. */
     const refusing = watchForUpdate({
+      host: POSIX_HOST,
       runners: [r.runner],
       io: surface.io,
       signal: controller.signal,
@@ -350,6 +357,7 @@ describe("taking an offered update", () => {
     const ran: string[][] = [];
     const controller = new AbortController();
     const watching = watchForUpdate({
+      host: POSIX_HOST,
       runners: [r.runner],
       io: io().io,
       signal: controller.signal,

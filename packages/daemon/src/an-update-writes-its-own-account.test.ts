@@ -10,7 +10,7 @@ import type { CommandRunner } from "./install.js";
 import { daemonPaths, type DaemonPaths } from "./paths.js";
 import type { Runner } from "./runner.js";
 import { servicePlan } from "./service.js";
-import { noSupervisor } from "./test-support.js";
+import { noSupervisor, POSIX_HOST } from "./test-support.js";
 import {
   announceArrival,
   rememberUpdate,
@@ -159,6 +159,7 @@ async function takeOffer(
   const controller = new AbortController();
   const journal = updateJournal({ err: d.err, ingress: d.ingress });
   const took = await watchForUpdate({
+    host: POSIX_HOST,
     runners: [runner(input.tally ?? { finished: 2, stillRunning: 0 })],
     io: {
       out: () => undefined,

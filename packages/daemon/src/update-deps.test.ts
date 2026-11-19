@@ -2,6 +2,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { DAEMON_VERSION, formatVersion } from "./index.js";
 import { spawnCommand } from "./install.js";
+import { POSIX_HOST } from "./test-support.js";
 import {
   byollmCommand,
   npmCommand,
@@ -17,7 +18,7 @@ import {
  * testing here is the seam where this module reads something another module
  * writes, because that is where it can silently stop working.
  */
-function recorder(host?: Host) {
+function recorder(host: Host = POSIX_HOST) {
   const ran: string[][] = [];
   const said: string[] = [];
   return {
@@ -36,7 +37,7 @@ function recorder(host?: Host) {
         },
         drain: () => Promise.resolve({ finished: 0, stillRunning: 0 }),
         report: (line) => said.push(line),
-        ...(host === undefined ? {} : { host }),
+        host,
       }),
   };
 }

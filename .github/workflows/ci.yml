@@ -96,6 +96,11 @@ jobs:
   # ---------------------------------------------------------------------------
   daemon-matrix:
     name: Daemon suite (${{ matrix.os }})
+    # A hung test is a failed job in 20 minutes, not GitHub's default of six
+    # hours. 1efdb3c's Windows leg sat in `test:unit` for 80 minutes until it
+    # was cancelled by hand (#9858). The slowest leg normally takes about two
+    # (Windows, 2m08s in run 44349393445), so 20 is ten times that.
+    timeout-minutes: 20
     # **The expensive legs, and when they run — B315.**
     #
     # 09-18 cost $32.82 in a day against a target near 3,000 minutes a MONTH:
@@ -153,6 +158,8 @@ jobs:
 
   adversarial:
     name: Adversarial corpus (${{ matrix.os }})
+    # Same reason as the Daemon suite: a hang fails here, it does not bill for hours (#9858).
+    timeout-minutes: 20
     # **The expensive legs, and when they run — B315.**
     #
     # 09-18 cost $32.82 in a day against a target near 3,000 minutes a MONTH:
@@ -212,6 +219,8 @@ jobs:
 
   next-build:
     name: Next.js example builds (${{ matrix.os }})
+    # Same reason as the Daemon suite: a hang fails here, it does not bill for hours (#9858).
+    timeout-minutes: 20
     # **The expensive legs, and when they run — B315.**
     #
     # 09-18 cost $32.82 in a day against a target near 3,000 minutes a MONTH:

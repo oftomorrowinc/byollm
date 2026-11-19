@@ -1,8 +1,8 @@
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { withoutComments } from "@byollm/protocol";
 import { describe, expect, it } from "vitest";
 import { watchForUpdate } from "./cli.js";
-import { POSIX_HOST } from "./test-support.js";
+import { POSIX_HOST, watcherWait } from "./test-support.js";
 import { DAEMON_VERSION } from "./index.js";
 
 /**
@@ -96,7 +96,7 @@ describe("taking an offered update", () => {
       signal: new AbortController().signal,
       verify: VERIFIED,
       offered: () => NEWER_OFFER,
-      wait: () => Promise.resolve(),
+      wait: watcherWait(),
       drainMs: 5,
       run: (command) => {
         ran.push([...command]);
@@ -145,10 +145,9 @@ describe("taking an offered update", () => {
           verified: false,
           why: "there is no SLSA provenance for it",
         }),
-      wait: () => {
+      wait: watcherWait(() => {
         if (r.calls.includes("resume")) controller.abort();
-        return Promise.resolve();
-      },
+      }),
       drainMs: 5,
       run: (command) => {
         ran.push([...command]);
@@ -192,10 +191,9 @@ describe("taking an offered update", () => {
       signal: controller.signal,
       verify: VERIFIED,
       offered: () => NEWER_OFFER,
-      wait: () => {
+      wait: watcherWait(() => {
         if (r.calls.includes("resume")) controller.abort();
-        return Promise.resolve();
-      },
+      }),
       drainMs: 5,
       run: (command) =>
         Promise.resolve(
@@ -248,12 +246,11 @@ describe("taking an offered update", () => {
       signal: new AbortController().signal,
       verify: VERIFIED,
       offered: () => offering,
-      wait: () => {
+      wait: watcherWait(() => {
         /* The second offer arrives the way a real one does: on a later
            heartbeat, after the first has been tried and failed. */
         offering = NEWER_STILL;
-        return Promise.resolve();
-      },
+      }),
       drainMs: 5,
       run: (command) => {
         if (command[1] === "--version") {
@@ -297,11 +294,10 @@ describe("taking an offered update", () => {
       signal: controller.signal,
       verify: VERIFIED,
       offered: () => NEWER_OFFER,
-      wait: () => {
+      wait: watcherWait(() => {
         cycles += 1;
         if (cycles >= 5) controller.abort();
-        return Promise.resolve();
-      },
+      }),
       drainMs: 5,
       run: (command) => {
         if (command[1] === "install") attempts.push(command.at(-1) ?? "");
@@ -337,10 +333,9 @@ describe("taking an offered update", () => {
       signal: controller.signal,
       verify: VERIFIED,
       offered: () => "latest",
-      wait: () => {
+      wait: watcherWait(() => {
         if (surface.said.length > 0) controller.abort();
-        return Promise.resolve();
-      },
+      }),
       run: (command) => {
         ran.push([...command]);
         return Promise.resolve({ code: 0, output: "" });
@@ -363,7 +358,7 @@ describe("taking an offered update", () => {
       signal: controller.signal,
       verify: VERIFIED,
       offered: () => undefined,
-      wait: () => Promise.resolve(),
+      wait: watcherWait(),
       run: (command) => {
         ran.push([...command]);
         return Promise.resolve({ code: 0, output: "" });
@@ -388,5 +383,36 @@ describe("where the daemon hears an offer — B360", () => {
     expect(source).toContain("inbox?.receive(origin, event.version)");
     expect(source).toContain("offered: inbox.current");
     expect(source).not.toMatch(/=\s*event\.version\b/);
+  });
+});
+
+describe("every watcher under test really yields — #9863", () => {
+  it("names watcherWait as the wait of every watchForUpdate call in a test", () => {
+    /* A watcher whose wait is `() => Promise.resolve()` spins in microtasks
+       when its case breaks, and vitest's timeout — a timer — never fires: the
+       11-19 Windows job hung 80 minutes with no assertion text. One call
+       written that way in a new file brings it back, so this reads them all
+       rather than trusting the next author to know. */
+    const files = readdirSync(new URL(".", import.meta.url)).filter((f) =>
+      f.endsWith(".test.ts"),
+    );
+    const calls: string[] = [];
+    for (const file of files) {
+      const source = withoutComments(
+        readFileSync(new URL(`./${file}`, import.meta.url), "utf8"),
+      );
+      const parts = source.split(/\bwatchForUpdate\(\{\s*\n/).slice(1);
+      parts.forEach((call, i) => {
+        const wait = /\bwait:\s*([^\n]*)/.exec(call)?.[1] ?? "(none)";
+        calls.push(`${file}#${String(i + 1)} wait: ${wait}`);
+      });
+    }
+    /* Floor first, so a reader that finds nothing cannot pass vacuously:
+       nine calls across three files today. */
+    expect(calls.length, calls.join("\n")).toBeGreaterThanOrEqual(9);
+    expect(
+      calls.filter((c) => !c.includes(" wait: watcherWait(")),
+      "each of these can spin without yielding — use watcherWait",
+    ).toEqual([]);
   });
 });

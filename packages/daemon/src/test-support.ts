@@ -222,3 +222,39 @@ export const POSIX_HOST: Host = {
   execPath: "/usr/bin/node",
   exists: () => false,
 };
+
+/**
+ * The watcher's wait, for `watchForUpdate` in tests — #9863.
+ *
+ * `() => Promise.resolve()` never yields to a timer: a watcher whose test
+ * never aborts it spins in microtasks, vitest's per-test timeout is a timer
+ * that therefore never fires, and the job dies at its 20 minute cap with no
+ * assertion text. That is how the 11-19 Windows hang hid its own cause for 80
+ * minutes. This wait really yields (`setTimeout`), so the timeout can fire;
+ * and after `polls` looks it rejects with a sentence, which `watchForUpdate`
+ * does not catch, so a broken case ends as a failure that says what happened
+ * — in about a second, inside the timeout — and the loop stops rather than
+ * running on behind the next test.
+ *
+ * `each` runs on every look, before the yield: it is where a test changes
+ * the offer or aborts the watcher.
+ */
+export function watcherWait(
+  each: () => void = () => undefined,
+  polls = 1000,
+): (ms: number) => Promise<void> {
+  let looked = 0;
+  return () => {
+    looked += 1;
+    if (looked > polls) {
+      return Promise.reject(
+        new Error(
+          `the watcher looked ${String(polls)} times and was never stopped — ` +
+            "the update did not end the way this test expects (no return, no abort)",
+        ),
+      );
+    }
+    each();
+    return new Promise<void>((resolve) => setTimeout(resolve, 0));
+  };
+}

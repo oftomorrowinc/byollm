@@ -64,6 +64,7 @@ const ALLOWED: Readonly<Record<string, string>> = {
   "daemon/src/test-support.ts: testControlPlane": "same file, same reason",
   "daemon/src/test-support.ts: pairedForStart": "same file, same reason",
   "daemon/src/test-support.ts: POSIX_HOST": "same file, same reason",
+  "daemon/src/test-support.ts: watcherWait": "same file, same reason",
   "daemon/src/test-support.ts: treeOf":
     "same file, same reason — and this check is one of its callers: B209 " +
     "moved the recursive walk here so the separator assumption lives in one " +

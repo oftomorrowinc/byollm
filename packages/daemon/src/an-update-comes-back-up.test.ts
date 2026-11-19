@@ -11,7 +11,7 @@ import type { CommandRunner } from "./install.js";
 import { daemonPaths, type DaemonPaths } from "./paths.js";
 import type { Runner } from "./runner.js";
 import { SERVICE_LABEL } from "./service.js";
-import { pairedForStart, POSIX_HOST } from "./test-support.js";
+import { pairedForStart, POSIX_HOST, watcherWait } from "./test-support.js";
 
 /**
  * After an update the service is installed and the new daemon is running —
@@ -447,7 +447,7 @@ describe("after an update the service is installed and the new daemon is running
       signal: new AbortController().signal,
       offered: () => NEW,
       verify: () => Promise.resolve({ verified: true } as const),
-      wait: () => Promise.resolve(),
+      wait: watcherWait(),
       drainMs: 1,
       run: m.runAs(daemon),
     });

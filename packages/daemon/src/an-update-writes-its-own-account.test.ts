@@ -10,7 +10,7 @@ import type { CommandRunner } from "./install.js";
 import { daemonPaths, type DaemonPaths } from "./paths.js";
 import type { Runner } from "./runner.js";
 import { servicePlan } from "./service.js";
-import { noSupervisor, POSIX_HOST } from "./test-support.js";
+import { noSupervisor, POSIX_HOST, watcherWait } from "./test-support.js";
 import {
   announceArrival,
   rememberUpdate,
@@ -182,10 +182,9 @@ async function takeOffer(
       ),
     /* The watcher keeps watching after a failure, by design; the second
        look is where this test stops it. */
-    wait: () => {
+    wait: watcherWait(() => {
       controller.abort();
-      return Promise.resolve();
-    },
+    }),
     drainMs: 1,
     run: input.run,
   });

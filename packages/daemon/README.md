@@ -209,6 +209,49 @@ finished, and the site holds it until its lease runs out.
 *installed but not running* (the one that looks fine from an app's dashboard
 and serves nothing), and not installed at all.
 
+### `byollm status --json`, for a program
+
+A tray icon, a script, or anything else that would otherwise have to read
+`byollm status`'s sentences can ask for one JSON object instead:
+
+```console
+$ byollm status --json
+{"format":1,"state":"running","daemonVersion":"0.1.7","services":["claude","studio"],"autoUpdate":true,"paired":true}
+```
+
+It opens no port and starts nothing: it reads what the daemon already writes,
+prints one line on stdout, and exits 0, as `byollm status` does. Plain
+`byollm status` is unchanged.
+
+| field           | what it says                                                                      |
+| --------------- | --------------------------------------------------------------------------------- |
+| `format`        | the version of this shape. `1` today.                                             |
+| `state`         | `running`, `stopped`, or `needs_attention` — the three states above.              |
+| `daemonVersion` | the daemon's version, as `byollm --version` prints it                             |
+| `services`      | the services this device runs, by the names you gave them in `config.json`        |
+| `autoUpdate`    | whether this device updates itself                                                |
+| `paired`        | whether it is paired with any app                                                 |
+
+The three words:
+
+- **`running`** — installed to run, and running: a supervisor (or a hosted
+  box's own) keeps it up, and its heartbeat is fresh.
+- **`stopped`** — nothing is installed to start it. You ran `byollm stop`, or
+  never ran `byollm start`. A `byollm run` open in a terminal is serving, and
+  still reads `stopped`: nothing will start it again when that window closes.
+- **`needs_attention`** — installed to run, and not running: the supervisor
+  says it is down, its heartbeat has stopped, the hub refuses everything it
+  sends, or the hub has revoked it. `byollm status` says which.
+
+It names no account, key, token or app. A service is named as you named it,
+never with who is signed in to it, and `paired` is yes or no.
+
+**The shape only grows.** A field may be added in any release without
+`format` changing, so a reader should ignore fields it does not know. `format`
+changes only when an existing field is removed, renamed, or changes what its
+values mean — including a fourth word for `state`. A reader that finds a
+`format` it was not built for should say so rather than guess.
+
 ## The trust surface
 
 The meter is the product, and it gets the same care as the loop.

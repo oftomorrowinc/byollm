@@ -133,6 +133,7 @@ const USAGE = `byollm — run an app's LLM jobs on your own models.
   byollm run --supervised <name>  run under <name>, which keeps it running;
                               status, start and stop then defer to <name>
   byollm status               what is connected, what is running, what it cost
+  byollm status --json        the same device in one JSON object, for a program
   byollm log [--full] [-n N]  every prompt that has run on this device
   byollm logs [--tail N] [--follow]  what this device did, one line per event
   byollm logs --job <id>      one job's lines, and where it stands
@@ -453,7 +454,11 @@ export async function runCli(
         },
       );
     case "status":
-      return commandStatus(paths, io, service);
+      /* `--json` is the only argument it reads. Anything else is ignored, as
+         it always was, so plain `status` returns what it returned. */
+      return rest.includes("--json")
+        ? commandStatusJson(paths, io, service)
+        : commandStatus(paths, io, service);
     case "log":
       return commandLog(paths, rest, io);
     case "logs":
@@ -3086,34 +3091,20 @@ function describeAge(ms: number): string {
     : `${String(Math.round(seconds / 60))} minutes`;
 }
 
-async function commandStatus(
+/**
+ * What `status` has to read to say whether this device is running.
+ *
+ * Read once, here, for both of its forms — the prose headline and
+ * `--json`'s `state` — so the two cannot come to different answers about the
+ * same machine. A tray that reads one and a person who reads the other are
+ * looking at the same device.
+ */
+async function readRunState(
   paths: DaemonPaths,
-  io: CliIo,
   service: ServiceIo,
-): Promise<ExitCode> {
-  const { loaded, configured, ingress, budgets, spend, spentGrants } =
-    await context(paths);
-  const pairings = new Pairings(paths.pairings);
-  await pairings.load();
-  reportSkipped(pairings, io);
-  await retireAllowlist(paths, io);
-
-  // Whether anything here could admit a stranger at all. A `team` offer on a
-  // device paired with nothing serves one person, and both surfaces say so
-  // rather than printing the request.
-  const hasRelay = pairings
-    .list()
-    .some((pairing) => pairing.controlPlanePublic !== undefined);
-
-  const now = Date.now();
-
-  io.out(formatVersion());
-  // This machine's fingerprint, so an owner can compare it against what a
-  // site shows them (byollm_009 §3). A fingerprint nobody can find is a
-  // fingerprint nobody compares.
-  io.out(
-    `identity: ${await new DeviceIdentity(paths.keys).fingerprint(now)}\n`,
-  );
+  pairings: Pairings,
+  now: number,
+) {
   // **A persistent rejection is a state, and it leads.**
   //
   // This line said `running` for hours while every heartbeat the daemon sent
@@ -3124,8 +3115,6 @@ async function commandStatus(
   // So the headline answers "is this device working" rather than "is the
   // process alive", and those turned out to be different questions.
   const health = await readHealth(paths.health);
-  const failing =
-    health !== undefined && health.consecutiveFailures >= FAILURES_BEFORE_ALARM;
 
   /**
    * A daemon that has stopped beating has stopped running — B201, reworked
@@ -3227,6 +3216,142 @@ async function commandStatus(
       ? await serviceState(plan, service.run)
       : { state: "absent" };
   const revoked = await revokedMark(paths.health);
+  return { health, beat, stale, plan, keeper, supervision, revoked };
+}
+
+/**
+ * The number on `byollm status --json`'s shape — cloud_016 §6.
+ *
+ * A tray built against one release reads a daemon that has updated itself
+ * since, so the shape outlives the code that wrote it. Fields are only ever
+ * ADDED, and a reader ignores fields it does not know; adding one leaves
+ * this at 1. It moves only when an existing field is removed, renamed, or
+ * changes what its values mean — including a fourth word for `state` — and
+ * a reader that sees a number it was not built for knows not to guess.
+ *
+ * `status-json.test.ts` pins every field of 1 by name and type, so the
+ * change that breaks a tray cannot land without this line changing too.
+ */
+export const STATUS_FORMAT = 1;
+
+/**
+ * The README's three states, as the words a program reads.
+ *
+ * - `running`: installed to run, and running.
+ * - `stopped`: nothing is installed to start it — the person stopped it, or
+ *   never started it.
+ * - `needs_attention`: installed to run, and not running.
+ *
+ * "Not running" is the prose headline's sense of it, from the same reads: a
+ * dead or wedged daemon, a supervisor that says it is down, a hub refusing
+ * every message, a revoked credential. Each of those is a device that is
+ * meant to serve and is not, which is what the tray has to show.
+ */
+export type StatusState = "running" | "stopped" | "needs_attention";
+
+/** `byollm status --json`'s object, format 1. */
+export interface StatusJson {
+  readonly format: typeof STATUS_FORMAT;
+  readonly state: StatusState;
+  /** The daemon's own version, as `byollm --version` prints it. */
+  readonly daemonVersion: string;
+  /** The services this device runs, by the names the owner gave them. */
+  readonly services: readonly string[];
+  readonly autoUpdate: boolean;
+  /** Paired with at least one app. Which ones, and as whom, is not said. */
+  readonly paired: boolean;
+}
+
+/**
+ * `byollm status --json` — one object on stdout, and nothing else there.
+ *
+ * For the tray (cloud_016 §6), which runs this rather than opening a port.
+ * It carries no secret, no key and no account: a service is named as the
+ * owner named it, never with who is signed in to it, and "paired" is a
+ * yes or no rather than the apps and the owners they paired as.
+ *
+ * Read-only, where plain `status` is not quite: plain `status` retires an
+ * old allowlist file and says so, which is a person's notice and a change
+ * on disk. A tray polling every few seconds should do neither, so the
+ * retirement is left to `status` and `run`, and a skipped pairing goes to
+ * stderr where it cannot break the JSON.
+ */
+async function commandStatusJson(
+  paths: DaemonPaths,
+  io: CliIo,
+  service: ServiceIo,
+): Promise<ExitCode> {
+  const loaded = await loadConfig(paths.config);
+  const configured = await exists(paths.config);
+  const pairings = new Pairings(paths.pairings);
+  await pairings.load();
+  reportSkipped(pairings, { ...io, out: io.err });
+
+  const { health, stale, plan, keeper, supervision, revoked } =
+    await readRunState(paths, service, pairings, Date.now());
+  const failing =
+    health !== undefined && health.consecutiveFailures >= FAILURES_BEFORE_ALARM;
+  /* "Installed to run" is anything that will start it without a person: a
+     supervisor that knows the unit, a box's own supervisor, or Windows's
+     Startup-folder fallback, which the supervisor cannot see. */
+  const fallback = plan.fallback;
+  const installed =
+    keeper !== undefined ||
+    supervision.state !== "absent" ||
+    (fallback !== undefined && (await exists(fallback.unitPath)));
+  const state: StatusState = !installed
+    ? "stopped"
+    : supervision.state === "installed" ||
+        stale ||
+        failing ||
+        revoked !== undefined
+      ? "needs_attention"
+      : "running";
+
+  const status: StatusJson = {
+    format: STATUS_FORMAT,
+    state,
+    daemonVersion: DAEMON_VERSION,
+    services: configured ? Object.keys(loaded.config.services) : [],
+    autoUpdate: loaded.config.autoUpdate,
+    paired: pairings.list().length > 0,
+  };
+  io.out(`${JSON.stringify(status)}\n`);
+  return 0;
+}
+
+async function commandStatus(
+  paths: DaemonPaths,
+  io: CliIo,
+  service: ServiceIo,
+): Promise<ExitCode> {
+  const { loaded, configured, ingress, budgets, spend, spentGrants } =
+    await context(paths);
+  const pairings = new Pairings(paths.pairings);
+  await pairings.load();
+  reportSkipped(pairings, io);
+  await retireAllowlist(paths, io);
+
+  // Whether anything here could admit a stranger at all. A `team` offer on a
+  // device paired with nothing serves one person, and both surfaces say so
+  // rather than printing the request.
+  const hasRelay = pairings
+    .list()
+    .some((pairing) => pairing.controlPlanePublic !== undefined);
+
+  const now = Date.now();
+
+  io.out(formatVersion());
+  // This machine's fingerprint, so an owner can compare it against what a
+  // site shows them (byollm_009 §3). A fingerprint nobody can find is a
+  // fingerprint nobody compares.
+  io.out(
+    `identity: ${await new DeviceIdentity(paths.keys).fingerprint(now)}\n`,
+  );
+  const { health, beat, stale, plan, keeper, supervision, revoked } =
+    await readRunState(paths, service, pairings, now);
+  const failing =
+    health !== undefined && health.consecutiveFailures >= FAILURES_BEFORE_ALARM;
   const notSetUp = !configured && beat === undefined;
 
   io.out(

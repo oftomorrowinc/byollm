@@ -20,6 +20,7 @@ import type { Backend } from "./backends/types.js";
 import { mkdir, open, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { hostname, userInfo } from "node:os";
 import { dirname } from "node:path";
+import { Writable } from "node:stream";
 import { createInterface } from "node:readline/promises";
 import { FAILURES_BEFORE_ALARM, readHealth } from "./health.js";
 import {
@@ -28,7 +29,15 @@ import {
   type DaemonHeartbeat,
 } from "./heartbeat.js";
 import { InputEnded, runSetup, terminalIo, type TerminalIo } from "./setup.js";
-import { terminalFace } from "./questions.js";
+import {
+  jsonFace,
+  NeedsFlag,
+  NotAnAnswer,
+  terminalFace,
+  yesFace,
+  type Face,
+  type YesFlags,
+} from "./questions.js";
 import {
   manageServices,
   misTypedReport,
@@ -125,6 +134,9 @@ import { DAEMON_VERSION, formatVersion } from "./index.js";
 const USAGE = `byollm — run an app's LLM jobs on your own models.
 
   byollm setup                answer three questions instead of editing JSON
+  byollm setup --yes [--service <name>]... [--default <name>]
+                              take every default, for a script or an agent
+  byollm setup --json         the same questions as JSON lines, for a program
   byollm connect [<url>]      pair with an app and start running its jobs
   byollm forget <url>         drop a pairing
   byollm name [<name>]        what this device calls itself when it pairs
@@ -429,7 +441,7 @@ export async function runCli(
       io.out(formatVersion());
       return 0;
     case "setup":
-      return commandSetup(paths, io, signal);
+      return commandSetup(paths, rest, io, signal);
     case "connect":
       return commandConnect(paths, rest, io, signal);
     case "name":
@@ -1388,9 +1400,23 @@ async function labelFor(
  */
 async function commandSetup(
   paths: DaemonPaths,
+  args: readonly string[],
   io: CliIo,
   signal?: AbortSignal,
 ): Promise<ExitCode> {
+  const how = setupFlags(args);
+  if (typeof how === "string") {
+    io.err(`${how}\n${SETUP_USAGE}`);
+    return 2;
+  }
+  if (how.face === "yes") {
+    try {
+      return await setupWith(paths, io, yesFace(io, how.flags), signal);
+    } catch (error) {
+      return stoppedOrThrow(error, io);
+    }
+  }
+  const json = how.face === "json";
   const terminal = terminalIo(
     (text) => {
       io.out(text);
@@ -1398,16 +1424,141 @@ async function commandSetup(
     (text) => {
       io.err(text);
     },
+    process.stdin,
+    /* Under --json the prompts are the records, written by the face; the
+       reader is only a line queue, and writes nowhere. */
+    json
+      ? new Writable({
+          write: (_chunk, _encoding, done) => {
+            done();
+          },
+        })
+      : process.stdout,
   );
   try {
-    return await setupWith(paths, io, terminal, signal);
+    if (!json) {
+      /* The terminal draws each question record exactly as setup always
+         printed it (cloud_016 §2). */
+      return await setupWith(paths, io, terminalFace(terminal), signal);
+    }
+    const face = jsonFace({
+      line: (text) => {
+        io.out(`${text}\n`);
+      },
+      err: (text) => {
+        io.err(text);
+      },
+      read: () => terminal.ask(""),
+    });
+    return await setupWith(
+      paths,
+      /* What `connect` and `start` print reaches the parent as said lines,
+         not as prose in the middle of its record stream. */
+      {
+        out: (text) => {
+          face.out(text);
+        },
+        err: io.err,
+        confirm: () => Promise.resolve(false),
+      },
+      face,
+      signal,
+      (command) =>
+        runLogin(
+          command,
+          (text) => {
+            io.err(text);
+          },
+          undefined,
+          ["ignore", 2, 2],
+        ),
+    );
   } catch (error) {
-    return endedOrThrow(error, io);
+    return stoppedOrThrow(error, io);
   } finally {
     /* An open readline holds stdin, so a command that does not close it does
        not exit — B114. */
     terminal.close();
   }
+}
+
+const SETUP_USAGE =
+  "usage: byollm setup\n" +
+  "       byollm setup --yes [--service <name>]... [--default <name>]\n" +
+  "       byollm setup --json\n";
+
+/**
+ * `byollm setup`'s flags — cloud_016 §2.
+ *
+ * `--service` and `--default` answer questions on `--yes`'s behalf, so they
+ * mean nothing without it: at a terminal the person answers, and under
+ * `--json` the parent does. Refused there rather than ignored, because a flag
+ * that is silently dropped reads to its writer as a flag that worked.
+ */
+export function setupFlags(
+  args: readonly string[],
+):
+  | { readonly face: "terminal" | "json" }
+  | { readonly face: "yes"; readonly flags: YesFlags }
+  | string {
+  let yes = false;
+  let json = false;
+  const services: string[] = [];
+  let defaultService: string | undefined;
+  for (let at = 0; at < args.length; at += 1) {
+    const arg = args[at];
+    if (arg === "--yes") yes = true;
+    else if (arg === "--json") json = true;
+    else if (arg === "--service" || arg === "--default") {
+      const value = args[at + 1];
+      if (value === undefined || value.startsWith("-")) {
+        return `${arg} needs a service name.`;
+      }
+      at += 1;
+      if (arg === "--service") services.push(value);
+      else if (defaultService !== undefined) return "--default is given once.";
+      else defaultService = value;
+    } else return `byollm setup does not take ${String(arg)}.`;
+  }
+  if (yes && json) {
+    return "--yes and --json are two ways to answer; give one.";
+  }
+  if (!yes && (services.length > 0 || defaultService !== undefined)) {
+    return "--service and --default answer for --yes, and need it.";
+  }
+  if (!yes) return { face: json ? "json" : "terminal" };
+  return {
+    face: "yes",
+    flags: {
+      ...(services.length > 0 ? { services } : {}),
+      ...(defaultService === undefined ? {} : { defaultService }),
+    },
+  };
+}
+
+/**
+ * `--yes` stopping at a question it may not answer, said as the stop it is.
+ *
+ * Exit 1 and the flag named. Both of `--yes`'s stops come before the
+ * config is written and before anything pairs — the picker and the default
+ * are asked inside `manageServices`, and setup writes only after it returns.
+ * `setup-faces.test.ts` holds that: no file, and `run` never called.
+ */
+function stoppedOrThrow(error: unknown, io: CliIo): ExitCode {
+  if (error instanceof NeedsFlag) {
+    io.err(
+      `\nStopped: ${error.message}\n` +
+        "  Nothing was written, and this device was not paired.\n",
+    );
+    return 1;
+  }
+  /* A bad line can come after the config is written — the answer to
+     "Connect?" is one — so this says what ended input says, no more. */
+  if (error instanceof NotAnAnswer) {
+    io.err(`\nStopped: ${error.message}\n  Nothing further was done.\n`);
+    return 1;
+  }
+  return endedOrThrow(error, io);
 }
 
 /**
@@ -1432,18 +1583,17 @@ function endedOrThrow(error: unknown, io: CliIo): ExitCode {
 async function setupWith(
   paths: DaemonPaths,
   io: CliIo,
-  terminal: TerminalIo,
+  face: Face,
   signal?: AbortSignal,
+  login?: (command: LoginCommand) => Promise<boolean>,
 ): Promise<ExitCode> {
-  /* The one face there is, for now: the terminal draws each question record
-     exactly as setup always printed it (cloud_016 §2). */
   const result = await runSetup(
     paths,
-    terminalFace(terminal),
+    face,
     undefined,
     undefined,
     undefined,
-    undefined,
+    login,
     /**
      * `connect` and `install`, run in this process — 2026-09-01.
      *

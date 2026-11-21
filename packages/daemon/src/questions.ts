@@ -46,7 +46,7 @@ export const QUESTION_IDS = [
   "setup.start",
 ] as const;
 
-type QuestionId = (typeof QUESTION_IDS)[number];
+export type QuestionId = (typeof QUESTION_IDS)[number];
 
 /**
  * What sort of answer a question wants.
@@ -310,4 +310,275 @@ export function terminalFace(io: LineIo): Face {
  */
 export function faceOf(io: LineIo | Face): Face {
   return "answer" in io ? io : terminalFace(io);
+}
+
+/**
+ * A question `--yes` will not answer by itself, and the flag that does — an
+ * error, because the run stops there.
+ *
+ * Its own class for the reason `InputEnded` is one: the CLI catches it and
+ * says it once, and a command that matched on a message would be matching on
+ * words somebody may yet edit.
+ */
+export class NeedsFlag extends Error {
+  constructor(
+    readonly question: QuestionId,
+    readonly flag: string,
+    why: string,
+  ) {
+    super(why);
+    this.name = "NeedsFlag";
+  }
+}
+
+/** What a command line said about the questions `--yes` may not take alone. */
+export interface YesFlags {
+  /** `--service <name>`, each time it was given: the rows left marked. */
+  readonly services?: readonly string[];
+  /** `--default <name>`: the service that answers a job naming none. */
+  readonly defaultService?: string;
+}
+
+const ENTER = (): string => "";
+
+const labels = (q: Question): string =>
+  options(q)
+    .map((o) => o.label)
+    .join(", ");
+
+/**
+ * What `--yes` types at each question — cloud_016 §2.
+ *
+ * Keyed by the closed list, like the terminal's layouts, so a new question
+ * does not compile until somebody has decided whether `--yes` may answer it.
+ *
+ * **Enter, nearly everywhere, and Enter is the default.** The record's
+ * `default` is what an empty answer means; where a record has none and the
+ * prompt offers Enter (a model nobody knows: "enter skips"; a sign-in done
+ * elsewhere: "press Enter to re-check"; the sharing list: "Enter when
+ * done"), Enter is what the prompt itself proposes. So `--yes` is a person
+ * pressing Enter — nothing more.
+ *
+ * Two questions have no safe default, and stop the run unless a flag
+ * answers them. Both are asked inside `manageServices`, before setup writes
+ * a byte or pairs anything:
+ *
+ * - **What this machine runs** (`--service`). The picker's record carries no
+ *   default: its Enter finishes with the marks as they stand, and on a fresh
+ *   machine nothing is marked (B219 — a row starts marked only when its
+ *   model was typed this run, and `--yes` types none). Taking that would end
+ *   with "Nothing selected." and say nothing of how to choose, so the stop
+ *   names the flag. **A bare `--yes` therefore enables nothing**: every
+ *   service it turns on was named on its command line.
+ * - **The default service** (`--default`). Two services answer one kind and
+ *   the daemon will not pick between them for the owner; the record's
+ *   offered row is an offer to a person, not a choice `--yes` may make.
+ */
+const UNATTENDED: Readonly<
+  Record<QuestionId, (q: Question, flags: YesFlags) => string>
+> = {
+  "setup.set-up-empty-config": ENTER,
+  "setup.device-name": ENTER,
+  "services.model": ENTER,
+  "services.pick": (q, flags) => {
+    if (flags.services === undefined) {
+      throw new NeedsFlag(
+        q.id,
+        "--service",
+        "--yes will not choose what this machine runs.\n" +
+          `  Name each one with --service <name>: ${labels(q)}`,
+      );
+    }
+    return marking(q, flags.services);
+  },
+  "services.sign-in": ENTER,
+  "services.sign-in-elsewhere": ENTER,
+  "services.team": ENTER,
+  "services.share": ENTER,
+  "services.cap": ENTER,
+  "services.default": (q, flags) => {
+    if (flags.defaultService === undefined) {
+      throw new NeedsFlag(
+        q.id,
+        "--default",
+        "--yes will not choose your default service: more than one service\n" +
+          "  answers the same jobs, and byollm does not pick between them for you.\n" +
+          `  Name it with --default <name>: ${labels(q)}`,
+      );
+    }
+    const named = options(q).find((o) => o.label === flags.defaultService);
+    if (named === undefined) {
+      throw new NeedsFlag(
+        q.id,
+        "--default",
+        `--default ${flags.defaultService} is not one of the services being written.\n` +
+          `  Name one of: ${labels(q)}`,
+      );
+    }
+    return named.value;
+  },
+  "setup.connect": ENTER,
+  "setup.start": ENTER,
+};
+
+/**
+ * The toggles that leave exactly the named rows marked.
+ *
+ * On the first round, the rows whose mark differs from the list; on the round
+ * after, Enter — and a check that the marks did move, because a picker that
+ * redrew something else would otherwise be finished with the wrong rows.
+ *
+ * A name not on the list stops the run rather than being dropped: an agent
+ * that asked for `codex` and got a config without it would report success.
+ * The usual cause is a CLI whose model this build does not know — `--yes`
+ * skips the question that asks it, so the CLI never becomes a row.
+ */
+function marking(q: Question, names: readonly string[]): string {
+  const rows = options(q);
+  const unknown = names.filter((name) => !rows.some((o) => o.label === name));
+  if (unknown.length > 0) {
+    throw new NeedsFlag(
+      q.id,
+      "--service",
+      `--service ${unknown.join(", ")}: not on this machine's list.\n` +
+        `  It has: ${labels(q)}`,
+    );
+  }
+  const wrong = rows.filter((o) => (o.on === true) !== names.includes(o.label));
+  if (wrong.length === 0) return "";
+  if (q.again === true) {
+    throw new NeedsFlag(
+      q.id,
+      "--service",
+      "the list did not end as --service named it: " +
+        wrong.map((o) => o.label).join(", "),
+    );
+  }
+  return wrong.map((o) => o.value).join(" ");
+}
+
+/**
+ * `byollm setup --yes`: the terminal's words, and Enter typed at each one.
+ *
+ * Drawn with the terminal's own layouts, so everything a person would have
+ * been shown is printed — every question, and the subscription sentence where
+ * it rides — and each prompt is followed by the line `--yes` typed, the way a
+ * terminal echoes typing. Somebody reading the output afterwards reads the
+ * same transcript a person would have left.
+ *
+ * It never reads input. That is the whole of B114 here: there is no stdin
+ * whose end could be taken for a yes, because the yes is the flag.
+ */
+export function yesFace(
+  io: { out(text: string): void; err(text: string): void },
+  flags: YesFlags = {},
+): Face {
+  return {
+    out: (text) => {
+      io.out(text);
+    },
+    err: (text) => {
+      io.err(text);
+    },
+    interactive: true,
+    answer(question) {
+      const layout = TERMINAL[question.id](question);
+      if (layout.before !== "") io.out(layout.before);
+      io.out(layout.prompt);
+      let typed: string;
+      try {
+        typed = UNATTENDED[question.id](question, flags);
+      } catch (error) {
+        io.out("\n");
+        return Promise.reject(
+          error instanceof Error ? error : new Error(String(error)),
+        );
+      }
+      io.out(`${typed}\n`);
+      return Promise.resolve(typed);
+    },
+  };
+}
+
+/**
+ * The number on `byollm setup --json`'s lines — cloud_016 §2.
+ *
+ * The same rule as `status --json`'s: fields are only added, and a reader
+ * ignores what it does not know. It moves when a field is removed, renamed or
+ * changes meaning, so a window built against one release knows not to guess
+ * at a daemon that has updated itself since.
+ */
+export const SETUP_JSON_FORMAT = 1;
+
+/**
+ * One line of `byollm setup --json`'s stdout: a question to answer, or
+ * something setup said.
+ *
+ * Every line is one of these and nothing else is written there — a parent
+ * reading line by line never meets text it has to skip.
+ */
+export type SetupJsonLine =
+  | { readonly format: typeof SETUP_JSON_FORMAT; readonly question: Question }
+  | { readonly format: typeof SETUP_JSON_FORMAT; readonly say: string };
+
+/** An answer line that was not an answer. */
+export class NotAnAnswer extends Error {
+  constructor(
+    readonly question: QuestionId,
+    readonly line: string,
+  ) {
+    super(
+      `the answer to ${question} was not a JSON string on one line: ` +
+        JSON.stringify(line.length > 80 ? `${line.slice(0, 80)}…` : line),
+    );
+    this.name = "NotAnAnswer";
+  }
+}
+
+/**
+ * `byollm setup --json`: each record as one line on stdout, each answer as
+ * one line on stdin. The parent process is the other end; nothing listens.
+ *
+ * **The record is written whole and unchanged** — its words, options, default
+ * and the sentence that must be shown — so a window draws what the terminal
+ * draws from, and rewords nothing.
+ *
+ * **An answer is a JSON string**, the line a person would have typed: `""`
+ * for the default, `"1 3"` to toggle two rows, `"yes"`, a device name. JSON
+ * rather than the bare line so a blank line is not an answer: a parent that
+ * writes a stray newline has made an error, not pressed Enter on a question
+ * whose default pairs the device. Anything else stops the run, and so does
+ * input that ends (`InputEnded`, from whichever reader is given).
+ */
+export function jsonFace(io: {
+  /** Writes one line of stdout; the newline is added here. */
+  line(text: string): void;
+  err(text: string): void;
+  /** The next line of stdin. Rejects when the input has ended. */
+  read(): Promise<string>;
+}): Face {
+  const emit = (value: SetupJsonLine): void => {
+    io.line(JSON.stringify(value));
+  };
+  return {
+    out: (text) => {
+      emit({ format: SETUP_JSON_FORMAT, say: text });
+    },
+    err: (text) => {
+      io.err(text);
+    },
+    interactive: true,
+    async answer(question) {
+      emit({ format: SETUP_JSON_FORMAT, question });
+      const line = await io.read();
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(line);
+      } catch {
+        throw new NotAnAnswer(question.id, line);
+      }
+      if (typeof parsed !== "string") throw new NotAnAnswer(question.id, line);
+      return parsed;
+    },
+  };
 }

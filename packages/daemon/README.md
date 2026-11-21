@@ -59,6 +59,41 @@ password and never accepts a pasted secret.
 offers to start byollm, kept running across restarts; `byollm connect` pairs
 with the app you name, and `byollm start` keeps it running.
 
+### Setup without a person at the keyboard
+
+The same questions can be answered by a script or an agent, or by a program
+that draws its own window.
+
+```bash
+byollm setup --yes --service claude                  # one service
+byollm setup --yes --service claude --service qwen3-8b --default claude
+byollm setup --json                                  # for a parent program
+```
+
+`--yes` presses Enter at every question, so it takes each default: the
+suggested device name, no team, connect, and start. It prints the questions
+and every sentence that must be shown with them, the subscription sentence
+included. It never reads stdin.
+
+Two questions have no default `--yes` may take, so it stops there and names the
+flag that answers them. Both stops come before anything is written or paired.
+
+- `--service <name>` (repeat it): what this machine runs. A bare `--yes`
+  enables nothing. The names are the ones setup's list shows.
+- `--default <name>`: which service answers a job that names none. Needed
+  only when more than one service is turned on.
+
+A CLI whose model byollm does not know, such as `codex` on a fresh machine,
+asks for its model. `--yes` skips that question, so that CLI is not on the
+list, and naming it with `--service` stops the run.
+
+`--json` writes each question to stdout as one JSON line,
+`{"format":1,"question":{...}}`, and everything else setup says as
+`{"format":1,"say":"..."}`. It reads each answer from stdin as one JSON string
+on one line: the line a person would type, with `""` for the default. A blank
+line is not an answer, and input that ends is not a yes. Either one stops the
+run before it pairs. Nothing listens on a port.
+
 `npx byollm@latest connect https://your-app.com` pairs once without
 installing anything, but keeping byollm running needs the global install:
 `byollm start` refuses an npx copy, because npm deletes its cache without

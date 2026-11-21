@@ -151,6 +151,17 @@ export async function runLogin(
   command: LoginCommand,
   report: (text: string) => void = () => undefined,
   spawnImpl: typeof spawn = spawn,
+  /**
+   * Where the child's streams go. The terminal's, by default — see above.
+   *
+   * `byollm setup --json` passes `["ignore", 2, 2]`: its stdout is the record
+   * stream and its stdin is the parent's answers, so a vendor CLI that
+   * inherited them would write prose into one and could read the next answer
+   * out of the other. Its words go to stderr instead, where a parent shows
+   * them; a login that needs a pasted code then cannot finish here, and the
+   * re-check that follows says so like any other failed sign-in.
+   */
+  stdio: "inherit" | readonly ["ignore", 2, 2] = "inherit",
 ): Promise<boolean> {
   const [file, ...args] = command.argv;
   const failed = (error: unknown): void => {
@@ -161,7 +172,9 @@ export async function runLogin(
   };
   return new Promise<boolean>((resolve) => {
     try {
-      const child = spawnImpl(file, args, { stdio: "inherit" });
+      const child = spawnImpl(file, args, {
+        stdio: stdio === "inherit" ? stdio : [...stdio],
+      });
       child.on("error", (error) => {
         failed(error);
         resolve(false);

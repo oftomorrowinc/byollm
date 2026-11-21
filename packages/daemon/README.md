@@ -23,7 +23,8 @@ What end users run. Connects **outbound** to an app you trust, claims only the
 jobs you have agreed to run, and executes them on your own models.
 
 ```bash
-npx byollm@latest connect https://your-app.com
+npm install -g byollm@latest
+byollm setup
 ```
 
 There is nothing to open on your network. The daemon never listens.
@@ -37,10 +38,11 @@ ollama serve            # http://127.0.0.1:11434
 ollama pull gemma3:12b
 ```
 
-Then:
+Then install byollm and pair it with the app:
 
 ```bash
-npx byollm@latest connect https://your-app.com
+npm install -g byollm@latest
+byollm connect https://your-app.com
 ```
 
 ```
@@ -52,6 +54,15 @@ npx byollm@latest connect https://your-app.com
 
 You approve inside the app's own login session — the daemon never asks for a
 password and never accepts a pasted secret.
+
+`byollm setup` asks which models to offer, pairs with byollm.cloud and
+offers to start byollm, kept running across restarts; `byollm connect` pairs
+with the app you name, and `byollm start` keeps it running.
+
+`npx byollm@latest connect https://your-app.com` pairs once without
+installing anything, but keeping byollm running needs the global install:
+`byollm start` refuses an npx copy, because npm deletes its cache without
+warning.
 
 ## Configuration
 

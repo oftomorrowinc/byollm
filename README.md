@@ -21,7 +21,7 @@
 
 **Bring Your Own LLM.** Let your app's users run its AI on *their* models and *their* subscriptions — their Ollama box, their Mac running MLX, their `claude` CLI — through a tiny daemon they run and control.
 
-`npx byollm@latest connect https://your-app.com`
+`npm install -g byollm@latest`, then `byollm setup`
 
 [![npm](https://img.shields.io/badge/npm-%40byollm-cb3837)](https://www.npmjs.com/org/byollm) · [![license](https://img.shields.io/badge/license-MIT-blue)](#license) · [![status](https://img.shields.io/badge/status-early-orange)](#status)
 
@@ -216,9 +216,17 @@ try {
 ### For users
 
 ```bash
-npx byollm@latest connect https://your-app.com   # opens a browser to pair — one click
-byollm status                                # what's connected, what's running
+npm install -g byollm@latest   # Node.js 22.14 or later
+byollm setup                   # finds your models, pairs with byollm.cloud, starts
+byollm status                  # what's connected, what's running
 ```
+
+To pair with another app, `byollm connect https://your-app.com` opens a
+browser to approve it — one click — and `byollm start` keeps it running.
+`npx byollm@latest connect https://your-app.com` pairs once without
+installing anything, but keeping byollm running needs the global install:
+`byollm start` refuses an npx copy, because npm deletes its cache without
+warning.
 
 Point it at your models:
 

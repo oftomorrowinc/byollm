@@ -190,8 +190,12 @@
   <h1>Stop renting the compute<br>your users <span class="g">already own</span>.</h1>
   <p class="sub">AI features bill you per token, per user, forever, while the hardware already in your users' hands sits idle. byollm lets your app run its LLM jobs there instead: their Ollama box, their Mac running MLX, their <span class="mono">claude</span> CLI. No tunnels. No inbound ports. No shared keys.</p>
   <div class="cmd mono">
-    <span class="p">$</span><span class="c" id="cmd-text">npx byollm@latest connect https://your-app.com</span>
-    <button class="cp" data-copy="cmd-text" aria-label="Copy the connect command">copy</button>
+    <span class="p">$</span><span class="c" id="cmd-install">npm install -g byollm@latest</span>
+    <button class="cp" data-copy="cmd-install" aria-label="Copy the install command">copy</button>
+  </div><br>
+  <div class="cmd mono" style="margin-top:10px">
+    <span class="p">$</span><span class="c" id="cmd-setup">byollm setup</span>
+    <button class="cp" data-copy="cmd-setup" aria-label="Copy the setup command">copy</button>
   </div>
   <div class="cta">
     <a class="btn pri" href="#agents">Hand this to your AI →</a>
@@ -309,10 +313,10 @@ anything that costs money or opens a port to the internet.</pre>
 
 <section id="users" class="band"><div class="wrap">
   <p class="eyebrow">For users</p>
-  <h2>One command. Your models. Your rules.</h2>
+  <h2>Two commands. Your models. Your rules.</h2>
   <p class="lead">You decide what runs, and where. A local model means the prompt never leaves your machine; a service you already pay for means the job goes where you already send it, on your account. And byollm never holds your key.</p>
   <div class="steps">
-    <div class="step"><span class="n">1</span><div><h4>Connect</h4><p><code>npx byollm@latest connect https://the-app.com</code> — opens your browser to pair with one click. Nothing to configure on your network.</p></div></div>
+    <div class="step"><span class="n">1</span><div><h4>Install and connect</h4><p><code>npm install -g byollm@latest</code>, then <code>byollm setup</code> — it finds your models, pairs, and keeps byollm running. For another app, <code>byollm connect https://the-app.com</code> opens your browser to pair with one click. Nothing to configure on your network. (<code>npx byollm@latest connect</code> pairs once without installing, but keeping byollm running needs the global install.)</p></div></div>
     <div class="step"><span class="n">2</span><div><h4>Route your models</h4><p>Name a service for whatever you&rsquo;ve got installed, and say which job kinds it answers: <code>"ollama-local": { "type": "ollama", "model": "gemma3:12b", "kinds": ["llm.generate"] }</code>. The daemon only advertises models you approve. And only ones it can actually run.</p></div></div>
     <div class="step"><span class="n">3</span><div><h4>Stay in control</h4><p><code>byollm log</code> shows every prompt that ever ran on your device. <code>byollm stop</code> stops it. The daemon is your meter — that's the point.</p></div></div>
   </div>

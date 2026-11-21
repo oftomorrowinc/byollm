@@ -11,7 +11,9 @@ excuses — the security posture depends on naming these out loud.
   `npx byollm connect …` works. The name was claimed in 2026-08 by
   publishing a real pre-release (`0.1.0-alpha.N`, `--tag alpha` so it
   stayed off `latest`), not a placeholder. Since `0.1.0` the release
-  goes to `latest` and `npx byollm connect` is the install line. Org team added as maintainers of the unscoped
+  goes to `latest`. The install line is `npm install -g byollm@latest`, then
+  `byollm setup`: `byollm start` refuses an npx copy, because npm deletes
+  that cache without warning, so npx only pairs once. Org team added as maintainers of the unscoped
   package. npm has no package-to-package redirect; the unscoped
   package *is* the CLI.
 

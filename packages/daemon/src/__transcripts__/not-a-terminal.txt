@@ -1,0 +1,5 @@
+byollm setup needs a terminal it can ask questions in.
+Write ~/.byollm/config.json by hand instead: https://docs.byollm.cloud/guides/models
+
+──── config.json ────
+(not written)

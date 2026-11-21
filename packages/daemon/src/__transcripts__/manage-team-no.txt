@@ -1,0 +1,47 @@
+
+  broken is in your config in a shape this screen does not
+  understand, so it is left exactly as it is.
+
+  `codex` is installed. Which model does it serve?
+  (press enter to skip — it will not be offered) 
+
+  `codex` is installed, and byollm does not know which model it serves.
+  Add it by hand and it will appear here next time: https://docs.byollm.cloud/guides/models
+
+Looking for local model servers...
+
+What should byollm be able to run on this machine?
+  Type a number to turn one on or off, `a` for all, Enter when done.
+
+  subscriptions this machine is signed in to
+    1. [x] claude                   Claude CLI
+                               your subscription — your own jobs only
+
+  models on this machine
+    2. [ ] qwen3-8b                 Ollama at http://127.0.0.1:11434
+                               free — your electricity
+
+  models this machine can reach, billed to your account
+    3. [x] glm                      Ollama at http://127.0.0.1:11434
+                               metered — runs on your provider's account
+
+  > 
+
+claude uses your own subscription, for YOUR
+OWN jobs only — never shared with a team, whatever the config says.
+Someone else's terms are not yours to lend.
+
+Do you have, or plan to create, a team to share these services
+with on this computer? [y/N] 
+
+What would you like your default service to be?
+  1. claude
+  2. glm
+  [1] 
+[err]byollm built a config this daemon would refuse, which is a bug:
+  services.broken.type: Invalid option: expected one of "ollama"|"mlx"|"llamacpp"|"vllm"|"lmstudio"|"jan"|"localai"|"anthropic"|"openai"|"gemini"|"grok"|"groq"|"openrouter"|"together"|"deepseek"|"mistral"|"openai-http"|"claude-cli"|"codex-cli"
+  services.broken.model: Invalid input: expected string, received undefined
+  services.broken.kinds: Invalid input: expected array, received undefined
+
+──── config.json ────
+(not written)

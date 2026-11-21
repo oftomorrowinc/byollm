@@ -1,0 +1,20 @@
+
+Setting up byollm. Change any of it later in <root>/config.json.
+
+What should this device be called? [my-computer] 
+
+Looking for local model servers...
+
+What should byollm be able to run on this machine?
+  Type a number to turn one on or off, `a` for all, Enter when done.
+
+  subscriptions this machine is signed in to
+    1. [ ] claude                   your Claude subscription
+                               your subscription — your own jobs only
+
+  > 
+
+Nothing selected.
+
+──── config.json ────
+(not written)

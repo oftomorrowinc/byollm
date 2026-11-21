@@ -1,0 +1,52 @@
+
+Setting up byollm. Change any of it later in <root>/config.json.
+
+What should this device be called? [my-computer] 
+
+Looking for local model servers...
+
+What should byollm be able to run on this machine?
+  Type a number to turn one on or off, `a` for all, Enter when done.
+
+  subscriptions this machine is signed in to
+    1. [ ] claude                   your Claude subscription
+                               your subscription — your own jobs only
+
+  > 1
+
+  subscriptions this machine is signed in to
+    1. [x] claude                   your Claude subscription
+                               your subscription — your own jobs only
+
+  > 
+
+claude uses your own subscription, for YOUR
+OWN jobs only — never shared with a team, whatever the config says.
+Someone else's terms are not yours to lend.
+
+Wrote <root>/config.json
+  claude — your own jobs only
+
+  Connect to byollm.cloud? [Y/n] y
+
+  Start byollm now and keep it running across restarts? [Y/n] n
+
+  Paired, and not running. Start it when you want it:
+    byollm start       keep it running, across restarts
+    byollm run         run in this terminal and watch it
+
+──── config.json ────
+{
+  "version": 1,
+  "services": {
+    "claude": {
+      "type": "claude-cli",
+      "model": "opus",
+      "kinds": [
+        "llm.generate",
+        "llm.chat"
+      ],
+      "offer": "private"
+    }
+  }
+}

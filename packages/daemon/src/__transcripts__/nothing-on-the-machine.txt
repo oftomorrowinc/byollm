@@ -1,0 +1,15 @@
+
+Setting up byollm. Change any of it later in <root>/config.json.
+
+What should this device be called? [my-computer] 
+
+Looking for local model servers...
+
+Nothing to configure yet — no supported CLI, and no model server
+answering on this machine. Install one, or add a model by hand:
+  claude: https://claude.com/claude-code
+  codex: npm i -g @openai/codex
+  local:  https://docs.byollm.cloud/guides/models
+
+──── config.json ────
+(not written)

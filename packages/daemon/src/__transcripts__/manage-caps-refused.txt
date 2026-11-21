@@ -1,0 +1,118 @@
+
+  `codex` is installed. Which model does it serve?
+  (press enter to skip — it will not be offered) 
+
+  `codex` is installed, and byollm does not know which model it serves.
+  Add it by hand and it will appear here next time: https://docs.byollm.cloud/guides/models
+
+Looking for local model servers...
+
+What should byollm be able to run on this machine?
+  Type a number to turn one on or off, `a` for all, Enter when done.
+
+  subscriptions this machine is signed in to
+    1. [x] claude                   Claude CLI
+                               your subscription — your own jobs only
+
+  models on this machine
+    2. [ ] qwen3-8b                 Ollama at http://127.0.0.1:11434
+                               free — your electricity
+
+  models this machine can reach, billed to your account
+    3. [x] glm                      Ollama at http://127.0.0.1:11434
+                               metered — runs on your provider's account
+
+  > 2
+
+  subscriptions this machine is signed in to
+    1. [x] claude                   Claude CLI
+                               your subscription — your own jobs only
+
+  models on this machine
+    2. [x] qwen3-8b                 Ollama at http://127.0.0.1:11434
+                               free — your electricity
+
+  models this machine can reach, billed to your account
+    3. [x] glm                      Ollama at http://127.0.0.1:11434
+                               metered — runs on your provider's account
+
+  > 
+
+claude uses your own subscription, for YOUR
+OWN jobs only — never shared with a team, whatever the config says.
+Someone else's terms are not yours to lend.
+
+Do you have, or plan to create, a team to share these services
+with on this computer? [y/N] y
+
+Which of these may your team use?
+  Same list: a number turns one on or off, `a` for all, Enter when done.
+
+  not shareable: claude — runs on your own subscription
+
+    1. [ ] qwen3-8b                 free — your electricity
+    2. [x] glm                      metered — your account pays for their jobs
+  > 
+
+  You authorized the team to spend up to this amount on model glm
+  each day, in dollars (0 disables sharing): [7.00] ten
+  "ten" is not an amount. Type a number of dollars, like 10 or 2.50.
+
+  You authorized the team to spend up to this amount on model glm
+  each day, in dollars (0 disables sharing): [7.00] lots
+  "lots" is not an amount. Type a number of dollars, like 10 or 2.50.
+
+  You authorized the team to spend up to this amount on model glm
+  each day, in dollars (0 disables sharing): [7.00] $$
+  "$$" is not an amount. Type a number of dollars, like 10 or 2.50.
+  No amount given, so glm stays private.
+  glm stays private.
+
+What would you like your default service to be?
+  1. claude
+  2. qwen3-8b
+  3. glm
+  [1] 
+
+──── config.json ────
+{
+  "version": 1,
+  "services": {
+    "claude": {
+      "type": "claude-cli",
+      "model": "opus",
+      "kinds": [
+        "llm.chat"
+      ],
+      "offer": "private"
+    },
+    "qwen3-8b": {
+      "type": "ollama",
+      "baseUrl": "http://127.0.0.1:11434",
+      "model": "qwen3:8b",
+      "kinds": [
+        "llm.generate",
+        "llm.chat"
+      ],
+      "offer": "private"
+    },
+    "glm": {
+      "type": "ollama",
+      "baseUrl": "http://127.0.0.1:11434",
+      "model": "glm-5.2:cloud",
+      "kinds": [
+        "llm.generate",
+        "llm.chat"
+      ],
+      "offer": "private",
+      "spend": {
+        "acknowledged": true,
+        "dailyCapCents": 700
+      }
+    }
+  },
+  "defaults": {
+    "llm.generate": "claude",
+    "llm.chat": "claude"
+  }
+}

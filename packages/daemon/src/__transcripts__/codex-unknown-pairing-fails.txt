@@ -1,0 +1,79 @@
+
+Setting up byollm. Change any of it later in <root>/config.json.
+
+What should this device be called? [my-computer] phone
+
+  `codex` is installed. Which model does it serve?
+  (press enter to skip — it will not be offered) nope-1
+
+  `codex` did not answer for `nope-1`: unknown model
+
+  `codex` is installed. Which model does it serve?
+  (press enter to skip — it will not be offered) nope-2
+
+  `codex` did not answer for `nope-2`: unknown model
+
+  `codex` is installed. Which model does it serve?
+  (press enter to skip — it will not be offered) nope-3
+
+  `codex` did not answer for `nope-3`: unknown model
+
+  `codex` is installed, and byollm does not know which model it serves.
+  Add it by hand and it will appear here next time: https://docs.byollm.cloud/guides/models
+
+Looking for local model servers...
+
+What should byollm be able to run on this machine?
+  Type a number to turn one on or off, `a` for all, Enter when done.
+
+  subscriptions this machine is signed in to
+    1. [ ] claude                   your Claude subscription
+                               signed out
+
+  > 1
+
+  subscriptions this machine is signed in to
+    1. [x] claude                   your Claude subscription
+                               signed out
+
+  > 
+
+`claude` is installed and cannot answer yet — it needs signing in.
+  Sign in to claude now? [Y/n] y
+  Opening Claude's sign-in now. Finish it there and this picks
+  straight back up.
+
+
+  Still cannot answer. Expired.
+  Sign in to claude now? [Y/n] y
+  Opening Claude's sign-in now. Finish it there and this picks
+  straight back up.
+
+
+claude uses your own subscription, for YOUR
+OWN jobs only — never shared with a team, whatever the config says.
+Someone else's terms are not yours to lend.
+
+Wrote <root>/config.json
+  claude — your own jobs only
+
+  Connect to byollm.cloud? [Y/n] 
+
+  Pairing did not finish. Nothing else was changed — try again with:
+    byollm connect --name "phone"
+
+──── config.json ────
+{
+  "version": 1,
+  "services": {
+    "claude": {
+      "type": "claude-cli",
+      "model": "opus",
+      "kinds": [
+        "llm.generate",
+        "llm.chat"
+      ],
+      "offer": "private"
+    }
+  }
+}

@@ -1,0 +1,187 @@
+
+Setting up byollm. Change any of it later in <root>/config.json.
+
+What should this device be called? [my-computer] 
+
+  `codex` is installed. Which model does it serve?
+
+    1  gpt-5.5 — frontier
+  (a number, or type a model name; enter skips — it will not be offered) 9
+
+  `codex` did not answer for `9`: model 9 not found
+
+  `codex` is installed. Which model does it serve?
+
+    1  gpt-5.5 — frontier
+  (a number, or type a model name; enter skips — it will not be offered) 1
+
+Looking for local model servers...
+
+What should byollm be able to run on this machine?
+  Type a number to turn one on or off, `a` for all, Enter when done.
+
+  subscriptions this machine is signed in to
+    1. [ ] claude                   your Claude subscription
+                               signed out
+    2. [x] codex                    your ChatGPT plan
+                               your subscription — your own jobs only
+
+  models on this machine
+    3. [ ] qwen3-8b                 Ollama at http://127.0.0.1:11434
+                               free — your electricity
+
+  models this machine can reach, billed to your account
+    4. [ ] glm-5.2-cloud            Ollama at http://127.0.0.1:11434
+                               metered — runs on your provider's account
+
+  > zz
+
+  "zz" is not a number on this list. Type 1-4, `a`, or Enter to finish.
+
+  subscriptions this machine is signed in to
+    1. [ ] claude                   your Claude subscription
+                               signed out
+    2. [x] codex                    your ChatGPT plan
+                               your subscription — your own jobs only
+
+  models on this machine
+    3. [ ] qwen3-8b                 Ollama at http://127.0.0.1:11434
+                               free — your electricity
+
+  models this machine can reach, billed to your account
+    4. [ ] glm-5.2-cloud            Ollama at http://127.0.0.1:11434
+                               metered — runs on your provider's account
+
+  > 1 3 4 99
+
+  ignored 99 — this list stops at 4.
+
+  subscriptions this machine is signed in to
+    1. [x] claude                   your Claude subscription
+                               signed out
+    2. [x] codex                    your ChatGPT plan
+                               your subscription — your own jobs only
+
+  models on this machine
+    3. [x] qwen3-8b                 Ollama at http://127.0.0.1:11434
+                               free — your electricity
+
+  models this machine can reach, billed to your account
+    4. [x] glm-5.2-cloud            Ollama at http://127.0.0.1:11434
+                               metered — runs on your provider's account
+
+  > 
+
+`claude` is installed and cannot answer yet — it needs signing in.
+  Not logged in.
+  Sign in to claude now? [Y/n] 
+  Opening Claude's sign-in now. Finish it there and this picks
+  straight back up.
+
+
+  Still cannot answer. Still not.
+  Sign in to claude now? [Y/n] n
+  Sign in with `claude auth login` elsewhere, then press Enter to re-check (n to skip): 
+
+claude, codex use your own subscription, for YOUR
+OWN jobs only — never shared with a team, whatever the config says.
+Someone else's terms are not yours to lend.
+
+Do you have, or plan to create, a team to share these services
+with on this computer? [y/N] y
+
+Which of these may your team use?
+  Same list: a number turns one on or off, `a` for all, Enter when done.
+
+  not shareable: claude, codex — runs on your own subscription
+
+    1. [ ] qwen3-8b                 free — your electricity
+    2. [ ] glm-5.2-cloud            metered — your account pays for their jobs
+  > a
+
+    1. [x] qwen3-8b                 free — your electricity
+    2. [x] glm-5.2-cloud            metered — your account pays for their jobs
+  > 
+
+  You authorized the team to spend up to this amount on model glm-5.2-cloud
+  each day, in dollars (0 disables sharing): [10.00] abc
+  "abc" is not an amount. Type a number of dollars, like 10 or 2.50.
+
+  You authorized the team to spend up to this amount on model glm-5.2-cloud
+  each day, in dollars (0 disables sharing): [10.00] 2.50
+  Your team's jobs on glm-5.2-cloud stop at that amount. They are not
+  also counted against the hourly and daily job caps for other
+  people's work — to count them too:
+    byollm budget community --count-team-jobs yes
+
+What would you like your default service to be?
+  1. claude  (cannot serve teammates)
+  2. codex  (cannot serve teammates)
+  3. qwen3-8b
+  4. glm-5.2-cloud
+  [1] 2
+
+Wrote <root>/config.json
+  claude — your own jobs only
+  codex — your own jobs only
+  qwen3-8b — your team may use it
+  glm-5.2-cloud — your team may use it, up to $2.50 a day
+
+  Connect to byollm.cloud? [Y/n] y
+
+  Start byollm now and keep it running across restarts? [Y/n] 
+
+  Done. This device is set up, paired, and running in the background.
+
+──── config.json ────
+{
+  "version": 1,
+  "services": {
+    "claude": {
+      "type": "claude-cli",
+      "model": "opus",
+      "kinds": [
+        "llm.generate",
+        "llm.chat"
+      ],
+      "offer": "private"
+    },
+    "codex": {
+      "type": "codex-cli",
+      "model": "gpt-5.5",
+      "kinds": [
+        "llm.generate",
+        "llm.chat"
+      ],
+      "offer": "private"
+    },
+    "qwen3-8b": {
+      "type": "ollama",
+      "baseUrl": "http://127.0.0.1:11434",
+      "model": "qwen3:8b",
+      "kinds": [
+        "llm.generate",
+        "llm.chat"
+      ],
+      "offer": "team"
+    },
+    "glm-5.2-cloud": {
+      "type": "ollama",
+      "baseUrl": "http://127.0.0.1:11434",
+      "model": "glm-5.2:cloud",
+      "kinds": [
+        "llm.generate",
+        "llm.chat"
+      ],
+      "offer": "team",
+      "spend": {
+        "acknowledged": true,
+        "dailyCapCents": 250
+      }
+    }
+  },
+  "defaults": {
+    "llm.generate": "codex",
+    "llm.chat": "codex"
+  }
+}

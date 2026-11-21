@@ -1,0 +1,75 @@
+
+Your config at <root>/config.json has no services in it, so nothing
+can run yet. That is how versions before alpha.44 left it.
+  Set it up now? [Y/n] 
+
+Setting up byollm. Change any of it later in <root>/config.json.
+
+What should this device be called? [my-computer] laptop
+
+Looking for local model servers...
+
+What should byollm be able to run on this machine?
+  Type a number to turn one on or off, `a` for all, Enter when done.
+
+  subscriptions this machine is signed in to
+    1. [ ] claude                   your Claude subscription
+                               signed out
+
+  models on this machine
+    2. [ ] qwen3-8b                 Ollama at http://127.0.0.1:11434
+                               free — your electricity
+
+  > 1 2
+
+  subscriptions this machine is signed in to
+    1. [x] claude                   your Claude subscription
+                               signed out
+
+  models on this machine
+    2. [x] qwen3-8b                 Ollama at http://127.0.0.1:11434
+                               free — your electricity
+
+  > 
+
+`claude` is installed and cannot answer yet — it needs signing in.
+  Not logged in.
+
+  Run this in another window, then come back:
+
+      claude auth login
+
+  (Windows cannot open it for you from here.)
+  Sign in with `claude auth login` elsewhere, then press Enter to re-check (n to skip): n
+
+  Leaving `claude` out: it is installed and not signed in, so
+  nothing would route to it. Sign in with `claude auth login`, then
+  run `byollm services manage` again.
+
+Do you have, or plan to create, a team to share these services
+with on this computer? [y/N] n
+
+Wrote <root>/config.json
+  qwen3-8b — your own jobs only
+
+  Connect to byollm.cloud? [Y/n] n
+
+  Not connected. This device is set up and unreachable — finish with:
+    byollm connect --name "laptop"
+
+──── config.json ────
+{
+  "version": 1,
+  "services": {
+    "qwen3-8b": {
+      "type": "ollama",
+      "baseUrl": "http://127.0.0.1:11434",
+      "model": "qwen3:8b",
+      "kinds": [
+        "llm.generate",
+        "llm.chat"
+      ],
+      "offer": "private"
+    }
+  }
+}

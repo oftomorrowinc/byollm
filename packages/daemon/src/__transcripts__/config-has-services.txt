@@ -1,0 +1,7 @@
+You already have a config at <root>/config.json.
+It has 1 service(s). Setup will not change it.
+Run `byollm services` to see what it does, or
+`byollm services manage` to change it.
+
+──── config.json ────
+{"services":{"a":{"type":"claude-cli","model":"opus"}}}

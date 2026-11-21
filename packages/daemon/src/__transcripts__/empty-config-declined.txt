@@ -1,0 +1,8 @@
+
+Your config at <root>/config.json has no services in it, so nothing
+can run yet. That is how versions before alpha.44 left it.
+  Set it up now? [Y/n] n
+  Left alone. Nothing was changed.
+
+──── config.json ────
+{"services":{}}

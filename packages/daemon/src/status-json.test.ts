@@ -227,9 +227,22 @@ describe("the three states", () => {
     expect((await statusJson()).status.state).toBe("stopped");
   });
 
-  it("needs_attention: installed, and the supervisor says it is down", async () => {
+  /* These two start where nothing else already says "not running": not
+     paired, so no beat is not stale, or beating from a live pid. Only the
+     supervisor's "down" decides, so dropping that check turns them green
+     (review #68852: paired with no beat was stale on its own). */
+  it("needs_attention: installed, crash-looping before its first beat", async () => {
+    await configured();
+
+    expect((await statusJson(systemd("failed"))).status.state).toBe(
+      "needs_attention",
+    );
+  });
+
+  it("needs_attention: the supervisor says down, though a beat is fresh", async () => {
     await configured();
     await paired();
+    await beating();
 
     expect((await statusJson(systemd("failed"))).status.state).toBe(
       "needs_attention",

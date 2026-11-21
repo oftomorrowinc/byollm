@@ -10,6 +10,12 @@ import type { DaemonPaths } from "./paths.js";
 import type { Detected, Probe, Verifier } from "./services-manage.js";
 import { manageServices, writeManaged } from "./services-manage.js";
 import { runSetup, type SetupIo } from "./setup.js";
+import {
+  QUESTION_IDS,
+  terminalFace,
+  type Face,
+  type Question,
+} from "./questions.js";
 
 /**
  * Setup's transcript, character for character — cloud_016 phase 1, ask 2.
@@ -156,7 +162,7 @@ async function golden(
   const body =
     transcript.split(root).join("<root>") +
     "\n──── config.json ────\n" +
-    (config === undefined ? "(not written)\n" : config);
+    (config ?? "(not written)\n");
   const file = join(HERE, `${name}.txt`);
   if (RECORD) {
     await mkdir(HERE, { recursive: true });
@@ -171,8 +177,28 @@ async function configOf(p: DaemonPaths): Promise<string | undefined> {
   return existsSync(p.config) ? readFile(p.config, "utf8") : undefined;
 }
 
-/** The ids each scenario's run asked, filled as the scenarios run. */
-const QUESTIONS_REACHED = new Set<string>();
+/** Every record any scenario's run was asked, filled as the scenarios run. */
+const QUESTIONS_REACHED: Question[] = [];
+
+/**
+ * The terminal face over the recording terminal, keeping each record.
+ *
+ * The scenarios drive setup through a FACE, not a line terminal, so what
+ * reaches the goldens is the records as the terminal face prints them — the
+ * thing this card claims, rather than the line path `faceOf` keeps for old
+ * callers.
+ */
+function face(io: SetupIo): Face {
+  const terminal = terminalFace(io);
+  return {
+    ...terminal,
+    interactive: io.interactive,
+    answer: (question) => {
+      QUESTIONS_REACHED.push(question);
+      return terminal.answer(question);
+    },
+  };
+}
 
 beforeEach(() => {
   /* The suggested device name reads this; a developer's own label must not
@@ -210,7 +236,7 @@ describe("setup's transcript is the same as before the questions became records"
     const ran: string[][] = [];
     const result = await runSetup(
       p,
-      io,
+      face(io),
       machineWith(["claude-cli", "codex-cli"]),
       serving({
         label: "Ollama",
@@ -256,7 +282,7 @@ describe("setup's transcript is the same as before the questions became records"
     ]);
     const result = await runSetup(
       p,
-      io,
+      face(io),
       machineWith(["claude-cli"]),
       serving({
         label: "Ollama",
@@ -289,7 +315,7 @@ describe("setup's transcript is the same as before the questions became records"
     await homeWith(p.root, undefined);
     await writeFile(p.config, JSON.stringify({ services: {} }));
     const io = terminal(["n"]);
-    const result = await runSetup(p, io, machineWith([]), serving());
+    const result = await runSetup(p, face(io), machineWith([]), serving());
     expect(result.wrote).toBe(false);
     await golden(
       "empty-config-declined",
@@ -309,7 +335,7 @@ describe("setup's transcript is the same as before the questions became records"
       }),
     );
     const io = terminal([]);
-    await runSetup(p, io, machineWith([]), serving());
+    await runSetup(p, face(io), machineWith([]), serving());
     await golden(
       "config-has-services",
       p.root,
@@ -323,7 +349,7 @@ describe("setup's transcript is the same as before the questions became records"
     const io = { ...terminal([]), interactive: false };
     const said: string[] = [];
     io.err = (text) => said.push(text);
-    await runSetup(p, io, machineWith([]), serving());
+    await runSetup(p, face(io), machineWith([]), serving());
     await golden("not-a-terminal", p.root, said.join(""), await configOf(p));
   });
 
@@ -343,7 +369,7 @@ describe("setup's transcript is the same as before the questions became records"
     ]);
     const result = await runSetup(
       p,
-      io,
+      face(io),
       machineWith(["claude-cli", "codex-cli"]),
       serving(),
       verifying(
@@ -381,7 +407,7 @@ describe("setup's transcript is the same as before the questions became records"
       const io = terminal(answers);
       await runSetup(
         p,
-        io,
+        face(io),
         machineWith(["claude-cli"]),
         serving(),
         verifying({}),
@@ -403,7 +429,13 @@ describe("setup's transcript is the same as before the questions became records"
       const p = await paths();
       await homeWith(p.root, undefined);
       const io = terminal(answers);
-      await runSetup(p, io, machineWith(detect), serving(), verifying({}));
+      await runSetup(
+        p,
+        face(io),
+        machineWith(detect),
+        serving(),
+        verifying({}),
+      );
       expect(io.left()).toEqual([]);
       await golden(name, p.root, io.transcript(), await configOf(p));
     }
@@ -431,7 +463,7 @@ describe("setup's transcript is the same as before the questions became records"
       "", // default service: the offered one
     ]);
     const outcome = await manageServices({
-      io,
+      io: face(io),
       existing,
       detector: machineWith(["claude-cli", "codex-cli"]),
       verifier: verifying({}),
@@ -463,7 +495,7 @@ describe("setup's transcript is the same as before the questions became records"
     ]);
     const { broken: _unreadable, ...readable } = existing;
     const outcome2 = await manageServices({
-      io: io2,
+      io: face(io2),
       existing: readable,
       detector: machineWith(["claude-cli", "codex-cli"]),
       verifier: verifying({}),
@@ -485,5 +517,105 @@ describe("setup's transcript is the same as before the questions became records"
       io2.transcript(),
       await configOf(p2),
     );
+  });
+});
+
+describe("added after the first recording, recorded against the same pre-change code", () => {
+  it("two subscriptions and nothing local: the subscription sentence goes with the default question", async () => {
+    const p = await paths();
+    await homeWith(p.root, [{ slug: "gpt-5.5", description: "frontier" }]);
+    const io = terminal([
+      "", // device name
+      "1", // codex model: the first suggestion
+      "1", // picker: claude too
+      "", // picker: done
+      "", // default service: the offered one
+      "n", // connect: no
+    ]);
+    await runSetup(
+      p,
+      face(io),
+      machineWith(["claude-cli", "codex-cli"]),
+      serving(),
+      verifying({}),
+      signsIn(),
+      () => Promise.reject(new Error("nothing should run")),
+      {},
+      "linux",
+    );
+    expect(io.left()).toEqual([]);
+    await golden(
+      "two-subscriptions",
+      p.root,
+      io.transcript(),
+      await configOf(p),
+    );
+  });
+});
+
+/** Everything the terminal face prints for one record, prompt included. */
+async function printedFor(question: Question): Promise<string> {
+  const said: string[] = [];
+  await terminalFace({
+    interactive: true,
+    out: (text) => said.push(text),
+    err: (text) => said.push(text),
+    ask: (prompt) => {
+      said.push(prompt);
+      return Promise.resolve("");
+    },
+  }).answer(question);
+  return said.join("");
+}
+
+describe("every question setup can ask is a record", () => {
+  it("the scenarios above reached every question id, and only ids on the list", () => {
+    /* Runs after the scenarios: vitest runs a file's tests in order. A new
+       question needs an id on the list, a terminal layout, and a scenario
+       here that reaches it — or this names it. */
+    const reached = new Set(QUESTIONS_REACHED.map((q) => q.id));
+    expect([...reached].sort()).toEqual([...QUESTION_IDS].sort());
+  });
+
+  it("each record's own words are what the terminal printed for it", async () => {
+    /* The words live in the record and the terminal adds only furniture —
+       so every line of a record's words is on screen, as is every option. */
+    expect(QUESTIONS_REACHED.length).toBeGreaterThan(0);
+    for (const question of QUESTIONS_REACHED) {
+      const printed = await printedFor(question);
+      /* A picker's later rounds redraw the rows without re-introducing it,
+         sentence included: it was shown with the question, once. */
+      const words = question.again === true ? [] : question.words.split("\n");
+      for (const line of words) {
+        expect(printed).toContain(line);
+      }
+      for (const option of question.options ?? []) {
+        expect(printed).toContain(option.label);
+      }
+      if (question.mustShow !== undefined && question.again !== true) {
+        expect(printed).toContain(question.mustShow);
+      }
+    }
+  });
+
+  it("the subscription sentence travels with a question, not beside it", () => {
+    const carried = QUESTIONS_REACHED.filter((q) =>
+      q.mustShow?.includes("never shared with a team"),
+    );
+    expect(carried.map((q) => q.id)).toContain("services.team");
+    expect(carried.map((q) => q.id)).toContain("services.default");
+  });
+
+  it("no question is asked as bare text: the conversation never calls `ask`", async () => {
+    /* A Face has no `ask`, so the compiler refuses a bare question inside the
+       conversation. This holds the files to it too, so one cannot come back
+       by way of a line terminal threaded past the face. */
+    for (const file of ["services-manage.ts", "setup.ts"]) {
+      const source = await readFile(
+        fileURLToPath(new URL(`./${file}`, import.meta.url)),
+        "utf8",
+      );
+      expect(source, file).not.toMatch(/\.ask\(/);
+    }
   });
 });

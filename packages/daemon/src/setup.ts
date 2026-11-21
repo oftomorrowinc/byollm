@@ -13,6 +13,7 @@ import {
   type Verifier,
 } from "./services-manage.js";
 import type { DaemonPaths } from "./paths.js";
+import { faceOf, type Face } from "./questions.js";
 
 /**
  * `byollm setup` — byollm_015 Phase 1.
@@ -67,7 +68,11 @@ export interface SetupResult {
  */
 export async function runSetup(
   paths: DaemonPaths,
-  io: SetupIo,
+  /**
+   * Who answers — a face (questions.ts), or a line terminal the terminal
+   * face is drawn on. Either way it is one conversation.
+   */
+  given: SetupIo | Face,
   detector?: Detector,
   probe?: Probe,
   /**
@@ -114,6 +119,7 @@ export async function runSetup(
    */
   platform?: NodeJS.Platform,
 ): Promise<SetupResult> {
+  const io = faceOf(given);
   if (!io.interactive) {
     io.err(
       "byollm setup needs a terminal it can ask questions in.\n" +
@@ -155,7 +161,12 @@ export async function runSetup(
       `\nYour config at ${paths.config} has no services in it, so nothing\n` +
         "can run yet. That is how versions before alpha.44 left it.\n",
     );
-    const go = await io.ask("  Set it up now? [Y/n] ");
+    const go = await io.answer({
+      id: "setup.set-up-empty-config",
+      kind: "yes-no",
+      words: "Set it up now?",
+      default: "yes",
+    });
     if (!yes(go, true)) {
       io.out("  Left alone. Nothing was changed.\n");
       return { wrote: false, services: [] };
@@ -166,9 +177,12 @@ export async function runSetup(
 
   // ── 1. what this device is called ────────────────────────────────────
   const suggested = defaultDeviceName();
-  const nameAnswer = await io.ask(
-    `What should this device be called? [${suggested}] `,
-  );
+  const nameAnswer = await io.answer({
+    id: "setup.device-name",
+    kind: "text",
+    words: "What should this device be called?",
+    default: suggested,
+  });
   const deviceName = nameAnswer.trim() === "" ? suggested : nameAnswer.trim();
 
   // ── 2. what this machine may run ─────────────────────────────────────
@@ -223,7 +237,12 @@ export async function runSetup(
    * the command, not a warning.
    */
   const doConnect = yes(
-    await io.ask("\n  Connect to byollm.cloud? [Y/n] "),
+    await io.answer({
+      id: "setup.connect",
+      kind: "yes-no",
+      words: "Connect to byollm.cloud?",
+      default: "yes",
+    }),
     true,
   );
   if (!doConnect) {
@@ -251,9 +270,12 @@ export async function runSetup(
      background" left "and after I reboot?" unanswered, which is the whole
      question the command exists to settle. */
   const doInstall = yes(
-    await io.ask(
-      "\n  Start byollm now and keep it running across restarts? [Y/n] ",
-    ),
+    await io.answer({
+      id: "setup.start",
+      kind: "yes-no",
+      words: "Start byollm now and keep it running across restarts?",
+      default: "yes",
+    }),
     true,
   );
   if (!doInstall) {

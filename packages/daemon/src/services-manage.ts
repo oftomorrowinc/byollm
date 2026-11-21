@@ -9,6 +9,12 @@ import { DaemonConfig, ServiceConfig, writeConfig } from "./config.js";
 import { isLoopback } from "./local-server.js";
 import { dollars } from "./spend.js";
 import {
+  faceOf,
+  type Face,
+  type LineIo,
+  type QuestionOption,
+} from "./questions.js";
+import {
   loginCommandFor,
   loginPlan,
   runLogin,
@@ -90,7 +96,7 @@ import {
  */
 async function modelByHand(input: {
   cli: { readonly id: BackendId; readonly binary: string };
-  io: ManageIo;
+  io: Face;
   verifier: Verifier;
   /** Injected in tests; production reads the vendor CLIs' own files. */
   suggest?: (cli: BackendId) => Promise<readonly ModelSuggestion[]>;
@@ -111,15 +117,11 @@ async function modelByHand(input: {
   const suggestions = await (input.suggest ?? ((id) => modelSuggestions(id)))(
     cli.id,
   );
-  const menu =
-    suggestions.length === 0
-      ? ""
-      : `\n${suggestions
-          .map(
-            (s, at) =>
-              `    ${String(at + 1)}  ${s.id}${s.note === undefined ? "" : ` — ${s.note}`}`,
-          )
-          .join("\n")}\n`;
+  const menu: QuestionOption[] = suggestions.map((s, at) => ({
+    value: String(at + 1),
+    label: s.id,
+    ...(s.note === undefined ? {} : { note: s.note }),
+  }));
   const byHand =
     `\n  \`${cli.binary}\` is installed, and byollm does not know which ` +
     `model it serves.\n  Add it by hand and it will appear here next ` +
@@ -127,13 +129,12 @@ async function modelByHand(input: {
 
   for (let round = 0; round < 3; round += 1) {
     const answer = (
-      await io.ask(
-        `\n  \`${cli.binary}\` is installed. Which model does it serve?\n` +
-          menu +
-          (suggestions.length === 0
-            ? `  (press enter to skip — it will not be offered) `
-            : `  (a number, or type a model name; enter skips — it will not be offered) `),
-      )
+      await io.answer({
+        id: "services.model",
+        kind: "text",
+        words: `\`${cli.binary}\` is installed. Which model does it serve?`,
+        options: menu,
+      })
     ).trim();
 
     /* Skipping is a choice, not a failure, and it lands where it always did. */
@@ -170,15 +171,12 @@ async function modelByHand(input: {
   return undefined;
 }
 
-/** How this screen talks. Injected so tests are not a TTY. */
-export interface ManageIo {
-  out(text: string): void;
-  err(text: string): void;
-  /** Asks, and returns the raw answer. */
-  ask(question: string): Promise<string>;
-  /** Whether we may ask at all. */
-  interactive: boolean;
-}
+/**
+ * The line terminal this screen used to talk through, and still may: given
+ * one, the screen draws its questions on it with the terminal face
+ * (questions.ts). Injected so tests are not a TTY.
+ */
+export type ManageIo = LineIo;
 
 /**
  * Whether a backend is startable on this machine.
@@ -695,7 +693,7 @@ async function signIn(input: {
     readonly binary: string;
     readonly model: string;
   };
-  io: ManageIo;
+  io: Face;
   verifier: Verifier;
   login: (command: LoginCommand) => Promise<boolean>;
   platform: NodeJS.Platform;
@@ -714,7 +712,12 @@ async function signIn(input: {
          platform has already said it cannot do. */
       if (round === 0) io.out(`\n${plan.say}\n`);
     } else if (command !== undefined) {
-      const go = await io.ask(`  Sign in to ${cli.binary} now? [Y/n] `);
+      const go = await io.answer({
+        id: "services.sign-in",
+        kind: "yes-no",
+        words: `Sign in to ${cli.binary} now?`,
+        default: "yes",
+      });
       if (yesNo(go, true)) {
         io.out(`  ${command.says}\n\n`);
         // The terminal belongs to the child until it exits. Nothing is
@@ -733,10 +736,13 @@ async function signIn(input: {
     }
 
     // The fallback, and the door for somebody who wants to do it their way.
-    const again = await io.ask(
-      `  Sign in with \`${command?.argv.join(" ") ?? cli.binary}\` elsewhere, ` +
-        `then press Enter to re-check (n to skip): `,
-    );
+    const again = await io.answer({
+      id: "services.sign-in-elsewhere",
+      kind: "wait",
+      words:
+        `Sign in with \`${command?.argv.join(" ") ?? cli.binary}\` elsewhere, ` +
+        `then press Enter to re-check (n to skip):`,
+    });
     if (/^n(o)?$/i.test(again.trim())) return proof;
     proof = await verifier(cli.id, cli.model);
     if (proof.answers !== false) return proof;
@@ -809,7 +815,7 @@ const GROUPS: readonly {
 ]);
 
 /**
- * The screen, as lines — grouped, numbered, and marked.
+ * The screen, as options — grouped, numbered, and marked.
  *
  * Local and `:cloud` in separate blocks is Todd's ruling and it is not
  * cosmetic: they are separate decisions with separate consequences, and a
@@ -819,29 +825,11 @@ const GROUPS: readonly {
  * **Every row shows its cost class**, because consenting to spend money on
  * something that is not labelled as costing money is not consent.
  */
-function renderChoices(rows: readonly Candidate[]): string[] {
-  const lines: string[] = [];
-  let heading: string | undefined;
-  rows.forEach((row, at) => {
-    /**
-     * Numbered from the array, and the heading follows the rows.
-     *
-     * The first version walked the groups and numbered inside each one, which
-     * made the number on screen a function of the grouping and the number the
-     * toggle reads a function of the array — two numbering schemes that agree
-     * only while the array happens to be sorted. **A mutation that deleted
-     * the sort changed nothing that any test could see, and would have moved
-     * every mark to the wrong row on a machine whose probe answered in a
-     * different order.** So the number is the index, always, and the group is
-     * a heading printed when it changes.
-     */
+function choicesOf(rows: readonly Candidate[]): QuestionOption[] {
+  return rows.map((row, at) => {
+    /* Numbered from the array, always — why is on `grouped` in questions.ts,
+       which prints the heading when it changes. */
     const group = GROUPS.find((entry) => entry.cost === row.cost);
-    if (group?.heading !== heading) {
-      if (heading !== undefined) lines.push("");
-      heading = group?.heading;
-      lines.push(`  ${heading ?? "other"}`);
-    }
-    const mark = row.selected ? "x" : " ";
     /**
      * The note carries the exception, and `missing` comes first — B119.
      *
@@ -864,13 +852,15 @@ function renderChoices(rows: readonly Candidate[]): string[] {
           : row.cost === "metered"
             ? "metered — runs on your provider's account"
             : "free — your electricity";
-    lines.push(
-      `   ${String(at + 1).padStart(2)}. [${mark}] ${row.name.padEnd(24)} ${row.where}`,
-    );
-    lines.push(`${" ".repeat(31)}${note}`);
+    return {
+      value: String(at + 1),
+      label: row.name,
+      detail: row.where,
+      note,
+      ...(group === undefined ? {} : { group: group.heading }),
+      on: row.selected,
+    };
   });
-  lines.push("");
-  return lines;
 }
 
 /**
@@ -888,7 +878,7 @@ async function candidates(input: {
   readonly detector: Detector;
   readonly verifier: Verifier;
   readonly probe: Probe;
-  readonly io: ManageIo;
+  readonly io: Face;
   /** B218. Injected in tests so no case reads a real home directory. */
   readonly suggest?: (cli: BackendId) => Promise<readonly ModelSuggestion[]>;
 }): Promise<{
@@ -1194,7 +1184,8 @@ async function candidates(input: {
  * second format.
  */
 export async function manageServices(input: {
-  readonly io: ManageIo;
+  /** A face, or a line terminal the terminal face is drawn on. */
+  readonly io: ManageIo | Face;
   readonly existing: Record<string, ServiceBlock>;
   readonly detector?: Detector;
   readonly verifier?: Verifier;
@@ -1209,7 +1200,7 @@ export async function manageServices(input: {
    */
   readonly suggest?: (cli: BackendId) => Promise<readonly ModelSuggestion[]>;
 }): Promise<ManageResult> {
-  const io = input.io;
+  const io = faceOf(input.io);
   const empty: ManageResult = {
     services: {},
     defaults: {},
@@ -1258,11 +1249,11 @@ export async function manageServices(input: {
   }
 
   // ── 1. what this machine may run ──────────────────────────────────────
-  io.out(
-    "\nWhat should byollm be able to run on this machine?\n" +
-      "  Type a number to turn one on or off, `a` for all, Enter when done.\n\n",
-  );
-  await pick(io, rows, () => renderChoices(rows));
+  await pick(io, rows, {
+    id: "services.pick",
+    words: "What should byollm be able to run on this machine?",
+    options: () => choicesOf(rows),
+  });
 
   const chosen = rows.filter((row) => row.selected);
   if (chosen.length === 0) {
@@ -1314,17 +1305,28 @@ export async function manageServices(input: {
     return empty;
   }
 
-  /* Said before the sharing question, not after it: the self-lock is consent
-     wording, and the moment of enablement is the moment of disclosure. */
+  /* Shown before the sharing question, not after it: the self-lock is consent
+     wording, and the moment of enablement is the moment of disclosure.
+
+     It rides on the next question as the sentence that must be shown with
+     it, so a face that draws a question also draws the sentence — the team
+     question, or the default when no row could be shared. When neither is
+     asked it is said where the questions would have been, which in a
+     terminal is the same bytes in the same place. */
   const locked = enabled.filter((row) => row.cost === "subscription");
-  if (locked.length > 0) {
-    io.out(
-      `\n${locked.map((row) => row.name).join(", ")} ` +
+  let consent: string | undefined =
+    locked.length > 0
+      ? `${locked.map((row) => row.name).join(", ")} ` +
         `${locked.length === 1 ? "uses" : "use"} your own subscription, for YOUR\n` +
         "OWN jobs only — never shared with a team, whatever the config says.\n" +
-        "Someone else's terms are not yours to lend.\n",
-    );
-  }
+        "Someone else's terms are not yours to lend."
+      : undefined;
+  /** The consent sentence, once: handed to the first question that wants it. */
+  const mustShow = (): { mustShow?: string } => {
+    const sentence = consent;
+    consent = undefined;
+    return sentence === undefined ? {} : { mustShow: sentence };
+  };
 
   // ── 3. the team, asked before anything is priced ───────────────────────
   //
@@ -1336,27 +1338,33 @@ export async function manageServices(input: {
   let anyShared = false;
   if (shareable.length > 0) {
     const hasTeam = yesNo(
-      await io.ask(
-        "\nDo you have, or plan to create, a team to share these services\n" +
-          "with on this computer? [y/N] ",
-      ),
+      await io.answer({
+        id: "services.team",
+        kind: "yes-no",
+        words:
+          "Do you have, or plan to create, a team to share these services\n" +
+          "with on this computer?",
+        default: "no",
+        ...mustShow(),
+      }),
       false,
     );
     if (hasTeam) {
-      io.out(
-        "\nWhich of these may your team use?\n" +
-          "  Same list: a number turns one on or off, `a` for all, Enter when done.\n\n",
-      );
-      if (locked.length > 0) {
-        io.out(
-          `  not shareable: ${locked.map((row) => row.name).join(", ")} — ` +
-            "runs on your own subscription\n\n",
-        );
-      }
       await pick(
         io,
         shareable,
-        () => renderShares(shareable),
+        {
+          id: "services.share",
+          words: "Which of these may your team use?",
+          ...(locked.length > 0
+            ? {
+                mustShow:
+                  `not shareable: ${locked.map((row) => row.name).join(", ")} — ` +
+                  "runs on your own subscription",
+              }
+            : {}),
+          options: () => sharesOf(shareable),
+        },
         (row) => {
           row.shared = !row.shared;
         },
@@ -1396,7 +1404,6 @@ export async function manageServices(input: {
   // ── 5. one question, two kinds ─────────────────────────────────────────
   const defaults: Partial<Record<JobKind, string>> = {};
   if (enabled.length > 1) {
-    io.out("\nWhat would you like your default service to be?\n");
     /* Claude if it was selected, which is deliberate. A subscription default
        means a teammate's job that names no service is refused as
        `default-unusable` — and Todd ruled that is correct rather than a
@@ -1405,17 +1412,23 @@ export async function manageServices(input: {
        reaching for a shared machine names the service they were given. */
     const preferred = enabled.findIndex((row) => row.type === "claude-cli");
     const fallback = preferred === -1 ? 0 : preferred;
-    enabled.forEach((row, at) => {
-      /* Suggested by Todd as a one-line addition rather than a different
-         ruling: when anything was shared, say which choices cannot serve the
-         people it was shared with. */
-      const note =
-        anyShared && row.cost === "subscription"
-          ? "  (cannot serve teammates)"
-          : "";
-      io.out(`  ${String(at + 1)}. ${row.name}${note}\n`);
+    const answer = await io.answer({
+      id: "services.default",
+      kind: "choose",
+      words: "What would you like your default service to be?",
+      options: enabled.map((row, at) => ({
+        value: String(at + 1),
+        label: row.name,
+        /* Suggested by Todd as a one-line addition rather than a different
+           ruling: when anything was shared, say which choices cannot serve
+           the people it was shared with. */
+        ...(anyShared && row.cost === "subscription"
+          ? { note: "cannot serve teammates" }
+          : {}),
+      })),
+      default: String(fallback + 1),
+      ...mustShow(),
     });
-    const answer = await io.ask(`  [${String(fallback + 1)}] `);
     const typed = Number.parseInt(answer.trim(), 10);
     /* Anything unparseable falls to the offered row, which the prompt already
        promised. Erroring here would make a typo cost the whole conversation.
@@ -1428,6 +1441,10 @@ export async function manageServices(input: {
       for (const kind of BOTH_KINDS) defaults[kind] = winner.name;
     }
   }
+
+  /* Nothing asked after it: said here, where the questions would have been. */
+  const unshown = mustShow().mustShow;
+  if (unshown !== undefined) io.out(`\n${unshown}\n`);
 
   /* Blocks the schema refused first, so a name collision cannot let the
      screen overwrite one it has already promised to leave alone. */
@@ -1513,16 +1530,17 @@ function draftOf(row: Candidate): ServiceBlock {
   };
 }
 
-/** The sharing pass, rendered from the same rows with a different mark. */
-function renderShares(rows: readonly Candidate[]): string[] {
-  return rows.map((row, at) => {
-    const mark = row.shared ? "x" : " ";
-    const cost =
+/** The sharing pass, from the same rows with a different mark. */
+function sharesOf(rows: readonly Candidate[]): QuestionOption[] {
+  return rows.map((row, at) => ({
+    value: String(at + 1),
+    label: row.name,
+    note:
       row.cost === "metered"
         ? "metered — your account pays for their jobs"
-        : "free — your electricity";
-    return `   ${String(at + 1).padStart(2)}. [${mark}] ${row.name.padEnd(24)} ${cost}`;
-  });
+        : "free — your electricity",
+    on: row.shared,
+  }));
 }
 
 /**
@@ -1534,17 +1552,31 @@ function renderShares(rows: readonly Candidate[]): string[] {
  * unbounded loop there is a CLI that hangs instead of finishing.
  */
 async function pick(
-  io: ManageIo,
+  io: Face,
   rows: Candidate[],
-  render: () => string[],
+  question: {
+    readonly id: "services.pick" | "services.share";
+    readonly words: string;
+    readonly mustShow?: string;
+    /** The rows as they are marked now, drawn again every round. */
+    readonly options: () => QuestionOption[];
+  },
   toggle: (row: Candidate) => void = (row) => {
     row.selected = !row.selected;
   },
   isOn: (row: Candidate) => boolean = (row) => row.selected,
 ): Promise<void> {
   for (let round = 0; round < 100; round += 1) {
-    for (const line of render()) io.out(`${line}\n`);
-    const answer = await io.ask("  > ");
+    const answer = await io.answer({
+      id: question.id,
+      kind: "choose-many",
+      words: question.words,
+      ...(question.mustShow === undefined
+        ? {}
+        : { mustShow: question.mustShow }),
+      options: question.options(),
+      ...(round === 0 ? {} : { again: true }),
+    });
     const verdict = parseToggle(answer, rows.length);
     if (verdict.kind === "done") return;
     if (verdict.kind === "unknown") {
@@ -1588,14 +1620,17 @@ async function pick(
  * rather than falling back to the offered default: the default is an offer,
  * and an offer nobody accepted is not consent to spend their money.
  */
-async function askCap(io: ManageIo, row: Candidate): Promise<number> {
+async function askCap(io: Face, row: Candidate): Promise<number> {
   const offered = row.capCents ?? DEFAULT_SHARE_CAP_CENTS;
   for (let round = 0; round < 3; round += 1) {
-    const answer = await io.ask(
-      `\n  You authorized the team to spend up to this amount on model ` +
-        `${row.name}\n  each day, in dollars (0 disables sharing): ` +
-        `[${dollars(offered).replace("$", "")}] `,
-    );
+    const answer = await io.answer({
+      id: "services.cap",
+      kind: "text",
+      words:
+        `You authorized the team to spend up to this amount on model ` +
+        `${row.name}\neach day, in dollars (0 disables sharing):`,
+      default: dollars(offered).replace("$", ""),
+    });
     if (answer.trim() === "") return offered;
     const cents = dollarsToCents(answer);
     if (cents !== undefined) return cents;
@@ -1703,7 +1738,7 @@ export async function readExistingConfig(
  */
 export async function writeManaged(
   path: string,
-  io: ManageIo,
+  io: Pick<Face, "out" | "err">,
   rest: Record<string, unknown>,
   outcome: ManageResult,
   /**

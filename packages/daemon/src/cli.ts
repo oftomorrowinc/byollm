@@ -28,6 +28,7 @@ import {
   type DaemonHeartbeat,
 } from "./heartbeat.js";
 import { InputEnded, runSetup, terminalIo, type TerminalIo } from "./setup.js";
+import { terminalFace } from "./questions.js";
 import {
   manageServices,
   misTypedReport,
@@ -1434,9 +1435,11 @@ async function setupWith(
   terminal: TerminalIo,
   signal?: AbortSignal,
 ): Promise<ExitCode> {
+  /* The one face there is, for now: the terminal draws each question record
+     exactly as setup always printed it (cloud_016 §2). */
   const result = await runSetup(
     paths,
-    terminal,
+    terminalFace(terminal),
     undefined,
     undefined,
     undefined,
@@ -4998,7 +5001,7 @@ async function manageWith(
 ): Promise<ExitCode> {
   const existing = await readExistingConfig(paths.config);
   const outcome = await manageServices({
-    io: terminal,
+    io: terminalFace(terminal),
     existing: existing?.services ?? {},
   });
   if (!outcome.decided) return 1;

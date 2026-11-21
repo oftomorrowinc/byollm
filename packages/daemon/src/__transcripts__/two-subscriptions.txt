@@ -1,0 +1,77 @@
+
+Setting up byollm. Change any of it later in <root>/config.json.
+
+What should this device be called? [my-computer] 
+
+  `codex` is installed. Which model does it serve?
+
+    1  gpt-5.5 — frontier
+  (a number, or type a model name; enter skips — it will not be offered) 1
+
+Looking for local model servers...
+
+What should byollm be able to run on this machine?
+  Type a number to turn one on or off, `a` for all, Enter when done.
+
+  subscriptions this machine is signed in to
+    1. [ ] claude                   your Claude subscription
+                               your subscription — your own jobs only
+    2. [x] codex                    your ChatGPT plan
+                               your subscription — your own jobs only
+
+  > 1
+
+  subscriptions this machine is signed in to
+    1. [x] claude                   your Claude subscription
+                               your subscription — your own jobs only
+    2. [x] codex                    your ChatGPT plan
+                               your subscription — your own jobs only
+
+  > 
+
+claude, codex use your own subscription, for YOUR
+OWN jobs only — never shared with a team, whatever the config says.
+Someone else's terms are not yours to lend.
+
+What would you like your default service to be?
+  1. claude
+  2. codex
+  [1] 
+
+Wrote <root>/config.json
+  claude — your own jobs only
+  codex — your own jobs only
+
+  Connect to byollm.cloud? [Y/n] n
+
+  Not connected. This device is set up and unreachable — finish with:
+    byollm connect --name "my-computer"
+
+──── config.json ────
+{
+  "version": 1,
+  "services": {
+    "claude": {
+      "type": "claude-cli",
+      "model": "opus",
+      "kinds": [
+        "llm.generate",
+        "llm.chat"
+      ],
+      "offer": "private"
+    },
+    "codex": {
+      "type": "codex-cli",
+      "model": "gpt-5.5",
+      "kinds": [
+        "llm.generate",
+        "llm.chat"
+      ],
+      "offer": "private"
+    }
+  },
+  "defaults": {
+    "llm.generate": "claude",
+    "llm.chat": "claude"
+  }
+}

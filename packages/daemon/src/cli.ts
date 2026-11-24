@@ -3115,6 +3115,19 @@ function report(origin: string, event: RunnerEvent, io: CliIo): void {
          a guess. Everything else keeps running. */
       io.err(`${at} ${host} ${stripControlChars(event.message)}\n`);
       break;
+    case "upstream-predates-paused":
+      /* Guard (c), #10825: said once a session, after the retry without
+         `paused` was accepted. The service is out of the advertisement
+         either way; what is lost is the owner seeing why off this machine. */
+      io.err(
+        `${at} ${host} ${stripControlChars(event.upstream)} predates the ` +
+          `paused-services report, so it is not told that ` +
+          `${event.services.map((s) => `\`${stripControlChars(s)}\``).join(", ")} ` +
+          `${event.services.length === 1 ? "is" : "are"} out of quota. ` +
+          `Everything else keeps running; \`byollm status\` still says it ` +
+          `here.\n`,
+      );
+      break;
     case "now-serving":
       /**
        * The mitigation for site policy moving to the account — Amendment K.

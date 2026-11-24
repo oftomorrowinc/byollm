@@ -22,6 +22,7 @@ import { DaemonConfig, resolveConfig, type ResolvedRoute } from "./config.js";
 import { IngressLog } from "./ingress.js";
 import { SERVICE_UNAVAILABLE, siblingsOf } from "./site-outcome.js";
 import { SpendLedger } from "./spend.js";
+import { pausedOf } from "./paused.js";
 import { Runner, type RunnerEvent } from "./runner.js";
 import { removeTemp, testControlPlane } from "./test-support.js";
 
@@ -126,6 +127,8 @@ async function makeRunner(
     spawnServer?: (command: readonly string[]) => void;
     /** The `community` block, for the cases about whose work is counted. */
     community?: Record<string, unknown>;
+    /** The upstream, for the cases about what a heartbeat carries. */
+    fetch?: typeof fetch;
   } = {},
 ) {
   const loaded = resolveConfig(
@@ -169,6 +172,7 @@ async function makeRunner(
     client: new ProtocolClient({
       origin: "https://app.test",
       identity: TEST_SIGNER,
+      ...(options.fetch === undefined ? {} : { fetch: options.fetch }),
     }),
     runnerId: "runner_1",
     owner: options.owner ?? "me",
@@ -1154,6 +1158,223 @@ describe("what leaves the machine when a backend fails", () => {
     // And it stops claiming to be blocked, or the surface would keep saying so
     // about a service that is answering again.
     expect(runner.serviceStates.get("primary")?.state.kind).not.toBe("blocked");
+  });
+
+  describe("tells its upstream, for the owner only — #10825", () => {
+    /**
+     * byollm_019 §3.4: the owner learns service, device, reason and expected
+     * return. The heartbeat is the one thing that leaves this machine on a
+     * clock, so it carries a word and a time — never the CLI's sentence,
+     * which quotes paths and account emails.
+     */
+    const upstream = (
+      status: (body: Record<string, unknown>) => number = () => 200,
+    ) => {
+      const beats: Record<string, unknown>[] = [];
+      const fetchImpl: typeof fetch = async (input, init) => {
+        const request = new Request(input, init);
+        if (!request.url.endsWith("/heartbeat")) {
+          return Response.json({ jobs: [], leaseMs: 30_000 });
+        }
+        const body = (await request.json()) as Record<string, unknown>;
+        beats.push(body);
+        const code = status(body);
+        return code === 200
+          ? Response.json({
+              sites: {},
+              cancel: [],
+              lost: [],
+              serverTime: Date.now(),
+              awaitingConsent: [],
+            })
+          : Response.json(
+              {
+                error: "bad-request",
+                message: "request body failed schema validation",
+              },
+              { status: code },
+            );
+      };
+      return { beats, fetch: fetchImpl };
+    };
+
+    it("lists a blocked service with its time, and drops it on the pass that offers it again", async () => {
+      const start = Date.now();
+      const until = start + 60_000;
+      let now = start;
+      const up = upstream();
+      const { runner } = await makeRunner({
+        now: () => now,
+        fetch: up.fetch,
+        backendFactory: () =>
+          failingUntil(
+            "the codex CLI failed: You've hit your usage limit. Reach me at todd@example.com",
+            "quota-exhausted",
+            until,
+          ),
+      });
+
+      await runner.tick();
+      expect(up.beats[0], "nothing paused, nothing sent").not.toHaveProperty(
+        "paused",
+      );
+
+      await runner.runJob(job());
+      await runner.tick();
+      expect(up.beats[1]?.["paused"]).toEqual([
+        { service: "primary", why: "allowance", until },
+      ]);
+      // A word and a time. The CLI's own sentence stays on this machine.
+      expect(JSON.stringify(up.beats[1])).not.toMatch(
+        /usage limit|todd@example|codex/i,
+      );
+
+      // The same pass that advertises it again is the one that stops
+      // listing it — never one without the other.
+      now = until;
+      await runner.tick();
+      const back = up.beats[2] as {
+        capabilities: { service: string }[];
+        paused?: unknown;
+      };
+      expect(back.capabilities.map((c) => c.service)).toContain("primary");
+      expect(back).not.toHaveProperty("paused");
+    });
+
+    it("lists a service blocked with no time, without one", () => {
+      expect(
+        pausedOf(
+          new Map([
+            ["codex", 1_900_000_000_000],
+            ["claude", undefined],
+          ]),
+        ),
+      ).toEqual([
+        { service: "codex", why: "allowance", until: 1_900_000_000_000 },
+        { service: "claude", why: "allowance" },
+      ]);
+    });
+
+    it("sends no entry for a timeless block, because the pass before the beat lifts it", async () => {
+      /* 019 §3.2: a block without a time is released on the next detection
+         pass, and the tick runs that pass before it heartbeats. So the beat
+         after one says the service is offered again, and does not say it is
+         paused — the list never contradicts the matrix beside it. */
+      const up = upstream();
+      const { runner } = await makeRunner({
+        fetch: up.fetch,
+        backendFactory: () =>
+          ({
+            execute: () =>
+              Promise.resolve({
+                ok: false as const,
+                code: "quota-exhausted",
+                message: "the codex CLI failed: You've hit your usage limit",
+                durationMs: 1,
+              }),
+            health: () => Promise.resolve({ healthy: true, models: [] }),
+          }) as unknown as Backend,
+      });
+
+      await runner.runJob(job());
+      expect(runner.serviceStates.get("primary")?.state.kind).toBe("blocked");
+      await runner.tick();
+      const beat = up.beats[0] as {
+        capabilities: { service: string }[];
+        paused?: unknown;
+      };
+      expect(beat.capabilities.map((c) => c.service)).toContain("primary");
+      expect(beat).not.toHaveProperty("paused");
+    });
+
+    it("re-sends without the list to an upstream that refuses it, and keeps running", async () => {
+      // Every upstream built before the field parses the heartbeat strictly
+      // and refuses the key whole. Guard (c): take it out, and only if that
+      // is accepted name the upstream — once a session.
+      const up = upstream((body) => (body["paused"] === undefined ? 200 : 400));
+      const events: RunnerEvent[] = [];
+      const { runner } = await makeRunner({
+        fetch: up.fetch,
+        onEvent: (event) => events.push(event),
+        backendFactory: () =>
+          failingUntil(
+            "the codex CLI failed: You've hit your usage limit",
+            "quota-exhausted",
+            Date.now() + 60_000,
+          ),
+      });
+
+      await runner.runJob(job());
+      await runner.tick();
+      expect(up.beats.map((beat) => beat["paused"] !== undefined)).toEqual([
+        true,
+        false,
+      ]);
+      expect(
+        events.filter((event) => event.type === "upstream-predates-paused"),
+      ).toEqual([
+        {
+          type: "upstream-predates-paused",
+          upstream: "https://app.test",
+          services: ["primary"],
+        },
+      ]);
+
+      // Remembered: the next beat goes out without it, first time.
+      await runner.tick();
+      expect(up.beats).toHaveLength(3);
+      expect(up.beats[2]).not.toHaveProperty("paused");
+    });
+
+    it("blames nothing when the heartbeat is refused for another reason", async () => {
+      const up = upstream(() => 400);
+      const events: RunnerEvent[] = [];
+      const { runner } = await makeRunner({
+        fetch: up.fetch,
+        onEvent: (event) => events.push(event),
+        backendFactory: () =>
+          failingUntil(
+            "the codex CLI failed: You've hit your usage limit",
+            "quota-exhausted",
+            Date.now() + 60_000,
+          ),
+      });
+
+      await runner.runJob(job());
+      await expect(runner.tick()).rejects.toMatchObject({ status: 400 });
+      expect(
+        events.filter((event) => event.type === "upstream-predates-paused"),
+      ).toEqual([]);
+    });
+
+    it("tells the site the same bytes, list or no list", async () => {
+      // The list is for the owner. What the site reads of a failed job is
+      // decided before any heartbeat and from nothing the heartbeat carries.
+      const outcomes: string[] = [];
+      for (const refusesPaused of [false, true]) {
+        const up = upstream((body) =>
+          refusesPaused && body["paused"] !== undefined ? 400 : 200,
+        );
+        const { runner } = await makeRunner({
+          fetch: up.fetch,
+          backendFactory: () =>
+            failingUntil(
+              "the codex CLI failed: You've hit your usage limit",
+              "quota-exhausted",
+              Date.now() + 60_000,
+            ),
+        });
+        const { outcome } = await runner.runJob(job());
+        await runner.tick();
+        outcomes.push(JSON.stringify(outcome));
+      }
+      expect(outcomes[0]).toBe(outcomes[1]);
+      expect(JSON.parse(outcomes[0] ?? "{}")).toMatchObject({
+        outcome: "error",
+        code: "service_unavailable",
+        message: SERVICE_UNAVAILABLE,
+      });
+    });
   });
 
   it("tells the process that writes the file, at the moment it changes", async () => {

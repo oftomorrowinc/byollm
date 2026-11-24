@@ -100,6 +100,9 @@ importers:
       byollm-server-0.1.4:
         specifier: npm:@byollm/server@0.1.4
         version: '@byollm/server@0.1.4(@supabase/supabase-js@2.112.2)'
+      byollm-server-0.1.7:
+        specifier: npm:@byollm/server@0.1.7
+        version: '@byollm/server@0.1.7(@supabase/supabase-js@2.112.2)'
 
   packages/control-plane:
     dependencies:
@@ -204,8 +207,22 @@ packages:
     resolution: {integrity: sha512-3g76t6WxfzFZMZpOdxHiI2apuT746TcBDWwf7Yt5F0mFDm3iZyqKrTiTuh2q9M4uQvBuCzMZUQ/rY2t4+mw1Mw==}
     engines: {node: '>=22.14'}
 
+  '@byollm/protocol@0.1.7':
+    resolution: {integrity: sha512-rtnmvwNjgHnb4SQFMKniGg3diWluKDAig1/8e7nEm57UEJlp4IhKP80mALfXkT4RLd4fvmyUVzLils64HqX8tg==}
+    engines: {node: '>=22.14'}
+
   '@byollm/server@0.1.4':
     resolution: {integrity: sha512-ruBXHcQ2DLP9sq0HrZANppsNd8I/Pajz7R6YABELnmVbxX4C+F1Ae3/nJZ1BMcqrLsYAfrHfq736JrIMp/sQfQ==}
+    engines: {node: '>=22.14'}
+    hasBin: true
+    peerDependencies:
+      '@supabase/supabase-js': ^2.58.0
+    peerDependenciesMeta:
+      '@supabase/supabase-js':
+        optional: true
+
+  '@byollm/server@0.1.7':
+    resolution: {integrity: sha512-W1zESxW04XY+5cb/mpaqEWXvQsXQXcUZy6kr1UDqFfzhqzCP0eofU8Qr+U8FeuRyPoEGhYRnud7rrpwz4RQFOQ==}
     engines: {node: '>=22.14'}
     hasBin: true
     peerDependencies:
@@ -2555,9 +2572,20 @@ snapshots:
       libsodium-wrappers: 0.8.4
       zod: 4.4.3
 
+  '@byollm/protocol@0.1.7':
+    dependencies:
+      libsodium-wrappers: 0.8.4
+      zod: 4.4.3
+
   '@byollm/server@0.1.4(@supabase/supabase-js@2.112.2)':
     dependencies:
       '@byollm/protocol': 0.1.4
+    optionalDependencies:
+      '@supabase/supabase-js': 2.112.2
+
+  '@byollm/server@0.1.7(@supabase/supabase-js@2.112.2)':
+    dependencies:
+      '@byollm/protocol': 0.1.7
     optionalDependencies:
       '@supabase/supabase-js': 2.112.2
 

@@ -305,6 +305,15 @@ Sent about every 10 seconds with jitter. Carries the capability matrix, the
 daemon version, the jobs the daemon believes it holds, and whether the owner
 has it paused.
 
+It may also carry `paused`: the services the device has stopped offering
+until a clock says otherwise, each as `{ service, why, until? }`. `why` is
+`allowance` today (the plan's allowance is used up), and `until` is the time
+the CLI said it would be back, present only when it said one. **It is for the
+device's owner only.** A server MUST NOT pass it to a site by any path, and
+shows it to nobody but the owner. It carries a word and a time, never the
+CLI's own text. A daemon sends it only when it is non-empty, and an absent
+list means nothing is paused.
+
 The response carries:
 
 - `sites` — the sites this pairing covers, keyed by each site's identity key

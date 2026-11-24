@@ -1040,6 +1040,7 @@ export function describeStoreContract(
         device,
         capabilities: [capability("llama3")],
         withheld: [],
+        paused: [],
       });
 
       const known = await store.presence("runner_1");
@@ -1061,11 +1062,13 @@ export function describeStoreContract(
         ...seen,
         capabilities: [capability("llama3")],
         withheld: [],
+        paused: [],
       });
       await store.seen({
         ...seen,
         capabilities: [capability("mistral")],
         withheld: [],
+        paused: [],
       });
 
       const known = await store.presence("runner_2");
@@ -1085,8 +1088,14 @@ export function describeStoreContract(
         ...seen,
         capabilities: [capability("llama3")],
         withheld: [],
+        paused: [],
       });
-      await store.seen({ ...seen, capabilities: [], withheld: [] });
+      await store.seen({
+        ...seen,
+        capabilities: [],
+        withheld: [],
+        paused: [],
+      });
 
       expect((await store.presence("runner_3"))?.capabilities).toEqual([]);
       await done();
@@ -1119,6 +1128,7 @@ export function describeStoreContract(
             ],
           },
         ],
+        paused: [],
       });
 
       const held = await store.presence("runner_withheld");
@@ -1136,8 +1146,55 @@ export function describeStoreContract(
         ...seen,
         capabilities: [capability("llama3")],
         withheld: [],
+        paused: [],
       });
       expect((await store.presence("runner_withheld"))?.withheld).toEqual([]);
+      await done();
+    });
+
+    it("keeps the paused list whole, and an empty list clears it", async () => {
+      // byollm_019 §3.4, #10825. A service whose plan's allowance is used up
+      // is out of the matrix, and from the matrix alone that looks the same
+      // as a device that never had it — so the owner's page would say "pick
+      // a model" to somebody whose only remedy is to wait. Replaced whole on
+      // every beat, as the matrix is: a store that merged would go on saying
+      // a service is out of allowance after it came back.
+      const { store, done } = await make();
+      const device = publicIdentityOf(generateKeys(3_000_000_000_006));
+      const seen = { runnerId: "runner_paused", owner: "alice", device };
+
+      await store.seen({
+        ...seen,
+        capabilities: [],
+        withheld: [],
+        paused: [
+          { service: "codex", why: "allowance", until: 3_000_000_360_000 },
+          { service: "claude", why: "allowance" },
+        ],
+      });
+      expect((await store.presence("runner_paused"))?.paused).toEqual([
+        { service: "codex", why: "allowance", until: 3_000_000_360_000 },
+        { service: "claude", why: "allowance" },
+      ]);
+
+      // Codex came back; Claude did not. Replaced, not merged.
+      await store.seen({
+        ...seen,
+        capabilities: [capability("gpt-5")],
+        withheld: [],
+        paused: [{ service: "claude", why: "allowance" }],
+      });
+      expect((await store.presence("runner_paused"))?.paused).toEqual([
+        { service: "claude", why: "allowance" },
+      ]);
+
+      await store.seen({
+        ...seen,
+        capabilities: [capability("gpt-5")],
+        withheld: [],
+        paused: [],
+      });
+      expect((await store.presence("runner_paused"))?.paused).toEqual([]);
       await done();
     });
 
@@ -1155,6 +1212,7 @@ export function describeStoreContract(
         ...seen,
         capabilities: [],
         withheld: [],
+        paused: [],
       });
       expect(first.lastSeenAt).toBeGreaterThanOrEqual(before);
 
@@ -1162,6 +1220,7 @@ export function describeStoreContract(
         ...seen,
         capabilities: [],
         withheld: [],
+        paused: [],
       });
       expect(later.lastSeenAt).toBeGreaterThanOrEqual(first.lastSeenAt);
       await done();
@@ -1175,6 +1234,7 @@ export function describeStoreContract(
         device: publicIdentityOf(generateKeys(3_000_000_000_004)),
         capabilities: [],
         withheld: [],
+        paused: [],
       });
       await store.seen({
         runnerId: "runner_6",
@@ -1182,6 +1242,7 @@ export function describeStoreContract(
         device: publicIdentityOf(generateKeys(3_000_000_000_005)),
         capabilities: [],
         withheld: [],
+        paused: [],
       });
 
       const everyone = await store.everyone();

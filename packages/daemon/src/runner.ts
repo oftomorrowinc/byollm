@@ -30,6 +30,7 @@ import {
   REFUSAL_MESSAGES,
   matchAudience,
   type Capability,
+  type PausedService,
   type ClaimedJob,
   type RunMetadata,
   /* A VALUE, not only a type — B304. `satisfies SealedOutcome` at the seal
@@ -90,6 +91,7 @@ import { runToolLoop, type ToolLoopRun } from "./tool-loop.js";
 import { clientToolTransport } from "./tool-transport.js";
 import { probeTools, type ToolsProbe } from "./tools-probe.js";
 import { isAfter014, predatesMessage } from "./upstream-predates.js";
+import { pausedOf } from "./paused.js";
 
 /** What the daemon is currently doing, for `byollm status`. */
 export interface RunnerStatus {
@@ -353,6 +355,19 @@ export type RunnerEvent =
       readonly kinds: readonly string[];
       readonly services: readonly string[];
       readonly message: string;
+    }
+  /**
+   * The upstream refused a heartbeat that told it about a paused service,
+   * and took the same heartbeat without — guard (c), #10825.
+   *
+   * Said once a session. Only the owner's view of the pause is lost: the
+   * service is withdrawn from the advertisement either way, and everything
+   * else keeps running.
+   */
+  | {
+      readonly type: "upstream-predates-paused";
+      readonly upstream: string;
+      readonly services: readonly string[];
     }
   /**
    * A site this machine has never approved arrived on the heartbeat. Nothing
@@ -3544,7 +3559,16 @@ export class Runner {
               this.#options.loaded.config.services[service]?.offer ?? "private",
           })),
         }));
-    const send = (caps: readonly Capability[], dropNew: boolean) =>
+    /* Read here, after this tick's detection pass, so an entry leaves on
+       the same pass that advertises the service again. */
+    const pausedNow: PausedService[] = this.#upstreamRefusesPaused
+      ? []
+      : pausedOf(this.#blocked);
+    const send = (
+      caps: readonly Capability[],
+      dropNew: boolean,
+      paused: readonly PausedService[] = pausedNow,
+    ) =>
       this.#options.client.heartbeat({
         runnerId: this.#options.runnerId,
         daemonVersion: this.#options.daemonVersion,
@@ -3553,6 +3577,9 @@ export class Runner {
         // explain a missing kind are not all on this machine. The hub decides
         // who is told what; the device only reports.
         withheld: withheldOf(dropNew),
+        // What this device has stopped offering until a clock says so, for
+        // its owner's eyes — a word and a time, never the CLI's sentence.
+        paused,
         activeLeases: [...this.#active.entries()].map(([leaseId, held]) => ({
           jobId: held.jobId,
           leaseId,
@@ -3564,6 +3591,25 @@ export class Runner {
     try {
       return { heartbeat: await send(capabilities, predates), capabilities };
     } catch (refused) {
+      if (!(refused instanceof ClientError) || refused.status !== 400) {
+        throw refused;
+      }
+      /* Guard (c), #10825: `paused` first. Every upstream built before it
+         parses the heartbeat strictly and refuses the key whole, and the
+         field is the one thing on this heartbeat that is new for 0.1.5 to
+         0.1.7 as well as for 0.1.4. Retried without it; only if THAT is
+         accepted is the upstream named as the cause. */
+      if (pausedNow.length > 0) {
+        try {
+          const heartbeat = await send(capabilities, predates, []);
+          this.#notePausedRefused(pausedNow);
+          return { heartbeat, capabilities };
+        } catch {
+          /* Not the only cause, or not the cause. Guard (b) below sends
+             without it too, since an upstream that predates the kinds
+             predates this as well. */
+        }
+      }
       /* Newer kinds in EITHER list. A 0.1.4 upstream parses
          `WithheldKind.kind` with the same closed enum as `Capability.kind`,
          so `llm.tools` withheld for want of a default, on a model that failed
@@ -3581,24 +3627,22 @@ export class Runner {
           services: [...held.services],
         })),
       ];
-      if (
-        predates ||
-        newer.length === 0 ||
-        !(refused instanceof ClientError) ||
-        refused.status !== 400
-      ) {
+      if (predates || newer.length === 0) {
         throw refused;
       }
       const retried = without(capabilities);
       let heartbeat: Awaited<ReturnType<ProtocolClient["heartbeat"]>>;
       try {
-        heartbeat = await send(retried, true);
+        heartbeat = await send(retried, true, []);
       } catch {
         /* Refused without them too, so they were not why. The first refusal
            is the one that describes this heartbeat. */
         throw refused;
       }
       this.#upstreamPredates = true;
+      /* An upstream that predates the 0.1.5 kinds predates `paused` too —
+         it is newer than they are. */
+      if (pausedNow.length > 0) this.#notePausedRefused(pausedNow);
       const kinds = [...new Set(newer.map((c) => c.kind))];
       const services = [...new Set(newer.flatMap((c) => c.services))];
       this.#options.onEvent?.({
@@ -3618,6 +3662,18 @@ export class Runner {
 
   /** Guard (b)'s memory: this session's upstream refuses the newer kinds. */
   #upstreamPredates = false;
+
+  /** Guard (c)'s memory: this session's upstream refuses `paused`. */
+  #upstreamRefusesPaused = false;
+
+  #notePausedRefused(paused: readonly PausedService[]): void {
+    this.#upstreamRefusesPaused = true;
+    this.#options.onEvent?.({
+      type: "upstream-predates-paused",
+      upstream: this.#options.client.origin,
+      services: paused.map((entry) => entry.service),
+    });
+  }
 
   #attemptVerdict(key: string): "go" | "wait" | "poison" {
     /* Pruned here because this is the only place that learns time has

@@ -309,6 +309,41 @@ export const WithheldKind = z
   .strict();
 export type WithheldKind = z.infer<typeof WithheldKind>;
 
+/**
+ * A service this device has stopped offering for now, and when it expects to
+ * offer it again — byollm_019 §3.4, #10821.
+ *
+ * **Who may read it: the device's owner. Never a site, never a teammate.**
+ * §3.4's line is "the *owner* learns everything — service, device, reason,
+ * expected return", and a site learns nothing it did not learn before: its
+ * job still fails `service_unavailable` with the same words as a stopped
+ * model server (site-outcome.ts says why the classes are flat). A teammate
+ * using a shared service sees it go missing, as today, and nothing about why
+ * — "his plan ran out at 2 PM" is a fact about a person's account.
+ *
+ * A word and a time, and nothing else. The CLI's own sentence stays on the
+ * device: it quotes paths, usernames and account emails, and the owner reads
+ * it where it already is, in `byollm status`.
+ */
+export const PausedService = z
+  .object({
+    /** The owner's name for it, as in {@link Capability.service}. */
+    service: z.string().min(1),
+    /**
+     * Why. One value today: the plan's allowance is used up for now (019
+     * §3.1). A second cause is a second value, added when one is ruled.
+     */
+    why: z.enum(["allowance"]),
+    /**
+     * Epoch ms the CLI said it would be back. Present only when it said so —
+     * a time the daemon made up would send somebody back to a machine that
+     * is still blocked.
+     */
+    until: z.number().int().positive().optional(),
+  })
+  .strict();
+export type PausedService = z.infer<typeof PausedService>;
+
 // ---------------------------------------------------------------------------
 // 1. POST /byollm/pair — device-code flow
 // ---------------------------------------------------------------------------
@@ -514,6 +549,17 @@ export const HeartbeatRequest = z
      * kinds rather than a parse failure.
      */
     withheld: z.array(WithheldKind).default([]),
+    /**
+     * Services this device has stopped offering until a clock says otherwise
+     * — {@link PausedService}. **For the device's owner only**: an upstream
+     * keeps it the way it keeps presence and shows it to nobody else, and
+     * nothing in it reaches a site by any path.
+     *
+     * Optional, and sent only when non-empty, for the reason `withheld` is: an
+     * older daemon is a device with nothing paused, and a newer daemon with
+     * nothing paused sends a heartbeat every older upstream already parses.
+     */
+    paused: z.array(PausedService).default([]),
     /**
      * Leases this daemon believes it holds; the server renews exactly these.
      *

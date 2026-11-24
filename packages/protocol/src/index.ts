@@ -298,6 +298,7 @@ export {
   Capability,
   CapabilityMatrix,
   WithheldKind,
+  PausedService,
   ClaimRequest,
   ClaimResponse,
   ENDPOINTS,

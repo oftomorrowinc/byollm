@@ -5,6 +5,7 @@ import {
   type JobStub,
   type PublicIdentity,
   type SealedEnvelope,
+  type PausedService,
   type WithheldKind,
 } from "@byollm/protocol";
 import { randomUUID } from "node:crypto";
@@ -380,6 +381,20 @@ export interface Presence {
    * Empty is the normal answer, and means every kind resolved.
    */
   withheld: readonly WithheldKind[];
+  /**
+   * Services this machine has stopped offering until a clock says otherwise,
+   * and when — byollm_019 §3.4, #10825.
+   *
+   * **For the device's owner, and nobody else.** A site is told exactly what
+   * it was told before this existed; a teammate sees the service go missing
+   * and nothing about why. Presence data for the reason the matrix is: it
+   * arrives on the heartbeat, is replaced whole by the next one, and goes
+   * stale when the machine does.
+   *
+   * Empty is the normal answer, and what an older daemon, which never sends
+   * it, reads as.
+   */
+  paused: readonly PausedService[];
   // `revoked` is deliberately absent — cloud_008 §2.3.
   //
   // It was a boolean on the *runner*, written at heartbeat and read by
@@ -1387,6 +1402,9 @@ export class RelayState implements RoutingStore {
       // service went away — must stop being reported as withheld, or the page
       // keeps asking for a decision that has already been made.
       existing.withheld = presence.withheld;
+      // Whole, the same way: a service that came back is gone from the next
+      // beat's list, and an empty list is how the owner's page learns it.
+      existing.paused = presence.paused;
       return existing;
     }
     const fresh: Presence = { ...presence, lastSeenAt };

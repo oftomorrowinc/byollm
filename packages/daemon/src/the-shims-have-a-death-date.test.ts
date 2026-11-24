@@ -1,7 +1,7 @@
 import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { HeartbeatRequest } from "@byollm/protocol";
+import { HeartbeatRequest, PROTOCOL_VERSION } from "@byollm/protocol";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { runCli, type CliIo } from "./cli.js";
 import { DAEMON_VERSION } from "./index.js";
@@ -103,14 +103,26 @@ describe(`the deprecation shims, at ${DAEMON_VERSION}`, () => {
     if (PRERELEASE) {
       expect(shape).toHaveProperty("paused");
     } else {
+      /* The name came back in #10825 as a different field: a list of the
+         services a device has stopped offering, for its owner. What must
+         stay gone is the boolean — a heartbeat that says `paused: true` is
+         the vestige, and is refused. */
+      const minimal = {
+        protocolVersion: PROTOCOL_VERSION,
+        runnerId: "runner_1",
+        daemonVersion: "0.1.0",
+        capabilities: [],
+        activeLeases: [],
+      };
+      expect(HeartbeatRequest.safeParse(minimal).success).toBe(true);
       expect(
-        Object.keys(shape),
+        HeartbeatRequest.safeParse({ ...minimal, paused: true }).success,
         `0.1.0 moves the protocol and the daemon together (B044), so this\n` +
-          `is where \`paused\` leaves HeartbeatRequest: nothing has set it\n` +
-          `true since B043. Drop it from packages/protocol/src/wire.ts, from\n` +
-          `the runner's heartbeat and the connect probe in cli.ts, and from\n` +
-          `the server's records/store. Publish protocol and hub in lockstep.`,
-      ).not.toContain("paused");
+          `is where the boolean \`paused\` leaves HeartbeatRequest: nothing\n` +
+          `has set it true since B043. Drop it from packages/protocol/src/\n` +
+          `wire.ts, from the runner's heartbeat and the connect probe in\n` +
+          `cli.ts, and from the server's records/store.`,
+      ).toBe(false);
     }
   });
 });

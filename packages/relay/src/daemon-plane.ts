@@ -358,6 +358,7 @@ export class DaemonPlane {
       // first heartbeat, which is seconds away and is the authority anyway.
       capabilities: [],
       withheld: [],
+      paused: [],
     });
 
     return ok({
@@ -489,6 +490,7 @@ export class DaemonPlane {
       // holding back — the daemon resolves defaults locally, and the first
       // heartbeat is where that answer arrives.
       withheld: [],
+      paused: [],
     });
     // Single use. The keypair is approved from here on and the code has no
     // further job; leaving it would be a second way to ask the same question.
@@ -558,6 +560,7 @@ export class DaemonPlane {
         // file guessing about a backend it cannot see.
         capabilities: [],
         withheld: [],
+        paused: [],
       };
       rebuilt = true;
     }
@@ -586,6 +589,7 @@ export class DaemonPlane {
         // Nothing has described itself yet, so nothing is withheld — the
         // first heartbeat is the authority on both.
         withheld: [],
+        paused: [],
       });
     }
 
@@ -1162,6 +1166,9 @@ export class DaemonPlane {
           // A daemon that resolves a contended kind stops sending it here,
           // which is what retires the owner's prompt to choose.
           withheld: request.withheld,
+          // Owner-only (019 §3.4). Stored and nothing more: no site-plane
+          // answer reads it, and an older daemon's absent list parses as [].
+          paused: request.paused,
         });
 
         // Revocation is a fixture edit, and this is where the daemon learns

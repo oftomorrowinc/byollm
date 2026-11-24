@@ -429,6 +429,7 @@ describe("the store's clock", () => {
       device: KEYS(),
       capabilities: [],
       withheld: [],
+      paused: [],
     });
     expect(seen.lastSeenAt).toBe(CLOCK);
   });

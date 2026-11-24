@@ -14,6 +14,7 @@ import {
   ResultResponse,
   WireError,
   type Capability,
+  type PausedService,
   type WithheldKind,
   type Endpoint,
   ToolCallResponse,
@@ -264,6 +265,8 @@ export class ProtocolClient {
     capabilities: readonly Capability[];
     /** Kinds this device could serve and is withholding — byollm_016. */
     withheld?: readonly WithheldKind[];
+    /** Services stopped until a clock says otherwise — owner only, 019 §3.4. */
+    paused?: readonly PausedService[];
     activeLeases: readonly { jobId: string; leaseId: string }[];
   }): Promise<HeartbeatResponse> {
     return this.#post("heartbeat", HeartbeatResponse, {
@@ -272,6 +275,12 @@ export class ProtocolClient {
       daemonVersion: input.daemonVersion,
       capabilities: input.capabilities,
       withheld: input.withheld ?? [],
+      /* Only when there is something in it. An upstream built before the
+         field refuses the key whole, so a device with nothing paused must
+         send the heartbeat every upstream already parses (#10825). */
+      ...(input.paused === undefined || input.paused.length === 0
+        ? {}
+        : { paused: input.paused }),
       activeLeases: input.activeLeases,
     });
   }

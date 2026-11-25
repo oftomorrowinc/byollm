@@ -606,30 +606,7 @@ export async function uninstallService(
     }
   }
 
-  await rm(plan.unitPath, { force: true });
-
-  /**
-   * And the fallback, which on Windows is the one that was actually there.
-   *
-   * This removed `plan.unitPath` only. Every Windows install had fallen to
-   * the Startup folder — see `writeUnit` for why — so uninstall deleted a
-   * task XML that had never registered, printed "Removed", and left the
-   * thing that starts the daemon exactly where it was. Next logon it came
-   * back.
-   *
-   * A daemon that restarts after its owner removed it is not a bug about
-   * supervisors. It is somebody's machine doing work they told it to stop
-   * doing, and being told it had stopped.
-   *
-   * Removed unconditionally rather than only when the fallback was used:
-   * uninstall's whole contract is that "it was not installed" and "it is now
-   * not installed" end the same way, and a machine that has been through
-   * several versions may carry both.
-   */
-  const fallbackPath = plan.fallback?.unitPath;
-  if (fallbackPath !== undefined) {
-    await rm(fallbackPath, { force: true });
-  }
+  await deleteUnitFiles(plan);
 
   if (refusedAfterKill.length > 0) {
     return {
@@ -713,6 +690,87 @@ export async function uninstallService(
           ]),
     ],
   };
+}
+
+/**
+ * Delete the unit file and the Startup fallback — what `byollm stop` and a
+ * daemon stopping itself (#11051) both delete, written once.
+ *
+ * The fallback, which on Windows is the one that was actually there: `stop`
+ * once removed `plan.unitPath` only. Every Windows install had fallen to
+ * the Startup folder — see `writeUnit` for why — so uninstall deleted a
+ * task XML that had never registered, printed "Removed", and left the
+ * thing that starts the daemon exactly where it was. Next logon it came
+ * back.
+ *
+ * A daemon that restarts after its owner removed it is not a bug about
+ * supervisors. It is somebody's machine doing work they told it to stop
+ * doing, and being told it had stopped.
+ *
+ * Removed unconditionally rather than only when the fallback was used:
+ * uninstall's whole contract is that "it was not installed" and "it is now
+ * not installed" end the same way, and a machine that has been through
+ * several versions may carry both.
+ */
+async function deleteUnitFiles(plan: ServicePlan): Promise<void> {
+  await rm(plan.unitPath, { force: true });
+  const fallbackPath = plan.fallback?.unitPath;
+  if (fallbackPath !== undefined) {
+    await rm(fallbackPath, { force: true });
+  }
+}
+
+/**
+ * Remove the start-at-login entry from inside the daemon, and end nothing —
+ * #11051. Todd's order on #10663: "The daemon removes its start-at-login
+ * entry before it stops itself."
+ *
+ * Runs `fromInside.unregister`, then {@link deleteUnitFiles}, and reports
+ * whether the entry is gone. Nothing here can end the process calling it:
+ * on a Mac no command runs at all, and on Windows `/delete` leaves the
+ * running instance alone. Ending the process is the caller's next step,
+ * and only once this said `removed`.
+ */
+export async function removeLoginEntry(
+  plan: ServicePlan,
+  run: CommandRunner,
+): Promise<{ readonly removed: boolean; readonly said: readonly string[] }> {
+  const steps = plan.fromInside;
+  if (steps === undefined) {
+    return {
+      removed: false,
+      said: [`${plan.supervisor}: a daemon does not remove its own entry here`],
+    };
+  }
+  const said: string[] = [];
+  for (const command of steps.unregister) {
+    const result = await run(command).catch(() => ({ code: 127, output: "" }));
+    if (result.code !== 0 && result.output.trim() !== "") {
+      said.push(`${command.join(" ")} — ${result.output.trim()}`);
+    }
+  }
+  await deleteUnitFiles(plan);
+  const leftOver = [plan.unitPath, plan.fallback?.unitPath].filter(
+    (path): path is string => path !== undefined,
+  );
+  const files = await Promise.all(
+    leftOver.map((path) =>
+      stat(path).then(
+        () => path,
+        () => undefined,
+      ),
+    ),
+  );
+  const remaining = files.filter((path) => path !== undefined);
+  for (const path of remaining) said.push(`${path} is still there`);
+  /* A command that unregisters is checked with the supervisor itself: "it
+     was not registered" and "it is no longer registered" both read absent,
+     and either is the end state wanted. */
+  const registered =
+    steps.unregister.length > 0 &&
+    (await serviceState(plan, run)).state !== "absent";
+  if (registered) said.push(`${plan.supervisor} still has byollm's task`);
+  return { removed: remaining.length === 0 && !registered, said };
 }
 
 /**

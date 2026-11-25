@@ -94,6 +94,19 @@ export interface DaemonPaths {
    * one to start, which is the only process that can say what it is.
    */
   readonly lastUpdate: string;
+  /**
+   * Where the BYOLLM app is, and which Node and program it installed —
+   * #11051. Written by the app, never by the daemon; read by a daemon
+   * started from exactly that Node and program, and ignored by every other.
+   * See `app-note.ts`.
+   */
+  readonly appNote: string;
+  /**
+   * Why the daemon stopped itself: the app was removed — #11051. Written by
+   * that daemon once its start-at-login entry is gone, read by `byollm
+   * status`, removed by the next daemon that starts.
+   */
+  readonly appRemoved: string;
 }
 
 /** Resolve the daemon's paths, rooted at `~/.byollm` unless overridden. */
@@ -116,6 +129,8 @@ export function daemonPaths(root = defaultRoot()): DaemonPaths {
     label: join(root, "label"),
     scratch: join(root, "scratch"),
     lastUpdate: join(root, "update.json"),
+    appNote: join(root, "app.json"),
+    appRemoved: join(root, "app-removed.json"),
   };
 }
 

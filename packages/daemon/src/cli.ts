@@ -108,9 +108,17 @@ import {
 } from "./supervised.js";
 import { Runner, type RunnerEvent } from "./runner.js";
 import {
+  clearAppRemoved,
+  readAppRemoved,
+  watchForTheApp,
+  writeAppRemoved,
+  type After,
+} from "./app-note.js";
+import {
   installedProgram,
   installService,
   processIsGone,
+  removeLoginEntry,
   serviceState,
   spawnCommand,
   spawnDetached,
@@ -416,6 +424,11 @@ export async function runCli(
     login?: (command: LoginCommand) => Promise<boolean>;
     /** How the preflight asks. Injected so tests are not a TTY. */
     ask?: (question: string) => Promise<string>;
+    /**
+     * The daemon's clock for the app check — #11051. Injected so a test can
+     * fire the minute's second look and the daily one without waiting a day.
+     */
+    after?: After;
   } = {},
 ): Promise<ExitCode> {
   const [command, ...rest] = argv;
@@ -465,6 +478,8 @@ export async function runCli(
           ...(options.login === undefined ? {} : { login: options.login }),
           ...(options.ask === undefined ? {} : { ask: options.ask }),
         },
+        service,
+        options.after,
       );
     case "status":
       /* `--json` is the only argument it reads. Anything else is ignored, as
@@ -2108,6 +2123,8 @@ async function commandRun(
     login?: (command: LoginCommand) => Promise<boolean>;
     ask?: (question: string) => Promise<string>;
   } = {},
+  service: ServiceIo = defaultServiceIo(),
+  after?: After,
 ): Promise<ExitCode> {
   /**
    * No url — byollm_020.
@@ -2197,6 +2214,114 @@ async function commandRun(
     }),
   });
 
+  /* A daemon is starting, so whatever stopped the last one is over. */
+  await clearAppRemoved(paths.appRemoved);
+
+  /**
+   * The BYOLLM app's daemon notices the app is gone — #11051.
+   *
+   * Started here, before preflight and pairings can park or end the run, so
+   * a parked daemon checks too, and it runs beside the work rather than in
+   * front of it: an app that is there costs nothing, and one that is
+   * missing is looked for again a minute later before anything is done.
+   * Not under `--supervised`, which is a hosted box's own supervisor and
+   * never the app's.
+   *
+   * `appGone` is aborted only once the start-at-login entry has been
+   * removed — Todd's order on #10663 — and it is what ends the run.
+   */
+  const plan = servicePlan(serviceTarget(paths, service));
+  const appGone = new AbortController();
+  const runOver = new AbortController();
+  const watching =
+    keptRunningBy === undefined
+      ? watchForTheApp({
+          notePath: paths.appNote,
+          platform: service.platform,
+          self: { execPath: service.execPath, scriptPath: service.scriptPath },
+          say: (line) => {
+            io.err(`${line}\n`);
+          },
+          signal:
+            signal === undefined
+              ? runOver.signal
+              : AbortSignal.any([signal, runOver.signal]),
+          ...(after === undefined ? {} : { after }),
+          removeEntry: async (note) => {
+            const result = await removeLoginEntry(plan, service.run);
+            for (const line of result.said) io.err(`app note: ${line}\n`);
+            if (!result.removed) return false;
+            await writeAppRemoved(paths.appRemoved, {
+              format: 1,
+              app: note.app,
+              at: Date.now(),
+            }).catch(() => undefined);
+            io.err(
+              `app note: the start-at-login entry is removed (${plan.unitPath}). ` +
+                `This daemon is stopping because the BYOLLM app was removed. ` +
+                `Your config, keys and pairings are untouched in ${paths.root}.\n`,
+            );
+            appGone.abort();
+            return true;
+          },
+        })
+      : Promise.resolve("not-watching" as const);
+
+  try {
+    const outcome = await serveUntilDone(
+      paths,
+      io,
+      signal,
+      pollMs,
+      supervised,
+      interactive,
+      preflightOptions,
+      keptRunningBy,
+      appGone.signal,
+    );
+    if (!appGone.signal.aborted) return outcome;
+  } finally {
+    runOver.abort();
+    await watching;
+  }
+
+  /* The entry is gone and the work is shut down; now the process ends. On a
+     Mac that is the bootout, which launchd answers with SIGTERM to this
+     process — nothing is left to do after it, and launchctl, inside this
+     job, may not live to return. */
+  const endSelf = plan.fromInside?.endSelf;
+  if (endSelf !== undefined) {
+    io.err(`app note: stopping: ${endSelf.join(" ")}\n`);
+    const ended = await service.run(endSelf).catch(() => ({
+      code: 127,
+      output: "",
+    }));
+    if (ended.code !== 0) {
+      io.err(
+        `app note: ${endSelf.join(" ")} did not end this daemon` +
+          `${ended.output.trim() === "" ? "" : ` — ${ended.output.trim()}`}. ` +
+          `Its start-at-login entry is gone, so nothing starts it at the next login.\n`,
+      );
+    }
+  }
+  return 0;
+}
+
+/**
+ * Preflight, then serve until the run ends — `commandRun`'s body, apart so
+ * the app check can wrap it in one `try`.
+ */
+async function serveUntilDone(
+  paths: DaemonPaths,
+  io: CliIo,
+  signal: AbortSignal | undefined,
+  pollMs: number,
+  supervised: boolean,
+  interactive: boolean,
+  preflightOptions: Parameters<typeof preflightFor>[3],
+  keptRunningBy: string | undefined,
+  appGone: AbortSignal,
+): Promise<ExitCode> {
   await preflightFor(paths, io, interactive, preflightOptions);
 
   /*
@@ -2221,7 +2346,14 @@ async function commandRun(
           // that can find nothing to serve, and it was the one being reached
           // — which is why the decision lives in one function now rather than
           // beside each `return`.
-          await nothingToServe(paths, io, signal, supervised, [], pollMs)
+          await nothingToServe(
+            paths,
+            io,
+            signal === undefined ? appGone : AbortSignal.any([signal, appGone]),
+            supervised,
+            [],
+            pollMs,
+          )
         : await runLoop(
             paths,
             origins,
@@ -2230,8 +2362,10 @@ async function commandRun(
             supervised,
             pollMs,
             keptRunningBy,
+            appGone,
           );
 
+    if (appGone.aborted) return 0;
     if (outcome !== "repaired") return outcome;
     io.err("re-paired — this device is returning to service.\n");
   }
@@ -2515,6 +2649,12 @@ async function runLoop(
   pollMs = PARK_POLL_MS,
   /** What `--supervised` named, for the startup line. */
   keptRunningBy?: string,
+  /**
+   * The BYOLLM app was removed and the start-at-login entry with it — #11051.
+   * Ends the run the way a stop does, without taking over the process's
+   * signals the way an absent `signal` does.
+   */
+  appGone?: AbortSignal,
 ): Promise<ServeOutcome> {
   /* One line, only when the state directory has actually moved — B205 item 2.
      Silent on a box (the supervisor states BYOLLM_HOME to this same default)
@@ -2555,6 +2695,14 @@ async function runLoop(
    * as subscribed to.
    */
   if (signal?.aborted === true) controller.abort();
+  appGone?.addEventListener(
+    "abort",
+    () => {
+      controller.abort();
+    },
+    { once: true },
+  );
+  if (appGone?.aborted === true) controller.abort();
   const runners: Runner[] = [];
   /**
    * The newest version the update authority has named — B053, B360.
@@ -3519,27 +3667,55 @@ async function commandStatus(
   const failing =
     health !== undefined && health.consecutiveFailures >= FAILURES_BEFORE_ALARM;
   const notSetUp = !configured && beat === undefined;
+  /* Stopped by the daemon itself because the BYOLLM app was removed — #11051.
+     Believed only while it is still true: no service registered and no
+     daemon beating. A `byollm start` or a running daemon since outranks it. */
+  const mark = await readAppRemoved(paths.appRemoved);
+  const appRemoved =
+    mark !== undefined &&
+    keeper === undefined &&
+    supervision.state === "absent" &&
+    (beat === undefined || stale)
+      ? mark
+      : undefined;
 
   io.out(
     `state: ${
-      revoked !== undefined
-        ? "REVOKED"
-        : supervision.state === "installed" || stale
-          ? "NOT RUNNING"
-          : failing
-            ? "NOT REPORTING"
-            : notSetUp
-              ? "NOT SET UP"
-              : "running"
+      appRemoved !== undefined
+        ? "STOPPED — the BYOLLM app was removed"
+        : revoked !== undefined
+          ? "REVOKED"
+          : supervision.state === "installed" || stale
+            ? "NOT RUNNING"
+            : failing
+              ? "NOT REPORTING"
+              : notSetUp
+                ? "NOT SET UP"
+                : "running"
     }\n`,
   );
-  if (revoked === undefined && !stale && !failing && notSetUp) {
+  if (appRemoved !== undefined) {
+    io.out(
+      `  the BYOLLM app is no longer at ${appRemoved.app}, so on ` +
+        `${new Date(appRemoved.at).toISOString().replace(/\.\d{3}Z$/u, "Z")} ` +
+        `this device's daemon removed its start-at-login entry and stopped.\n` +
+        `  Your config, keys and pairings are untouched in ${paths.root}.\n` +
+        `  To serve again: install the BYOLLM app and open it, or run \`byollm start\`.\n`,
+    );
+  }
+  if (
+    appRemoved === undefined &&
+    revoked === undefined &&
+    !stale &&
+    !failing &&
+    notSetUp
+  ) {
     io.out(
       `  no config at ${paths.config}, and nothing has run here yet.\n` +
         `  ${NOT_SET_UP_HINT}`,
     );
   }
-  if (revoked !== undefined) {
+  if (appRemoved === undefined && revoked !== undefined) {
     /* The ruled sentence, as the headline's own explanation. Everything below
        it on this screen describes a device that is not going to serve
        anything until it is paired again. */
@@ -3552,7 +3728,7 @@ async function commandStatus(
         ),
     );
   }
-  if (stale) {
+  if (appRemoved === undefined && stale) {
     /**
      * Said with the evidence, because "NOT RUNNING" from a surface that was
      * wrong about exactly this an hour ago has to show its working — and the
@@ -3601,9 +3777,12 @@ async function commandStatus(
     );
   }
   io.out(
-    keeper === undefined
-      ? await supervisionLine(plan, supervision, revoked !== undefined)
-      : `service: kept running by ${keeper.by}\n`,
+    appRemoved !== undefined
+      ? `service: not installed — the daemon removed its own start-at-login ` +
+          `entry when the BYOLLM app was removed\n`
+      : keeper === undefined
+        ? await supervisionLine(plan, supervision, revoked !== undefined)
+        : `service: kept running by ${keeper.by}\n`,
   );
   io.out("\n");
 

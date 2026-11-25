@@ -100,6 +100,33 @@ export interface ServicePlan {
    * {@link endTree} has worked, so its "not running" is not reported.
    */
   readonly endsInstance?: readonly string[];
+  /**
+   * Removing the start-at-login entry from INSIDE the daemon — #11051.
+   *
+   * `deactivate` is run by `byollm stop`, from outside, and on a Mac its
+   * first step is `launchctl bootout`. Run from inside the launchd job, that
+   * bootout kills the process running it before the plist is deleted (#9572,
+   * Owl's point 1 on #10663), and launchd loads the plist again at the next
+   * login. So the daemon stopping itself goes the other way round: the entry
+   * first, with nothing that can end this process, then `endSelf`.
+   *
+   * After `unregister` runs, the unit file and the Startup fallback are
+   * deleted the way `byollm stop` deletes them (`deleteUnitFiles`).
+   *
+   * Absent on Linux, where the daemon never stops itself (#11051: the app
+   * ships for macOS and Windows, and Linux behaves exactly as before).
+   */
+  readonly fromInside?: {
+    /** Unregister without ending the running instance. May be empty. */
+    readonly unregister: readonly (readonly string[])[];
+    /**
+     * What ends this process once the entry is gone, when returning from
+     * `run` alone would not: launchd's `KeepAlive` restarts a job that exits
+     * for as long as it stays loaded, plist or no plist. By label, because
+     * the plist it would otherwise be named by has been deleted.
+     */
+    readonly endSelf?: readonly string[];
+  };
   /** Asks the platform whether it is running right now. */
   readonly query: readonly string[];
   /** Where the supervisor sends the daemon's output. */
@@ -291,6 +318,13 @@ export function servicePlan(target: ServiceTarget): ServicePlan {
         ["launchctl", "enable", `${domain}/${SERVICE_LABEL}`],
       ],
       deactivate: [["launchctl", "bootout", domain, unitPath]],
+      /* Deleting the plist is the whole of the entry: nothing loads a job at
+         login from a file that is not there. Deleting a file cannot end the
+         process that deletes it, which is why it goes first. */
+      fromInside: {
+        unregister: [],
+        endSelf: ["launchctl", "bootout", `${domain}/${SERVICE_LABEL}`],
+      },
       query: ["launchctl", "print", `${domain}/${SERVICE_LABEL}`],
       logPath,
       supervisor: "launchd",
@@ -462,6 +496,17 @@ WantedBy=default.target
      * `uninstallService` runs it only on a pid it has reason to believe is
      * this task's daemon — see there.
      */
+    /**
+     * `/delete` alone, which is exactly what made #9692 a bug for `stop`
+     * and is what makes it safe here: deleting a task does not end the
+     * process it started (Kevin's desktop, 11-18), so the daemon can remove
+     * its own task and is still there to stop after. No `endSelf`: the
+     * daemon returns from `run` and exits, and a deleted task has no
+     * restart-on-failure left to start it again.
+     */
+    fromInside: {
+      unregister: [["schtasks", "/delete", "/tn", SERVICE_LABEL, "/f"]],
+    },
     endTree: (pid) => ["taskkill", "/pid", String(pid), "/T", "/F"],
     endsInstance: WINDOWS_END_TASK,
     query: ["schtasks", "/query", "/tn", SERVICE_LABEL],

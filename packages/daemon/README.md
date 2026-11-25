@@ -249,6 +249,94 @@ finished, and the site holds it until its lease runs out.
 *installed but not running* (the one that looks fine from an app's dashboard
 and serves nothing), and not installed at all.
 
+### When the BYOLLM app is removed
+
+The BYOLLM app installs its own Node, a `byollm` under it, and the same
+start-at-login entry `byollm start` writes. Dragging the app to the Trash, or
+deleting its folder by hand on Windows, removes none of those. So a daemon
+the app installed looks for the app, and stops itself when it is gone
+(ruled on #10663).
+
+**The note.** The app writes `~/.byollm/app.json` when it installs or is
+opened. byollm reads it and never writes it:
+
+```json
+{
+  "format": 1,
+  "app": "/Applications/BYOLLM.app",
+  "node": "/Users/lis/.byollm/node/bin/node",
+  "program": "/Users/lis/.byollm/node/lib/node_modules/byollm/dist/bin.js"
+}
+```
+
+`format` is `1`. `app` is where the app is (the `.app` bundle on a Mac, its
+folder on Windows), `node` is the Node the app installed, and `program` is the
+byollm script under that Node. All three are absolute paths. A note that is
+not JSON, has another `format`, or has a path that is missing or relative is
+ignored, says so once in `service.log`, and is never acted on.
+
+**Whose note it is.** A daemon acts on the note only when it is itself
+running from the `node` and the `program` the note names, compared after
+resolving links. Every other daemon ignores the note. On Linux the note is
+not read at all.
+
+**The check.** When the daemon starts, and once a day while it runs, it looks
+for the app at the note's `app` path. An app in the Trash is not at that path,
+so it counts as gone at once. So does an app moved somewhere else; opening it
+again writes the note with its new path, and `byollm start` puts the daemon
+back. When the app is missing, the daemon looks again a minute later before
+it does anything, because an app being replaced by its own updater is missing
+for a moment.
+
+**The stop.** The start-at-login entry goes first, then the daemon:
+
+- macOS: the plist in `~/Library/LaunchAgents` is deleted, then the daemon
+  shuts its work down and runs `launchctl bootout gui/<uid>/cloud.byollm.daemon`.
+  launchd ends the job. Deleting a file cannot end the process that deletes
+  it, which is why it goes first; with no plist, nothing loads the job at the
+  next login.
+- Windows: `schtasks /delete` removes the task (deleting a task does not end
+  the process it started), the task file and the Startup-folder entry are
+  deleted, and then the daemon shuts its work down and exits. A deleted task
+  has no restart-on-failure left to start it again.
+
+If the entry cannot be removed, the daemon says why in `service.log`, keeps
+running, and looks again the next day. A daemon that stopped with its entry
+still in place would only be started again at the next login.
+
+Only the start-at-login entry is removed. Your config, keys, pairings, the
+note and the app's Node folder stay where they are. Nothing is sent anywhere.
+
+**Afterwards**, `service.log` says the daemon stopped because the BYOLLM app
+was removed, and `byollm status` says:
+
+```console
+state: STOPPED — the BYOLLM app was removed
+  the BYOLLM app is no longer at /Applications/BYOLLM.app, so on 2026-11-24T09:02:11Z this device's daemon removed its start-at-login entry and stopped.
+  Your config, keys and pairings are untouched in /Users/lis/.byollm.
+  To serve again: install the BYOLLM app and open it, or run `byollm start`.
+service: not installed — the daemon removed its own start-at-login entry when the BYOLLM app was removed
+```
+
+`byollm status --json` reads `"state":"stopped"`. The next daemon to start
+clears this.
+
+**A machine with byollm from npm and the app.** There is one `~/.byollm` and
+one start-at-login entry (`cloud.byollm.daemon`) per person, whichever
+install wrote them. Whichever of `byollm start` and the app's install ran
+last owns that entry: its plist or task names that install's Node and
+program. The note always belongs to the app's daemon, because it names the
+app's Node and program. The npm daemon never stops itself because of the
+note, whatever the note says and whether or not the app is there. So:
+
+- the app installed last and later removed: the app's daemon owns the entry,
+  finds the app gone, removes the entry, and stops. Nothing starts byollm at
+  the next login. Run `byollm start` from the npm install to put your own
+  daemon back;
+- `byollm start` from npm run last: the npm daemon owns the entry and the
+  app's daemon is not running, so removing the app changes nothing. The npm
+  daemon keeps starting at every login.
+
 ### `byollm status --json`, for a program
 
 A tray icon, a script, or anything else that would otherwise have to read
@@ -276,8 +364,9 @@ The three words:
 
 - **`running`** — installed to run, and running: a supervisor (or a hosted
   box's own) keeps it up, and its heartbeat is fresh.
-- **`stopped`** — nothing is installed to start it. You ran `byollm stop`, or
-  never ran `byollm start`. A `byollm run` open in a terminal is serving, and
+- **`stopped`** — nothing is installed to start it. You ran `byollm stop`,
+  never ran `byollm start`, or the daemon stopped itself because the BYOLLM
+  app was removed. A `byollm run` open in a terminal is serving, and
   still reads `stopped`: nothing will start it again when that window closes.
 - **`needs_attention`** — installed to run, and not running: the supervisor
   says it is down, its heartbeat has stopped, the hub refuses everything it

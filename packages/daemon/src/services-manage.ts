@@ -864,6 +864,21 @@ function choicesOf(rows: readonly Candidate[]): QuestionOption[] {
 }
 
 /**
+ * Whether a subscription row is worth a real call — #10374, rule 34.
+ *
+ * The verifier ends in `backend.canary`, one real model call on the person's
+ * plan. A face that has said which rows it can turn on (`--yes`, through its
+ * `--service` names) gets no call for any other: a bare `--yes` checks
+ * nothing, and `--yes --service qwen3-8b` does not check Claude. A row that
+ * is named is checked exactly as before, then turned on.
+ *
+ * An unchecked row is not marked signed out — nobody asked — and it cannot
+ * be turned on by that face, so its state reaches nothing that is written.
+ */
+const checks = (io: Face, name: string): boolean =>
+  io.named === undefined || io.named.includes(name);
+
+/**
  * Everything this machine could run, from three sources that must agree.
  *
  * The third source is the one it is easy to leave out and the one that makes
@@ -1025,9 +1040,6 @@ async function candidates(input: {
     const configured = rows.filter((row) => row.type === cli.id);
     if (configured.length > 0) {
       for (const row of configured) {
-        const proof = await input.verifier(cli.id, row.model);
-        row.signedOut = proof.answers === false;
-        row.detail = proof.detail;
         /**
          * The binary, carried onto the row it belongs to — B117's second half,
          * and it bit the ONE-service case too.
@@ -1038,9 +1050,14 @@ async function candidates(input: {
          * never deselected, and written into the config anyway — the exact
          * "a note in a wizard that finished by saying it was done" failure
          * that path exists to prevent, reintroduced by the row that stopped
-         * duplicating it.
+         * duplicating it. Set above the check, so a row `--yes` does not
+         * check still knows its binary.
          */
         row.binary = cli.binary;
+        if (!checks(input.io, row.name)) continue;
+        const proof = await input.verifier(cli.id, row.model);
+        row.signedOut = proof.answers === false;
+        row.detail = proof.detail;
       }
       continue;
     }
@@ -1112,9 +1129,12 @@ async function candidates(input: {
      * Haiku", which nobody would print, so a relative-tier cost note is
      * arbitrary. Opus is the default and it is chosen silently.
      */
-    const proof = await input.verifier(cli.id, model);
+    const name = uniqueName(cli.binary, names);
+    const proof: Detected = checks(input.io, name)
+      ? await input.verifier(cli.id, model)
+      : { installed: true, answers: undefined };
     add({
-      name: uniqueName(cli.binary, names),
+      name,
       type: cli.id,
       baseUrl: undefined,
       model,

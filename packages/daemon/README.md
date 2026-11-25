@@ -83,6 +83,11 @@ flag that answers them. Both stops come before anything is written or paired.
 - `--default <name>`: which service answers a job that names none. Needed
   only when more than one service is turned on.
 
+`--yes` makes no call on a subscription it was not given by name. Setup
+checks a signed-in CLI such as `claude` with one real call on your plan, and
+under `--yes` it does that only for a subscription named with `--service`.
+One that is not named is still listed, unchecked.
+
 A CLI whose model byollm does not know, such as `codex` on a fresh machine,
 asks for its model. `--yes` skips that question, so that CLI is not on the
 list, and naming it with `--service` stops the run.

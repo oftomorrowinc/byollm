@@ -104,6 +104,20 @@ export interface Face {
   readonly interactive: boolean;
   /** Shows the record and returns the answer, as a typed line. */
   answer(question: Question): Promise<string>;
+  /**
+   * The only rows this face can turn on, when it knows them before it is
+   * asked — #10374, rule 34. `--yes` knows: it marks exactly its `--service`
+   * names, and nothing for a bare `--yes`.
+   *
+   * A subscription is checked with a real call on the person's plan, and
+   * that call is spent before the picker is asked. So a face that will never
+   * mark a row says so here, and `manageServices` does not spend a call
+   * checking it. The row is still listed as found.
+   *
+   * Absent for a person and for `--json`: they choose at the picker, and
+   * the row's state is part of what they choose from.
+   */
+  readonly named?: readonly string[];
 }
 
 /**
@@ -481,6 +495,7 @@ export function yesFace(
       io.err(text);
     },
     interactive: true,
+    named: flags.services ?? [],
     answer(question) {
       const layout = TERMINAL[question.id](question);
       if (layout.before !== "") io.out(layout.before);

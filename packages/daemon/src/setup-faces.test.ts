@@ -155,6 +155,8 @@ function yesOf(flags: YesFlags): { face: Face; printed: () => string } {
 async function setupOn(
   face: Face,
   machine: { readonly clis: readonly BackendId[]; readonly probe: Probe },
+  /** Each real call the verifier would have spent, as `<cli> <model>`. */
+  checked: string[] = [],
 ): Promise<{
   p: DaemonPaths;
   ran: string[][];
@@ -168,7 +170,10 @@ async function setupOn(
     face,
     machineWith(machine.clis),
     machine.probe,
-    () => Promise.resolve({ installed: true, answers: true }),
+    (id, model) => {
+      checked.push(`${id} ${model}`);
+      return Promise.resolve({ installed: true, answers: true });
+    },
     () => Promise.reject(new Error("nobody is signed out here")),
     (argv) => {
       ran.push([...argv]);
@@ -351,6 +356,88 @@ describe("--yes does not pick for the owner", () => {
     /* Neither the team nor the default question is asked, so the sentence
        is said where they would have been — and --yes printed it. */
     expect(yes.printed()).toContain(`claude ${SUBSCRIPTION_SENTENCE}`);
+  });
+});
+
+describe("--yes checks only the subscriptions it was given by name", () => {
+  /**
+   * #10374, rule 34: "A bare --yes never turns on or checks a subscription
+   * that was not named."
+   *
+   * The check is a real call on the person's plan — the verifier ends in
+   * `backend.canary` — and it used to run for every detected CLI with a
+   * model, before the picker was asked. So a bare `--yes` that stopped and
+   * enabled nothing had already spent a call on Claude. The verifier here
+   * counts what it would have spent.
+   */
+  it("a bare --yes on a Claude and ChatGPT machine makes no call, and stops where it did", async () => {
+    const checked: string[] = [];
+    const yes = yesOf({});
+    const run = await setupOn(
+      yes.face,
+      { clis: ["claude-cli", "codex-cli"], probe: nothingServing },
+      checked,
+    );
+    const stopped = await run.result.catch((error: unknown) => error);
+    expect(checked).toEqual([]);
+    expect(stopped).toBeInstanceOf(NeedsFlag);
+    expect((stopped as NeedsFlag).message).toContain(
+      "--service <name>: claude",
+    );
+    /* Still listed as found: not checked is not hidden. */
+    expect(yes.printed()).toContain("claude");
+    expect(yes.printed()).toContain("your subscription — your own jobs only");
+    expect(yes.printed()).not.toContain("signed out");
+  });
+
+  it("--yes --service claude checks claude and nothing else", async () => {
+    const checked: string[] = [];
+    const yes = yesOf({ services: ["claude"] });
+    const run = await setupOn(
+      yes.face,
+      { clis: ["claude-cli", "codex-cli"], probe: ollama },
+      checked,
+    );
+    const result = await run.result;
+    expect(checked).toEqual(["claude-cli opus"]);
+    expect(result.services).toEqual(["claude"]);
+    expect(yes.printed()).toContain(`claude ${SUBSCRIPTION_SENTENCE}`);
+  });
+
+  it("--yes --service <a local model> on a Claude machine does not check Claude", async () => {
+    const checked: string[] = [];
+    const yes = yesOf({ services: [LOCAL] });
+    const run = await setupOn(
+      yes.face,
+      { clis: ["claude-cli"], probe: ollama },
+      checked,
+    );
+    const result = await run.result;
+    expect(checked).toEqual([]);
+    expect(result.services).toEqual([LOCAL]);
+    expect(yes.printed()).not.toContain(SUBSCRIPTION_SENTENCE);
+  });
+
+  it("a person, and --json, still see every subscription checked", async () => {
+    const SCRIPT = ["", "1", "", "", ""];
+    const byPerson: string[] = [];
+    await (
+      await setupOn(
+        terminalOf(SCRIPT),
+        { clis: ["claude-cli"], probe: nothingServing },
+        byPerson,
+      )
+    ).result;
+    const byJson: string[] = [];
+    await (
+      await setupOn(
+        jsonOf(SCRIPT.map((line) => JSON.stringify(line))).face,
+        { clis: ["claude-cli"], probe: nothingServing },
+        byJson,
+      )
+    ).result;
+    expect(byPerson).toEqual(["claude-cli opus"]);
+    expect(byJson).toEqual(byPerson);
   });
 });
 

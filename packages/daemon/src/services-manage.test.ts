@@ -19,6 +19,7 @@ import {
 import { DaemonConfig, resolveConfig } from "./config.js";
 import { startability } from "./local-server.js";
 import { knownModelsFor } from "./known-models.js";
+import { CLAUDE_ALIASES } from "./cli-models.js";
 import type { BackendId } from "@byollm/protocol";
 
 /**
@@ -1296,6 +1297,81 @@ describe("a CLI whose model we do not know", () => {
     expect(outcome.services["codex"]).toMatchObject({
       model: "gpt-5.6-terra",
     });
+  });
+
+  it("draws claude's aliases with the ruled notes, and nothing else on the prompt moved", async () => {
+    /**
+     * #10860 point 7: "Haiku is the fastest, Fable is the strongest." The
+     * whole prompt is pinned, not the four lines, so a change that reworded
+     * the question or the hint alongside the notes shows up here.
+     *
+     * Drawn through the codex row because that is the one this screen asks
+     * today: claude has a default model and is never asked (the next case).
+     * What is under test is how the list prints, which is the same prompt.
+     */
+    const { io } = await run([""], {
+      detector: machineWith(["codex-cli"]),
+      suggest: () => Promise.resolve(CLAUDE_ALIASES),
+    });
+    expect(io.asked()[0]).toBe(
+      "\n  `codex` is installed. Which model does it serve?\n" +
+        "\n" +
+        "    1  opus — for complex work\n" +
+        "    2  sonnet — for everyday work\n" +
+        "    3  fable — strongest\n" +
+        "    4  haiku — fastest\n" +
+        "  (a number, or type a model name; enter skips — it will not be offered) ",
+    );
+  });
+
+  it("keeps Enter a skip and 1–3 the models they named before haiku arrived", async () => {
+    /**
+     * Nothing a person or a script already types changes meaning: Enter
+     * configures nothing, as it did, and `1`, `2`, `3` are still opus,
+     * sonnet, fable. `4` is the only new answer.
+     */
+    const skipped = await run([""], {
+      detector: machineWith(["codex-cli"]),
+      suggest: () => Promise.resolve(CLAUDE_ALIASES),
+    });
+    expect(skipped.outcome.services["codex"]).toBeUndefined();
+
+    const picks: Record<string, string> = {};
+    for (const typed of ["1", "2", "3", "4"]) {
+      const { outcome } = await run([typed, ""], {
+        detector: machineWith(["codex-cli"]),
+        suggest: () => Promise.resolve(CLAUDE_ALIASES),
+      });
+      picks[typed] = (outcome.services["codex"] as { model: string }).model;
+    }
+    expect(picks).toEqual({
+      "1": "opus",
+      "2": "sonnet",
+      "3": "fable",
+      "4": "haiku",
+    });
+  });
+
+  it("never asks claude's model in setup: it is opus unless the owner says otherwise", async () => {
+    /**
+     * Ruled 09-14, and #11050 must not move it. It is also why picking Fable
+     * here is not a thing a person can do: the picker above is never drawn
+     * for claude, so no call is made on a model chosen from it. If this
+     * starts asking, the question of what a Fable canary bills (#10860
+     * point 4) arrives with it.
+     */
+    let suggested = false;
+    /* `1` turns claude on at the picker; nothing before it asked a model. */
+    const { outcome, io } = await run(["1", ""], {
+      detector: machineWith(["claude-cli"]),
+      suggest: () => {
+        suggested = true;
+        return Promise.resolve(CLAUDE_ALIASES);
+      },
+    });
+    expect(suggested).toBe(false);
+    expect(io.asked().join("")).not.toContain("Which model does it serve?");
+    expect(outcome.services["claude"]).toMatchObject({ model: "opus" });
   });
 
   it("accepts a named model from a backend that has no canary", async () => {

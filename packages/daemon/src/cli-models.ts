@@ -49,11 +49,25 @@ export interface ModelSuggestion {
   readonly note?: string;
 }
 
-/** Claude's own documented aliases, which track the latest model. */
+/**
+ * Claude's own documented aliases, which track the latest model.
+ *
+ * **The notes are ruled — Todd, #10860 point 7:** *"Haiku is the fastest,
+ * Fable is the strongest."* This said the opposite (fable "fastest", opus
+ * "most capable") and had no `haiku` at all. Opus and sonnet are reworded
+ * only because "most capable" cannot stand beside "strongest"; the ruling's
+ * levels (complex, everyday) are where their words come from.
+ *
+ * **The order is not the ruling's order, on purpose.** A number typed at the
+ * picker is a name somebody (or a script) already uses: `1` is opus, `2`
+ * sonnet, `3` fable. So the three keep their places and `haiku` is appended
+ * as `4`; moving fable to the top would change what `1` means.
+ */
 export const CLAUDE_ALIASES: readonly ModelSuggestion[] = [
-  { id: "opus", note: "most capable" },
-  { id: "sonnet", note: "balanced" },
-  { id: "fable", note: "fastest" },
+  { id: "opus", note: "for complex work" },
+  { id: "sonnet", note: "for everyday work" },
+  { id: "fable", note: "strongest" },
+  { id: "haiku", note: "fastest" },
 ];
 
 /** Read and parse, or undefined. Absence is normal and is not an error. */

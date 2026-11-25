@@ -153,6 +153,21 @@ describe("claude, which has no list and should not get one", () => {
     expect(ids).toEqual(CLAUDE_ALIASES.map((a) => a.id));
   });
 
+  it("names the four aliases in their places, with the ruled notes", () => {
+    /**
+     * #10860 point 7: "Haiku is the fastest, Fable is the strongest." The
+     * order is the order the menu numbers them in, and the first three are
+     * where they were before haiku arrived — `1`, `2` and `3` still name
+     * opus, sonnet and fable.
+     */
+    expect(CLAUDE_ALIASES).toEqual([
+      { id: "opus", note: "for complex work" },
+      { id: "sonnet", note: "for everyday work" },
+      { id: "fable", note: "strongest" },
+      { id: "haiku", note: "fastest" },
+    ]);
+  });
+
   it("puts the configured model first, marked as what claude uses", async () => {
     const dir = await home();
     await mkdir(join(dir, ".claude"), { recursive: true });
@@ -179,7 +194,7 @@ describe("claude, which has no list and should not get one", () => {
       "utf8",
     );
     const ids = (await modelSuggestions("claude-cli", dir)).map((s) => s.id);
-    expect(ids).toEqual(["opus[1m]", "sonnet", "fable"]);
+    expect(ids).toEqual(["opus[1m]", "sonnet", "fable", "haiku"]);
   });
 
   it("ignores a settings file with no model in it", async () => {

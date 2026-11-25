@@ -93,6 +93,27 @@ C060). So the lock now reads: *with nothing new turned on*, any two 0.1.x
 parties talk; a new kind needs its upstream on the version that added it, and
 a device that meets an older one says so and keeps serving everything else.
 
+## 0.2.0: a purpose's level — #10711, ruled on #10860
+
+**The manifest's purpose gains one key in 0.2.0: `level`.** Optional, one of
+`quick | everyday | complex | hardest`, and a level is never a model's name.
+It is the case the section above describes: a new key on a `.strict()`
+shape, so every validator built on `@byollm/protocol` 0.1.7 or older refuses
+a purpose that carries it (`packages/conformance/test/level-against-0.1.7.test.ts`
+proves it against the published 0.1.7). That is why it is 0.2.0 and not a
+0.1.x.
+
+It is the same shape as `Purpose.routing` below: optional, never defaulted at
+parse, and "not stated" answered in one function, `levelOf()`, as
+`everyday`. The order, strongest first, is `LEVELS_STRONGEST_FIRST`, stated
+once in `manifest.ts`. Nothing about a level reaches a device, so
+`PROTOCOL_VERSION` does not move for it.
+
+Because only parties that host sites read a manifest, the order of upgrade is
+ruled rather than left to chance (#10860, point 9): the hub's mapping table,
+this protocol published, the hub's pin, the dashboard's pin, and only then do
+sites add levels.
+
 ## What is NOT locked, stated here rather than somewhere quieter
 
 Carve-outs belong in the same document as the promise, or the promise reads
@@ -165,7 +186,8 @@ validated; no code branches on them.
 **Locked** — these do not move inside 0.1.x:
 
 - the protocol-1 wire (envelope, pairing, claim — the three surfaces above);
-- the site manifest, v1, including the keys reserved above;
+- the site manifest, v1, including the keys reserved above, and from 0.2.0
+  its purpose's `level`;
 - the daemon config, v1;
 - the CLI verbs: `setup`, `run`, `start`, `stop`, `status`, `services`,
   `model`, `log`. A wizard is a user interface over `setup`, not a new verb;

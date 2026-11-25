@@ -240,12 +240,16 @@ export {
 } from "./keys.js";
 
 export {
+  DEFAULT_LEVEL,
   DEFAULT_ROUTING,
+  LEVELS_STRONGEST_FIRST,
   Manifest,
   MAX_PURPOSES,
   Purpose,
+  PurposeLevel,
   PurposeRouting,
   RESERVED_PURPOSE,
+  levelOf,
   purposeToolsDigest,
   routingOf,
   singlePurposeManifest,

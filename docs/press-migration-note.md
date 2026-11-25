@@ -57,6 +57,14 @@ renaming one is deleting a purpose and creating another. A label is prose,
 changeable whenever you like, and is the **only** thing the consent screen
 renders. `description` is optional and gives that screen a line of context.
 
+**From 0.2.0 a purpose may also carry a `level`**: `quick`, `everyday`,
+`complex` or `hardest`, which a person sees as Quick, Everyday, Complex or
+Hardest. It says how hard the purpose's work is; the person picks which of
+their models answers each level. It never names a model. A purpose without
+one is everyday. Press's v1 above has none, and no site should add one until
+the hub and the dashboard both run 0.2.0 — an older hub cannot read a purpose
+that carries it (`docs/release-notes/0.2.0.md`, "Upgrading").
+
 Two things about purposes worth knowing:
 
 - A purpose is the unit a user maps and revokes. Two uses somebody might

@@ -140,6 +140,74 @@ export function routingOf(purpose: Purpose): PurposeRouting {
   return purpose.routing ?? DEFAULT_ROUTING;
 }
 
+/**
+ * How hard a purpose's work is, as the site's developer judges it — new in
+ * 0.2.0 (#10711, ruled by Todd on #10860, points 1, 9 and 10).
+ *
+ * "The developer recommends; the person decides." A site says a purpose is
+ * quick work or the hardest it has. The person says which of their models
+ * answers each level. So a purpose names a level and **never a model**: no
+ * name, no family, no vendor. A site that could name a model could steer a
+ * person's choice and would learn something about their setup, and the
+ * manifest has never let a site do either.
+ *
+ * Four lowercase words on the wire. A surface that shows one to a person
+ * capitalises it: Quick, Everyday, Complex, Hardest. The lowercase spelling
+ * matches every other value a manifest carries (`user-choice`, `llm.chat`).
+ *
+ * Nothing about a level reaches a device. It is not on the job stub, the
+ * grant or a capability, and it does not move `PROTOCOL_VERSION`. It is a
+ * key on the manifest, which the hub and the dashboard read.
+ *
+ * ## Why a site may not write it yet
+ *
+ * {@link Purpose} is `.strict()`, so every validator built before this key
+ * refuses a manifest that carries it, and `@byollm/protocol` 0.1.7's
+ * `Manifest` does. The ruled order (point 9) is: the mapping table's
+ * migration, this protocol published, the hub's pin, then the dashboard's,
+ * and only then may sites add levels.
+ */
+export const PurposeLevel = z.enum(
+  ["quick", "everyday", "complex", "hardest"],
+  {
+    error: "a level is one of quick, everyday, complex or hardest",
+  },
+);
+export type PurposeLevel = z.infer<typeof PurposeLevel>;
+
+/**
+ * The four levels, strongest first. The one statement of their order.
+ *
+ * The hub and the dashboard both read it, so neither keeps its own list.
+ * What to try when a level's model is not there (the ruling's point 6) is not
+ * decided here; it belongs to the hub. This says only which level is above
+ * which.
+ */
+export const LEVELS_STRONGEST_FIRST: readonly PurposeLevel[] = Object.freeze([
+  "hardest",
+  "complex",
+  "everyday",
+  "quick",
+] as const);
+
+/**
+ * What a purpose that names no level means: everyday work. The ruling's
+ * words, point 1: "No level means Everyday."
+ *
+ * Applied where the value is used, by {@link levelOf}, and never at parse,
+ * for the reason {@link DEFAULT_ROUTING} gives: a manifest without `level`
+ * must parse to a manifest without it.
+ */
+export const DEFAULT_LEVEL: PurposeLevel = "everyday";
+
+/**
+ * The level a purpose asks for, defaulted. The one place "not stated" is
+ * answered, so the hub and the dashboard cannot disagree about it.
+ */
+export function levelOf(purpose: Purpose): PurposeLevel {
+  return purpose.level ?? DEFAULT_LEVEL;
+}
+
 export const Purpose = z
   .object({
     /**
@@ -187,6 +255,13 @@ export const Purpose = z
      * place "not stated" is answered.
      */
     routing: PurposeRouting.optional(),
+    /**
+     * How hard this purpose's work is — one of the four in
+     * {@link PurposeLevel}, new in 0.2.0. Optional and never defaulted at
+     * parse: {@link levelOf} answers "not stated" as `everyday`. A level,
+     * never a model.
+     */
+    level: PurposeLevel.optional(),
     /**
      * The site's tools for this purpose, by name — byollm_012 §4.
      *

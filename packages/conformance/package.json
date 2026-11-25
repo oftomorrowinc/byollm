@@ -1,7 +1,7 @@
 {
   "name": "@byollm/conformance",
   "version": "0.1.7",
-  "description": "The BYOLLM compatibility contract \u2014 drive a real daemon against any server, assert every protocol MUST a kit can reach, and report the ones it cannot.",
+  "description": "The BYOLLM compatibility contract — drive a real daemon against any server, assert every protocol MUST a kit can reach, and report the ones it cannot.",
   "license": "MIT",
   "type": "module",
   "bin": {
@@ -39,6 +39,7 @@
     "@byollm/server": "workspace:*",
     "@supabase/supabase-js": "^2.112.2",
     "byollm-protocol-0.1.4": "npm:@byollm/protocol@0.1.4",
+    "byollm-protocol-0.1.7": "npm:@byollm/protocol@0.1.7",
     "byollm-server-0.1.4": "npm:@byollm/server@0.1.4",
     "byollm-server-0.1.7": "npm:@byollm/server@0.1.7"
   },

@@ -97,6 +97,9 @@ importers:
       byollm-protocol-0.1.4:
         specifier: npm:@byollm/protocol@0.1.4
         version: '@byollm/protocol@0.1.4'
+      byollm-protocol-0.1.7:
+        specifier: npm:@byollm/protocol@0.1.7
+        version: '@byollm/protocol@0.1.7'
       byollm-server-0.1.4:
         specifier: npm:@byollm/server@0.1.4
         version: '@byollm/server@0.1.4(@supabase/supabase-js@2.112.2)'

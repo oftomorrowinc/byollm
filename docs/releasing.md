@@ -93,6 +93,11 @@ node scripts/bump-version.mjs <version>
 
 #    It covers the manifests, packages/daemon/src/index.ts (DAEMON_VERSION),
 #    and the alpha warning in every README and site/index.html.
+#
+#    Then check Node's security releases (nodejs.org/en/blog/vulnerability)
+#    and set LOWEST_SAFE_NODE in packages/daemon/src/app-node.ts to the
+#    lowest Node this release calls safe — it only ever warns about a Node
+#    the BYOLLM app installed (#10660); never raise `engines` for this.
 
 # 2. Write the note: docs/release-notes/<version>.md. This is the step that
 #    did not exist, which is why B079's approved copy sat unshipped — it was

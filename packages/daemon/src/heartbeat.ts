@@ -29,6 +29,16 @@ export interface DaemonHeartbeat {
   readonly at: number;
   /** The process that wrote it, so a reader can check it is still there. */
   readonly pid: number;
+  /**
+   * The Node and the program that wrote it, and that Node's version — #11052.
+   *
+   * So `status`, another process, can tell whether the daemon runs on the
+   * Node the BYOLLM app installed (`app-node.ts`). Absent from a beat written
+   * before they were recorded, which reads as "not known" and warns nobody.
+   */
+  readonly execPath?: string;
+  readonly scriptPath?: string;
+  readonly node?: string;
 }
 
 /**
@@ -75,7 +85,19 @@ export async function readHeartbeat(
       typeof (parsed as { at?: unknown }).at === "number" &&
       typeof (parsed as { pid?: unknown }).pid === "number"
     ) {
-      return parsed as DaemonHeartbeat;
+      const beat = parsed as Record<string, unknown>;
+      const text = (key: string): string | undefined =>
+        typeof beat[key] === "string" ? beat[key] : undefined;
+      const execPath = text("execPath");
+      const scriptPath = text("scriptPath");
+      const node = text("node");
+      return {
+        at: beat["at"] as number,
+        pid: beat["pid"] as number,
+        ...(execPath === undefined ? {} : { execPath }),
+        ...(scriptPath === undefined ? {} : { scriptPath }),
+        ...(node === undefined ? {} : { node }),
+      };
     }
     return undefined;
   } catch {

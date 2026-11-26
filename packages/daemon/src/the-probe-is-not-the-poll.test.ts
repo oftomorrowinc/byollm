@@ -278,6 +278,11 @@ async function makeRunner() {
     ingress,
     now: () => clock,
     heartbeatPath: join(dir, "heartbeat.json"),
+    heartbeatFrom: {
+      execPath: "/Users/lis/.byollm/node/bin/node",
+      scriptPath: "/Users/lis/.byollm/node/lib/node_modules/byollm/dist/bin.js",
+      node: "22.13.1",
+    },
     onEvent: (event) => {
       events.push(event.type);
       if (
@@ -490,6 +495,14 @@ describe("what a claim costs when nothing has changed", () => {
     expect(first?.pid, "and its pid, so a reader can check it").toBe(
       process.pid,
     );
+    /* #11052: and the Node it runs on, which is how `status` tells the app's
+       own Node from a person's. The status tests write the beat themselves,
+       so this is the only case that sees the daemon write it. */
+    expect(first).toMatchObject({
+      execPath: "/Users/lis/.byollm/node/bin/node",
+      scriptPath: "/Users/lis/.byollm/node/lib/node_modules/byollm/dist/bin.js",
+      node: "22.13.1",
+    });
   });
 
   it("keeps beating on later ticks, not just the first", async () => {

@@ -211,6 +211,15 @@ export interface RunnerOptions {
    * means only "a daemon was alive at this instant".
    */
   readonly heartbeatPath?: string;
+  /**
+   * Which Node and program this daemon is, written into every beat — #11052.
+   * Only the long-running daemon passes it, beside `heartbeatPath`.
+   */
+  readonly heartbeatFrom?: {
+    readonly execPath: string;
+    readonly scriptPath: string;
+    readonly node: string;
+  };
   readonly now?: () => number;
   /** Notified on every state change, so the CLI can render progress. */
   readonly onEvent?: (event: RunnerEvent) => void;
@@ -3321,7 +3330,11 @@ export class Runner {
     if (path === undefined) return Promise.resolve();
     const at = this.#now();
     this.#beats = this.#beats.then(() =>
-      writeHeartbeat(path, { at, pid: process.pid }),
+      writeHeartbeat(path, {
+        at,
+        pid: process.pid,
+        ...this.#options.heartbeatFrom,
+      }),
     );
     return this.#beats;
   }

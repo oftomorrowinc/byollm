@@ -337,6 +337,38 @@ note, whatever the note says and whether or not the app is there. So:
   app's daemon is not running, so removing the app changes nothing. The npm
   daemon keeps starting at every login.
 
+### When the app's own Node is old
+
+The Node the BYOLLM app installed is the app's to replace, not yours, so
+`byollm status` says when it is older than this release calls safe (ruled on
+#10660). It says nothing about a Node you installed yourself, however old.
+
+The daemon writes the Node and program it runs from, and that Node's version,
+into `~/.byollm/heartbeat.json` with every beat. `byollm status` warns only
+when the app's note names that same Node and program, and that version is
+older than the lowest this release calls safe. On the day 0.2.0 ships that is
+22.14.0, the same as `engines`, so nothing is warned about yet; each release
+checks Node's security releases and may raise it. It is a separate number
+from `engines`, which still decides which Node can install byollm at all.
+
+In that case, and no other, `byollm status` prints one more line under
+`service:`:
+
+```console
+node: this BYOLLM came with its own Node (22.13.1), which is older than this release calls safe (22.14.0) — downloading BYOLLM again replaces it.
+```
+
+and `byollm status --json` says `"appNodeOutdated":true`. It is `false` on
+your own Node, with no note, on Linux, and before the daemon has run on a
+release that records its Node. Nothing is downloaded, replaced or sent
+anywhere.
+
+With byollm from npm and the app on one machine, the answer follows whichever
+Node the daemon last ran on, not the note: after `byollm start` from npm the
+daemon is on your Node and nothing is said, even though the note still names
+the app's; after the app installs over it, the daemon is on the app's Node
+and the app's Node is the one checked.
+
 ### `byollm status --json`, for a program
 
 A tray icon, a script, or anything else that would otherwise have to read
@@ -344,7 +376,7 @@ A tray icon, a script, or anything else that would otherwise have to read
 
 ```console
 $ byollm status --json
-{"format":1,"state":"running","daemonVersion":"0.1.7","services":["claude","studio"],"autoUpdate":true,"paired":true}
+{"format":1,"state":"running","daemonVersion":"0.1.7","services":["claude","studio"],"autoUpdate":true,"paired":true,"appNodeOutdated":false}
 ```
 
 It opens no port and starts nothing: it reads what the daemon already writes,
@@ -359,6 +391,7 @@ prints one line on stdout, and exits 0, as `byollm status` does. Plain
 | `services`      | the services this device runs, by the names you gave them in `config.json`        |
 | `autoUpdate`    | whether this device updates itself                                                |
 | `paired`        | whether it is paired with any app                                                 |
+| `appNodeOutdated` | the daemon runs on the BYOLLM app's own Node and it is older than this release calls safe; `false` otherwise, always on your own Node |
 
 The three words:
 

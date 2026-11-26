@@ -151,6 +151,8 @@ describe("byollm status --json", () => {
         services: "array",
         autoUpdate: "boolean",
         paired: "boolean",
+        // #11052, added to format 1: see app-node.test.ts.
+        appNodeOutdated: "boolean",
       },
     });
   });

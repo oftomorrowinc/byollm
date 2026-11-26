@@ -121,7 +121,7 @@ export function parseAppNote(raw: string): AppNoteRead {
   };
 }
 
-async function readAppNote(path: string): Promise<AppNoteRead> {
+export async function readAppNote(path: string): Promise<AppNoteRead> {
   let raw: string;
   try {
     raw = await readFile(path, "utf8");

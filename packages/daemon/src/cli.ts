@@ -114,6 +114,7 @@ import {
   writeAppRemoved,
   type After,
 } from "./app-note.js";
+import { oldAppNode, oldAppNodeLine } from "./app-node.js";
 import {
   installedProgram,
   installService,
@@ -2278,6 +2279,7 @@ async function commandRun(
       preflightOptions,
       keptRunningBy,
       appGone.signal,
+      { execPath: service.execPath, scriptPath: service.scriptPath },
     );
     if (!appGone.signal.aborted) return outcome;
   } finally {
@@ -2321,6 +2323,8 @@ async function serveUntilDone(
   preflightOptions: Parameters<typeof preflightFor>[3],
   keptRunningBy: string | undefined,
   appGone: AbortSignal,
+  /** Which Node and program this is, for the heartbeat — #11052. */
+  self: { readonly execPath: string; readonly scriptPath: string },
 ): Promise<ExitCode> {
   await preflightFor(paths, io, interactive, preflightOptions);
 
@@ -2363,6 +2367,7 @@ async function serveUntilDone(
             pollMs,
             keptRunningBy,
             appGone,
+            self,
           );
 
     if (appGone.aborted) return 0;
@@ -2655,6 +2660,8 @@ async function runLoop(
    * signals the way an absent `signal` does.
    */
   appGone?: AbortSignal,
+  /** Which Node and program this is, for the heartbeat — #11052. */
+  self?: { readonly execPath: string; readonly scriptPath: string },
 ): Promise<ServeOutcome> {
   /* One line, only when the state directory has actually moved — B205 item 2.
      Silent on a box (the supervisor states BYOLLM_HOME to this same default)
@@ -2749,6 +2756,11 @@ async function runLoop(
       // daemon that actually runs is getting on.
       healthPath: paths.health,
       heartbeatPath: paths.heartbeat,
+      /* The Node this daemon runs on, so `status` can tell the app's own
+         Node from a person's — #11052. */
+      ...(self === undefined
+        ? {}
+        : { heartbeatFrom: { ...self, node: process.versions.node } }),
       /* One store for every pairing's runner and for `start` and `services`,
          so the paid image probe runs once a day, not once a runner. */
       imageProbes: fileImageProbeStore(paths.imageProbes),
@@ -3574,6 +3586,13 @@ export interface StatusJson {
   readonly autoUpdate: boolean;
   /** Paired with at least one app. Which ones, and as whom, is not said. */
   readonly paired: boolean;
+  /**
+   * The daemon runs on the Node the BYOLLM app installed, and that Node is
+   * older than this release calls safe — #11052, ruled on #10660. False in
+   * every other case, and always on a person's own Node. Added to format 1;
+   * a tray from before it reads its absence as false.
+   */
+  readonly appNodeOutdated: boolean;
 }
 
 /**
@@ -3601,7 +3620,7 @@ async function commandStatusJson(
   await pairings.load();
   reportSkipped(pairings, { ...io, out: io.err });
 
-  const { health, stale, plan, keeper, supervision, revoked } =
+  const { health, beat, stale, plan, keeper, supervision, revoked } =
     await readRunState(paths, service, pairings, Date.now());
   const failing =
     health !== undefined && health.consecutiveFailures >= FAILURES_BEFORE_ALARM;
@@ -3629,6 +3648,12 @@ async function commandStatusJson(
     services: configured ? Object.keys(loaded.config.services) : [],
     autoUpdate: loaded.config.autoUpdate,
     paired: pairings.list().length > 0,
+    appNodeOutdated:
+      (await oldAppNode({
+        notePath: paths.appNote,
+        platform: service.platform,
+        beat,
+      })) !== undefined,
   };
   io.out(`${JSON.stringify(status)}\n`);
   return 0;
@@ -3784,6 +3809,14 @@ async function commandStatus(
         ? await supervisionLine(plan, supervision, revoked !== undefined)
         : `service: kept running by ${keeper.by}\n`,
   );
+  /* The app's own Node, when it is older than this release calls safe —
+     #11052. One line in that case and nothing in any other. */
+  const oldNode = await oldAppNode({
+    notePath: paths.appNote,
+    platform: service.platform,
+    beat,
+  });
+  if (oldNode !== undefined) io.out(oldAppNodeLine(oldNode.version));
   io.out("\n");
 
   /**
